@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Homebase.Core/Homebase.Core.csproj" />
+    <Project Path="src/Homebase.Server/Homebase.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Homebase.Tests/Homebase.Tests.csproj" />
+  </Folder>
+</Solution>
