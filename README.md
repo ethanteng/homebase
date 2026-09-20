@@ -1,5 +1,7 @@
 # Homebase v0
 
+[![CI](https://github.com/ethanteng/homebase/actions/workflows/ci.yml/badge.svg)](https://github.com/ethanteng/homebase/actions/workflows/ci.yml)
+
 A local-first personal file library for macOS. Choose a folder on your Mac or an attached drive, then browse its ordinary files. ASP.NET Core + React/TypeScript + SQLite. No cloud account required.
 
 ## Run
@@ -77,5 +79,7 @@ The standalone messaging page is in [`landing/`](landing/README.md). Preview it 
 ```
 
 Builds/type-checks the frontend and runs backend integration tests for persistence, indexing, file integrity/downloads, root switching, unavailable folders, symlinks, traversal, and local request boundaries. Tests use disposable fixtures and isolated settings, never your selected library.
+
+GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 
 If macOS blocks a folder, check **System Settings → Privacy & Security → Files and Folders** for the app or terminal launching Homebase. If a drive disconnects, reconnect it and refresh, or choose another root in Storage settings.
