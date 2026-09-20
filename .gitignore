@@ -10,3 +10,4 @@ artifacts/
 *.tsbuildinfo
 .env
 **/.homebase/
+**/.vite/

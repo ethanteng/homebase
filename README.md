@@ -13,7 +13,7 @@ cd /Users/ethanteng/Projects/homebase
 
 Open **http://127.0.0.1:5210**. Choose an existing folder in Finder, or enter its absolute path (`~/Homebase` also works), then select **Use this folder**. Create a new folder in Finder first if needed. Stop the app with Ctrl+C.
 
-The run script installs frontend dependencies when needed, builds the UI, and starts the backend serving both the app and API. First-time dependency restore requires internet; the app itself works offline. `scripts/dotnet.sh` finds a normal SDK installation or the local SDK installed for this workspace at `~/.cache/homebase/dotnet`.
+The run script installs frontend dependencies when needed, builds the UI, and starts the backend serving both the app and API. First-time dependency restore requires internet; the app itself works offline. `scripts/dotnet.sh` finds an SDK matching the major version in `global.json`, checking PATH, `~/.dotnet`, then `~/.cache/homebase/dotnet`. An older `dotnet` on PATH is skipped rather than used.
 
 For development, use two terminals:
 
