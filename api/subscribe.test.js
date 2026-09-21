@@ -71,7 +71,7 @@ test("a signup reaches Mailtrap with the address and nothing else", async () => 
   await handler({ method: "POST", body: { email: "  Someone@Uncloud.Life " } }, res, CONFIGURED, fetchImpl);
 
   assert.equal(res.code, 200);
-  assert.deepEqual(res.body, { ok: true, sandbox: false });
+  assert.deepEqual(res.body, { ok: true, accepted: true, sandbox: false });
   assert.equal(fetchImpl.calls.length, 1);
   const [call] = fetchImpl.calls;
   assert.equal(call.url, "https://send.api.mailtrap.io/api/send");
@@ -91,6 +91,7 @@ test("the honeypot is answered warmly and silently", async () => {
 
   assert.equal(res.code, 200);
   // Nothing was sent: a bot that gets an error learns how to avoid the trap.
+  assert.equal(res.body.accepted, false);
   assert.equal(fetchImpl.calls.length, 0);
 });
 
@@ -129,7 +130,7 @@ test("an inbox id routes to the sandbox instead of delivering", async () => {
     { ...CONFIGURED, MAILTRAP_INBOX_ID: "12345" }, fetchImpl);
 
   assert.equal(fetchImpl.calls[0].url, "https://sandbox.api.mailtrap.io/api/send/12345");
-  assert.deepEqual(res.body, { ok: true, sandbox: true });
+  assert.deepEqual(res.body, { ok: true, accepted: true, sandbox: true });
 });
 
 test("a body that isn't JSON is refused rather than guessed at", quiet(async () => {
@@ -191,6 +192,8 @@ test("the same address twice is answered, not sent twice", async () => {
 
   // The visitor is already on the list; a second identical email only spends quota.
   assert.equal(second.code, 200);
+  assert.equal(first.body.accepted, true);
+  assert.equal(second.body.accepted, false);
   assert.equal(fetchImpl.calls.length, 1);
 });
 

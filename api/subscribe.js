@@ -194,7 +194,7 @@ async function handler(request, response, env = process.env, fetchImpl = fetch) 
 
   // Bots fill in every field they find. A real visitor never sees this one, so
   // anything in it is answered with a cheerful nothing.
-  if (text(payload.website)) return response.status(200).json({ ok: true });
+  if (text(payload.website)) return response.status(200).json({ ok: true, accepted: false });
 
   const email = normalizeEmail(text(payload.email));
   const problem = validateEmail(email);
@@ -204,7 +204,7 @@ async function handler(request, response, env = process.env, fetchImpl = fetch) 
   const held = throttle(email, request, now);
   // A repeat of an address we just took is already on the list; saying so
   // costs nothing and sending a second identical email costs quota.
-  if (held === "repeat") return response.status(200).json({ ok: true });
+  if (held === "repeat") return response.status(200).json({ ok: true, accepted: false });
   if (held === "limit") {
     response.setHeader("Retry-After", String(Math.ceil(RATE_WINDOW_MS / 1000)));
     return response.status(429).json({
@@ -233,7 +233,7 @@ async function handler(request, response, env = process.env, fetchImpl = fetch) 
   }
 
   noteDelivered(email, now);
-  return response.status(200).json({ ok: true, sandbox: config.sandbox });
+  return response.status(200).json({ ok: true, accepted: true, sandbox: config.sandbox });
 }
 
 module.exports = handler;

@@ -11,3 +11,5 @@ artifacts/
 .env
 **/.homebase/
 **/.vite/
+.vercel
+.env*
