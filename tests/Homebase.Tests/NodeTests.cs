@@ -9,7 +9,7 @@ public sealed class NodeTests : IDisposable
     private const string Peer = "ZZZZZZZ-YYYYYYY-XXXXXXX-WWWWWWW-VVVVVVV-UUUUUUU-TTTTTTT-SSSSSSS";
 
     private readonly string _temporary = Path.Combine(Path.GetTempPath(), "homebase-tests", Guid.NewGuid().ToString("N"));
-    private readonly string _root;
+    private string _root;
     private readonly FakeSyncthing _syncthing = new();
     private readonly LibraryService _library;
     private readonly NodeService _nodes;
@@ -21,6 +21,9 @@ public sealed class NodeTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_root, "Shared"));
         _library = new LibraryService(new SettingsStore(Path.Combine(_temporary, "Config")), new MetadataIndex());
         _library.SelectRootAsync(_root, CancellationToken.None).GetAwaiter().GetResult();
+        // Selecting a root resolves symbolic links in its ancestors, which on macOS turns
+        // /var into /private/var. Compare against what the library actually holds.
+        _root = _library.State.RootPath!;
         _nodes = new NodeService(_library, _syncthing);
     }
 
@@ -103,6 +106,27 @@ public sealed class NodeTests : IDisposable
         Assert.Equal("Syncthing isn’t installed.", status.Detail);
         Assert.Equal("unsupported",
             (await Assert.ThrowsAsync<LibraryException>(() => _nodes.PairAsync(Peer, null, CancellationToken.None))).Code);
+    }
+
+    [Fact]
+    public async Task A_library_reached_through_a_symlink_shares_the_path_it_resolves_to()
+    {
+        // Selecting a root resolves links in its ancestors, so the shared path is not the string
+        // that was typed. On macOS this is every temporary folder, because /var links to /private/var.
+        var real = Directory.CreateDirectory(Path.Combine(_temporary, "Real", "Shared")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(_temporary, "Link"), Path.Combine(_temporary, "Real"));
+
+        using var library = new LibraryService(
+            new SettingsStore(Path.Combine(_temporary, "LinkedConfig")), new MetadataIndex());
+        await library.SelectRootAsync(Path.Combine(_temporary, "Link"), CancellationToken.None);
+        var syncthing = new FakeSyncthing();
+        var nodes = new NodeService(library, syncthing);
+        await nodes.PairAsync(Peer, "Laptop", CancellationToken.None);
+
+        var folder = await nodes.ShareAsync("Shared", [], CancellationToken.None);
+
+        Assert.Equal(real, syncthing.Folders[folder.Id].Path);
+        Assert.DoesNotContain("Link", syncthing.Folders[folder.Id].Path);
     }
 
     [Fact]
