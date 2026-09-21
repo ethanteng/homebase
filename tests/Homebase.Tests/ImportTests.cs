@@ -266,6 +266,54 @@ public sealed class ImportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_file_whose_place_is_taken_is_not_counted_against_the_drive()
+    {
+        // Uncloud won't overwrite it, so it is never downloaded — holding the folder back over
+        // room it was never going to need would refuse the files that could have arrived.
+        var destination = LocalPath("Files/Dropbox/notes");
+        Directory.CreateDirectory(destination);
+        await File.WriteAllTextAsync(Path.Combine(destination, "big.bin"), "Mine, from before.");
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/big.bin", "rev1", new string('x', 4096));
+        _dropbox.AddFile("/notes/small.txt", "rev1", "Small.");
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+
+        var result = await imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Equal("Files/Dropbox/notes/small.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Contains(result.Skipped, skip => skip.Reason.Contains("won’t overwrite"));
+        Assert.Equal("Mine, from before.",
+            await File.ReadAllTextAsync(Path.Combine(destination, "big.bin")));
+    }
+
+    [Fact]
+    public async Task Measuring_leaves_out_a_file_whose_place_is_already_taken()
+    {
+        var destination = LocalPath("Files/Dropbox/notes");
+        Directory.CreateDirectory(destination);
+        await File.WriteAllTextAsync(Path.Combine(destination, "big.bin"), "Mine, from before.");
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/big.bin", "rev1", new string('x', 4096));
+        _dropbox.AddFile("/notes/small.txt", "rev1", "Small.");
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+
+        var estimate = await imports.MeasureAsync("/notes", CancellationToken.None);
+
+        Assert.Equal(2, estimate.FileCount);
+        Assert.Equal(1, estimate.NewFileCount);
+        Assert.Equal(6, estimate.NewBytes);
+        Assert.True(estimate.Fits);
+    }
+
+    [Fact]
     public async Task Measuring_a_folder_leaves_out_what_is_already_home()
     {
         _dropbox.AddFolder("/notes");

@@ -154,6 +154,9 @@ export default function DropboxPanel({ onImported }: Props) {
     }
     void loadImported();
     void loadStorage();
+    // Every measurement was taken against the old set of imported files: a folder just brought
+    // home would still offer to bring it home again. Measuring is cheap to ask for a second time.
+    setSizes({});
     // Files landed in the library, so the browser's view of it is now out of date.
     onImported();
   }, [job, loadImported, loadStorage, onImported]);

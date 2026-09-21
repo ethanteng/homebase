@@ -100,17 +100,38 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
         var root = RequireRoot();
         var entry = await dropbox.GetMetadataAsync(remotePath, cancellationToken);
         var files = await CollectAsync(entry, [], cancellationToken);
-        var home = AlreadyHome(root);
-        var arriving = files.Where(file => !home.Contains(file.PathLower)).ToArray();
+        var arriving = Arriving(root, files);
         var newBytes = arriving.Sum(file => file.Size ?? 0);
         var free = Space(root)?.FreeBytes;
         return new ImportEstimate(
-            files.Count, files.Sum(file => file.Size ?? 0), arriving.Length, newBytes, free, Fits(newBytes, free));
+            files.Count, files.Sum(file => file.Size ?? 0), arriving.Count, newBytes, free, Fits(newBytes, free));
     }
 
-    private HashSet<string> AlreadyHome(string root) =>
-        log.List(root).Where(file => file.Provider == Provider)
+    /// <summary>
+    /// The files an import would actually fetch. One already recorded, or one whose destination is
+    /// taken by something Uncloud didn't write, is passed over without downloading, so counting it
+    /// would hold a folder back over room it was never going to need.
+    /// </summary>
+    private IReadOnlyList<DropboxEntry> Arriving(string root, IReadOnlyList<DropboxEntry> files)
+    {
+        var home = log.List(root).Where(file => file.Provider == Provider)
             .Select(file => file.RemotePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return files.Where(file => !home.Contains(file.PathLower) && !Occupied(root, file)).ToArray();
+    }
+
+    private static bool Occupied(string root, DropboxEntry file)
+    {
+        try
+        {
+            var destination = PathPolicy.Resolve(root, DestinationFor(file));
+            return File.Exists(destination) || Directory.Exists(destination);
+        }
+        catch (LibraryException)
+        {
+            // A path the import will refuse for its own reasons costs nothing on disk either way.
+            return true;
+        }
+    }
 
     /// <summary>
     /// Whether this much can be brought home without running the drive down to nothing. The room
@@ -129,8 +150,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
     /// </summary>
     private void RequireRoomFor(string root, IReadOnlyList<DropboxEntry> files)
     {
-        var home = AlreadyHome(root);
-        var needed = files.Where(file => !home.Contains(file.PathLower)).Sum(file => file.Size ?? 0);
+        var needed = Arriving(root, files).Sum(file => file.Size ?? 0);
         var free = Space(root)?.FreeBytes;
         if (Fits(needed, free)) return;
         throw new LibraryException(
