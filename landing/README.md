@@ -1,6 +1,6 @@
 # Uncloud landing page
 
-A landing page for **Uncloud**, with the public address **https://uncloud.life/**. The first-screen hero's large headline is **“Stop paying for [Dropbox].”**, rotating through **Dropbox → Google Drive → OneDrive → iCloud → Google Photos → Evernote → Notion**. A new name has to fit the orange box on one line at 320px without changing the headline's line count; check a long one in a browser before adding it. The supporting copy focuses on private household storage and ending recurring cloud-storage bills. A short, static explanation below the hero introduces private cloud storage and the difference from Dropbox and Google Drive.
+A landing page for **Uncloud**, with the public address **https://www.uncloud.life/**. The first-screen hero's large headline is **“Stop paying for [Dropbox].”**, rotating through **Dropbox → Google Drive → OneDrive → iCloud → Google Photos → Evernote → Notion**. A new name has to fit the orange box on one line at 320px without changing the headline's line count; check a long one in a browser before adding it. The supporting copy focuses on private household storage and ending recurring cloud-storage bills. A short, static explanation below the hero introduces private cloud storage and the difference from Dropbox and Google Drive.
 
 The headline's service name has an orange box on its own centered line, so rotation never changes the number of lines. Beneath it, **“Your digital life belongs at home.”** uses the smaller bold supporting style, with “at home” in orange. The next line reads **“Turn any computer you own into private storage for your household.”** “Any” has a casual orange underline, and “private storage” is orange. The early-access action and **“Private. Secure. Yours.”** complete the hero. Keep them above the fold with the rest of the hero. This is early-access positioning for the product vision; see the repository README for the application's current capabilities. The app, source folders, and storage paths still use the internal name Homebase.
 
@@ -66,7 +66,7 @@ node --test "api/*.test.js"
 
 Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.svg` is the shared brand mark and favicon. `main.js` rotates provider names every three seconds with a brief fade. Rotation has no visible controls; it stops for reduced-motion preferences and pauses in background tabs. Screen readers get a stable list of providers, and Dropbox remains visible without JavaScript. Charcoal, orange, and bold sans-serif type give the landing page its own identity, with emphasis on “at home.” Keep the hero and signup within the first viewport at normal desktop/mobile sizes, with the explanatory section below it; allow natural scrolling on short screens and at enlarged accessibility text sizes. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). No signup database is included.
 
-Canonical and Open Graph URLs point to `https://uncloud.life/`. These metadata tags do not configure DNS, hosting, or deployment.
+Canonical, Open Graph, structured-data, and sitemap URLs use `https://www.uncloud.life/`, matching the production host that the bare domain redirects to. Keep these URLs and the robots.txt sitemap reference aligned. These metadata tags do not configure DNS, hosting, or deployment.
 
 “Get early access” submits an email address to the signup function described below. Keep the field and the button as one short row under “Private. Secure. Yours.”; on success the form is replaced by a confirmation line.
 
@@ -86,9 +86,9 @@ The landing Vite config explicitly uses `landing/public/` as its public director
 
 | Source | Published URL |
 | --- | --- |
-| `public/robots.txt` | `https://uncloud.life/robots.txt` |
-| `public/sitemap.xml` | `https://uncloud.life/sitemap.xml` |
-| `public/social-card.png` | `https://uncloud.life/social-card.png` |
+| `public/robots.txt` | `https://www.uncloud.life/robots.txt` |
+| `public/sitemap.xml` | `https://www.uncloud.life/sitemap.xml` |
+| `public/social-card.png` | `https://www.uncloud.life/social-card.png` |
 
 The sitemap lists only the canonical homepage. Add URLs when additional public pages actually exist. The social card is a 1200 × 630 PNG, with editable artwork in `social-card.svg`; regenerate the PNG after changing that artwork. Both social metadata and JSON-LD use the absolute PNG URL so sharing crawlers can fetch it without JavaScript.
 
