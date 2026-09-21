@@ -75,8 +75,19 @@ public sealed class DropboxApi(HttpClient client, DropboxTokenStore tokens, stri
         // Dropbox represents the account root as an empty string, not "/".
         var argument = new { path = path is "" or "/" ? "" : path.TrimEnd('/') };
         var entries = new List<DropboxEntry>();
-        using (var document = await RpcAsync("/2/files/list_folder", JsonSerializer.Serialize(argument), cancellationToken))
+        // Dropbox pages large folders. Without following the cursor, everything past the first
+        // page would simply be absent from the picker with no sign that it was missing.
+        var endpoint = "/2/files/list_folder";
+        var body = JsonSerializer.Serialize(argument);
+        for (var page = 0; page < 500; page++)
+        {
+            using var document = await RpcAsync(endpoint, body, cancellationToken);
             entries.AddRange(ReadEntries(document.RootElement));
+            if (!document.RootElement.TryGetProperty("has_more", out var more) || !more.GetBoolean()) break;
+            if (!document.RootElement.TryGetProperty("cursor", out var cursor)) break;
+            endpoint = "/2/files/list_folder/continue";
+            body = JsonSerializer.Serialize(new { cursor = cursor.GetString() });
+        }
         return entries
             .OrderByDescending(entry => entry.IsFolder)
             .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)

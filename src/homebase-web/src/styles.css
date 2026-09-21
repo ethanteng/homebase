@@ -1359,6 +1359,11 @@ tbody tr.selected {
   background: #f8f8ea;
   color: #6d6b33;
 }
+.sync-badge.sync-remoteUnavailable {
+  border-color: var(--line);
+  background: #f4f4f1;
+  color: var(--muted);
+}
 .sync-badge.sync-localEdited,
 .sync-badge.sync-localMissing {
   border-color: #e7c9b9;

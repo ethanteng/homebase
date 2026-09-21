@@ -129,6 +129,80 @@ public sealed class SyncTests : IDisposable
         Assert.Single(_sync.Tracked());
     }
 
+    [Fact]
+    public async Task An_edit_keeping_the_same_size_and_timestamp_is_still_protected()
+    {
+        // The cheap size-and-timestamp check cannot see this edit, so the recorded content
+        // hash is the only thing standing between a newer revision and the user's words.
+        _dropbox.AddFile("/notes/hello.txt", "rev1", "aaaaaaaaaaaa");
+        await _sync.TrackAsync("/notes/hello.txt", CancellationToken.None);
+        var localFile = LocalPath("Files/Dropbox/notes/hello.txt");
+        var written = File.GetLastWriteTimeUtc(localFile);
+        await File.WriteAllTextAsync(localFile, "bbbbbbbbbbbb");
+        File.SetLastWriteTimeUtc(localFile, written);
+        Assert.Equal(12, new FileInfo(localFile).Length);
+
+        _dropbox.AddFile("/notes/hello.txt", "rev2", "cccccccccccc");
+        var outcome = Assert.Single(await _sync.RefreshAsync(CancellationToken.None));
+
+        Assert.False(outcome.Downloaded);
+        Assert.Equal(SyncState.LocalEdited, outcome.State);
+        Assert.Equal("bbbbbbbbbbbb", await File.ReadAllTextAsync(localFile));
+    }
+
+    [Fact]
+    public async Task A_file_appearing_during_the_download_is_not_overwritten()
+    {
+        var destination = LocalPath("Files/Dropbox/notes/hello.txt");
+        _dropbox.AddFile("/notes/hello.txt", "rev1", "From Dropbox.");
+        // The race the destination check alone can't cover: the file arrives mid-transfer.
+        _dropbox.WhileDownloading = () =>
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.WriteAllText(destination, "Written by something else.");
+        };
+
+        var error = await Assert.ThrowsAsync<LibraryException>(
+            () => _sync.TrackAsync("/notes/hello.txt", CancellationToken.None));
+
+        Assert.Equal("conflict", error.Code);
+        Assert.Equal("Written by something else.", await File.ReadAllTextAsync(destination));
+        Assert.Empty(_sync.Tracked());
+        Assert.Empty(Directory.GetFiles(Path.Combine(_root, ".homebase"), "download.*"));
+    }
+
+    [Fact]
+    public async Task An_unreachable_provider_is_reported_as_unknown_rather_than_up_to_date()
+    {
+        _dropbox.AddFile("/notes/hello.txt", "rev1", "First draft.");
+        await _sync.TrackAsync("/notes/hello.txt", CancellationToken.None);
+        _dropbox.Offline = true;
+
+        var status = Assert.Single(await _sync.StatusAsync(CancellationToken.None));
+
+        Assert.Equal(SyncState.RemoteUnavailable, status.State);
+        Assert.Null(status.RemoteRev);
+    }
+
+    [Fact]
+    public async Task One_missing_remote_file_does_not_strand_the_others()
+    {
+        _dropbox.AddFile("/notes/gone.txt", "rev1", "Here for now.");
+        _dropbox.AddFile("/notes/kept.txt", "rev1", "First draft.");
+        await _sync.TrackAsync("/notes/gone.txt", CancellationToken.None);
+        await _sync.TrackAsync("/notes/kept.txt", CancellationToken.None);
+        _dropbox.Remove("/notes/gone.txt");
+        _dropbox.AddFile("/notes/kept.txt", "rev2", "Edited elsewhere.");
+
+        var outcomes = await _sync.RefreshAsync(CancellationToken.None);
+
+        Assert.Equal(2, outcomes.Count);
+        Assert.Equal(SyncState.RemoteUnavailable,
+            outcomes.Single(outcome => outcome.LocalPath.EndsWith("gone.txt")).State);
+        // The file after the failure still updated.
+        Assert.Equal("Edited elsewhere.", await File.ReadAllTextAsync(LocalPath("Files/Dropbox/notes/kept.txt")));
+    }
+
     public void Dispose()
     {
         _library.Dispose();
@@ -142,6 +216,10 @@ public sealed class SyncTests : IDisposable
 
         public bool IsConfigured => true;
         public bool IsConnected => true;
+        public bool Offline { get; set; }
+        public Action? WhileDownloading { get; set; }
+
+        public void Remove(string path) => _entries.Remove(path);
 
         public void AddFile(string path, string rev, string contents)
         {
@@ -154,8 +232,13 @@ public sealed class SyncTests : IDisposable
             _entries[path] = new DropboxEntry(path, Path.GetFileName(path), path.ToLowerInvariant(), path,
                 true, null, null, null);
 
-        private DropboxEntry Require(string path) =>
-            _entries.TryGetValue(path, out var entry) ? entry : throw new LibraryException("No such file on Dropbox.", "not_found");
+        private DropboxEntry Require(string path)
+        {
+            if (Offline) throw new LibraryException("Dropbox is unreachable.", "provider_failed");
+            return _entries.TryGetValue(path, out var entry)
+                ? entry
+                : throw new LibraryException("No such file on Dropbox.", "not_found");
+        }
 
         public Task<DropboxAccount> GetAccountAsync(CancellationToken cancellationToken) =>
             Task.FromResult(new DropboxAccount("id", "Test Account", "test@example.com"));
@@ -166,6 +249,7 @@ public sealed class SyncTests : IDisposable
         public Task<Stream> DownloadAsync(string path, CancellationToken cancellationToken)
         {
             Require(path);
+            WhileDownloading?.Invoke();
             return Task.FromResult<Stream>(new MemoryStream(_contents[path], writable: false));
         }
     }

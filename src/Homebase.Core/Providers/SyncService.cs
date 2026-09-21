@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+
 namespace Homebase.Core.Providers;
 
 /// <summary>
@@ -37,7 +39,7 @@ public sealed class SyncService(LibraryService library, SyncedFileStore store, I
                 throw new LibraryException(
                     $"A file already exists at {localPath}. Homebase won’t overwrite files it didn’t put there.", "conflict");
 
-            await DownloadAsync(root, entry, localPath, fullPath, cancellationToken);
+            await DownloadAsync(root, entry, localPath, fullPath, replacing: null, cancellationToken);
             return new SyncOutcome(localPath, SyncState.Current, true, null);
         }
         finally { _gate.Release(); }
@@ -51,15 +53,18 @@ public sealed class SyncService(LibraryService library, SyncedFileStore store, I
         {
             cancellationToken.ThrowIfCancellationRequested();
             string? remoteRev = null;
+            var remoteKnown = false;
             try
             {
                 remoteRev = (await dropbox.GetMetadataAsync(file.RemotePath, cancellationToken)).Rev;
+                remoteKnown = true;
             }
-            catch (LibraryException)
+            catch (Exception failure) when (failure is LibraryException or HttpRequestException)
             {
-                // A provider that can't answer right now shouldn't hide the local state below.
+                // A failed check is reported as unknown. Saying "up to date" without having asked
+                // Dropbox would be the one answer that is never safe to guess.
             }
-            statuses.Add(new SyncedFileStatus(file, LocalState(root, file, remoteRev), remoteRev));
+            statuses.Add(new SyncedFileStatus(file, StateFor(root, file, remoteRev, remoteKnown), remoteRev));
         }
         return statuses;
     }
@@ -74,45 +79,74 @@ public sealed class SyncService(LibraryService library, SyncedFileStore store, I
             foreach (var file in store.List(root))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var entry = await dropbox.GetMetadataAsync(file.RemotePath, cancellationToken);
-                var state = LocalState(root, file, entry.Rev);
-                if (state == SyncState.LocalEdited)
+                // One unreachable or deleted file must not strand every file after it.
+                try
                 {
-                    outcomes.Add(new SyncOutcome(file.LocalPath, state, false,
-                        "You changed this copy after Homebase wrote it, so it was left as it is."));
-                    continue;
+                    outcomes.Add(await RefreshOneAsync(root, file, cancellationToken));
                 }
-                if (state == SyncState.Current)
+                catch (Exception failure) when (failure is LibraryException or HttpRequestException)
                 {
-                    outcomes.Add(new SyncOutcome(file.LocalPath, state, false, null));
-                    continue;
+                    outcomes.Add(new SyncOutcome(file.LocalPath,
+                        failure is LibraryException { Code: "conflict" } ? SyncState.LocalEdited : SyncState.RemoteUnavailable,
+                        false, failure.Message));
                 }
-                var fullPath = PathPolicy.Resolve(root, file.LocalPath);
-                await DownloadAsync(root, entry, file.LocalPath, fullPath, cancellationToken);
-                outcomes.Add(new SyncOutcome(file.LocalPath, SyncState.Current, true,
-                    state == SyncState.LocalMissing ? "The local copy was missing, so it was downloaded again." : null));
             }
             return outcomes;
         }
         finally { _gate.Release(); }
     }
 
+    private async Task<SyncOutcome> RefreshOneAsync(string root, SyncedFile file, CancellationToken cancellationToken)
+    {
+        var entry = await dropbox.GetMetadataAsync(file.RemotePath, cancellationToken);
+        var state = StateFor(root, file, entry.Rev, remoteKnown: true);
+        if (state == SyncState.LocalEdited)
+            return new SyncOutcome(file.LocalPath, state, false,
+                "You changed this copy after Homebase wrote it, so it was left as it is.");
+        if (state == SyncState.Current)
+            return new SyncOutcome(file.LocalPath, state, false, null);
+
+        var fullPath = PathPolicy.Resolve(root, file.LocalPath);
+        await DownloadAsync(root, entry, file.LocalPath, fullPath, file, cancellationToken);
+        return new SyncOutcome(file.LocalPath, SyncState.Current, true,
+            state == SyncState.LocalMissing ? "The local copy was missing, so it was downloaded again." : null);
+    }
+
     public void Forget(string remotePath) => store.Remove(RequireRoot(), Provider, remotePath);
 
-    private SyncState LocalState(string root, SyncedFile file, string? remoteRev)
+    /// <summary>
+    /// The cheap check, for display: size and timestamp only, so polling doesn't read every
+    /// tracked file. The exact check happens in <see cref="StillOursAsync"/>, immediately before
+    /// anything is overwritten.
+    /// </summary>
+    private static SyncState StateFor(string root, SyncedFile file, string? remoteRev, bool remoteKnown)
     {
-        var fullPath = Path.Combine(root, file.LocalPath.Replace('/', Path.DirectorySeparatorChar));
-        var info = new FileInfo(fullPath);
+        var info = new FileInfo(FullPath(root, file));
         if (!info.Exists) return SyncState.LocalMissing;
         var drift = file.LocalModifiedAt - new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
         if (info.Length != file.LocalSize || drift.Duration() > TimestampTolerance) return SyncState.LocalEdited;
-        if (remoteRev is not null && remoteRev != file.RemoteRev) return SyncState.RemoteChanged;
-        return SyncState.Current;
+        if (!remoteKnown) return SyncState.RemoteUnavailable;
+        return remoteRev != file.RemoteRev ? SyncState.RemoteChanged : SyncState.Current;
+    }
+
+    /// <summary>
+    /// Whether the file on disk is still byte-for-byte the one Homebase wrote. Size and timestamp
+    /// can both match a real edit on a volume with coarse timestamps, so before destroying a
+    /// file the bytes themselves decide.
+    /// </summary>
+    private static async Task<bool> StillOursAsync(string root, SyncedFile file, CancellationToken cancellationToken)
+    {
+        var info = new FileInfo(FullPath(root, file));
+        if (!info.Exists) return true;
+        if (info.Length != file.LocalSize) return false;
+        if (file.LocalHash.Length == 0) return true;
+        return await HashAsync(info.FullName, cancellationToken) == file.LocalHash;
     }
 
     /// <summary>Downloads beside the destination and moves into place, so a failed transfer
     /// can never leave a half-written file where a whole one belongs.</summary>
-    private async Task DownloadAsync(string root, DropboxEntry entry, string localPath, string fullPath, CancellationToken cancellationToken)
+    private async Task DownloadAsync(string root, DropboxEntry entry, string localPath, string fullPath,
+        SyncedFile? replacing, CancellationToken cancellationToken)
     {
         var metadata = Path.GetDirectoryName(PathPolicy.PrepareMetadata(root))!;
         var temporary = Path.Combine(metadata, $"download.{Guid.NewGuid():N}.tmp");
@@ -129,18 +163,52 @@ public sealed class SyncService(LibraryService library, SyncedFileStore store, I
             {
                 await remote.CopyToAsync(file, cancellationToken);
             }
-            File.Move(temporary, fullPath, overwrite: true);
+            var hash = await HashAsync(temporary, cancellationToken);
+
+            // A download takes as long as it takes, so the destination is judged now rather than
+            // on what it looked like before the transfer started.
+            if (replacing is null)
+            {
+                PathPolicy.RejectLink(fullPath);
+                try
+                {
+                    File.Move(temporary, fullPath);
+                }
+                catch (IOException) when (File.Exists(fullPath))
+                {
+                    throw new LibraryException(
+                        $"Something else created {localPath} while Homebase was downloading it, so it was left alone.", "conflict");
+                }
+            }
+            else
+            {
+                if (!await StillOursAsync(root, replacing, cancellationToken))
+                    throw new LibraryException(
+                        $"{localPath} changed while Homebase was downloading, so your copy was left as it is.", "conflict");
+                PathPolicy.RejectLink(fullPath);
+                File.Move(temporary, fullPath, overwrite: true);
+            }
 
             var written = new FileInfo(fullPath);
             store.Save(root, new SyncedFile(
                 Provider, entry.PathLower, entry.Rev ?? "", localPath, entry.Size ?? written.Length,
-                written.Length, new DateTimeOffset(written.LastWriteTimeUtc, TimeSpan.Zero), DateTimeOffset.UtcNow));
+                written.Length, new DateTimeOffset(written.LastWriteTimeUtc, TimeSpan.Zero), hash, DateTimeOffset.UtcNow));
         }
         finally
         {
             if (File.Exists(temporary)) File.Delete(temporary);
         }
     }
+
+    private static async Task<string> HashAsync(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete, 1 << 16, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken));
+    }
+
+    private static string FullPath(string root, SyncedFile file) =>
+        Path.Combine(root, file.LocalPath.Replace('/', Path.DirectorySeparatorChar));
 
     private static string DestinationFor(DropboxEntry entry)
     {

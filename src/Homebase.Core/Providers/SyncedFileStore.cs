@@ -10,7 +10,7 @@ public sealed class SyncedFileStore
         using var connection = MetadataIndex.Open(root);
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT provider, remote_path, remote_rev, local_path, size, local_size, local_modified_at, synced_at
+            SELECT provider, remote_path, remote_rev, local_path, size, local_size, local_modified_at, local_hash, synced_at
             FROM synced_files ORDER BY local_path
             """;
         using var reader = command.ExecuteReader();
@@ -19,7 +19,8 @@ public sealed class SyncedFileStore
             files.Add(new SyncedFile(
                 reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
                 reader.GetInt64(4), reader.GetInt64(5),
-                DateTimeOffset.Parse(reader.GetString(6)), DateTimeOffset.Parse(reader.GetString(7))));
+                DateTimeOffset.Parse(reader.GetString(6)), reader.GetString(7),
+                DateTimeOffset.Parse(reader.GetString(8))));
         return files;
     }
 
@@ -32,11 +33,12 @@ public sealed class SyncedFileStore
         using var connection = MetadataIndex.Open(root);
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO synced_files(provider, remote_path, remote_rev, local_path, size, local_size, local_modified_at, synced_at)
-            VALUES ($provider, $remote, $rev, $local, $size, $localSize, $localModified, $synced)
+            INSERT INTO synced_files(provider, remote_path, remote_rev, local_path, size, local_size, local_modified_at, local_hash, synced_at)
+            VALUES ($provider, $remote, $rev, $local, $size, $localSize, $localModified, $localHash, $synced)
             ON CONFLICT(provider, remote_path) DO UPDATE SET
                 remote_rev = excluded.remote_rev, local_path = excluded.local_path, size = excluded.size,
-                local_size = excluded.local_size, local_modified_at = excluded.local_modified_at, synced_at = excluded.synced_at
+                local_size = excluded.local_size, local_modified_at = excluded.local_modified_at,
+                local_hash = excluded.local_hash, synced_at = excluded.synced_at
             """;
         command.Parameters.AddWithValue("$provider", file.Provider);
         command.Parameters.AddWithValue("$remote", file.RemotePath);
@@ -45,6 +47,7 @@ public sealed class SyncedFileStore
         command.Parameters.AddWithValue("$size", file.Size);
         command.Parameters.AddWithValue("$localSize", file.LocalSize);
         command.Parameters.AddWithValue("$localModified", file.LocalModifiedAt.ToString("O"));
+        command.Parameters.AddWithValue("$localHash", file.LocalHash);
         command.Parameters.AddWithValue("$synced", file.SyncedAt.ToString("O"));
         command.ExecuteNonQuery();
     }

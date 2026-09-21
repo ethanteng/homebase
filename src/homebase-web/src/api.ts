@@ -36,7 +36,8 @@ export type SyncState =
   | "current"
   | "remoteChanged"
   | "localEdited"
-  | "localMissing";
+  | "localMissing"
+  | "remoteUnavailable";
 export interface SyncedFile {
   provider: string;
   remotePath: string;

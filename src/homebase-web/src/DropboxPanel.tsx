@@ -4,6 +4,7 @@ import {
   Check,
   ChevronRight,
   CloudDownload,
+  CloudOff,
   File,
   Folder,
   LoaderCircle,
@@ -25,6 +26,7 @@ const STATE_LABELS: Record<SyncState, string> = {
   remoteChanged: "New version on Dropbox",
   localEdited: "You changed this copy",
   localMissing: "Missing from your folder",
+  remoteUnavailable: "Couldn’t check Dropbox",
 };
 
 function StateBadge({ state }: { state: SyncState }) {
@@ -33,6 +35,8 @@ function StateBadge({ state }: { state: SyncState }) {
       <Check size={14} />
     ) : state === "localEdited" ? (
       <PencilLine size={14} />
+    ) : state === "remoteUnavailable" ? (
+      <CloudOff size={14} />
     ) : (
       <TriangleAlert size={14} />
     );

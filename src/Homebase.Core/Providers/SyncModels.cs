@@ -9,7 +9,9 @@ public enum SyncState
     // The local copy was edited after Homebase wrote it, so Homebase will not overwrite it.
     LocalEdited,
     // The local copy is gone.
-    LocalMissing
+    LocalMissing,
+    // Dropbox couldn't be asked, so nothing is known about the remote side.
+    RemoteUnavailable
 }
 
 /// <summary>
@@ -25,6 +27,7 @@ public sealed record SyncedFile(
     long Size,
     long LocalSize,
     DateTimeOffset LocalModifiedAt,
+    string LocalHash,
     DateTimeOffset SyncedAt);
 
 public sealed record SyncedFileStatus(SyncedFile File, SyncState State, string? RemoteRev);
