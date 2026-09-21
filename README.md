@@ -70,9 +70,10 @@ Open http://127.0.0.1:5210. This produces a local executable and its assets, not
 
 ## Dropbox
 
-Homebase can copy a file out of Dropbox onto storage you own, then keep that copy current as the
-original changes. It is one-way — Dropbox to your folder — and Homebase asks only for read-only
-permissions, so it cannot change anything in your Dropbox account.
+Homebase copies files and folders out of Dropbox onto storage you own. An import happens **once**:
+after a file is here, this copy is the one that counts, and Homebase never goes back to Dropbox for
+it. Nothing already on disk is ever overwritten. Homebase asks only for read-only permissions, so it
+cannot change anything in your Dropbox account either.
 
 Create an app at [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps) with the
 `account_info.read`, `files.metadata.read` and `files.content.read` permissions and the redirect URI
@@ -82,17 +83,17 @@ Create an app at [dropbox.com/developers/apps](https://www.dropbox.com/developer
 Homebase__Dropbox__AppKey=your-app-key ./scripts/run.sh
 ```
 
-Open **Dropbox** in the sidebar, connect the account, and choose a file to bring home. Sign-in uses
-the authorization-code flow with PKCE, so there is no client secret; the refresh token is written
-with owner-only permissions to the preference directory, never into the library folder where it
-would travel alongside synced files.
+Open **Dropbox** in the sidebar, connect the account, and bring a file or a whole folder home. Files
+land in `Files/Dropbox/` as ordinary files, and the normal browser shows them. Importing a folder
+again brings only what is new; anything already imported, hidden, or blocked by an existing file is
+listed as skipped rather than silently passed over, and one unreadable file doesn't abandon the rest.
 
-Synced files land in `Files/Dropbox/` as ordinary files, and the normal browser shows them. **Check
-for changes** compares each tracked file against Dropbox and downloads any newer revision, writing
-beside the destination and moving into place so an interrupted download can't leave a half-written
-file. Homebase overwrites only files it wrote itself and still recognises: if you edit your copy, or
-something already occupies the destination, it says so and leaves the file alone. Hidden files and
-folders aren't synced yet.
+Sign-in uses the authorization-code flow with PKCE, so there is no client secret; the refresh token
+is written with owner-only permissions to the preference directory, never into the library folder
+where it would travel alongside imported files. Each download is written beside its destination and
+moved into place, so an interrupted transfer can't leave a half-written file, and the move never
+overwrites — a file that appears mid-transfer wins. The revision and a SHA-256 of each import are
+recorded in `.homebase` as provenance: what came from where, and when.
 
 ## Landing page
 
@@ -104,7 +105,7 @@ The standalone messaging page is in [`landing/`](landing/README.md). Preview it 
 ./scripts/check.sh
 ```
 
-Builds/type-checks the frontend and runs backend integration tests for persistence, indexing, file integrity/downloads, root switching, unavailable folders, symlinks, traversal, local request boundaries, and Dropbox sync (bringing a file home, following a later revision, and refusing to overwrite a copy you changed). Tests use disposable fixtures and isolated settings, never your selected library.
+Builds/type-checks the frontend and runs backend integration tests for persistence, indexing, file integrity/downloads, root switching, unavailable folders, symlinks, traversal, local request boundaries, and Dropbox imports (single files, whole folders, skipping what's already here, and refusing to overwrite anything it didn't write). Tests use disposable fixtures and isolated settings, never your selected library.
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 

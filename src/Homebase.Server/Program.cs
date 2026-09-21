@@ -31,12 +31,9 @@ builder.Services.AddSingleton(provider => new DropboxApi(
     provider.GetRequiredService<DropboxTokenStore>(),
     provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:AppKey"]));
 builder.Services.AddSingleton<IDropboxApi>(provider => provider.GetRequiredService<DropboxApi>());
-builder.Services.AddSingleton<SyncedFileStore>();
-builder.Services.AddSingleton<SyncService>();
+builder.Services.AddSingleton<ImportLog>();
+builder.Services.AddSingleton<ImportService>();
 builder.Services.AddSingleton<DropboxAuthFlow>();
-// Sync states cross the wire as names, so the UI never depends on enum ordering.
-builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(
-    new System.Text.Json.Serialization.JsonStringEnumConverter(System.Text.Json.JsonNamingPolicy.CamelCase)));
 var redirectUri = $"http://localhost:{port}/api/providers/dropbox/callback";
 
 var app = builder.Build();
@@ -136,17 +133,9 @@ app.MapGet("/api/providers/dropbox/callback", async (string? code, string? state
 app.MapGet("/api/providers/dropbox/files", async (string? path, IDropboxApi dropbox, CancellationToken cancellationToken) =>
     Results.Ok(await dropbox.ListFolderAsync(path ?? "", cancellationToken)));
 
-app.MapGet("/api/sync", async (SyncService sync, CancellationToken cancellationToken) =>
-    Results.Ok(await sync.StatusAsync(cancellationToken)));
-app.MapPost("/api/sync", async (TrackFile request, SyncService sync, CancellationToken cancellationToken) =>
-    Results.Ok(await sync.TrackAsync(request.RemotePath, cancellationToken)));
-app.MapPost("/api/sync/refresh", async (SyncService sync, CancellationToken cancellationToken) =>
-    Results.Ok(await sync.RefreshAsync(cancellationToken)));
-app.MapPost("/api/sync/forget", (TrackFile request, SyncService sync) =>
-{
-    sync.Forget(request.RemotePath);
-    return Results.Ok(new { forgotten = request.RemotePath });
-});
+app.MapGet("/api/imports", (ImportService imports) => Results.Ok(imports.Imported()));
+app.MapPost("/api/imports", async (ImportRequest request, ImportService imports, CancellationToken cancellationToken) =>
+    Results.Ok(await imports.ImportAsync(request.RemotePath, cancellationToken)));
 app.Map("/api/{**path}", () => Results.Problem("This endpoint doesn’t exist.", statusCode: 404));
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -154,5 +143,5 @@ app.MapFallbackToFile("index.html");
 app.Run();
 
 public sealed record SelectRoot(string Path);
-public sealed record TrackFile(string RemotePath);
+public sealed record ImportRequest(string RemotePath);
 public partial class Program;

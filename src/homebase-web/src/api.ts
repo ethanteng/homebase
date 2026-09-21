@@ -32,30 +32,30 @@ export interface DropboxEntry {
   rev: string | null;
   serverModified: string | null;
 }
-export type SyncState =
-  | "current"
-  | "remoteChanged"
-  | "localEdited"
-  | "localMissing"
-  | "remoteUnavailable";
-export interface SyncedFile {
+export interface ImportedFile {
   provider: string;
   remotePath: string;
   remoteRev: string;
   localPath: string;
   size: number;
-  syncedAt: string;
+  contentHash: string;
+  importedAt: string;
 }
-export interface SyncedFileStatus {
-  file: SyncedFile;
-  state: SyncState;
-  remoteRev: string | null;
-}
-export interface SyncOutcome {
+export interface ImportedItem {
   localPath: string;
-  state: SyncState;
-  downloaded: boolean;
-  detail: string | null;
+  remotePath: string;
+  size: number;
+}
+export interface SkippedItem {
+  remotePath: string;
+  reason: string;
+}
+export interface ImportResult {
+  imported: ImportedItem[];
+  skipped: SkippedItem[];
+  bytes: number;
+  importedCount: number;
+  skippedCount: number;
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {

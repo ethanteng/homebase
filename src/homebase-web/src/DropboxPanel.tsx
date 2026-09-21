@@ -1,77 +1,53 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ArrowUpRight,
-  Check,
   ChevronRight,
   CloudDownload,
-  CloudOff,
   File,
   Folder,
   LoaderCircle,
-  PencilLine,
-  RefreshCw,
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize } from "./api";
 import type {
   DropboxEntry,
   DropboxStatus,
-  SyncOutcome,
-  SyncState,
-  SyncedFileStatus,
+  ImportResult,
+  ImportedFile,
 } from "./api";
 
-const STATE_LABELS: Record<SyncState, string> = {
-  current: "Up to date",
-  remoteChanged: "New version on Dropbox",
-  localEdited: "You changed this copy",
-  localMissing: "Missing from your folder",
-  remoteUnavailable: "Couldn’t check Dropbox",
-};
-
-function StateBadge({ state }: { state: SyncState }) {
-  const icon =
-    state === "current" ? (
-      <Check size={14} />
-    ) : state === "localEdited" ? (
-      <PencilLine size={14} />
-    ) : state === "remoteUnavailable" ? (
-      <CloudOff size={14} />
-    ) : (
-      <TriangleAlert size={14} />
-    );
-  return (
-    <span className={`sync-badge sync-${state}`}>
-      {icon}
-      {STATE_LABELS[state]}
-    </span>
-  );
-}
+const dateFormat = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
 
 export default function DropboxPanel() {
   const [status, setStatus] = useState<DropboxStatus | null>(null);
-  const [tracked, setTracked] = useState<SyncedFileStatus[]>([]);
+  const [imported, setImported] = useState<ImportedFile[]>([]);
   const [entries, setEntries] = useState<DropboxEntry[] | null>(null);
   const [remotePath, setRemotePath] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [result, setResult] = useState<ImportResult | null>(null);
 
-  const loadTracked = useCallback(async () => {
+  const loadImported = useCallback(async () => {
     try {
-      setTracked(await api<SyncedFileStatus[]>("/sync"));
+      setImported(await api<ImportedFile[]>("/imports"));
     } catch {
-      // A failed poll shouldn't replace what's already on screen.
+      // A failed read shouldn't replace what's already on screen.
     }
   }, []);
 
   useEffect(() => {
-    const result = new URLSearchParams(window.location.search).get("dropbox");
-    if (result) {
+    const outcome = new URLSearchParams(window.location.search).get("dropbox");
+    if (outcome) {
       setNotice(
-        result === "connected"
+        outcome === "connected"
           ? "Dropbox connected."
-          : result === "denied"
+          : outcome === "denied"
             ? "Dropbox sign-in was cancelled."
             : "Dropbox sign-in didn’t finish. Try again.",
       );
@@ -87,12 +63,8 @@ export default function DropboxPanel() {
   }, []);
 
   useEffect(() => {
-    if (!status?.connected) return;
-    void loadTracked();
-    // Polling is what makes a change made elsewhere show up without a reload.
-    const timer = window.setInterval(() => void loadTracked(), 10000);
-    return () => window.clearInterval(timer);
-  }, [status?.connected, loadTracked]);
+    if (status?.connected) void loadImported();
+  }, [status?.connected, loadImported]);
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label);
@@ -100,9 +72,7 @@ export default function DropboxPanel() {
     try {
       await action();
     } catch (problem: unknown) {
-      setError(
-        problem instanceof Error ? problem.message : "That didn’t work.",
-      );
+      setError(problem instanceof Error ? problem.message : "That didn’t work.");
     } finally {
       setBusy("");
     }
@@ -127,37 +97,19 @@ export default function DropboxPanel() {
       setRemotePath(path);
     });
 
-  const sync = (entry: DropboxEntry) =>
+  const bringHome = (entry: DropboxEntry) =>
     run(entry.pathLower, async () => {
-      await api<SyncOutcome>("/sync", {
+      const outcome = await api<ImportResult>("/imports", {
         method: "POST",
         body: JSON.stringify({ remotePath: entry.pathLower }),
       });
-      setNotice(`${entry.name} is now in your Homebase folder.`);
-      await loadTracked();
-    });
-
-  const checkForChanges = () =>
-    run("refresh", async () => {
-      const outcomes = await api<SyncOutcome[]>("/sync/refresh", {
-        method: "POST",
-      });
-      const updated = outcomes.filter((outcome) => outcome.downloaded).length;
+      setResult(outcome);
       setNotice(
-        updated === 0
-          ? "Everything is already up to date."
-          : `Updated ${updated} file${updated === 1 ? "" : "s"} from Dropbox.`,
+        outcome.importedCount === 0
+          ? `Nothing new to bring home from ${entry.name}.`
+          : `Brought ${outcome.importedCount} file${outcome.importedCount === 1 ? "" : "s"} home (${formatSize(outcome.bytes)}).`,
       );
-      await loadTracked();
-    });
-
-  const forget = (remote: string) =>
-    run(remote, async () => {
-      await api("/sync/forget", {
-        method: "POST",
-        body: JSON.stringify({ remotePath: remote }),
-      });
-      await loadTracked();
+      await loadImported();
     });
 
   if (error && !status)
@@ -185,8 +137,9 @@ export default function DropboxPanel() {
             Dropbox<span className="heading-dot">.</span>
           </h1>
           <p>
-            Copy a file onto storage you own, and keep that copy current as the
-            original changes.
+            Copy files and folders onto storage you own. Once a file is here,
+            this copy is the one that counts — Homebase won’t go back to Dropbox
+            for it.
           </p>
         </div>
       </div>
@@ -231,57 +184,13 @@ export default function DropboxPanel() {
         </div>
       ) : (
         <>
-          <section className="sync-section">
-            <div className="sync-section-head">
+          <section className="import-section">
+            <div className="import-section-head">
               <h2>
-                In your Homebase folder
-                {status.accountName ? ` · from ${status.accountName}` : ""}
+                On Dropbox
+                {status.accountName ? ` · ${status.accountName}` : ""}
+                {remotePath ? ` · ${remotePath}` : ""}
               </h2>
-              <button
-                className="refresh-button"
-                onClick={() => void checkForChanges()}
-                disabled={busy === "refresh" || tracked.length === 0}
-              >
-                <RefreshCw
-                  size={15}
-                  className={busy === "refresh" ? "spin" : undefined}
-                />
-                Check for changes
-              </button>
-            </div>
-            {tracked.length === 0 ? (
-              <p className="field-help">
-                Nothing yet. Choose a file from Dropbox below to bring it home.
-              </p>
-            ) : (
-              <ul className="sync-list">
-                {tracked.map((item) => (
-                  <li key={item.file.remotePath}>
-                    <File size={19} strokeWidth={1.6} />
-                    <div>
-                      <strong>{item.file.localPath}</strong>
-                      <span className="muted">
-                        {formatSize(item.file.size)} · from{" "}
-                        {item.file.remotePath}
-                      </span>
-                    </div>
-                    <StateBadge state={item.state} />
-                    <button
-                      className="button"
-                      onClick={() => void forget(item.file.remotePath)}
-                      disabled={busy === item.file.remotePath}
-                    >
-                      Stop syncing
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section className="sync-section">
-            <div className="sync-section-head">
-              <h2>On Dropbox</h2>
               {remotePath && (
                 <button
                   className="refresh-button"
@@ -306,7 +215,7 @@ export default function DropboxPanel() {
             ) : entries.length === 0 ? (
               <p className="field-help">This Dropbox folder is empty.</p>
             ) : (
-              <ul className="sync-list">
+              <ul className="import-list">
                 {entries.map((entry) => (
                   <li key={entry.id}>
                     {entry.isFolder ? (
@@ -320,7 +229,7 @@ export default function DropboxPanel() {
                         {entry.isFolder ? "Folder" : formatSize(entry.size)}
                       </span>
                     </div>
-                    {entry.isFolder ? (
+                    {entry.isFolder && (
                       <button
                         className="button"
                         onClick={() => void browse(entry.pathLower)}
@@ -329,16 +238,59 @@ export default function DropboxPanel() {
                         Open
                         <ChevronRight size={15} />
                       </button>
-                    ) : (
-                      <button
-                        className="button primary"
-                        onClick={() => void sync(entry)}
-                        disabled={busy === entry.pathLower}
-                      >
-                        <CloudDownload size={15} />
-                        {busy === entry.pathLower ? "Bringing…" : "Bring home"}
-                      </button>
                     )}
+                    <button
+                      className="button primary"
+                      onClick={() => void bringHome(entry)}
+                      disabled={busy === entry.pathLower}
+                    >
+                      <CloudDownload size={15} />
+                      {busy === entry.pathLower ? "Bringing…" : "Bring home"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {result && result.skipped.length > 0 && (
+            <section className="import-section">
+              <h2>Not brought home</h2>
+              <ul className="import-list">
+                {result.skipped.map((skip) => (
+                  <li key={skip.remotePath}>
+                    <TriangleAlert size={18} strokeWidth={1.6} />
+                    <div>
+                      <strong>{skip.remotePath}</strong>
+                      <span className="muted">{skip.reason}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          <section className="import-section">
+            <div className="import-section-head">
+              <h2>In your Homebase folder</h2>
+            </div>
+            {imported.length === 0 ? (
+              <p className="field-help">
+                Nothing yet. Choose a file or folder above to bring it home.
+              </p>
+            ) : (
+              <ul className="import-list">
+                {imported.map((file) => (
+                  <li key={file.remotePath}>
+                    <File size={19} strokeWidth={1.6} />
+                    <div>
+                      <strong>{file.localPath}</strong>
+                      <span className="muted">
+                        {formatSize(file.size)} · imported{" "}
+                        {dateFormat.format(new Date(file.importedAt))} · from{" "}
+                        {file.remotePath}
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>

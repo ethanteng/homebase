@@ -24,17 +24,15 @@ public sealed class MetadataIndex
                 CREATE TABLE IF NOT EXISTS directories (
                     path TEXT PRIMARY KEY, indexed_at TEXT NOT NULL, skipped_count INTEGER NOT NULL
                 );
-                CREATE TABLE IF NOT EXISTS synced_files (
+                CREATE TABLE IF NOT EXISTS imported_files (
                     provider TEXT NOT NULL, remote_path TEXT NOT NULL, remote_rev TEXT NOT NULL,
-                    local_path TEXT NOT NULL, size INTEGER NOT NULL,
-                    local_size INTEGER NOT NULL, local_modified_at TEXT NOT NULL,
-                    local_hash TEXT NOT NULL DEFAULT '', synced_at TEXT NOT NULL,
+                    local_path TEXT NOT NULL, size INTEGER NOT NULL, content_hash TEXT NOT NULL,
+                    imported_at TEXT NOT NULL,
                     PRIMARY KEY (provider, remote_path)
                 );
                 PRAGMA user_version = 2;
                 """;
             command.ExecuteNonQuery();
-            AddMissingColumn(connection, "synced_files", "local_hash", "TEXT NOT NULL DEFAULT ''");
             return connection;
         }
         catch
@@ -42,18 +40,6 @@ public sealed class MetadataIndex
             connection.Dispose();
             throw;
         }
-    }
-
-    // CREATE TABLE IF NOT EXISTS leaves an older table alone, so new columns are added explicitly.
-    private static void AddMissingColumn(SqliteConnection connection, string table, string column, string definition)
-    {
-        using var existing = connection.CreateCommand();
-        existing.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = $column";
-        existing.Parameters.AddWithValue("$column", column);
-        if (Convert.ToInt64(existing.ExecuteScalar()) > 0) return;
-        using var add = connection.CreateCommand();
-        add.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition}";
-        add.ExecuteNonQuery();
     }
 
     public void Initialize(string root)

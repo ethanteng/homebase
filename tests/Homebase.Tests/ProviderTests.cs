@@ -34,60 +34,48 @@ public sealed class ProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task A_dropbox_file_is_brought_home_and_follows_later_changes()
+    public async Task A_dropbox_file_is_brought_home_and_shows_up_in_the_browser()
     {
         _dropbox.Add("/notes/hello.txt", "rev1", "First draft.");
         using var app = new TestApp(_config, _dropbox);
         using var client = CreateClient(app);
         (await client.PutAsJsonAsync("/api/library", new { path = _root })).EnsureSuccessStatusCode();
 
-        Assert.Empty(await client.GetFromJsonAsync<JsonElement[]>("/api/sync") ?? []);
+        Assert.Empty(await client.GetFromJsonAsync<JsonElement[]>("/api/imports") ?? []);
 
-        var tracked = await client.PostAsJsonAsync("/api/sync", new { remotePath = "/notes/hello.txt" });
-        tracked.EnsureSuccessStatusCode();
+        var response = await client.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" });
+        response.EnsureSuccessStatusCode();
+        Assert.Contains("\"importedCount\":1", await response.Content.ReadAsStringAsync());
+
         var localFile = Path.Combine(_root, "Files", "Dropbox", "notes", "hello.txt");
         Assert.Equal("First draft.", await File.ReadAllTextAsync(localFile));
 
-        // The state crosses the wire as a name, not an enum's number.
-        var status = await client.GetStringAsync("/api/sync");
-        Assert.Contains("\"state\":\"current\"", status);
-
-        // The file is an ordinary one, so the normal browser sees it.
+        // The import is an ordinary file, so the normal browser sees it.
         var listing = await client.GetFromJsonAsync<DirectoryListing>("/api/files?path=Files/Dropbox/notes");
         Assert.Equal("hello.txt", listing!.Entries.Single().Name);
-
-        _dropbox.Add("/notes/hello.txt", "rev2", "Changed on Dropbox.");
-        Assert.Contains("\"state\":\"remoteChanged\"", await client.GetStringAsync("/api/sync"));
-
-        var refreshed = await client.PostAsync("/api/sync/refresh", null);
-        refreshed.EnsureSuccessStatusCode();
-        Assert.Contains("\"downloaded\":true", await refreshed.Content.ReadAsStringAsync());
-        Assert.Equal("Changed on Dropbox.", await File.ReadAllTextAsync(localFile));
-        Assert.Contains("\"state\":\"current\"", await client.GetStringAsync("/api/sync"));
+        Assert.Single(await client.GetFromJsonAsync<JsonElement[]>("/api/imports") ?? []);
     }
 
     [Fact]
-    public async Task A_copy_changed_here_is_kept_and_reported()
+    public async Task A_later_dropbox_revision_leaves_the_imported_copy_alone()
     {
         _dropbox.Add("/notes/hello.txt", "rev1", "First draft.");
         using var app = new TestApp(_config, _dropbox);
         using var client = CreateClient(app);
         (await client.PutAsJsonAsync("/api/library", new { path = _root })).EnsureSuccessStatusCode();
-        (await client.PostAsJsonAsync("/api/sync", new { remotePath = "/notes/hello.txt" })).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" })).EnsureSuccessStatusCode();
 
-        var localFile = Path.Combine(_root, "Files", "Dropbox", "notes", "hello.txt");
-        await File.WriteAllTextAsync(localFile, "My own words.");
-        File.SetLastWriteTimeUtc(localFile, DateTime.UtcNow.AddMinutes(5));
         _dropbox.Add("/notes/hello.txt", "rev2", "Changed on Dropbox.");
+        var again = await client.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" });
+        again.EnsureSuccessStatusCode();
 
-        (await client.PostAsync("/api/sync/refresh", null)).EnsureSuccessStatusCode();
-
-        Assert.Equal("My own words.", await File.ReadAllTextAsync(localFile));
-        Assert.Contains("\"state\":\"localEdited\"", await client.GetStringAsync("/api/sync"));
+        Assert.Contains("\"importedCount\":0", await again.Content.ReadAsStringAsync());
+        Assert.Equal("First draft.",
+            await File.ReadAllTextAsync(Path.Combine(_root, "Files", "Dropbox", "notes", "hello.txt")));
     }
 
     [Fact]
-    public async Task Sync_requires_a_chosen_folder_and_the_local_request_header()
+    public async Task Importing_requires_a_chosen_folder_and_the_local_request_header()
     {
         _dropbox.Add("/notes/hello.txt", "rev1", "First draft.");
         using var app = new TestApp(_config, _dropbox);
@@ -95,11 +83,11 @@ public sealed class ProviderTests : IDisposable
         using var client = CreateClient(app);
 
         Assert.Equal(HttpStatusCode.Conflict,
-            (await client.PostAsJsonAsync("/api/sync", new { remotePath = "/notes/hello.txt" })).StatusCode);
+            (await client.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" })).StatusCode);
 
         (await client.PutAsJsonAsync("/api/library", new { path = _root })).EnsureSuccessStatusCode();
         Assert.Equal(HttpStatusCode.Forbidden,
-            (await bare.PostAsJsonAsync("/api/sync", new { remotePath = "/notes/hello.txt" })).StatusCode);
+            (await bare.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" })).StatusCode);
     }
 
     [Fact]
@@ -149,6 +137,7 @@ public sealed class ProviderTests : IDisposable
             Task.FromResult(new DropboxAccount("id", "Stub", null));
         public Task<IReadOnlyList<DropboxEntry>> ListFolderAsync(string path, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<DropboxEntry>>(_files.Values.Select(file => file.Entry).ToArray());
+
         public Task<DropboxEntry> GetMetadataAsync(string path, CancellationToken cancellationToken) =>
             Task.FromResult(Require(path).Entry);
         public Task<Stream> DownloadAsync(string path, CancellationToken cancellationToken) =>
