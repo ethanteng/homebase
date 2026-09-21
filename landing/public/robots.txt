@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://uncloud.life/sitemap.xml
+Sitemap: https://www.uncloud.life/sitemap.xml
