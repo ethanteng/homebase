@@ -123,7 +123,7 @@ beside the winner, so nothing is lost, but you may have a duplicate to tidy up.
 
 ## Landing page
 
-The standalone messaging page is in [`landing/`](landing/README.md). Preview it with `npm --prefix src/homebase-web run dev:landing` at **http://127.0.0.1:5174**. Build it with `npm --prefix src/homebase-web run build:landing`; the static output goes to `artifacts/landing/` and contains no file-browser API.
+The standalone **Uncloud** messaging page for **uncloud.life** is in [`landing/`](landing/README.md). Preview it with `npm --prefix src/homebase-web run dev:landing` at **http://127.0.0.1:5174**. Build it with `npm --prefix src/homebase-web run build:landing`; the static output goes to `artifacts/landing/` and contains no file-browser API. The application and its storage paths still use the internal name Homebase.
 
 ## Check
 
