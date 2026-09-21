@@ -64,7 +64,7 @@ node --test "api/*.test.js"
 
 ## Refine the message
 
-Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.svg` is the shared brand mark and favicon. `main.js` rotates provider names every three seconds with a brief fade. Rotation has no visible controls; it stops for reduced-motion preferences and pauses in background tabs. Screen readers get a stable list of providers, and Dropbox remains visible without JavaScript. Charcoal, orange, and bold sans-serif type give the landing page its own identity, with emphasis on “at home.” Keep all content within the first viewport at normal desktop/mobile sizes; allow natural scrolling at enlarged accessibility text sizes. No analytics or signup database is included.
+Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.svg` is the shared brand mark and favicon. `main.js` rotates provider names every three seconds with a brief fade. Rotation has no visible controls; it stops for reduced-motion preferences and pauses in background tabs. Screen readers get a stable list of providers, and Dropbox remains visible without JavaScript. Charcoal, orange, and bold sans-serif type give the landing page its own identity, with emphasis on “at home.” Keep all content within the first viewport at normal desktop/mobile sizes; allow natural scrolling at enlarged accessibility text sizes. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). No signup database is included.
 
 Canonical and Open Graph URLs point to `https://uncloud.life/`. These metadata tags do not configure DNS, hosting, or deployment.
 
