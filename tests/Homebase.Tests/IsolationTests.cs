@@ -20,7 +20,10 @@ public sealed class IsolationTests : IDisposable
     public IsolationTests()
     {
         Directory.CreateDirectory(_temporary);
-        _host = Directory.CreateDirectory(Path.Combine(_temporary, "Host")).FullName;
+        // Resolved the way the host will resolve it: on macOS /var is a link into /private/var,
+        // so a raw temporary path never equals the one the server answers with.
+        _host = PathPolicy.NormalizeRoot(
+            Directory.CreateDirectory(Path.Combine(_temporary, "Host")).FullName);
         _config = Path.Combine(_temporary, "Config");
     }
 

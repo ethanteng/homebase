@@ -15,7 +15,10 @@ public sealed class LibraryTests : IDisposable
     public LibraryTests()
     {
         Directory.CreateDirectory(_temporary);
-        _host = Directory.CreateDirectory(Path.Combine(_temporary, "Host")).FullName;
+        // Resolved the way the host will resolve it: on macOS /var is a link into /private/var,
+        // so a raw temporary path never equals the one the server answers with.
+        _host = PathPolicy.NormalizeRoot(
+            Directory.CreateDirectory(Path.Combine(_temporary, "Host")).FullName);
         _config = Path.Combine(_temporary, "Config");
     }
 
@@ -183,7 +186,8 @@ public sealed class LibraryTests : IDisposable
             (await client.PutAsJsonAsync("/api/host", new { path = Path.Combine(_temporary, "missing") })).StatusCode);
         Assert.Equal("first.txt", Assert.Single((await client.GetFromJsonAsync<DirectoryListing>("/api/files"))!.Entries).Name);
 
-        var second = Directory.CreateDirectory(Path.Combine(_temporary, "Second")).FullName;
+        var second = PathPolicy.NormalizeRoot(
+            Directory.CreateDirectory(Path.Combine(_temporary, "Second")).FullName);
         await TestHost.SetHostRootAsync(client, second);
         var moved = await TestHost.UserRootAsync(client);
         Assert.StartsWith(second, moved, StringComparison.Ordinal);
