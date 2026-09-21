@@ -32,8 +32,21 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
 
     public IReadOnlyList<ImportedFile> Imported() => log.List(RequireRoot());
 
+    /// <summary>
+    /// Throws unless a library folder has been chosen. An import that cannot possibly work is
+    /// refused by the request that asked for it, rather than started and failed out of sight.
+    /// </summary>
+    public void RequireLibrary() => RequireRoot();
+
     /// <summary>Imports one file, or every ordinary file beneath one folder.</summary>
-    public async Task<ImportResult> ImportAsync(string remotePath, CancellationToken cancellationToken)
+    public Task<ImportResult> ImportAsync(string remotePath, CancellationToken cancellationToken) =>
+        ImportAsync(remotePath, null, cancellationToken);
+
+    /// <summary>
+    /// As above, reporting its way through so something running in the background can be watched.
+    /// </summary>
+    public async Task<ImportResult> ImportAsync(
+        string remotePath, IProgress<ImportProgress>? progress, CancellationToken cancellationToken)
     {
         if (!await _gate.WaitAsync(0, cancellationToken))
             throw new LibraryException("Uncloud is already importing. Let that finish first.", "busy");
@@ -47,10 +60,13 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
 
             var collected = await CollectAsync(entry, skipped, cancellationToken);
             RequireRoomFor(root, collected);
+            var done = 0;
+            progress?.Report(new ImportProgress(collected.Count, done, bytes, null));
 
             foreach (var file in collected)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                progress?.Report(new ImportProgress(collected.Count, done, bytes, file.PathDisplay));
                 try
                 {
                     var item = await ImportOneAsync(root, file, cancellationToken);
@@ -67,7 +83,9 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
                     logger.LogWarning(failure, "Dropbox file {RemotePath} was not brought home", file.PathDisplay);
                     skipped.Add(new SkippedItem(file.PathDisplay, Reason(failure)));
                 }
+                done++;
             }
+            progress?.Report(new ImportProgress(collected.Count, done, bytes, null));
             return new ImportResult(imported, skipped, bytes);
         }
         finally { _gate.Release(); }

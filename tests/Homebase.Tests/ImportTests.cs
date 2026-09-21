@@ -349,6 +349,100 @@ public sealed class ImportTests : IDisposable
         Assert.Contains(result.Skipped, skip => skip.Reason.Contains("wasn’t visited"));
     }
 
+    [Fact]
+    public async Task An_import_runs_on_its_own_and_says_how_far_it_has_got()
+    {
+        _dropbox.AddFolder("/notes");
+        for (var index = 0; index < 3; index++)
+            _dropbox.AddFile($"/notes/file{index}.txt", "rev1", $"File {index}.");
+        var jobs = new ImportJobs(_imports, NullLogger<ImportJobs>.Instance);
+
+        var started = jobs.Start("/notes", "notes");
+
+        // The request that starts an import answers before the files arrive.
+        Assert.True(started.Running);
+        Assert.Equal("notes", started.Label);
+        var finished = await Settled(jobs);
+        Assert.Equal(ImportStage.Done, finished.Stage);
+        Assert.Equal(3, finished.Result!.ImportedCount);
+        Assert.Equal(3, finished.TotalFiles);
+        Assert.Equal(3, finished.CompletedFiles);
+        Assert.Null(finished.CurrentFile);
+    }
+
+    [Fact]
+    public async Task A_second_import_is_refused_while_one_is_still_running()
+    {
+        _dropbox.AddFile("/notes/one.txt", "rev1", "One.");
+        _dropbox.Hold = new TaskCompletionSource();
+        var jobs = new ImportJobs(_imports, NullLogger<ImportJobs>.Instance);
+        jobs.Start("/notes/one.txt", "one.txt");
+        await WaitFor(() => jobs.Current is { Stage: ImportStage.Bringing });
+
+        var error = Assert.Throws<LibraryException>(() => jobs.Start("/notes/one.txt", "one.txt"));
+
+        Assert.Equal("busy", error.Code);
+        _dropbox.Hold.SetResult();
+        await Settled(jobs);
+    }
+
+    [Fact]
+    public async Task Stopping_an_import_ends_it_rather_than_working_through_the_rest()
+    {
+        _dropbox.AddFolder("/notes");
+        for (var index = 0; index < 3; index++)
+            _dropbox.AddFile($"/notes/file{index}.txt", "rev1", $"File {index}.");
+        _dropbox.Hold = new TaskCompletionSource();
+        var jobs = new ImportJobs(_imports, NullLogger<ImportJobs>.Instance);
+        jobs.Start("/notes", "notes");
+        await WaitFor(() => jobs.Current is { Stage: ImportStage.Bringing });
+
+        jobs.Cancel();
+
+        var finished = await Settled(jobs);
+        Assert.Equal(ImportStage.Stopped, finished.Stage);
+        Assert.Null(finished.CurrentFile);
+        // Stopping is not a failure, and nothing half-written is left behind.
+        Assert.Null(finished.Error);
+        Assert.Empty(Directory.GetFiles(Path.Combine(_root, ".homebase"), "import.*"));
+    }
+
+    [Fact]
+    public async Task An_import_that_cannot_start_is_reported_on_the_job_rather_than_thrown_away()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/big.bin", "rev1", new string('x', 4096));
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+        var jobs = new ImportJobs(imports, NullLogger<ImportJobs>.Instance);
+
+        jobs.Start("/notes", "notes");
+
+        var finished = await Settled(jobs);
+        Assert.Equal(ImportStage.Failed, finished.Stage);
+        Assert.Contains("free", finished.Error);
+    }
+
+    private static async Task<ImportJob> Settled(ImportJobs jobs)
+    {
+        await WaitFor(() => jobs.Current is { Running: false });
+        return jobs.Current!;
+    }
+
+    private static async Task WaitFor(Func<bool> reached)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (reached()) return;
+            await Task.Delay(15);
+        }
+        throw new TimeoutException("The import never reached the state this test was waiting for.");
+    }
+
     public void Dispose()
     {
         _library.Dispose();
@@ -382,6 +476,8 @@ public sealed class ImportTests : IDisposable
         public string? FailListingOf { get; set; }
         public string? TimeOutDownloadOf { get; set; }
         public string? FailWriteOf { get; set; }
+        /// <summary>Keeps downloads open so a test can look at an import that is still running.</summary>
+        public TaskCompletionSource? Hold { get; set; }
 
         public void AddFile(string path, string rev, string contents)
         {
@@ -414,9 +510,10 @@ public sealed class ImportTests : IDisposable
         public Task<DropboxEntry> GetMetadataAsync(string path, CancellationToken cancellationToken) =>
             Task.FromResult(Require(path));
 
-        public Task<Stream> DownloadAsync(string path, CancellationToken cancellationToken)
+        public async Task<Stream> DownloadAsync(string path, CancellationToken cancellationToken)
         {
             Require(path);
+            if (Hold is not null) await Hold.Task.WaitAsync(cancellationToken);
             if (FailDownloadOf is not null && path.Equals(FailDownloadOf, StringComparison.OrdinalIgnoreCase))
                 throw new LibraryException("Dropbox couldn’t send this file.", "provider_failed");
             if (TimeOutDownloadOf is not null && path.Equals(TimeOutDownloadOf, StringComparison.OrdinalIgnoreCase))
@@ -424,8 +521,8 @@ public sealed class ImportTests : IDisposable
                 throw new TaskCanceledException("A task was canceled.", new TimeoutException());
             WhileDownloading?.Invoke();
             if (FailWriteOf is not null && path.Equals(FailWriteOf, StringComparison.OrdinalIgnoreCase))
-                return Task.FromResult<Stream>(new UnreadableStream());
-            return Task.FromResult<Stream>(new MemoryStream(_contents[path], writable: false));
+                return new UnreadableStream();
+            return new MemoryStream(_contents[path], writable: false);
         }
     }
 }

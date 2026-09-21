@@ -74,6 +74,24 @@ export interface ImportResult {
   skippedCount: number;
 }
 
+export type ImportStage = "Measuring" | "Bringing" | "Done" | "Stopped" | "Failed";
+
+export interface ImportJob {
+  id: string;
+  remotePath: string;
+  label: string;
+  stage: ImportStage;
+  totalFiles: number;
+  completedFiles: number;
+  bytes: number;
+  currentFile: string | null;
+  result: ImportResult | null;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  running: boolean;
+}
+
 export interface NodeDevice {
   deviceId: string;
   name: string;

@@ -42,3 +42,6 @@ public sealed record ImportEstimate(
     long NewBytes,
     long? FreeBytes,
     bool Fits);
+
+/// <summary>How far an import has got. Bytes are what has arrived, not what was asked for.</summary>
+public sealed record ImportProgress(int TotalFiles, int CompletedFiles, long Bytes, string? CurrentFile);

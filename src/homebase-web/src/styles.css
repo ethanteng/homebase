@@ -1438,3 +1438,59 @@ tbody tr.selected {
 .import-list li .muted.will-not-fit {
   color: var(--danger-text);
 }
+
+.import-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-top: 26px;
+}
+.import-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+/* Nothing is downloading yet, so a share of the way along would be a lie. */
+.progress-fill.counting {
+  width: 30%;
+  animation: counting 1.4s ease-in-out infinite;
+}
+@keyframes counting {
+  0% {
+    margin-left: -30%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+.import-progress .current-file {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill {
+    transition: none;
+  }
+  .progress-fill.counting {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
