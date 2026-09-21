@@ -18,11 +18,12 @@ public sealed partial class NodeService(LibraryService library, ISyncthingApi sy
     public async Task<NodeStatus> StatusAsync(CancellationToken cancellationToken)
     {
         if (!syncthing.IsAvailable)
-            return new NodeStatus(false, syncthing.Unavailable, null, [], []);
+            return new NodeStatus(false, syncthing.Unavailable, null, [], [], []);
         return new NodeStatus(true, null,
             await syncthing.DeviceIdAsync(cancellationToken),
             await syncthing.DevicesAsync(cancellationToken),
-            await syncthing.FoldersAsync(cancellationToken));
+            await syncthing.FoldersAsync(cancellationToken),
+            await syncthing.OffersAsync(cancellationToken));
     }
 
     public async Task PairAsync(string deviceId, string? name, CancellationToken cancellationToken)
@@ -78,10 +79,44 @@ public sealed partial class NodeService(LibraryService library, ISyncthingApi sy
 
         await syncthing.AddFolderAsync(id, normalized, fullPath, targets, cancellationToken);
         // Belt and braces: even a folder that somehow contains metadata never carries it across.
-        await syncthing.IgnoreAsync(id, ["(?d).homebase", ".homebase"], cancellationToken);
+        // No (?d) prefix — that marks a file as one Syncthing may delete, which is the opposite
+        // of what a protected metadata folder wants.
+        await syncthing.IgnoreAsync(id, ["/.homebase", ".homebase"], cancellationToken);
 
         return (await syncthing.FoldersAsync(cancellationToken)).FirstOrDefault(folder => folder.Id == id)
             ?? new SharedFolder(id, normalized, fullPath, targets, null, 0, 0);
+    }
+
+    /// <summary>
+    /// Takes up a folder another computer has offered. Sharing a folder does not configure it on
+    /// the far side — Syncthing offers it and waits — so without this step the second computer
+    /// stays unconfigured and nothing moves.
+    /// </summary>
+    public async Task<SharedFolder> AcceptAsync(string folderId, string? relativePath, CancellationToken cancellationToken)
+    {
+        Require();
+        var root = library.State.RootPath
+            ?? throw new LibraryException("Choose your Homebase folder first.", "not_configured");
+
+        var offer = (await syncthing.OffersAsync(cancellationToken))
+            .FirstOrDefault(pending => pending.Id == folderId)
+            ?? throw new LibraryException("No computer is offering that folder.", "not_found");
+
+        // The offered label is the sharer's path; it still has to satisfy this library's rules.
+        var normalized = (relativePath ?? offer.Label).Trim().Trim('/');
+        if (normalized.Length == 0)
+            throw new LibraryException(
+                "Choose a folder inside your Homebase folder to keep this in.", "unsupported");
+
+        var fullPath = PathPolicy.Resolve(root, normalized);
+        PathPolicy.RejectLink(fullPath);
+        Directory.CreateDirectory(fullPath);
+
+        await syncthing.AddFolderAsync(folderId, normalized, fullPath, [offer.OfferedBy], cancellationToken);
+        await syncthing.IgnoreAsync(folderId, ["/.homebase", ".homebase"], cancellationToken);
+
+        return (await syncthing.FoldersAsync(cancellationToken)).FirstOrDefault(folder => folder.Id == folderId)
+            ?? new SharedFolder(folderId, normalized, fullPath, [offer.OfferedBy], null, 0, 0);
     }
 
     /// <summary>A stable id per library path, so re-sharing the same folder is recognisable.</summary>

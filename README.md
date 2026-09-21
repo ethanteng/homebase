@@ -98,8 +98,10 @@ recorded in `.homebase` as provenance: what came from where, and when.
 ## Other computers
 
 Homebase can keep a folder the same across computers you own. Open **Nodes** in the sidebar, give
-the other computer this one's ID, paste its ID here, then share a folder. A change made on either
-side shows up on the other.
+the other computer this one's ID, paste its ID here, then share a folder. Sharing only *offers* the
+folder: the other computer has to take it up before anything moves, which it does under **Offered to
+you** if it is also running Homebase, or in Syncthing's own interface if it isn't. After that, a
+change made on either side shows up on the other.
 
 The peer protocol is [Syncthing](https://syncthing.net)'s, not Homebase's: device identity, discovery,
 NAT traversal, encryption and conflict handling are all its work. Homebase supervises a Syncthing
@@ -129,7 +131,7 @@ The standalone messaging page is in [`landing/`](landing/README.md). Preview it 
 ./scripts/check.sh
 ```
 
-Builds/type-checks the frontend and runs backend integration tests for persistence, indexing, file integrity/downloads, root switching, unavailable folders, symlinks, traversal, local request boundaries, Dropbox imports (single files, whole folders, skipping what's already here, and refusing to overwrite anything it didn't write), and node pairing and folder sharing (device-ID validation, and refusing to share the library root or any hidden or out-of-bounds path). Tests use disposable fixtures and isolated settings, never your selected library.
+Builds/type-checks the frontend and runs backend integration tests for persistence, indexing, file integrity/downloads, root switching, unavailable folders, symlinks, traversal, local request boundaries, Dropbox imports (single files, whole folders, skipping what's already here, and refusing to overwrite anything it didn't write), and node pairing, folder sharing and accepting an offered folder (device-ID validation, refusing the library root or any hidden or out-of-bounds path, and keeping Syncthing's state where preferences live rather than somewhere temporary). Tests use disposable fixtures and isolated settings, never your selected library.
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 

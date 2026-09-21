@@ -73,12 +73,19 @@ export interface SharedFolder {
   files: number;
   bytes: number;
 }
+export interface PendingFolder {
+  id: string;
+  label: string;
+  offeredBy: string;
+  offeredByName: string;
+}
 export interface NodeStatus {
   available: boolean;
   detail: string | null;
   deviceId: string | null;
   devices: NodeDevice[];
   folders: SharedFolder[];
+  offers: PendingFolder[];
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {

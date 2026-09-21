@@ -109,6 +109,42 @@ public sealed class NodeTests : IDisposable
     }
 
     [Fact]
+    public async Task A_folder_another_computer_offers_can_be_taken_up_here()
+    {
+        // Sharing from one side does not configure the other: Syncthing offers and waits.
+        await _nodes.PairAsync(Peer, "Laptop", CancellationToken.None);
+        _syncthing.Offers.Add(new PendingFolder("offered-id", "Shared", Peer, "Laptop"));
+
+        var folder = await _nodes.AcceptAsync("offered-id", null, CancellationToken.None);
+
+        Assert.Equal("offered-id", folder.Id);
+        Assert.Equal(Path.Combine(_root, "Shared"), _syncthing.Folders["offered-id"].Path);
+        Assert.Equal([Peer], _syncthing.Folders["offered-id"].Devices);
+        Assert.Contains(".homebase", _syncthing.Ignores["offered-id"]);
+        Assert.DoesNotContain(_syncthing.Ignores["offered-id"], pattern => pattern.StartsWith("(?d)"));
+    }
+
+    [Fact]
+    public async Task An_offer_is_created_where_you_say_and_never_outside_the_library()
+    {
+        await _nodes.PairAsync(Peer, "Laptop", CancellationToken.None);
+        _syncthing.Offers.Add(new PendingFolder("offered-id", "../escape", Peer, "Laptop"));
+
+        // The offered label comes from the other computer, so it gets this library's rules too.
+        await Assert.ThrowsAsync<LibraryException>(
+            () => _nodes.AcceptAsync("offered-id", null, CancellationToken.None));
+        Assert.Equal("not_found",
+            (await Assert.ThrowsAsync<LibraryException>(
+                () => _nodes.AcceptAsync("no-such-offer", "Shared", CancellationToken.None))).Code);
+
+        // A folder that doesn't exist yet is created, since accepting means expecting files.
+        var folder = await _nodes.AcceptAsync("offered-id", "Inbox/Laptop", CancellationToken.None);
+
+        Assert.True(Directory.Exists(Path.Combine(_root, "Inbox", "Laptop")));
+        Assert.Equal(Path.Combine(_root, "Inbox", "Laptop"), _syncthing.Folders[folder.Id].Path);
+    }
+
+    [Fact]
     public async Task A_library_reached_through_a_symlink_shares_the_path_it_resolves_to()
     {
         // Selecting a root resolves links in its ancestors, so the shared path is not the string
@@ -161,6 +197,9 @@ public sealed class NodeTests : IDisposable
             Devices.Add(new NodeDevice(deviceId, name, false, null));
             return Task.CompletedTask;
         }
+        public List<PendingFolder> Offers { get; } = [];
+        public Task<IReadOnlyList<PendingFolder>> OffersAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<PendingFolder>>(Offers.ToArray());
         public Task<IReadOnlyList<SharedFolder>> FoldersAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<SharedFolder>>(Folders
                 .Select(entry => new SharedFolder(entry.Key, entry.Key, entry.Value.Path, entry.Value.Devices, "idle", 0, 0))

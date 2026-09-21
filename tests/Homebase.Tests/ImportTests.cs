@@ -149,6 +149,38 @@ public sealed class ImportTests : IDisposable
         Assert.Empty(_imports.Imported());
     }
 
+    [Fact]
+    public async Task A_subfolder_that_cannot_be_listed_does_not_abandon_the_rest()
+    {
+        // Collection finishes before any download starts, so an uncaught listing failure here
+        // would discard files already found elsewhere in the tree.
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFolder("/notes/broken");
+        _dropbox.AddFile("/notes/fine.txt", "rev1", "Arrives.");
+        _dropbox.FailListingOf = "/notes/broken";
+
+        var result = await _imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Equal("Files/Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Contains(result.Skipped, skip => skip.RemotePath.Contains("broken"));
+        Assert.Equal("Arrives.", await File.ReadAllTextAsync(LocalPath("Files/Dropbox/notes/fine.txt")));
+    }
+
+    [Fact]
+    public async Task Hitting_the_file_limit_is_reported_rather_than_passed_over()
+    {
+        _dropbox.AddFolder("/notes");
+        for (var index = 0; index < 5; index++)
+            _dropbox.AddFile($"/notes/file{index}.txt", "rev1", $"File {index}.");
+        var imports = new ImportService(_library, new ImportLog(), _dropbox) { MaxEntries = 2 };
+
+        var result = await imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Equal(2, result.ImportedCount);
+        // The point of the finding: a truncated import must not read as a complete one.
+        Assert.Contains(result.Skipped, skip => skip.Reason.Contains("wasn’t visited"));
+    }
+
     public void Dispose()
     {
         _library.Dispose();
@@ -164,6 +196,7 @@ public sealed class ImportTests : IDisposable
         public bool IsConnected => true;
         public Action? WhileDownloading { get; set; }
         public string? FailDownloadOf { get; set; }
+        public string? FailListingOf { get; set; }
 
         public void AddFile(string path, string rev, string contents)
         {
@@ -184,6 +217,8 @@ public sealed class ImportTests : IDisposable
 
         public Task<IReadOnlyList<DropboxEntry>> ListFolderAsync(string path, CancellationToken cancellationToken)
         {
+            if (FailListingOf is not null && path.Equals(FailListingOf, StringComparison.OrdinalIgnoreCase))
+                throw new LibraryException("Dropbox couldn’t list this folder.", "provider_failed");
             var prefix = path.Length == 0 ? "/" : $"{path.TrimEnd('/')}/";
             return Task.FromResult<IReadOnlyList<DropboxEntry>>(_entries.Values
                 .Where(entry => entry.PathLower.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)

@@ -12,9 +12,11 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
     public const string Provider = "dropbox";
     public const string DestinationPrefix = "Files/Dropbox";
 
-    // A folder import walks the remote tree; the cap is a guard against a pathological account,
-    // not a considered limit.
-    private const int MaxEntries = 20000;
+    /// <summary>
+    /// A folder import walks the remote tree; the cap guards against a pathological account
+    /// rather than expressing a considered limit. Reaching it is always reported, never silent.
+    /// </summary>
+    public int MaxEntries { get; init; } = 20000;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -66,19 +68,42 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
         var files = new List<DropboxEntry>();
         var folders = new Queue<string>();
         folders.Enqueue(entry.PathLower);
-        while (folders.Count > 0 && files.Count < MaxEntries)
+        while (folders.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var folder = folders.Dequeue();
-            foreach (var child in await dropbox.ListFolderAsync(folder, cancellationToken))
+            IReadOnlyList<DropboxEntry> children;
+            try
+            {
+                children = await dropbox.ListFolderAsync(folder, cancellationToken);
+            }
+            catch (Exception failure) when (failure is LibraryException or HttpRequestException)
+            {
+                // A folder that vanished or can't be read must not abandon the files already found,
+                // which collection would otherwise discard before a single download began.
+                skipped.Add(new SkippedItem(folder, failure.Message));
+                continue;
+            }
+            foreach (var child in children)
             {
                 if (child.Name.StartsWith('.'))
                 {
                     skipped.Add(new SkippedItem(child.PathDisplay, "Hidden files aren’t imported yet."));
                     continue;
                 }
-                if (child.IsFolder) folders.Enqueue(child.PathLower);
-                else files.Add(child);
+                if (child.IsFolder)
+                {
+                    folders.Enqueue(child.PathLower);
+                    continue;
+                }
+                if (files.Count >= MaxEntries)
+                {
+                    // Stopping quietly here would read as a complete import. Say what was left.
+                    skipped.Add(new SkippedItem(child.PathDisplay,
+                        $"Homebase brings at most {MaxEntries:N0} files at a time, so the rest of this folder wasn’t visited."));
+                    return files;
+                }
+                files.Add(child);
             }
         }
         return files;

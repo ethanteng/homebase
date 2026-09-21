@@ -35,7 +35,11 @@ builder.Services.AddSingleton<IDropboxApi>(provider => provider.GetRequiredServi
 builder.Services.AddSingleton<ImportLog>();
 builder.Services.AddSingleton<ImportService>();
 builder.Services.AddSingleton<DropboxAuthFlow>();
-builder.Services.AddSingleton<SyncthingHost>();
+builder.Services.AddSingleton(provider => new SyncthingHost(
+    provider.GetRequiredService<IConfiguration>()["Homebase:ConfigDirectory"] ?? defaultConfig,
+    provider.GetRequiredService<IConfiguration>(),
+    provider.GetRequiredService<ILogger<SyncthingHost>>(),
+    provider.GetRequiredService<HttpClient>()));
 builder.Services.AddSingleton<ISyncthingEndpoint>(provider => provider.GetRequiredService<SyncthingHost>());
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SyncthingHost>());
 builder.Services.AddSingleton<ISyncthingApi, SyncthingApi>();
@@ -152,6 +156,8 @@ app.MapPost("/api/nodes", async (PairNode request, NodeService nodes, Cancellati
 });
 app.MapPost("/api/nodes/folders", async (ShareFolder request, NodeService nodes, CancellationToken cancellationToken) =>
     Results.Ok(await nodes.ShareAsync(request.Path, request.DeviceIds ?? [], cancellationToken)));
+app.MapPost("/api/nodes/folders/accept", async (AcceptFolder request, NodeService nodes, CancellationToken cancellationToken) =>
+    Results.Ok(await nodes.AcceptAsync(request.FolderId, request.Path, cancellationToken)));
 app.Map("/api/{**path}", () => Results.Problem("This endpoint doesn’t exist.", statusCode: 404));
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -162,4 +168,5 @@ public sealed record SelectRoot(string Path);
 public sealed record ImportRequest(string RemotePath);
 public sealed record PairNode(string DeviceId, string? Name);
 public sealed record ShareFolder(string Path, IReadOnlyList<string>? DeviceIds);
+public sealed record AcceptFolder(string FolderId, string? Path);
 public partial class Program;

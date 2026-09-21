@@ -104,9 +104,32 @@ public sealed class ProviderTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsync("/api/providers/dropbox/connect", null)).StatusCode);
     }
 
+    [Fact]
+    public void Syncthing_state_is_kept_where_preferences_are_not_in_the_temporary_directory()
+    {
+        // With no ConfigDirectory set — the ordinary installation — Syncthing's device identity
+        // and pairings must not land somewhere a cleanup can take them.
+        using var app = new DefaultDirectoryApp();
+        using var client = app.CreateClient();
+
+        var home = app.Services.GetRequiredService<Homebase.Server.SyncthingHost>().Home;
+
+        Assert.False(home.StartsWith(Path.GetTempPath(), StringComparison.Ordinal),
+            $"Syncthing state would be lost from {home}");
+        Assert.EndsWith("syncthing", home);
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_temporary, true); } catch (IOException) { }
+    }
+
+    /// <summary>The app as installed: no configuration overrides, and Syncthing not started.</summary>
+    private sealed class DefaultDirectoryApp : WebApplicationFactory<Program>
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?> { ["Homebase:Syncthing:Enabled"] = "false" }));
     }
 
     private sealed class TestApp(string configDirectory, IDropboxApi dropbox) : WebApplicationFactory<Program>

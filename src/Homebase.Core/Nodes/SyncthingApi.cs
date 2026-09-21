@@ -92,6 +92,28 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
         return folders;
     }
 
+    /// <summary>Folders a paired device has offered that this one hasn't accepted yet.</summary>
+    public async Task<IReadOnlyList<PendingFolder>> OffersAsync(CancellationToken cancellationToken)
+    {
+        var known = await DevicesAsync(cancellationToken);
+        using var document = await GetAsync("/rest/cluster/pending/folders", cancellationToken);
+        var offers = new List<PendingFolder>();
+        if (document.RootElement.ValueKind != JsonValueKind.Object) return offers;
+        foreach (var folder in document.RootElement.EnumerateObject())
+        {
+            if (!folder.Value.TryGetProperty("offeredBy", out var offeredBy)) continue;
+            foreach (var device in offeredBy.EnumerateObject())
+            {
+                var label = device.Value.TryGetProperty("label", out var text) ? text.GetString() ?? "" : "";
+                offers.Add(new PendingFolder(folder.Name,
+                    label.Length > 0 ? label : folder.Name,
+                    device.Name,
+                    known.FirstOrDefault(entry => entry.DeviceId == device.Name)?.Name ?? device.Name[..7]));
+            }
+        }
+        return offers;
+    }
+
     public Task AddFolderAsync(string id, string label, string path, IReadOnlyList<string> deviceIds, CancellationToken cancellationToken) =>
         PostAsync("/rest/config/folders", JsonSerializer.Serialize(new
         {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Check,
   Copy,
+  Inbox,
   FolderSync,
   Laptop,
   LoaderCircle,
@@ -60,6 +61,16 @@ export default function NodesPanel() {
       );
       setDeviceId("");
       setDeviceName("");
+      await load();
+    });
+
+  const accept = (folderId: string, label: string) =>
+    run(folderId, async () => {
+      await api("/nodes/folders/accept", {
+        method: "POST",
+        body: JSON.stringify({ folderId, path: null }),
+      });
+      setNotice(`Keeping ${label} in step with the other computer.`);
       await load();
     });
 
@@ -201,6 +212,36 @@ export default function NodesPanel() {
               )}
             </section>
 
+            {status.offers.length > 0 && (
+              <section className="import-section">
+                <h2>Offered to you</h2>
+                <p className="field-help">
+                  Another computer wants to share these. Nothing arrives until
+                  you take one up.
+                </p>
+                <ul className="import-list">
+                  {status.offers.map((offer) => (
+                    <li key={`${offer.id}-${offer.offeredBy}`}>
+                      <Inbox size={19} strokeWidth={1.6} />
+                      <div>
+                        <strong>{offer.label}</strong>
+                        <span className="muted">
+                          from {offer.offeredByName}
+                        </span>
+                      </div>
+                      <button
+                        className="button primary"
+                        onClick={() => void accept(offer.id, offer.label)}
+                        disabled={busy === offer.id}
+                      >
+                        {busy === offer.id ? "Accepting…" : "Keep this here"}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
             <section className="import-section">
               <h2>Shared folders</h2>
               <div className="setup-form">
@@ -228,7 +269,8 @@ export default function NodesPanel() {
               <p className="field-help">
                 Share a folder inside your Homebase folder, not the whole thing —
                 Homebase keeps its own index in there, and copying that between
-                computers would break it.
+                computers would break it. The other computer has to take the
+                folder up before anything moves.
               </p>
               {status.folders.length === 0 ? (
                 <p className="field-help">Nothing shared yet.</p>

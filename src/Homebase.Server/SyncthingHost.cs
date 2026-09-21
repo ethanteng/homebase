@@ -9,14 +9,19 @@ namespace Homebase.Server;
 /// started when Homebase starts and stopped when it stops. Syncthing missing is not an error —
 /// the rest of Homebase works, and the Nodes panel explains what to install.
 /// </summary>
-public sealed class SyncthingHost(IConfiguration configuration, ILogger<SyncthingHost> logger, HttpClient client)
+public sealed class SyncthingHost(
+    string configDirectory, IConfiguration configuration, ILogger<SyncthingHost> logger, HttpClient client)
     : IHostedService, ISyncthingEndpoint, IDisposable
 {
-    private readonly string _home = Path.Combine(
-        configuration["Homebase:ConfigDirectory"] ?? Path.GetTempPath(), "syncthing");
+    // Syncthing's device identity and pairings live here. It must be the same durable directory
+    // the rest of Homebase uses: a temporary one loses every pairing when it is cleaned.
+    private readonly string _home = Path.Combine(configDirectory, "syncthing");
     private readonly string _binary = configuration["Homebase:Syncthing:Path"] ?? "syncthing";
     private readonly int _port = configuration.GetValue("Homebase:Syncthing:GuiPort", 8390);
     private Process? _process;
+
+    /// <summary>Where Syncthing's device identity and pairings are kept.</summary>
+    public string Home => _home;
 
     public bool IsReady { get; private set; }
     public string? Unavailable { get; private set; } = "Homebase is still starting Syncthing.";
@@ -45,6 +50,18 @@ public sealed class SyncthingHost(IConfiguration configuration, ILogger<Syncthin
                 RedirectStandardError = true,
                 UseShellExecute = false
             }) ?? throw new IOException("Syncthing did not start.");
+            // Redirected pipes must be drained. A long-running Syncthing that fills an unread
+            // buffer blocks on its next write and stops syncing while still looking healthy.
+            _process.OutputDataReceived += (_, line) =>
+            {
+                if (line.Data is { Length: > 0 }) logger.LogDebug("syncthing: {Line}", line.Data);
+            };
+            _process.ErrorDataReceived += (_, line) =>
+            {
+                if (line.Data is { Length: > 0 }) logger.LogWarning("syncthing: {Line}", line.Data);
+            };
+            _process.BeginOutputReadLine();
+            _process.BeginErrorReadLine();
             // Readiness is awaited in the background: a slow Syncthing must not hold up the app.
             _ = WaitForReadyAsync();
         }
