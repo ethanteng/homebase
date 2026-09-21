@@ -333,22 +333,21 @@ h1 {
 .access-form {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
   justify-content: center;
   align-items: stretch;
-  margin-top: 16px;
 }
 .access-input {
-  flex: 1 1 170px;
-  max-width: 190px;
-  min-height: 30px;
-  padding: 6px 10px;
+  flex: 1 1 260px;
+  max-width: 340px;
+  min-height: 56px;
+  padding: 16px 18px;
   border: 1px solid #55605b;
   border-radius: 3px;
   background: #1d211f;
   color: #f7f7f2;
   font: inherit;
-  font-size: 0.9375rem;
+  font-size: 1.0625rem;
 }
 .access-input::placeholder {
   color: #8b938e;
@@ -360,14 +359,7 @@ h1 {
 }
 .access-form .primary-link {
   min-width: 0;
-  min-height: 30px;
   flex: 0 1 auto;
-  padding: 6px 14px;
-  font-size: 0.9375rem;
-}
-/* The note now introduces the form, so it keeps the section's own top margin. */
-.access-action .trust-note {
-  margin-top: 0;
 }
 .access-form .primary-link:disabled {
   opacity: 0.6;
@@ -381,7 +373,7 @@ h1 {
   overflow: hidden;
 }
 .access-status {
-  margin-top: 10px;
+  margin-top: 14px;
   min-height: 1.5em;
   font-size: 1rem;
   line-height: 1.5;
@@ -403,11 +395,6 @@ h1 {
      has to stop flexing or it stretches into a text area. */
   .access-input {
     flex: 0 0 auto;
-    max-width: 260px;
-    margin: 0 auto;
-  }
-  .access-form .primary-link {
-    max-width: 260px;
-    margin: 0 auto;
+    max-width: none;
   }
 }
