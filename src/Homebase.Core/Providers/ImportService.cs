@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.Extensions.Logging;
 
 namespace Homebase.Core.Providers;
 
@@ -7,7 +8,7 @@ namespace Homebase.Core.Providers;
 /// library's copy is the one that counts — Homebase does not go back to the provider for it,
 /// so nothing here ever overwrites a file that is already on disk.
 /// </summary>
-public sealed class ImportService(LibraryService library, ImportLog log, IDropboxApi dropbox)
+public sealed class ImportService(LibraryService library, ImportLog log, IDropboxApi dropbox, ILogger<ImportService> logger)
 {
     public const string Provider = "dropbox";
     public const string DestinationPrefix = "Files/Dropbox";
@@ -41,17 +42,18 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
                 try
                 {
                     var item = await ImportOneAsync(root, file, cancellationToken);
-                    if (item is null) skipped.Add(new SkippedItem(file.PathDisplay, "Already imported."));
+                    if (item is null) skipped.Add(new SkippedItem(file.PathDisplay, "Already imported.", Expected: true));
                     else
                     {
                         imported.Add(item);
                         bytes += item.Size;
                     }
                 }
-                catch (Exception failure) when (failure is LibraryException or HttpRequestException)
+                catch (Exception failure) when (Recoverable(failure, cancellationToken))
                 {
                     // One unreachable or refused file must not abandon the rest of the folder.
-                    skipped.Add(new SkippedItem(file.PathDisplay, failure.Message));
+                    logger.LogWarning(failure, "Dropbox file {RemotePath} was not brought home", file.PathDisplay);
+                    skipped.Add(new SkippedItem(file.PathDisplay, Reason(failure)));
                 }
             }
             return new ImportResult(imported, skipped, bytes);
@@ -77,11 +79,14 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
             {
                 children = await dropbox.ListFolderAsync(folder, cancellationToken);
             }
-            catch (Exception failure) when (failure is LibraryException or HttpRequestException)
+            catch (Exception failure) when (Recoverable(failure, cancellationToken))
             {
                 // A folder that vanished or can't be read must not abandon the files already found,
-                // which collection would otherwise discard before a single download began.
-                skipped.Add(new SkippedItem(folder, failure.Message));
+                // which collection would otherwise discard before a single download began. Losing a
+                // whole subtree is worth a line in the log: the import itself reads as a success.
+                logger.LogWarning(failure,
+                    "Dropbox folder {RemotePath} couldn’t be listed, so it and everything under it was left behind", folder);
+                skipped.Add(new SkippedItem(folder, Reason(failure)));
                 continue;
             }
             foreach (var child in children)
@@ -99,6 +104,8 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
                 if (files.Count >= MaxEntries)
                 {
                     // Stopping quietly here would read as a complete import. Say what was left.
+                    logger.LogWarning("Dropbox folder {RemotePath} holds more than {MaxEntries} files, so the rest wasn’t visited",
+                        entry.PathDisplay, MaxEntries);
                     skipped.Add(new SkippedItem(child.PathDisplay,
                         $"Uncloud brings at most {MaxEntries:N0} files at a time, so the rest of this folder wasn’t visited."));
                     return files;
@@ -108,6 +115,22 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
         }
         return files;
     }
+
+    /// <summary>
+    /// Whether one failure can be set aside so the rest of the import continues. A request that
+    /// times out surfaces as cancellation, so the caller's own cancellation is told apart first and
+    /// always wins: an abandoned import must never read as a folder full of skipped files.
+    /// </summary>
+    private static bool Recoverable(Exception failure, CancellationToken cancellationToken) =>
+        !cancellationToken.IsCancellationRequested && failure is LibraryException or HttpRequestException
+            or IOException or UnauthorizedAccessException or OperationCanceledException;
+
+    /// <summary>
+    /// What to tell someone reading the skipped list. A timeout's own message says only that a task
+    /// was cancelled, which explains nothing about their file.
+    /// </summary>
+    private static string Reason(Exception failure) =>
+        failure is OperationCanceledException ? "Dropbox took too long to answer." : failure.Message;
 
     private async Task<ImportedItem?> ImportOneAsync(string root, DropboxEntry entry, CancellationToken cancellationToken)
     {

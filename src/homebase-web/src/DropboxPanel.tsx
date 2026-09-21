@@ -104,13 +104,23 @@ export default function DropboxPanel() {
         body: JSON.stringify({ remotePath: entry.pathLower }),
       });
       setResult(outcome);
-      setNotice(
+      const brought =
         outcome.importedCount === 0
           ? `Nothing new to bring home from ${entry.name}.`
-          : `Brought ${outcome.importedCount} file${outcome.importedCount === 1 ? "" : "s"} home (${formatSize(outcome.bytes)}).`,
+          : `Brought ${outcome.importedCount} file${outcome.importedCount === 1 ? "" : "s"} home (${formatSize(outcome.bytes)}).`;
+      // A folder left behind is the part worth saying out loud: the rest of the import succeeded,
+      // so nothing else on screen would tell you that anything is missing.
+      const problems = outcome.skipped.filter((skip) => !skip.expected).length;
+      setNotice(
+        problems === 0
+          ? brought
+          : `${brought} ${problems} item${problems === 1 ? "" : "s"} not brought home — see below.`,
       );
       await loadImported();
     });
+
+  // Only the skips a person can act on; "already imported" is the ordinary case.
+  const problems = (result?.skipped ?? []).filter((skip) => !skip.expected);
 
   if (error && !status)
     return (
@@ -184,6 +194,23 @@ export default function DropboxPanel() {
         </div>
       ) : (
         <>
+          {problems.length > 0 && (
+            <section className="import-section">
+              <h2>Not brought home</h2>
+              <ul className="import-list">
+                {problems.map((skip) => (
+                  <li key={skip.remotePath}>
+                    <TriangleAlert size={18} strokeWidth={1.6} />
+                    <div>
+                      <strong>{skip.remotePath}</strong>
+                      <span className="muted">{skip.reason}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           <section className="import-section">
             <div className="import-section-head">
               <h2>
@@ -252,23 +279,6 @@ export default function DropboxPanel() {
               </ul>
             )}
           </section>
-
-          {result && result.skipped.length > 0 && (
-            <section className="import-section">
-              <h2>Not brought home</h2>
-              <ul className="import-list">
-                {result.skipped.map((skip) => (
-                  <li key={skip.remotePath}>
-                    <TriangleAlert size={18} strokeWidth={1.6} />
-                    <div>
-                      <strong>{skip.remotePath}</strong>
-                      <span className="muted">{skip.reason}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
 
           <section className="import-section">
             <div className="import-section-head">

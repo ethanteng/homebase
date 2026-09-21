@@ -49,6 +49,8 @@ export interface ImportedItem {
 export interface SkippedItem {
   remotePath: string;
   reason: string;
+  // A file already home is an ordinary outcome, not a problem to raise.
+  expected: boolean;
 }
 export interface ImportResult {
   imported: ImportedItem[];

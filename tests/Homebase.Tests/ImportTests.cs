@@ -1,6 +1,7 @@
 using System.Text;
 using Homebase.Core;
 using Homebase.Core.Providers;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Homebase.Tests;
 
@@ -18,7 +19,7 @@ public sealed class ImportTests : IDisposable
         _root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
         _library = new LibraryService(new SettingsStore(Path.Combine(_temporary, "Config")), new MetadataIndex());
         _library.SelectRootAsync(_root, CancellationToken.None).GetAwaiter().GetResult();
-        _imports = new ImportService(_library, new ImportLog(), _dropbox);
+        _imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance);
     }
 
     private string LocalPath(string relative) => Path.Combine(_root, relative.Replace('/', Path.DirectorySeparatorChar));
@@ -138,6 +139,67 @@ public sealed class ImportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_file_that_times_out_does_not_abandon_the_rest_of_the_folder()
+    {
+        // A timeout arrives as cancellation, which used to escape the per-file catch and end the
+        // whole import — the rest of the folder was lost to one slow file.
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/slow.txt", "rev1", "Never arrives.");
+        _dropbox.AddFile("/notes/fine.txt", "rev1", "Arrives.");
+        _dropbox.TimeOutDownloadOf = "/notes/slow.txt";
+
+        var result = await _imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Equal("Files/Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
+        var skip = Assert.Single(result.Skipped, skip => skip.RemotePath.EndsWith("slow.txt"));
+        // "A task was canceled" tells the person nothing about their file.
+        Assert.Equal("Dropbox took too long to answer.", skip.Reason);
+        Assert.False(skip.Expected);
+    }
+
+    [Fact]
+    public async Task A_file_that_cannot_be_written_does_not_abandon_the_rest_of_the_folder()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/broken.txt", "rev1", "Never lands.");
+        _dropbox.AddFile("/notes/fine.txt", "rev1", "Arrives.");
+        _dropbox.FailWriteOf = "/notes/broken.txt";
+
+        var result = await _imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Equal("Files/Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Contains(result.Skipped, skip => skip.RemotePath.EndsWith("broken.txt"));
+    }
+
+    [Fact]
+    public async Task A_cancelled_import_stops_instead_of_skipping_its_way_to_the_end()
+    {
+        // Setting aside a timeout must not also set aside the caller giving up.
+        _dropbox.AddFolder("/notes");
+        for (var index = 0; index < 4; index++)
+            _dropbox.AddFile($"/notes/file{index}.txt", "rev1", $"File {index}.");
+        using var cancellation = new CancellationTokenSource();
+        _dropbox.WhileDownloading = cancellation.Cancel;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _imports.ImportAsync("/notes", cancellation.Token));
+    }
+
+    [Fact]
+    public async Task Bringing_a_folder_home_twice_reports_no_problems_the_second_time()
+    {
+        // "Already imported" is the ordinary outcome, not something to wave at a person.
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/one.txt", "rev1", "One.");
+        await _imports.ImportAsync("/notes", CancellationToken.None);
+
+        var result = await _imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Empty(result.Imported);
+        Assert.All(result.Skipped, skip => Assert.True(skip.Expected));
+    }
+
+    [Fact]
     public async Task A_hidden_path_is_refused_outright()
     {
         _dropbox.AddFile("/.config/secrets.txt", "rev1", "nope");
@@ -172,7 +234,8 @@ public sealed class ImportTests : IDisposable
         _dropbox.AddFolder("/notes");
         for (var index = 0; index < 5; index++)
             _dropbox.AddFile($"/notes/file{index}.txt", "rev1", $"File {index}.");
-        var imports = new ImportService(_library, new ImportLog(), _dropbox) { MaxEntries = 2 };
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+            { MaxEntries = 2 };
 
         var result = await imports.ImportAsync("/notes", CancellationToken.None);
 
@@ -187,6 +250,21 @@ public sealed class ImportTests : IDisposable
         try { Directory.Delete(_temporary, true); } catch (IOException) { }
     }
 
+    /// <summary>A download that fails partway, the way a dropped connection or a full disk does.</summary>
+    private sealed class UnreadableStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new IOException("The connection dropped.");
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     private sealed class FakeDropbox : IDropboxApi
     {
         private readonly Dictionary<string, DropboxEntry> _entries = new(StringComparer.OrdinalIgnoreCase);
@@ -197,6 +275,8 @@ public sealed class ImportTests : IDisposable
         public Action? WhileDownloading { get; set; }
         public string? FailDownloadOf { get; set; }
         public string? FailListingOf { get; set; }
+        public string? TimeOutDownloadOf { get; set; }
+        public string? FailWriteOf { get; set; }
 
         public void AddFile(string path, string rev, string contents)
         {
@@ -234,7 +314,12 @@ public sealed class ImportTests : IDisposable
             Require(path);
             if (FailDownloadOf is not null && path.Equals(FailDownloadOf, StringComparison.OrdinalIgnoreCase))
                 throw new LibraryException("Dropbox couldn’t send this file.", "provider_failed");
+            if (TimeOutDownloadOf is not null && path.Equals(TimeOutDownloadOf, StringComparison.OrdinalIgnoreCase))
+                // How HttpClient reports its own timeout, as opposed to a cancelled request.
+                throw new TaskCanceledException("A task was canceled.", new TimeoutException());
             WhileDownloading?.Invoke();
+            if (FailWriteOf is not null && path.Equals(FailWriteOf, StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult<Stream>(new UnreadableStream());
             return Task.FromResult<Stream>(new MemoryStream(_contents[path], writable: false));
         }
     }

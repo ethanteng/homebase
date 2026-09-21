@@ -16,7 +16,11 @@ public sealed record ImportedFile(
 
 public sealed record ImportedItem(string LocalPath, string RemotePath, long Size);
 
-public sealed record SkippedItem(string RemotePath, string Reason);
+/// <summary>
+/// Something an import passed over. <paramref name="Expected"/> marks the ordinary outcomes —
+/// a file that is already home — apart from the ones worth a person's attention.
+/// </summary>
+public sealed record SkippedItem(string RemotePath, string Reason, bool Expected = false);
 
 public sealed record ImportResult(
     IReadOnlyList<ImportedItem> Imported,
