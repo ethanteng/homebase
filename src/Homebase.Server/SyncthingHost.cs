@@ -24,7 +24,7 @@ public sealed class SyncthingHost(
     public string Home => _home;
 
     public bool IsReady { get; private set; }
-    public string? Unavailable { get; private set; } = "Homebase is still starting Syncthing.";
+    public string? Unavailable { get; private set; } = "Uncloud is still starting Syncthing.";
     public Uri? BaseAddress { get; private set; }
     public string? ApiKey { get; private set; }
 
@@ -67,7 +67,7 @@ public sealed class SyncthingHost(
         }
         catch (Exception error) when (error is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
         {
-            Unavailable = $"Homebase couldn’t start Syncthing ({_binary}). Install it, or set Homebase__Syncthing__Path.";
+            Unavailable = $"Uncloud couldn’t start Syncthing ({_binary}). Install it, or set Homebase__Syncthing__Path.";
             logger.LogWarning(error, "Syncthing unavailable");
         }
     }

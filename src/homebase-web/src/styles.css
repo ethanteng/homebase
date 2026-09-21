@@ -90,9 +90,6 @@ h3,
 p {
   margin: 0;
 }
-::selection {
-  background: var(--surface-2);
-}
 .app-shell {
   display: flex;
   min-height: 100vh;
