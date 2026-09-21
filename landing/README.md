@@ -1,8 +1,8 @@
 # Uncloud landing page
 
-A single-screen page for **Uncloud**, with the intended public address **https://uncloud.life/**. The large headline is **“Stop paying for [Dropbox].”**, rotating through **Dropbox → Google Drive → OneDrive → iCloud → Google Photos → Evernote → Notion**. A new name has to fit the orange box on one line at 320px without changing the headline's line count; check a long one in a browser before adding it. The supporting copy focuses on private household storage and ending recurring cloud-storage bills.
+A landing page for **Uncloud**, with the public address **https://uncloud.life/**. The first-screen hero's large headline is **“Stop paying for [Dropbox].”**, rotating through **Dropbox → Google Drive → OneDrive → iCloud → Google Photos → Evernote → Notion**. A new name has to fit the orange box on one line at 320px without changing the headline's line count; check a long one in a browser before adding it. The supporting copy focuses on private household storage and ending recurring cloud-storage bills. A short, static explanation below the hero introduces private cloud storage and the difference from Dropbox and Google Drive.
 
-The headline's service name has an orange box on its own centered line, so rotation never changes the number of lines. Beneath it, **“Your digital life belongs at home.”** uses the smaller bold supporting style, with “at home” in orange. The next line reads **“Turn any computer you own into private storage for your household.”** “Any” has a casual orange underline, and “private storage” is orange. The early-access action and **“Private. Secure. Yours.”** complete the page. Keep it above the fold with the rest of the page. This is early-access positioning for the product vision; see the repository README for the application's current capabilities. The app, source folders, and storage paths still use the internal name Homebase.
+The headline's service name has an orange box on its own centered line, so rotation never changes the number of lines. Beneath it, **“Your digital life belongs at home.”** uses the smaller bold supporting style, with “at home” in orange. The next line reads **“Turn any computer you own into private storage for your household.”** “Any” has a casual orange underline, and “private storage” is orange. The early-access action and **“Private. Secure. Yours.”** complete the hero. Keep them above the fold with the rest of the hero. This is early-access positioning for the product vision; see the repository README for the application's current capabilities. The app, source folders, and storage paths still use the internal name Homebase.
 
 ## Preview and build
 
@@ -64,7 +64,7 @@ node --test "api/*.test.js"
 
 ## Refine the message
 
-Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.svg` is the shared brand mark and favicon. `main.js` rotates provider names every three seconds with a brief fade. Rotation has no visible controls; it stops for reduced-motion preferences and pauses in background tabs. Screen readers get a stable list of providers, and Dropbox remains visible without JavaScript. Charcoal, orange, and bold sans-serif type give the landing page its own identity, with emphasis on “at home.” Keep all content within the first viewport at normal desktop/mobile sizes; allow natural scrolling at enlarged accessibility text sizes. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). No signup database is included.
+Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.svg` is the shared brand mark and favicon. `main.js` rotates provider names every three seconds with a brief fade. Rotation has no visible controls; it stops for reduced-motion preferences and pauses in background tabs. Screen readers get a stable list of providers, and Dropbox remains visible without JavaScript. Charcoal, orange, and bold sans-serif type give the landing page its own identity, with emphasis on “at home.” Keep the hero and signup within the first viewport at normal desktop/mobile sizes, with the explanatory section below it; allow natural scrolling on short screens and at enlarged accessibility text sizes. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). No signup database is included.
 
 Canonical and Open Graph URLs point to `https://uncloud.life/`. These metadata tags do not configure DNS, hosting, or deployment.
 
@@ -77,3 +77,19 @@ For the first few conversations, share the page and ask:
 3. What would stop you from trying it?
 
 Change one major message at a time. A useful next headline to compare is **“Uncloud your life.”** Keep the distinction between early-access positioning and available product features clear when inviting people to try the app.
+
+## Search and sharing assets
+
+The title, description, Open Graph/Twitter metadata, and JSON-LD live directly in `index.html`, alongside the crawlable copy. JSON-LD connects the organization, website, homepage, and software application, and describes the early-access positioning. It intentionally omits offers, ratings, and download links until there are real ones to publish.
+
+The landing Vite config explicitly uses `landing/public/` as its public directory. Vite copies these files unchanged into the root of `artifacts/landing/`, which is the output directory published by `vercel.json`:
+
+| Source | Published URL |
+| --- | --- |
+| `public/robots.txt` | `https://uncloud.life/robots.txt` |
+| `public/sitemap.xml` | `https://uncloud.life/sitemap.xml` |
+| `public/social-card.png` | `https://uncloud.life/social-card.png` |
+
+The sitemap lists only the canonical homepage. Add URLs when additional public pages actually exist. The social card is a 1200 × 630 PNG, with editable artwork in `social-card.svg`; regenerate the PNG after changing that artwork. Both social metadata and JSON-LD use the absolute PNG URL so sharing crawlers can fetch it without JavaScript.
+
+After `build:landing`, check that `index.html` and all three public files exist in `artifacts/landing/`. Run `npm --prefix src/homebase-web run preview:landing` and verify `/`, `/robots.txt`, `/sitemap.xml`, and `/social-card.png` from the preview server. Verify those URLs on the deployment as well; a successful app build alone does not verify the separate landing build.
