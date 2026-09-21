@@ -1,6 +1,6 @@
 # Uncloud landing page
 
-A single-screen page for **Uncloud**, with the intended public address **https://uncloud.life/**. The large headline is **“Stop paying for [Dropbox].”**, rotating through **Dropbox → Evernote → Google Drive**. The supporting copy focuses on private household storage and ending recurring cloud-storage bills.
+A single-screen page for **Uncloud**, with the intended public address **https://uncloud.life/**. The large headline is **“Stop paying for [Dropbox].”**, rotating through **Dropbox → Google Drive → OneDrive → iCloud → Google Photos → Evernote → Notion**. A new name has to fit the orange box on one line at 320px without changing the headline's line count; check a long one in a browser before adding it. The supporting copy focuses on private household storage and ending recurring cloud-storage bills.
 
 The headline's service name has an orange box on its own centered line, so rotation never changes the number of lines. Beneath it, **“Your digital life belongs at home.”** uses the smaller bold supporting style, with “at home” in orange. The next line reads **“Turn any computer you own into private storage for your household.”** “Any” has a casual orange underline, and “private storage” is orange. The early-access action and **“Private. Secure. Yours.”** complete the page. Keep it above the fold with the rest of the page. This is early-access positioning for the product vision; see the repository README for the application's current capabilities. The app, source folders, and storage paths still use the internal name Homebase.
 
