@@ -17,6 +17,77 @@ export interface DirectoryListing {
   indexedAt: string;
 }
 
+export interface DropboxStatus {
+  configured: boolean;
+  connected: boolean;
+  accountName: string | null;
+}
+export interface DropboxEntry {
+  id: string;
+  name: string;
+  pathLower: string;
+  pathDisplay: string;
+  isFolder: boolean;
+  size: number | null;
+  rev: string | null;
+  serverModified: string | null;
+}
+export interface ImportedFile {
+  provider: string;
+  remotePath: string;
+  remoteRev: string;
+  localPath: string;
+  size: number;
+  contentHash: string;
+  importedAt: string;
+}
+export interface ImportedItem {
+  localPath: string;
+  remotePath: string;
+  size: number;
+}
+export interface SkippedItem {
+  remotePath: string;
+  reason: string;
+}
+export interface ImportResult {
+  imported: ImportedItem[];
+  skipped: SkippedItem[];
+  bytes: number;
+  importedCount: number;
+  skippedCount: number;
+}
+
+export interface NodeDevice {
+  deviceId: string;
+  name: string;
+  connected: boolean;
+  address: string | null;
+}
+export interface SharedFolder {
+  id: string;
+  label: string;
+  localPath: string;
+  deviceIds: string[];
+  state: string | null;
+  files: number;
+  bytes: number;
+}
+export interface PendingFolder {
+  id: string;
+  label: string;
+  offeredBy: string;
+  offeredByName: string;
+}
+export interface NodeStatus {
+  available: boolean;
+  detail: string | null;
+  deviceId: string | null;
+  devices: NodeDevice[];
+  folders: SharedFolder[];
+  offers: PendingFolder[];
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,

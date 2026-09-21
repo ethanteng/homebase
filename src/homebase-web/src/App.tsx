@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
+  CloudDownload,
   Files,
+  Laptop,
   FolderOpen,
   HardDrive,
   House,
@@ -11,6 +13,8 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import type { LibraryState } from "./api";
+import DropboxPanel from "./DropboxPanel";
+import NodesPanel from "./NodesPanel";
 import FileBrowser from "./FileBrowser";
 import FolderSetup from "./FolderSetup";
 
@@ -28,6 +32,9 @@ export default function App() {
   const [path, setPath] = useState(readPath);
   const [revision, setRevision] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [view, setView] = useState<"files" | "dropbox" | "nodes">(
+    () => (window.location.search.includes("dropbox=") ? "dropbox" : "files"),
+  );
   const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -77,9 +84,31 @@ export default function App() {
         </a>
         <div className="sidebar-section">
           <span className="nav-label">YOUR HOMEBASE</span>
-          <button className="nav-item active" onClick={() => navigate("")}>
+          <button
+            className={`nav-item${view === "files" ? " active" : ""}`}
+            onClick={() => {
+              setView("files");
+              navigate("");
+            }}
+          >
             <Files size={19} />
             All files<span className="nav-shortcut">⌂</span>
+          </button>
+          <button
+            className={`nav-item${view === "dropbox" ? " active" : ""}`}
+            onClick={() => setView("dropbox")}
+            disabled={!library?.rootPath}
+          >
+            <CloudDownload size={18} />
+            Dropbox
+          </button>
+          <button
+            className={`nav-item${view === "nodes" ? " active" : ""}`}
+            onClick={() => setView("nodes")}
+            disabled={!library?.rootPath}
+          >
+            <Laptop size={18} />
+            Nodes
           </button>
           <button
             className="nav-item"
@@ -127,7 +156,9 @@ export default function App() {
             <House size={15} />
             <span>Homebase</span>
             <span className="slash">/</span>
-            <strong>Files</strong>
+            <strong>
+              {view === "dropbox" ? "Dropbox" : view === "nodes" ? "Nodes" : "Files"}
+            </strong>
           </div>
           <span className="private-label">
             <span className="status-dot" />
@@ -155,6 +186,10 @@ export default function App() {
               <LoaderCircle className="spin" size={24} />
               Opening Homebase…
             </div>
+          ) : library.rootPath && view === "nodes" ? (
+            <NodesPanel />
+          ) : library.rootPath && view === "dropbox" ? (
+            <DropboxPanel />
           ) : library.rootPath ? (
             <FileBrowser
               rootPath={library.rootPath}
