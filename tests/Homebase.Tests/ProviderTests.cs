@@ -43,9 +43,9 @@ public sealed class ProviderTests : IDisposable
 
         Assert.Empty(await client.GetFromJsonAsync<JsonElement[]>("/api/imports") ?? []);
 
-        var response = await client.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" });
-        response.EnsureSuccessStatusCode();
-        Assert.Contains("\"importedCount\":1", await response.Content.ReadAsStringAsync());
+        var job = await BringHome(client, "/notes/hello.txt");
+        Assert.Equal("Done", job.GetProperty("stage").GetString());
+        Assert.Equal(1, job.GetProperty("result").GetProperty("importedCount").GetInt32());
 
         var localFile = Path.Combine(_root, "Files", "Dropbox", "notes", "hello.txt");
         Assert.Equal("First draft.", await File.ReadAllTextAsync(localFile));
@@ -63,13 +63,12 @@ public sealed class ProviderTests : IDisposable
         using var app = new TestApp(_config, _dropbox);
         using var client = CreateClient(app);
         (await client.PutAsJsonAsync("/api/library", new { path = _root })).EnsureSuccessStatusCode();
-        (await client.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" })).EnsureSuccessStatusCode();
+        await BringHome(client, "/notes/hello.txt");
 
         _dropbox.Add("/notes/hello.txt", "rev2", "Changed on Dropbox.");
-        var again = await client.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" });
-        again.EnsureSuccessStatusCode();
+        var again = await BringHome(client, "/notes/hello.txt");
 
-        Assert.Contains("\"importedCount\":0", await again.Content.ReadAsStringAsync());
+        Assert.Equal(0, again.GetProperty("result").GetProperty("importedCount").GetInt32());
         Assert.Equal("First draft.",
             await File.ReadAllTextAsync(Path.Combine(_root, "Files", "Dropbox", "notes", "hello.txt")));
     }
@@ -88,6 +87,25 @@ public sealed class ProviderTests : IDisposable
         (await client.PutAsJsonAsync("/api/library", new { path = _root })).EnsureSuccessStatusCode();
         Assert.Equal(HttpStatusCode.Forbidden,
             (await bare.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Starting_an_import_answers_before_the_files_have_arrived()
+    {
+        _dropbox.Add("/notes/hello.txt", "rev1", "First draft.");
+        using var app = new TestApp(_config, _dropbox);
+        using var client = CreateClient(app);
+        (await client.PutAsJsonAsync("/api/library", new { path = _root })).EnsureSuccessStatusCode();
+
+        var response = await client.PostAsJsonAsync("/api/imports",
+            new { remotePath = "/notes/hello.txt", label = "hello.txt" });
+
+        response.EnsureSuccessStatusCode();
+        var started = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("job");
+        // The work carries on past this response, which is the whole point of the job.
+        Assert.True(started.GetProperty("running").GetBoolean());
+        Assert.Equal("hello.txt", started.GetProperty("label").GetString());
+        await Settled(client);
     }
 
     [Fact]
@@ -117,6 +135,25 @@ public sealed class ProviderTests : IDisposable
         Assert.False(home.StartsWith(Path.GetTempPath(), StringComparison.Ordinal),
             $"Syncthing state would be lost from {home}");
         Assert.EndsWith("syncthing", home);
+    }
+
+    /// <summary>Starts an import the way the panel does, and waits for the job behind it to settle.</summary>
+    private static async Task<JsonElement> BringHome(HttpClient client, string remotePath)
+    {
+        (await client.PostAsJsonAsync("/api/imports", new { remotePath })).EnsureSuccessStatusCode();
+        return await Settled(client);
+    }
+
+    private static async Task<JsonElement> Settled(HttpClient client)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var job = (await client.GetFromJsonAsync<JsonElement>("/api/imports/job")).GetProperty("job");
+            if (!job.GetProperty("running").GetBoolean()) return job;
+            await Task.Delay(15);
+        }
+        throw new TimeoutException("The import never finished.");
     }
 
     public void Dispose()

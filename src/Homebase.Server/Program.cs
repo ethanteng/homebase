@@ -34,6 +34,7 @@ builder.Services.AddSingleton(provider => new DropboxApi(
 builder.Services.AddSingleton<IDropboxApi>(provider => provider.GetRequiredService<DropboxApi>());
 builder.Services.AddSingleton<ImportLog>();
 builder.Services.AddSingleton<ImportService>();
+builder.Services.AddSingleton<ImportJobs>();
 builder.Services.AddSingleton<DropboxAuthFlow>();
 builder.Services.AddSingleton(provider => new SyncthingHost(
     provider.GetRequiredService<IConfiguration>()["Homebase:ConfigDirectory"] ?? defaultConfig,
@@ -44,6 +45,9 @@ builder.Services.AddSingleton<ISyncthingEndpoint>(provider => provider.GetRequir
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SyncthingHost>());
 builder.Services.AddSingleton<ISyncthingApi, SyncthingApi>();
 builder.Services.AddSingleton<NodeService>();
+// An import's stage travels as its name, not as whichever number the enum happens to sit at.
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 var redirectUri = $"http://localhost:{port}/api/providers/dropbox/callback";
 
 var app = builder.Build();
@@ -109,6 +113,12 @@ app.MapPut("/api/library", async (SelectRoot request, LibraryService library, Ca
     Results.Ok(await library.SelectRootAsync(request.Path, cancellationToken)));
 app.MapPost("/api/folder-picker", async (IFolderPicker picker, CancellationToken cancellationToken) =>
     Results.Ok(new { path = await picker.ChooseAsync(cancellationToken) }));
+app.MapGet("/api/storage", (LibraryService library) =>
+{
+    var root = library.State.RootPath;
+    var report = root is null ? null : Storage.For(root);
+    return Results.Ok(new { freeBytes = report?.FreeBytes, totalBytes = report?.TotalBytes });
+});
 app.MapGet("/api/files", async (string? path, LibraryService library, CancellationToken cancellationToken) =>
     Results.Ok(await library.BrowseAsync(path, cancellationToken)));
 app.MapGet("/api/files/download", async (string path, LibraryService library, CancellationToken cancellationToken) =>
@@ -145,8 +155,13 @@ app.MapGet("/api/providers/dropbox/files", async (string? path, IDropboxApi drop
     Results.Ok(await dropbox.ListFolderAsync(path ?? "", cancellationToken)));
 
 app.MapGet("/api/imports", (ImportService imports) => Results.Ok(imports.Imported()));
-app.MapPost("/api/imports", async (ImportRequest request, ImportService imports, CancellationToken cancellationToken) =>
-    Results.Ok(await imports.ImportAsync(request.RemotePath, cancellationToken)));
+// Starting an import answers immediately; the work itself is watched through the job below.
+app.MapPost("/api/imports", (ImportRequest request, ImportJobs jobs) =>
+    Results.Ok(new { job = jobs.Start(request.RemotePath, request.Label) }));
+app.MapGet("/api/imports/job", (ImportJobs jobs) => Results.Ok(new { job = jobs.Current }));
+app.MapPost("/api/imports/job/cancel", (ImportJobs jobs) => Results.Ok(new { job = jobs.Cancel() }));
+app.MapGet("/api/imports/estimate", async (string remotePath, ImportService imports, CancellationToken cancellationToken) =>
+    Results.Ok(await imports.MeasureAsync(remotePath, cancellationToken)));
 app.MapGet("/api/nodes", async (NodeService nodes, CancellationToken cancellationToken) =>
     Results.Ok(await nodes.StatusAsync(cancellationToken)));
 app.MapPost("/api/nodes", async (PairNode request, NodeService nodes, CancellationToken cancellationToken) =>
@@ -165,7 +180,7 @@ app.MapFallbackToFile("index.html");
 app.Run();
 
 public sealed record SelectRoot(string Path);
-public sealed record ImportRequest(string RemotePath);
+public sealed record ImportRequest(string RemotePath, string? Label);
 public sealed record PairNode(string DeviceId, string? Name);
 public sealed record ShareFolder(string Path, IReadOnlyList<string>? DeviceIds);
 public sealed record AcceptFolder(string FolderId, string? Path);

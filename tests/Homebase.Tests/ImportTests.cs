@@ -1,6 +1,7 @@
 using System.Text;
 using Homebase.Core;
 using Homebase.Core.Providers;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Homebase.Tests;
 
@@ -18,7 +19,7 @@ public sealed class ImportTests : IDisposable
         _root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
         _library = new LibraryService(new SettingsStore(Path.Combine(_temporary, "Config")), new MetadataIndex());
         _library.SelectRootAsync(_root, CancellationToken.None).GetAwaiter().GetResult();
-        _imports = new ImportService(_library, new ImportLog(), _dropbox);
+        _imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance);
     }
 
     private string LocalPath(string relative) => Path.Combine(_root, relative.Replace('/', Path.DirectorySeparatorChar));
@@ -138,6 +139,244 @@ public sealed class ImportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_file_that_times_out_does_not_abandon_the_rest_of_the_folder()
+    {
+        // A timeout arrives as cancellation, which used to escape the per-file catch and end the
+        // whole import — the rest of the folder was lost to one slow file.
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/slow.txt", "rev1", "Never arrives.");
+        _dropbox.AddFile("/notes/fine.txt", "rev1", "Arrives.");
+        _dropbox.TimeOutDownloadOf = "/notes/slow.txt";
+
+        var result = await _imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Equal("Files/Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
+        var skip = Assert.Single(result.Skipped, skip => skip.RemotePath.EndsWith("slow.txt"));
+        // "A task was canceled" tells the person nothing about their file.
+        Assert.Equal("Dropbox took too long to answer.", skip.Reason);
+        Assert.False(skip.Expected);
+    }
+
+    [Fact]
+    public async Task A_file_that_cannot_be_written_does_not_abandon_the_rest_of_the_folder()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/broken.txt", "rev1", "Never lands.");
+        _dropbox.AddFile("/notes/fine.txt", "rev1", "Arrives.");
+        _dropbox.FailWriteOf = "/notes/broken.txt";
+
+        var result = await _imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Equal("Files/Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Contains(result.Skipped, skip => skip.RemotePath.EndsWith("broken.txt"));
+    }
+
+    [Fact]
+    public async Task A_cancelled_import_stops_instead_of_skipping_its_way_to_the_end()
+    {
+        // Setting aside a timeout must not also set aside the caller giving up.
+        _dropbox.AddFolder("/notes");
+        for (var index = 0; index < 4; index++)
+            _dropbox.AddFile($"/notes/file{index}.txt", "rev1", $"File {index}.");
+        using var cancellation = new CancellationTokenSource();
+        _dropbox.WhileDownloading = cancellation.Cancel;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _imports.ImportAsync("/notes", cancellation.Token));
+    }
+
+    [Fact]
+    public async Task Bringing_a_folder_home_twice_reports_no_problems_the_second_time()
+    {
+        // "Already imported" is the ordinary outcome, not something to wave at a person.
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/one.txt", "rev1", "One.");
+        await _imports.ImportAsync("/notes", CancellationToken.None);
+
+        var result = await _imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Empty(result.Imported);
+        Assert.All(result.Skipped, skip => Assert.True(skip.Expected));
+    }
+
+    [Fact]
+    public void The_drive_a_folder_lives_on_reports_its_free_space()
+    {
+        // An external drive is its own volume, so this has to answer about the path, not the boot disk.
+        var report = Storage.For(_root);
+
+        Assert.NotNull(report);
+        Assert.True(report.FreeBytes > 0);
+        Assert.True(report.TotalBytes >= report.FreeBytes);
+    }
+
+    [Fact]
+    public async Task A_folder_that_would_fill_the_drive_is_refused_before_anything_arrives()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/big.bin", "rev1", new string('x', 4096));
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+
+        var error = await Assert.ThrowsAsync<LibraryException>(
+            () => imports.ImportAsync("/notes", CancellationToken.None));
+
+        Assert.Equal("unavailable", error.Code);
+        // Both numbers, so the message says what to do about it.
+        Assert.Contains("4 KB", error.Message);
+        Assert.Contains("1 KB", error.Message);
+        Assert.False(Directory.Exists(LocalPath("Files/Dropbox/notes")));
+        Assert.Empty(_imports.Imported());
+    }
+
+    [Fact]
+    public async Task Room_is_left_on_the_drive_rather_than_filling_it_to_the_last_byte()
+    {
+        _dropbox.AddFile("/notes/hello.txt", "rev1", "1234567890");
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            // Exactly enough room for the file and nothing to spare, which is not enough.
+            Space = _ => new StorageReport(FreeBytes: 10, TotalBytes: 100),
+            Headroom = 1024
+        };
+
+        await Assert.ThrowsAsync<LibraryException>(
+            () => imports.ImportAsync("/notes/hello.txt", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_folder_already_home_still_fits_however_little_room_is_left()
+    {
+        // Bringing a folder again costs nothing on disk, so a full drive mustn't refuse it.
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/one.txt", "rev1", "One.");
+        await _imports.ImportAsync("/notes", CancellationToken.None);
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 0, TotalBytes: 8192)
+        };
+
+        var result = await imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Empty(result.Imported);
+        Assert.All(result.Skipped, skip => Assert.True(skip.Expected));
+    }
+
+    [Fact]
+    public async Task A_file_whose_place_is_taken_is_not_counted_against_the_drive()
+    {
+        // Uncloud won't overwrite it, so it is never downloaded — holding the folder back over
+        // room it was never going to need would refuse the files that could have arrived.
+        var destination = LocalPath("Files/Dropbox/notes");
+        Directory.CreateDirectory(destination);
+        await File.WriteAllTextAsync(Path.Combine(destination, "big.bin"), "Mine, from before.");
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/big.bin", "rev1", new string('x', 4096));
+        _dropbox.AddFile("/notes/small.txt", "rev1", "Small.");
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+
+        var result = await imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Equal("Files/Dropbox/notes/small.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Contains(result.Skipped, skip => skip.Reason.Contains("won’t overwrite"));
+        Assert.Equal("Mine, from before.",
+            await File.ReadAllTextAsync(Path.Combine(destination, "big.bin")));
+    }
+
+    [Fact]
+    public async Task A_file_standing_where_a_folder_belongs_blocks_only_what_is_under_it()
+    {
+        // Nothing can be written beneath an ordinary file, so those bytes are never fetched and
+        // must not be counted — least of all against the files that could have arrived.
+        var notes = Directory.CreateDirectory(LocalPath("Files/Dropbox/notes")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(notes, "archive"), "Not a folder.");
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFolder("/notes/archive");
+        _dropbox.AddFile("/notes/archive/big.bin", "rev1", new string('x', 4096));
+        _dropbox.AddFile("/notes/small.txt", "rev1", "Small.");
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+
+        var result = await imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Equal("Files/Dropbox/notes/small.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Contains(result.Skipped, skip => skip.RemotePath.EndsWith("big.bin"));
+        Assert.Equal("Not a folder.", await File.ReadAllTextAsync(Path.Combine(notes, "archive")));
+    }
+
+    [Fact]
+    public async Task Measuring_leaves_out_a_file_whose_place_is_already_taken()
+    {
+        var destination = LocalPath("Files/Dropbox/notes");
+        Directory.CreateDirectory(destination);
+        await File.WriteAllTextAsync(Path.Combine(destination, "big.bin"), "Mine, from before.");
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/big.bin", "rev1", new string('x', 4096));
+        _dropbox.AddFile("/notes/small.txt", "rev1", "Small.");
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+
+        var estimate = await imports.MeasureAsync("/notes", CancellationToken.None);
+
+        Assert.Equal(2, estimate.FileCount);
+        Assert.Equal(1, estimate.NewFileCount);
+        Assert.Equal(6, estimate.NewBytes);
+        Assert.True(estimate.Fits);
+    }
+
+    [Fact]
+    public async Task Measuring_a_folder_leaves_out_what_is_already_home()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/one.txt", "rev1", "12345");
+        _dropbox.AddFile("/notes/two.txt", "rev1", "1234567890");
+        await _imports.ImportAsync("/notes/one.txt", CancellationToken.None);
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1_000_000, TotalBytes: 2_000_000)
+        };
+
+        var estimate = await imports.MeasureAsync("/notes", CancellationToken.None);
+
+        Assert.Equal(2, estimate.FileCount);
+        Assert.Equal(15, estimate.Bytes);
+        Assert.Equal(1, estimate.NewFileCount);
+        Assert.Equal(10, estimate.NewBytes);
+        Assert.Equal(1_000_000, estimate.FreeBytes);
+        Assert.True(estimate.Fits);
+    }
+
+    [Fact]
+    public async Task Measuring_says_when_a_folder_would_not_fit()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/big.bin", "rev1", new string('x', 4096));
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+
+        var estimate = await imports.MeasureAsync("/notes", CancellationToken.None);
+
+        Assert.Equal(4096, estimate.NewBytes);
+        Assert.False(estimate.Fits);
+    }
+
+    [Fact]
     public async Task A_hidden_path_is_refused_outright()
     {
         _dropbox.AddFile("/.config/secrets.txt", "rev1", "nope");
@@ -172,7 +411,8 @@ public sealed class ImportTests : IDisposable
         _dropbox.AddFolder("/notes");
         for (var index = 0; index < 5; index++)
             _dropbox.AddFile($"/notes/file{index}.txt", "rev1", $"File {index}.");
-        var imports = new ImportService(_library, new ImportLog(), _dropbox) { MaxEntries = 2 };
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+            { MaxEntries = 2 };
 
         var result = await imports.ImportAsync("/notes", CancellationToken.None);
 
@@ -181,10 +421,119 @@ public sealed class ImportTests : IDisposable
         Assert.Contains(result.Skipped, skip => skip.Reason.Contains("wasn’t visited"));
     }
 
+    [Fact]
+    public async Task An_import_runs_on_its_own_and_says_how_far_it_has_got()
+    {
+        _dropbox.AddFolder("/notes");
+        for (var index = 0; index < 3; index++)
+            _dropbox.AddFile($"/notes/file{index}.txt", "rev1", $"File {index}.");
+        var jobs = new ImportJobs(_imports, NullLogger<ImportJobs>.Instance);
+
+        var started = jobs.Start("/notes", "notes");
+
+        // The request that starts an import answers before the files arrive.
+        Assert.True(started.Running);
+        Assert.Equal("notes", started.Label);
+        var finished = await Settled(jobs);
+        Assert.Equal(ImportStage.Done, finished.Stage);
+        Assert.Equal(3, finished.Result!.ImportedCount);
+        Assert.Equal(3, finished.TotalFiles);
+        Assert.Equal(3, finished.CompletedFiles);
+        Assert.Null(finished.CurrentFile);
+    }
+
+    [Fact]
+    public async Task A_second_import_is_refused_while_one_is_still_running()
+    {
+        _dropbox.AddFile("/notes/one.txt", "rev1", "One.");
+        _dropbox.Hold = new TaskCompletionSource();
+        var jobs = new ImportJobs(_imports, NullLogger<ImportJobs>.Instance);
+        jobs.Start("/notes/one.txt", "one.txt");
+        await WaitFor(() => jobs.Current is { Stage: ImportStage.Bringing });
+
+        var error = Assert.Throws<LibraryException>(() => jobs.Start("/notes/one.txt", "one.txt"));
+
+        Assert.Equal("busy", error.Code);
+        _dropbox.Hold.SetResult();
+        await Settled(jobs);
+    }
+
+    [Fact]
+    public async Task Stopping_an_import_ends_it_rather_than_working_through_the_rest()
+    {
+        _dropbox.AddFolder("/notes");
+        for (var index = 0; index < 3; index++)
+            _dropbox.AddFile($"/notes/file{index}.txt", "rev1", $"File {index}.");
+        _dropbox.Hold = new TaskCompletionSource();
+        var jobs = new ImportJobs(_imports, NullLogger<ImportJobs>.Instance);
+        jobs.Start("/notes", "notes");
+        await WaitFor(() => jobs.Current is { Stage: ImportStage.Bringing });
+
+        jobs.Cancel();
+
+        var finished = await Settled(jobs);
+        Assert.Equal(ImportStage.Stopped, finished.Stage);
+        Assert.Null(finished.CurrentFile);
+        // Stopping is not a failure, and nothing half-written is left behind.
+        Assert.Null(finished.Error);
+        Assert.Empty(Directory.GetFiles(Path.Combine(_root, ".homebase"), "import.*"));
+    }
+
+    [Fact]
+    public async Task An_import_that_cannot_start_is_reported_on_the_job_rather_than_thrown_away()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/big.bin", "rev1", new string('x', 4096));
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+        var jobs = new ImportJobs(imports, NullLogger<ImportJobs>.Instance);
+
+        jobs.Start("/notes", "notes");
+
+        var finished = await Settled(jobs);
+        Assert.Equal(ImportStage.Failed, finished.Stage);
+        Assert.Contains("free", finished.Error);
+    }
+
+    private static async Task<ImportJob> Settled(ImportJobs jobs)
+    {
+        await WaitFor(() => jobs.Current is { Running: false });
+        return jobs.Current!;
+    }
+
+    private static async Task WaitFor(Func<bool> reached)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (reached()) return;
+            await Task.Delay(15);
+        }
+        throw new TimeoutException("The import never reached the state this test was waiting for.");
+    }
+
     public void Dispose()
     {
         _library.Dispose();
         try { Directory.Delete(_temporary, true); } catch (IOException) { }
+    }
+
+    /// <summary>A download that fails partway, the way a dropped connection or a full disk does.</summary>
+    private sealed class UnreadableStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new IOException("The connection dropped.");
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class FakeDropbox : IDropboxApi
@@ -197,6 +546,10 @@ public sealed class ImportTests : IDisposable
         public Action? WhileDownloading { get; set; }
         public string? FailDownloadOf { get; set; }
         public string? FailListingOf { get; set; }
+        public string? TimeOutDownloadOf { get; set; }
+        public string? FailWriteOf { get; set; }
+        /// <summary>Keeps downloads open so a test can look at an import that is still running.</summary>
+        public TaskCompletionSource? Hold { get; set; }
 
         public void AddFile(string path, string rev, string contents)
         {
@@ -229,13 +582,19 @@ public sealed class ImportTests : IDisposable
         public Task<DropboxEntry> GetMetadataAsync(string path, CancellationToken cancellationToken) =>
             Task.FromResult(Require(path));
 
-        public Task<Stream> DownloadAsync(string path, CancellationToken cancellationToken)
+        public async Task<Stream> DownloadAsync(string path, CancellationToken cancellationToken)
         {
             Require(path);
+            if (Hold is not null) await Hold.Task.WaitAsync(cancellationToken);
             if (FailDownloadOf is not null && path.Equals(FailDownloadOf, StringComparison.OrdinalIgnoreCase))
                 throw new LibraryException("Dropbox couldn’t send this file.", "provider_failed");
+            if (TimeOutDownloadOf is not null && path.Equals(TimeOutDownloadOf, StringComparison.OrdinalIgnoreCase))
+                // How HttpClient reports its own timeout, as opposed to a cancelled request.
+                throw new TaskCanceledException("A task was canceled.", new TimeoutException());
             WhileDownloading?.Invoke();
-            return Task.FromResult<Stream>(new MemoryStream(_contents[path], writable: false));
+            if (FailWriteOf is not null && path.Equals(FailWriteOf, StringComparison.OrdinalIgnoreCase))
+                return new UnreadableStream();
+            return new MemoryStream(_contents[path], writable: false);
         }
     }
 }

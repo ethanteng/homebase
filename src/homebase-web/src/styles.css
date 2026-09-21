@@ -213,6 +213,12 @@ p {
   text-overflow: ellipsis;
   margin-top: 7px;
 }
+.drive-space {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 5px;
+}
 .drive-card button {
   display: flex;
   align-items: center;
@@ -1418,4 +1424,73 @@ tbody tr.selected {
 .notice-card .field-help {
   margin: 0;
   max-width: 62ch;
+}
+
+.storage-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.storage-note span {
+  font-size: 11px;
+  line-height: 1.8;
+}
+/* A folder that won't fit has to read differently from one that simply hasn't been measured. */
+.import-list li .muted.will-not-fit {
+  color: var(--danger-text);
+}
+
+.import-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-top: 26px;
+}
+.import-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+/* Nothing is downloading yet, so a share of the way along would be a lie. */
+.progress-fill.counting {
+  width: 30%;
+  animation: counting 1.4s ease-in-out infinite;
+}
+@keyframes counting {
+  0% {
+    margin-left: -30%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+.import-progress .current-file {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill {
+    transition: none;
+  }
+  .progress-fill.counting {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
 }

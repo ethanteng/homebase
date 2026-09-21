@@ -1,19 +1,25 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   ChevronRight,
   CloudDownload,
+  CircleStop,
   File,
   Folder,
+  HardDrive,
   LoaderCircle,
+  Ruler,
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize } from "./api";
 import type {
   DropboxEntry,
   DropboxStatus,
+  ImportEstimate,
+  ImportJob,
   ImportResult,
   ImportedFile,
+  StorageReport,
 } from "./api";
 
 const dateFormat = new Intl.DateTimeFormat(undefined, {
@@ -23,8 +29,26 @@ const dateFormat = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 
-export default function DropboxPanel() {
+// A folder’s size costs a walk of the whole tree, so it reads as "Folder" until asked for.
+function describeFolder(estimate: ImportEstimate | undefined): string {
+  if (!estimate) return "Folder";
+  const files = `${estimate.fileCount} file${estimate.fileCount === 1 ? "" : "s"}`;
+  const total = `${formatSize(estimate.bytes)} · ${files}`;
+  if (estimate.newFileCount === 0) return `${total} · all already home`;
+  const arriving = `${formatSize(estimate.newBytes)} to bring home`;
+  return estimate.fits
+    ? `${total} · ${arriving}`
+    : `${total} · ${arriving} · won’t fit on your drive`;
+}
+
+interface Props {
+  onImported: () => void;
+}
+
+export default function DropboxPanel({ onImported }: Props) {
   const [status, setStatus] = useState<DropboxStatus | null>(null);
+  const [storage, setStorage] = useState<StorageReport | null>(null);
+  const [sizes, setSizes] = useState<Record<string, ImportEstimate>>({});
   const [imported, setImported] = useState<ImportedFile[]>([]);
   const [entries, setEntries] = useState<DropboxEntry[] | null>(null);
   const [remotePath, setRemotePath] = useState("");
@@ -32,12 +56,23 @@ export default function DropboxPanel() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [job, setJob] = useState<ImportJob | null>(null);
+  // An import is finished with once its outcome has been shown, however often it is polled after.
+  const settled = useRef<string | null>(null);
 
   const loadImported = useCallback(async () => {
     try {
       setImported(await api<ImportedFile[]>("/imports"));
     } catch {
       // A failed read shouldn't replace what's already on screen.
+    }
+  }, []);
+
+  const loadStorage = useCallback(async () => {
+    try {
+      setStorage(await api<StorageReport>("/storage"));
+    } catch {
+      // Knowing the free space is a help, not a precondition.
     }
   }, []);
 
@@ -63,8 +98,70 @@ export default function DropboxPanel() {
   }, []);
 
   useEffect(() => {
-    if (status?.connected) void loadImported();
-  }, [status?.connected, loadImported]);
+    if (!status?.connected) return;
+    void loadImported();
+    void loadStorage();
+    // An import outlives the page that started it, so a reload finds it rather than losing it —
+    // including one that finished while the panel was closed. Leaving the page is encouraged, so
+    // what an import ended up doing has to survive coming back to look.
+    api<{ job: ImportJob | null }>("/imports/job")
+      .then(({ job: existing }) => {
+        if (existing) setJob(existing);
+      })
+      .catch(() => {
+        // Nothing to pick up is the ordinary case, not a problem to report.
+      });
+  }, [status?.connected, loadImported, loadStorage]);
+
+  useEffect(() => {
+    if (!job?.running) return;
+    let watching = true;
+    const timer = window.setInterval(async () => {
+      try {
+        const { job: latest } = await api<{ job: ImportJob | null }>("/imports/job");
+        if (watching && latest) setJob(latest);
+      } catch {
+        // A missed poll isn't worth tearing the panel down for; the next one will do.
+      }
+    }, 700);
+    return () => {
+      watching = false;
+      window.clearInterval(timer);
+    };
+  }, [job?.running]);
+
+  useEffect(() => {
+    if (!job || job.running || settled.current === job.id) return;
+    settled.current = job.id;
+    if (job.stage === "Failed") {
+      setError(job.error ?? "Uncloud couldn’t bring these files home.");
+    } else if (job.stage === "Stopped") {
+      setNotice(
+        `Stopped bringing ${job.label} home. The ${formatSize(job.bytes)} that arrived is yours and stays.`,
+      );
+    } else if (job.result) {
+      setResult(job.result);
+      const brought =
+        job.result.importedCount === 0
+          ? `Nothing new to bring home from ${job.label}.`
+          : `Brought ${job.result.importedCount} file${job.result.importedCount === 1 ? "" : "s"} home (${formatSize(job.result.bytes)}).`;
+      // A folder left behind is the part worth saying out loud: the rest of the import succeeded,
+      // so nothing else on screen would tell you that anything is missing.
+      const problemCount = job.result.skipped.filter((skip) => !skip.expected).length;
+      setNotice(
+        problemCount === 0
+          ? brought
+          : `${brought} ${problemCount} item${problemCount === 1 ? "" : "s"} not brought home — see below.`,
+      );
+    }
+    void loadImported();
+    void loadStorage();
+    // Every measurement was taken against the old set of imported files: a folder just brought
+    // home would still offer to bring it home again. Measuring is cheap to ask for a second time.
+    setSizes({});
+    // Files landed in the library, so the browser's view of it is now out of date.
+    onImported();
+  }, [job, loadImported, loadStorage, onImported]);
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label);
@@ -97,20 +194,32 @@ export default function DropboxPanel() {
       setRemotePath(path);
     });
 
+  const measure = (entry: DropboxEntry) =>
+    run(`measure:${entry.pathLower}`, async () => {
+      const estimate = await api<ImportEstimate>(
+        `/imports/estimate?${new URLSearchParams({ remotePath: entry.pathLower })}`,
+      );
+      setSizes((current) => ({ ...current, [entry.pathLower]: estimate }));
+    });
+
   const bringHome = (entry: DropboxEntry) =>
     run(entry.pathLower, async () => {
-      const outcome = await api<ImportResult>("/imports", {
+      setNotice("");
+      setResult(null);
+      const { job: started } = await api<{ job: ImportJob }>("/imports", {
         method: "POST",
-        body: JSON.stringify({ remotePath: entry.pathLower }),
+        body: JSON.stringify({ remotePath: entry.pathLower, label: entry.name }),
       });
-      setResult(outcome);
-      setNotice(
-        outcome.importedCount === 0
-          ? `Nothing new to bring home from ${entry.name}.`
-          : `Brought ${outcome.importedCount} file${outcome.importedCount === 1 ? "" : "s"} home (${formatSize(outcome.bytes)}).`,
-      );
-      await loadImported();
+      setJob(started);
     });
+
+  const stop = () =>
+    run("stop", async () => {
+      await api<{ job: ImportJob | null }>("/imports/job/cancel", { method: "POST" });
+    });
+
+  // Only the skips a person can act on; "already imported" is the ordinary case.
+  const problems = (result?.skipped ?? []).filter((skip) => !skip.expected);
 
   if (error && !status)
     return (
@@ -184,6 +293,92 @@ export default function DropboxPanel() {
         </div>
       ) : (
         <>
+          {problems.length > 0 && (
+            <section className="import-section">
+              <h2>Not brought home</h2>
+              <ul className="import-list">
+                {problems.map((skip) => (
+                  <li key={skip.remotePath}>
+                    <TriangleAlert size={18} strokeWidth={1.6} />
+                    <div>
+                      <strong>{skip.remotePath}</strong>
+                      <span className="muted">{skip.reason}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {job?.running && (
+            <section className="import-progress" aria-live="polite">
+              <div className="import-progress-head">
+                <strong>
+                  {job.stage === "Measuring"
+                    ? `Looking through ${job.label}…`
+                    : `Bringing ${job.label} home`}
+                </strong>
+                <button
+                  className="button"
+                  onClick={() => void stop()}
+                  disabled={busy === "stop"}
+                >
+                  <CircleStop size={15} />
+                  {busy === "stop" ? "Stopping…" : "Stop"}
+                </button>
+              </div>
+              <div
+                className="progress-track"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={job.totalFiles || undefined}
+                aria-valuenow={job.totalFiles ? job.completedFiles : undefined}
+                aria-valuetext={
+                  job.totalFiles
+                    ? `${job.completedFiles} of ${job.totalFiles} files`
+                    : "Counting the files"
+                }
+              >
+                <div
+                  className={`progress-fill${job.totalFiles ? "" : " counting"}`}
+                  style={
+                    job.totalFiles
+                      ? {
+                          width: `${Math.round((job.completedFiles / job.totalFiles) * 100)}%`,
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+              <span className="muted">
+                {job.totalFiles === 0
+                  ? "Counting the files, before anything is downloaded."
+                  : `${job.completedFiles} of ${job.totalFiles} file${job.totalFiles === 1 ? "" : "s"} · ${formatSize(job.bytes)} brought home`}
+              </span>
+              {job.currentFile && (
+                <span className="muted current-file">{job.currentFile}</span>
+              )}
+              <p className="field-help">
+                You can leave this page. The import keeps going, and comes back
+                here when you return.
+              </p>
+            </section>
+          )}
+
+          {storage?.freeBytes != null && (
+            <p className="library-note storage-note">
+              <HardDrive size={17} />
+              <span>
+                {formatSize(storage.freeBytes)} free
+                {storage.totalBytes != null
+                  ? ` of ${formatSize(storage.totalBytes)}`
+                  : ""}{" "}
+                on your Uncloud drive. Uncloud checks that a folder fits before
+                it brings anything home.
+              </span>
+            </p>
+          )}
+
           <section className="import-section">
             <div className="import-section-head">
               <h2>
@@ -225,10 +420,26 @@ export default function DropboxPanel() {
                     )}
                     <div>
                       <strong>{entry.name}</strong>
-                      <span className="muted">
-                        {entry.isFolder ? "Folder" : formatSize(entry.size)}
+                      <span
+                        className={`muted${sizes[entry.pathLower] && !sizes[entry.pathLower].fits ? " will-not-fit" : ""}`}
+                      >
+                        {entry.isFolder
+                          ? describeFolder(sizes[entry.pathLower])
+                          : formatSize(entry.size)}
                       </span>
                     </div>
+                    {entry.isFolder && !sizes[entry.pathLower] && (
+                      <button
+                        className="button"
+                        onClick={() => void measure(entry)}
+                        disabled={busy === `measure:${entry.pathLower}`}
+                      >
+                        <Ruler size={15} />
+                        {busy === `measure:${entry.pathLower}`
+                          ? "Measuring…"
+                          : "Check size"}
+                      </button>
+                    )}
                     {entry.isFolder && (
                       <button
                         className="button"
@@ -242,33 +453,18 @@ export default function DropboxPanel() {
                     <button
                       className="button primary"
                       onClick={() => void bringHome(entry)}
-                      disabled={busy === entry.pathLower}
+                      disabled={job?.running || busy === entry.pathLower}
                     >
                       <CloudDownload size={15} />
-                      {busy === entry.pathLower ? "Bringing…" : "Bring home"}
+                      {job?.running && job.remotePath === entry.pathLower
+                        ? "Bringing…"
+                        : "Bring home"}
                     </button>
                   </li>
                 ))}
               </ul>
             )}
           </section>
-
-          {result && result.skipped.length > 0 && (
-            <section className="import-section">
-              <h2>Not brought home</h2>
-              <ul className="import-list">
-                {result.skipped.map((skip) => (
-                  <li key={skip.remotePath}>
-                    <TriangleAlert size={18} strokeWidth={1.6} />
-                    <div>
-                      <strong>{skip.remotePath}</strong>
-                      <span className="muted">{skip.reason}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
 
           <section className="import-section">
             <div className="import-section-head">

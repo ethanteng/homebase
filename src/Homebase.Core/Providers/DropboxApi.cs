@@ -12,9 +12,20 @@ public sealed class DropboxApi(HttpClient client, DropboxTokenStore tokens, stri
 {
     private const string Api = "https://api.dropboxapi.com";
     private const string Content = "https://content.dropboxapi.com";
+    // However long Dropbox asks for, an import shouldn't stall on one folder for minutes.
+    private static readonly TimeSpan LongestWait = TimeSpan.FromSeconds(30);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private string? _accessToken;
     private DateTimeOffset _expiresAt = DateTimeOffset.MinValue;
+
+    /// <summary>
+    /// Attempts per request. Dropbox rate-limits a long recursive import, and a refusal it asks
+    /// us to retry must not read as a folder that can't be listed.
+    /// </summary>
+    public int MaxAttempts { get; init; } = 3;
+
+    /// <summary>Waiting between attempts, replaced in tests so they don't sleep.</summary>
+    public Func<TimeSpan, CancellationToken, Task> Wait { get; init; } = Task.Delay;
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(appKey);
     public bool IsConnected => IsConfigured && tokens.Load() is not null;
@@ -102,28 +113,54 @@ public sealed class DropboxApi(HttpClient client, DropboxTokenStore tokens, stri
 
     public async Task<Stream> DownloadAsync(string path, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{Content}/2/files/download");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await AccessTokenAsync(cancellationToken));
-        request.Headers.Add("Dropbox-API-Arg", JsonSerializer.Serialize(new { path }));
-        var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        for (var attempt = 1; ; attempt++)
         {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{Content}/2/files/download");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await AccessTokenAsync(cancellationToken));
+            request.Headers.Add("Dropbox-API-Arg", JsonSerializer.Serialize(new { path }));
+            // The response outlives this method when it succeeds: the caller reads the stream.
+            var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (response.IsSuccessStatusCode) return await response.Content.ReadAsStreamAsync(cancellationToken);
+
             var detail = await response.Content.ReadAsStringAsync(cancellationToken);
+            var status = response.StatusCode;
+            var wait = RetryAfter(response, attempt);
             response.Dispose();
-            throw Failure(response.StatusCode, detail);
+            if (wait is null) throw Failure(status, detail);
+            await Wait(wait.Value, cancellationToken);
         }
-        return await response.Content.ReadAsStreamAsync(cancellationToken);
     }
 
     private async Task<JsonDocument> RpcAsync(string path, string? body, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{Api}{path}");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await AccessTokenAsync(cancellationToken));
-        if (body is not null) request.Content = new StringContent(body, Encoding.UTF8, "application/json");
-        using var response = await client.SendAsync(request, cancellationToken);
-        var text = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode) throw Failure(response.StatusCode, text);
-        return JsonDocument.Parse(text);
+        for (var attempt = 1; ; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{Api}{path}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await AccessTokenAsync(cancellationToken));
+            if (body is not null) request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+            using var response = await client.SendAsync(request, cancellationToken);
+            var text = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (response.IsSuccessStatusCode) return JsonDocument.Parse(text);
+            if (RetryAfter(response, attempt) is not { } wait) throw Failure(response.StatusCode, text);
+            await Wait(wait, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// How long to wait before asking again, or null when this refusal is final. Dropbox asks for a
+    /// pause with 429 during a long import and can have a moment of its own with a 5xx; anything
+    /// else — a missing path, an expired connection — would only fail the same way again.
+    /// </summary>
+    private TimeSpan? RetryAfter(HttpResponseMessage response, int attempt)
+    {
+        if (attempt >= MaxAttempts) return null;
+        var status = (int)response.StatusCode;
+        if (status != 429 && status < 500) return null;
+        // Dropbox's own number beats a guess, but it isn't a licence to wait all afternoon.
+        var asked = response.Headers.RetryAfter?.Delta
+            ?? (response.Headers.RetryAfter?.Date - DateTimeOffset.UtcNow);
+        var wait = asked ?? TimeSpan.FromSeconds(1 << (attempt - 1));
+        return wait < TimeSpan.Zero ? TimeSpan.Zero : wait > LongestWait ? LongestWait : wait;
     }
 
     private static LibraryException Failure(System.Net.HttpStatusCode status, string detail) => status switch

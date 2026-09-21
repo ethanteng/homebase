@@ -16,7 +16,11 @@ public sealed record ImportedFile(
 
 public sealed record ImportedItem(string LocalPath, string RemotePath, long Size);
 
-public sealed record SkippedItem(string RemotePath, string Reason);
+/// <summary>
+/// Something an import passed over. <paramref name="Expected"/> marks the ordinary outcomes —
+/// a file that is already home — apart from the ones worth a person's attention.
+/// </summary>
+public sealed record SkippedItem(string RemotePath, string Reason, bool Expected = false);
 
 public sealed record ImportResult(
     IReadOnlyList<ImportedItem> Imported,
@@ -26,3 +30,18 @@ public sealed record ImportResult(
     public int ImportedCount => Imported.Count;
     public int SkippedCount => Skipped.Count;
 }
+
+/// <summary>
+/// What a file or folder would bring, measured before anything is downloaded. New counts leave out
+/// what is already home, since bringing a folder again costs nothing on disk.
+/// </summary>
+public sealed record ImportEstimate(
+    int FileCount,
+    long Bytes,
+    int NewFileCount,
+    long NewBytes,
+    long? FreeBytes,
+    bool Fits);
+
+/// <summary>How far an import has got. Bytes are what has arrived, not what was asked for.</summary>
+public sealed record ImportProgress(int TotalFiles, int CompletedFiles, long Bytes, string? CurrentFile);

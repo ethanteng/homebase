@@ -17,6 +17,20 @@ export interface DirectoryListing {
   indexedAt: string;
 }
 
+export interface StorageReport {
+  freeBytes: number | null;
+  totalBytes: number | null;
+}
+
+export interface ImportEstimate {
+  fileCount: number;
+  bytes: number;
+  newFileCount: number;
+  newBytes: number;
+  freeBytes: number | null;
+  fits: boolean;
+}
+
 export interface DropboxStatus {
   configured: boolean;
   connected: boolean;
@@ -49,6 +63,8 @@ export interface ImportedItem {
 export interface SkippedItem {
   remotePath: string;
   reason: string;
+  // A file already home is an ordinary outcome, not a problem to raise.
+  expected: boolean;
 }
 export interface ImportResult {
   imported: ImportedItem[];
@@ -56,6 +72,24 @@ export interface ImportResult {
   bytes: number;
   importedCount: number;
   skippedCount: number;
+}
+
+export type ImportStage = "Measuring" | "Bringing" | "Done" | "Stopped" | "Failed";
+
+export interface ImportJob {
+  id: string;
+  remotePath: string;
+  label: string;
+  stage: ImportStage;
+  totalFiles: number;
+  completedFiles: number;
+  bytes: number;
+  currentFile: string | null;
+  result: ImportResult | null;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  running: boolean;
 }
 
 export interface NodeDevice {

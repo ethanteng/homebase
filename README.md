@@ -87,6 +87,20 @@ Open **Dropbox** in the sidebar, connect the account, and bring a file or a whol
 land in `Files/Dropbox/` as ordinary files, and the normal browser shows them. Importing a folder
 again brings only what is new; anything already imported, hidden, or blocked by an existing file is
 listed as skipped rather than silently passed over, and one unreadable file doesn't abandon the rest.
+A folder Dropbox refuses to list is retried before Uncloud gives up on it, and giving up is reported
+at the top of the panel and written to the log rather than left to be noticed.
+
+An import runs on its own rather than inside the request that started it, so the panel shows how
+far it has got — the file it is on, how many of how many, and how much has arrived — and **Stop**
+ends it. Whatever already arrived stays; only the rest is dropped. Leaving the page or reloading
+doesn't cancel anything: the import carries on and the panel picks it back up.
+
+The sidebar shows the space left on the drive your folder lives on. A file's size is listed beside
+it; a folder's costs a walk of its whole tree, so **Check size** asks for it and reports what the
+folder holds, how much of that isn't home yet, and whether it fits. Every import measures the same
+way before downloading anything, and refuses outright when the files wouldn't fit — running the
+drive out of room halfway through a folder is worse than not starting. Some room is always left
+over, so the local index still has somewhere to write.
 
 Sign-in uses the authorization-code flow with PKCE, so there is no client secret; the refresh token
 is written with owner-only permissions to the preference directory, never into the library folder
@@ -131,7 +145,7 @@ The standalone **Uncloud** messaging page for **uncloud.life** is in [`landing/`
 ./scripts/check.sh
 ```
 
-Builds/type-checks the frontend and runs backend integration tests for persistence, indexing, file integrity/downloads, root switching, unavailable folders, symlinks, traversal, local request boundaries, Dropbox imports (single files, whole folders, skipping what's already here, and refusing to overwrite anything it didn't write), and node pairing, folder sharing and accepting an offered folder (device-ID validation, refusing the library root or any hidden or out-of-bounds path, and keeping Syncthing's state where preferences live rather than somewhere temporary). Tests use disposable fixtures and isolated settings, never your selected library.
+Builds/type-checks the frontend and runs backend integration tests for persistence, indexing, file integrity/downloads, root switching, unavailable folders, symlinks, traversal, local request boundaries, Dropbox imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked), and node pairing, folder sharing and accepting an offered folder (device-ID validation, refusing the library root or any hidden or out-of-bounds path, and keeping Syncthing's state where preferences live rather than somewhere temporary). Tests use disposable fixtures and isolated settings, never your selected library.
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 
