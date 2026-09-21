@@ -11,22 +11,20 @@ public sealed class LoginThrottle
 {
     public int Allowed { get; init; } = 10;
     public TimeSpan Window { get; init; } = TimeSpan.FromMinutes(15);
-    /// <summary>Replaced in tests so they don't wait a quarter of an hour.</summary>
-    public Func<DateTimeOffset> Now { get; init; } = () => DateTimeOffset.UtcNow;
 
     private readonly ConcurrentDictionary<string, (int Count, DateTimeOffset Until)> _failures = new();
 
     public void RequireAllowed(string? username, string? address)
     {
         foreach (var key in Keys(username, address))
-            if (_failures.TryGetValue(key, out var entry) && entry.Count >= Allowed && Now() < entry.Until)
+            if (_failures.TryGetValue(key, out var entry) && entry.Count >= Allowed && DateTimeOffset.UtcNow < entry.Until)
                 throw new LibraryException(
                     "Too many sign-in attempts. Wait a few minutes and try again.", "too_many_attempts");
     }
 
     public void RecordFailure(string? username, string? address)
     {
-        var now = Now();
+        var now = DateTimeOffset.UtcNow;
         foreach (var key in Keys(username, address))
             _failures.AddOrUpdate(key, (1, now + Window),
                 (_, entry) => now >= entry.Until ? (1, now + Window) : (entry.Count + 1, entry.Until));

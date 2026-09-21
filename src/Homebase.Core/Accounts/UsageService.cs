@@ -11,14 +11,13 @@ public sealed class UsageService
 {
     /// <summary>How long an answer stands before the walk is repeated.</summary>
     public TimeSpan Freshness { get; init; } = TimeSpan.FromMinutes(1);
-    public Func<DateTimeOffset> Now { get; init; } = () => DateTimeOffset.UtcNow;
 
     private readonly ConcurrentDictionary<string, (long Bytes, DateTimeOffset At)> _measured = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _walks = new(StringComparer.Ordinal);
 
     public long UsedBytes(string root)
     {
-        var now = Now();
+        var now = DateTimeOffset.UtcNow;
         if (_measured.TryGetValue(root, out var cached) && now - cached.At < Freshness) return cached.Bytes;
 
         // One walk per folder at a time: a page that asks twice shouldn't walk the tree twice.
@@ -26,9 +25,9 @@ public sealed class UsageService
         gate.Wait();
         try
         {
-            if (_measured.TryGetValue(root, out cached) && Now() - cached.At < Freshness) return cached.Bytes;
+            if (_measured.TryGetValue(root, out cached) && DateTimeOffset.UtcNow - cached.At < Freshness) return cached.Bytes;
             var bytes = Walk(root);
-            _measured[root] = (bytes, Now());
+            _measured[root] = (bytes, DateTimeOffset.UtcNow);
             return bytes;
         }
         finally { gate.Release(); }

@@ -394,6 +394,18 @@ app.MapPost("/api/folder-picker", async (IFolderPicker picker, CancellationToken
 app.MapGet("/api/users", (UserStore users, HostService host, UsageService usage) =>
 {
     var root = host.RootPath;
+    // A walk of each account's folder, cached for a minute. Fine for a household; if a host ever
+    // holds many accounts, this is the line to make lazy.
+    long? Used(string id)
+    {
+        if (root is null) return null;
+        try { return usage.UsedBytes(UserPaths.RootFor(root, id)); }
+        catch (Exception error) when (error is LibraryException or IOException or UnauthorizedAccessException)
+        {
+            // A drive that isn't plugged in is no reason to be unable to manage accounts.
+            return null;
+        }
+    }
     return Results.Ok(users.List().Select(account => new
     {
         account.Id,
@@ -402,9 +414,7 @@ app.MapGet("/api/users", (UserStore users, HostService host, UsageService usage)
         account.IsAdmin,
         account.CreatedAt,
         account.DisabledAt,
-        // A walk of each account's folder, cached for a minute. Fine for a household; if a host
-        // ever holds many accounts this is the line to make lazy.
-        usedBytes = root is null ? null : (long?)usage.UsedBytes(UserPaths.RootFor(root, account.Id))
+        usedBytes = Used(account.Id)
     }));
 });
 

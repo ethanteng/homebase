@@ -1,22 +1,30 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   CloudDownload,
   Files,
   Laptop,
-  FolderOpen,
+  LoaderCircle,
+  LogOut,
   HardDrive,
   House,
-  LoaderCircle,
   Settings2,
+  UserRound,
+  Users,
   X,
 } from "lucide-react";
-import { api, formatSize } from "./api";
-import type { LibraryState, StorageReport } from "./api";
+import { api, formatSize, SignedOutError } from "./api";
+import type { LibraryState, Session, StorageReport, User } from "./api";
 import DropboxPanel from "./DropboxPanel";
 import NodesPanel from "./NodesPanel";
 import FileBrowser from "./FileBrowser";
-import FolderSetup from "./FolderSetup";
+import HostSetup from "./HostSetup";
+import SignIn from "./SignIn";
+import UsersPanel from "./UsersPanel";
+import AccountPanel from "./AccountPanel";
+
+type View = "files" | "dropbox" | "nodes" | "users";
+type Dialog = "host" | "account" | null;
 
 function readPath() {
   try {
@@ -27,33 +35,60 @@ function readPath() {
 }
 
 export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
   const [library, setLibrary] = useState<LibraryState | null>(null);
   const [storage, setStorage] = useState<StorageReport | null>(null);
   const [error, setError] = useState("");
   const [path, setPath] = useState(readPath);
   const [revision, setRevision] = useState(0);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [view, setView] = useState<"files" | "dropbox" | "nodes">(
-    () => (window.location.search.includes("dropbox=") ? "dropbox" : "files"),
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const [view, setView] = useState<View>(() =>
+    window.location.search.includes("dropbox=") ? "dropbox" : "files",
   );
-  const dialog = useRef<HTMLDialogElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  const me = session?.user ?? null;
+
+  // A session that ends while the app is open returns everyone to the sign-in screen rather
+  // than to a page of errors nobody can act on.
+  const signedOut = useCallback(() => {
+    setSession((current) =>
+      current ? { ...current, user: null } : { setupNeeded: false, hostConfigured: false, user: null },
+    );
+    setLibrary(null);
+    setStorage(null);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    api<LibraryState>("/library", { signal: controller.signal })
-      .then(setLibrary)
-      .catch((error: unknown) => {
+    api<Session>("/session", { signal: controller.signal })
+      .then(setSession)
+      .catch((failure: unknown) => {
         if (!controller.signal.aborted)
           setError(
-            error instanceof Error
-              ? error.message
-              : "Couldn’t connect to Uncloud.",
+            failure instanceof Error
+              ? failure.message
+              : "Couldn’t reach this Uncloud.",
           );
       });
     return () => controller.abort();
   }, []);
+
   useEffect(() => {
-    // Free space changes as files arrive, so this follows the same revision the browser does.
+    if (!me) return;
+    const controller = new AbortController();
+    api<LibraryState>("/library", { signal: controller.signal })
+      .then(setLibrary)
+      .catch((failure: unknown) => {
+        if (controller.signal.aborted) return;
+        if (failure instanceof SignedOutError) signedOut();
+        // A host with no folder yet is not an error for a member; the screen below says so.
+        else setLibrary(null);
+      });
+    return () => controller.abort();
+  }, [me, revision, signedOut]);
+
+  useEffect(() => {
     if (!library?.rootPath) return;
     const controller = new AbortController();
     api<StorageReport>("/storage", { signal: controller.signal })
@@ -63,33 +98,100 @@ export default function App() {
       });
     return () => controller.abort();
   }, [library?.rootPath, revision]);
+
   useEffect(() => {
     const onHash = () => setPath(readPath());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+
   useEffect(() => {
-    if (settingsOpen) dialog.current?.showModal();
-    else dialog.current?.close();
-  }, [settingsOpen]);
+    if (dialog) dialogRef.current?.showModal();
+    else dialogRef.current?.close();
+  }, [dialog]);
 
   function navigate(nextPath: string) {
     window.location.hash = encodeURIComponent(nextPath);
     setPath(nextPath);
     window.scrollTo({ top: 0 });
   }
-  function onSaved(next: LibraryState) {
-    setLibrary(next);
-    setRevision((value) => value + 1);
+
+  function onSignedIn(user: User) {
+    setSession({ setupNeeded: false, hostConfigured: true, user });
+    setError("");
+    setView("files");
     navigate("");
-    setSettingsOpen(false);
   }
+
+  async function signOut() {
+    try {
+      await api("/session", { method: "DELETE" });
+    } catch {
+      // Whether or not the host heard, this browser is done with the session.
+    }
+    signedOut();
+  }
+
+  if (error)
+    return (
+      <div className="app-shell">
+        <main>
+          <div className="main-content">
+            <div className="empty-state connection-error" role="alert">
+              <HardDrive size={35} />
+              <h1>Let’s reconnect</h1>
+              <p>{error}</p>
+              <p className="muted">Make sure this Uncloud is still running.</p>
+              <button
+                className="button primary"
+                onClick={() => window.location.reload()}
+              >
+                Try again
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+
+  if (!session)
+    return (
+      <div className="app-shell">
+        <main>
+          <div className="main-content">
+            <div className="file-loading" role="status">
+              <LoaderCircle className="spin" size={24} />
+              Opening Uncloud…
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+
+  if (!me)
+    return (
+      <div className="app-shell">
+        <main>
+          <div className="main-content">
+            <SignIn session={session} onSignedIn={onSignedIn} />
+          </div>
+        </main>
+      </div>
+    );
+
+  const hasFolder = library?.rootPath != null;
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <a href="#" className="brand" aria-label="Uncloud home">
-          <img className="brand-mark" src="/uncloud.svg" width="34" height="34" alt="" />
+          <img
+            className="brand-mark"
+            src="/uncloud.svg"
+            width="34"
+            height="34"
+            alt=""
+          />
           uncloud<span className="version">v0</span>
         </a>
         <div className="sidebar-section">
@@ -102,31 +204,42 @@ export default function App() {
             }}
           >
             <Files size={19} />
-            All files<span className="nav-shortcut">⌂</span>
+            My files<span className="nav-shortcut">⌂</span>
           </button>
           <button
             className={`nav-item${view === "dropbox" ? " active" : ""}`}
             onClick={() => setView("dropbox")}
-            disabled={!library?.rootPath}
+            disabled={!hasFolder}
           >
             <CloudDownload size={18} />
             Dropbox
           </button>
-          <button
-            className={`nav-item${view === "nodes" ? " active" : ""}`}
-            onClick={() => setView("nodes")}
-            disabled={!library?.rootPath}
-          >
-            <Laptop size={18} />
-            Nodes
-          </button>
-          <button
-            className="nav-item"
-            onClick={() => setSettingsOpen(true)}
-            disabled={!library}
-          >
-            <Settings2 size={18} />
-            Storage settings
+          {me.isAdmin && (
+            <>
+              <button
+                className={`nav-item${view === "users" ? " active" : ""}`}
+                onClick={() => setView("users")}
+              >
+                <Users size={18} />
+                People
+              </button>
+              <button
+                className={`nav-item${view === "nodes" ? " active" : ""}`}
+                onClick={() => setView("nodes")}
+                disabled={!hasFolder}
+              >
+                <Laptop size={18} />
+                Nodes
+              </button>
+              <button className="nav-item" onClick={() => setDialog("host")}>
+                <Settings2 size={18} />
+                Storage settings
+              </button>
+            </>
+          )}
+          <button className="nav-item" onClick={() => setDialog("account")}>
+            <UserRound size={18} />
+            My account
           </button>
         </div>
         <div className="sidebar-bottom">
@@ -136,35 +249,42 @@ export default function App() {
               <span className="status-dot" />
             </div>
             <strong>
-              {library?.rootPath
-                ? library.name || "Uncloud folder"
-                : "Your own little corner"}
+              {hasFolder ? me.displayName : "Nearly there"}
             </strong>
             <p>
-              {library?.rootPath
-                ? "Your Uncloud folder"
-                : "A home for your files, on a computer you call your own."}
+              {hasFolder
+                ? "Your folder on this Uncloud"
+                : me.isAdmin
+                  ? "Choose where everyone’s files will live."
+                  : "The host hasn’t chosen a folder yet."}
             </p>
             {library?.rootPath && (
               <code title={library.rootPath}>{library.rootPath}</code>
             )}
-            {library?.rootPath && storage?.freeBytes != null && (
+            {hasFolder && storage && (
               <span className="drive-space">
-                {formatSize(storage.freeBytes)} free
-                {storage.totalBytes != null
-                  ? ` of ${formatSize(storage.totalBytes)}`
+                {formatSize(storage.usedBytes)} yours
+                {storage.freeBytes != null
+                  ? ` · ${formatSize(storage.freeBytes)} free on the drive`
                   : ""}
               </span>
             )}
-            <button onClick={() => setSettingsOpen(true)} disabled={!library}>
-              {library?.rootPath ? "Manage folder" : "Choose a folder"}
+            <button onClick={() => setDialog("account")}>
+              My account
               <ArrowUpRight size={14} />
             </button>
           </div>
           <div className="local-status">
             <span className="status-dot" />
-            <span>Local on this Mac</span>
-            <span className="version-number">0.1.0</span>
+            <span>@{me.username}</span>
+            <button
+              className="icon-button"
+              onClick={() => void signOut()}
+              aria-label="Sign out"
+              title="Sign out"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </div>
       </aside>
@@ -175,93 +295,107 @@ export default function App() {
             <span>Uncloud</span>
             <span className="slash">/</span>
             <strong>
-              {view === "dropbox" ? "Dropbox" : view === "nodes" ? "Nodes" : "Files"}
+              {view === "dropbox"
+                ? "Dropbox"
+                : view === "nodes"
+                  ? "Nodes"
+                  : view === "users"
+                    ? "People"
+                    : "My files"}
             </strong>
           </div>
           <span className="private-label">
             <span className="status-dot" />
-            Just you & your files
+            Yours alone
           </span>
         </header>
         <div className="main-content">
-          {error ? (
-            <div className="empty-state connection-error" role="alert">
-              <HardDrive size={35} />
-              <h1>Let’s reconnect</h1>
-              <p>{error}</p>
-              <p className="muted">
-                Make sure the Uncloud app is running on this computer.
-              </p>
-              <button
-                className="button primary"
-                onClick={() => window.location.reload()}
-              >
-                Try again
-              </button>
-            </div>
-          ) : !library ? (
-            <div className="file-loading" role="status">
-              <LoaderCircle className="spin" size={24} />
-              Opening Uncloud…
-            </div>
-          ) : library.rootPath && view === "nodes" ? (
+          {view === "users" && me.isAdmin ? (
+            <UsersPanel me={me} />
+          ) : hasFolder && view === "nodes" && me.isAdmin ? (
             <NodesPanel />
-          ) : library.rootPath && view === "dropbox" ? (
+          ) : hasFolder && view === "dropbox" ? (
             <DropboxPanel onImported={() => setRevision((value) => value + 1)} />
-          ) : library.rootPath ? (
+          ) : hasFolder ? (
             <FileBrowser
-              rootPath={library.rootPath}
+              rootPath={library!.rootPath!}
               path={path}
               revision={revision}
               navigate={navigate}
             />
-          ) : (
+          ) : me.isAdmin ? (
             <>
               <div className="page-heading welcome-heading">
                 <div>
                   <span className="eyebrow">WELCOME TO UNCLOUD</span>
                   <h1>
-                    Your files, at home<span className="heading-dot">.</span>
+                    Everyone’s files, at home
+                    <span className="heading-dot">.</span>
                   </h1>
                   <p>
-                    A quieter place for your digital life. Let’s make it yours.
+                    A quieter place for your household’s digital life. Let’s
+                    make it yours.
                   </p>
                 </div>
                 <span className="welcome-icon">
-                  <FolderOpen size={24} strokeWidth={1.4} />
+                  <HardDrive size={24} strokeWidth={1.4} />
                 </span>
               </div>
-              <FolderSetup library={library} onSaved={onSaved} />
+              <HostSetup
+                onSaved={() => setRevision((value) => value + 1)}
+              />
               <div className="welcome-footer">
                 <span>Ordinary files. Your own storage.</span>
                 <span>A small beginning. A place to grow.</span>
               </div>
             </>
+          ) : (
+            <div className="empty-state" role="status">
+              <HardDrive size={35} />
+              <h1>Almost ready</h1>
+              <p>
+                Whoever looks after this Uncloud hasn’t chosen a folder for
+                everyone’s files yet.
+              </p>
+              <p className="muted">
+                Once they have, yours will be waiting here.
+              </p>
+            </div>
           )}
         </div>
       </main>
       <dialog
-        ref={dialog}
+        ref={dialogRef}
         className="settings-dialog"
-        onCancel={() => setSettingsOpen(false)}
-        onClose={() => setSettingsOpen(false)}
+        onCancel={() => setDialog(null)}
+        onClose={() => setDialog(null)}
         aria-labelledby="settings-title"
       >
         <div className="dialog-header">
           <div>
-            <span className="eyebrow">ON THIS COMPUTER</span>
-            <h2 id="settings-title">Your Uncloud folder</h2>
+            <span className="eyebrow">
+              {dialog === "account" ? "YOUR ACCOUNT" : "THIS UNCLOUD"}
+            </span>
+            <h2 id="settings-title">
+              {dialog === "account"
+                ? "Your sign-in"
+                : "Where everyone’s files live"}
+            </h2>
           </div>
           <button
             className="icon-button"
-            aria-label="Close storage settings"
-            onClick={() => setSettingsOpen(false)}
+            aria-label="Close settings"
+            onClick={() => setDialog(null)}
           >
             <X size={20} />
           </button>
         </div>
-        {settingsOpen && library && (
-          <FolderSetup library={library} onSaved={onSaved} compact />
+        {dialog === "account" && <AccountPanel me={me} />}
+        {dialog === "host" && me.isAdmin && (
+          <HostSetup
+            compact
+            onSaved={() => setRevision((value) => value + 1)}
+          />
         )}
       </dialog>
     </div>

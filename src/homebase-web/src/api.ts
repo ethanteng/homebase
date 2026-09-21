@@ -1,7 +1,38 @@
 export interface LibraryState {
   rootPath: string | null;
   name: string | null;
+  // Only an administrator is told where the host keeps everybody's folders.
+  hostRoot: string | null;
   canPickFolder: boolean;
+}
+
+export interface User {
+  id: string;
+  username: string;
+  displayName: string;
+  isAdmin: boolean;
+  createdAt: string;
+  disabledAt: string | null;
+}
+
+export interface Session {
+  setupNeeded: boolean;
+  hostConfigured: boolean;
+  user: User | null;
+}
+
+export interface ManagedUser extends User {
+  usedBytes: number | null;
+}
+
+export interface HostState {
+  rootPath: string | null;
+  canPickFolder: boolean;
+}
+
+export interface ClaimResult {
+  moved: string[];
+  skipped: { name: string; reason: string }[];
 }
 export interface LibraryEntry {
   name: string;
@@ -18,8 +49,10 @@ export interface DirectoryListing {
 }
 
 export interface StorageReport {
+  // The volume is shared by everyone on this host; the usage is the signed-in account's own.
   freeBytes: number | null;
   totalBytes: number | null;
+  usedBytes: number;
 }
 
 export interface ImportEstimate {
@@ -122,9 +155,20 @@ export interface NodeStatus {
   offers: PendingFolder[];
 }
 
+/// Thrown when a session has ended, so the app can ask for a sign-in rather than showing an
+/// error nobody can act on.
+export class SignedOutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SignedOutError";
+  }
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
+    // The session cookie is the credential; nothing here reads or writes it.
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       "X-Homebase-Request": "1",
@@ -135,10 +179,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     const problem = (await response.json().catch(() => null)) as {
       detail?: string;
     } | null;
-    throw new Error(
+    const detail =
       problem?.detail ??
-        `Uncloud couldn’t complete this request (${response.status}).`,
-    );
+      `Uncloud couldn’t complete this request (${response.status}).`;
+    if (response.status === 401) throw new SignedOutError(detail);
+    throw new Error(detail);
   }
   return response.json() as Promise<T>;
 }

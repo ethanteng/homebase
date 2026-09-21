@@ -8,7 +8,7 @@ namespace Homebase.Core.Accounts;
 /// imports. Nothing here is shared with another account, and none of it can be reached without
 /// a user id that came from an authenticated session.
 /// </summary>
-public sealed class UserWorkspace : IDisposable
+public sealed class UserWorkspace
 {
     public string UserId { get; }
     public string Root { get; }
@@ -36,6 +36,4 @@ public sealed class UserWorkspace : IDisposable
         // bringing a folder home is no reason to be told to wait.
         Jobs = new ImportJobs(Imports, loggers.CreateLogger<ImportJobs>());
     }
-
-    public void Dispose() => Library.Dispose();
 }

@@ -1494,3 +1494,51 @@ tbody tr.selected {
     opacity: 0.4;
   }
 }
+
+/* --- accounts ------------------------------------------------------------ */
+
+/* The signed-in account sits where the version number used to, with a way out beside it. */
+.local-status .icon-button {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  color: var(--muted);
+}
+.local-status .icon-button:hover {
+  color: var(--ink);
+}
+
+/* A choice inside a form, rather than the status line the class is usually used for. */
+.setup-form .private-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.setup-form .private-label input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent, currentColor);
+}
+
+/* The claim prompt sits inside the host form, so it needs its own breathing room. */
+.setup-form .notice-card {
+  margin-top: 4px;
+  padding: 18px 20px;
+  gap: 11px;
+}
+.setup-form .notice-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* Several actions per account row, wrapping rather than stretching the table. */
+.action-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}

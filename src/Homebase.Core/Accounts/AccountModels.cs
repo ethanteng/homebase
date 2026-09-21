@@ -17,6 +17,3 @@ public sealed record UserAccount(
 
 /// <summary>A signed-in session, as it is handed to the browser. Only its hash is stored.</summary>
 public sealed record AuthSession(string Token, DateTimeOffset ExpiresAt);
-
-/// <summary>A provider account somebody has connected, without the secret that reaches it.</summary>
-public sealed record ConnectorAccount(string Provider, string? AccountName, DateTimeOffset ConnectedAt);

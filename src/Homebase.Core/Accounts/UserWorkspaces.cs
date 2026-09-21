@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Homebase.Core.Providers;
 using Microsoft.Extensions.Logging;
 
@@ -15,9 +14,9 @@ public sealed class UserWorkspaces(
     MetadataIndex index,
     ImportLog log,
     IDropboxApiFactory dropbox,
-    ILoggerFactory loggers) : IDisposable
+    ILoggerFactory loggers)
 {
-    private readonly ConcurrentDictionary<string, UserWorkspace> _workspaces = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, UserWorkspace> _workspaces = new(StringComparer.Ordinal);
     private readonly Lock _lock = new();
     private string? _builtFor;
 
@@ -26,36 +25,33 @@ public sealed class UserWorkspaces(
     public UserWorkspace For(string userId)
     {
         var root = host.RequireRoot();
+        // Reading the host's folder and settling which workspace belongs to it happen together,
+        // so a folder changed mid-request can't leave a workspace pointing at the old one. The
+        // lock is only contended on an account's first request or a change of folder; making a
+        // workspace opens a SQLite file, which is why it is not held for every request.
         lock (_lock)
         {
-            // Moving the host's folder invalidates every cached root at once, so the workspaces
-            // built against the old one are dropped rather than left pointing somewhere stale.
-            if (_builtFor is not null && _builtFor != root) Clear();
-            _builtFor = root;
+            // Moving the host's folder invalidates every root at once. The workspaces built
+            // against the old one are dropped rather than disposed: a request already inside one
+            // has to be able to finish on it, and a running import finishes where it started.
+            if (_builtFor != root)
+            {
+                foreach (var key in _workspaces.Keys) dropbox.Forget(key);
+                _workspaces.Clear();
+                _builtFor = root;
+            }
+            if (_workspaces.TryGetValue(userId, out var existing)) return existing;
+            var workspace = new UserWorkspace(
+                userId, UserPaths.RootFor(root, userId), index, log, dropbox.For(userId), loggers);
+            _workspaces[userId] = workspace;
+            return workspace;
         }
-        return _workspaces.GetOrAdd(userId, id => new UserWorkspace(
-            id, UserPaths.RootFor(root, id), index, log, dropbox.For(id), loggers));
     }
 
     /// <summary>Drops one account's workspace, after it is disabled or deleted.</summary>
     public void Forget(string userId)
     {
-        if (_workspaces.TryRemove(userId, out var workspace)) workspace.Dispose();
+        lock (_lock) _workspaces.Remove(userId);
         dropbox.Forget(userId);
-    }
-
-    public void Dispose()
-    {
-        lock (_lock) Clear();
-    }
-
-    private void Clear()
-    {
-        foreach (var key in _workspaces.Keys)
-            if (_workspaces.TryRemove(key, out var workspace))
-            {
-                workspace.Dispose();
-                dropbox.Forget(key);
-            }
     }
 }
