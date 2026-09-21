@@ -170,6 +170,27 @@ h1 {
   line-height: 1.5;
   letter-spacing: 0.03em;
 }
+.platforms {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(24px, 5vw, 40px);
+  margin-top: 32px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1;
+}
+.platform {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.platform svg {
+  display: block;
+  flex: none;
+  width: 33px;
+  height: 33px;
+}
 .migration-details {
   margin: 26px auto 0;
   max-width: 720px;
@@ -208,6 +229,9 @@ h1 {
   }
 }
 @media (max-width: 600px) {
+  .platform {
+    flex-direction: column;
+  }
   .page {
     padding: 0 20px;
   }
@@ -276,20 +300,26 @@ h1 {
   }
 }
 @media (max-height: 450px) and (min-width: 601px) {
+  .platforms {
+    margin-top: 24px;
+  }
   .site-header {
-    padding-top: 12px;
-    padding-bottom: 12px;
+    padding-top: 10px;
+    padding-bottom: 10px;
   }
   .hero {
     padding-top: 0;
-    padding-bottom: 14px;
+    padding-bottom: 6px;
   }
   h1 {
     font-size: clamp(1.7rem, 7.5svh, 2.2rem);
     line-height: 1.05;
   }
   .access-action {
-    margin-top: 20px;
+    margin-top: 12px;
+  }
+  .trust-note {
+    margin-top: 10px;
   }
   .primary-link {
     min-height: 42px;
