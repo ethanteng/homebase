@@ -57,10 +57,35 @@
             </p>
           </div>
           <div class="access-action">
-            <button class="primary-link" type="button" disabled>
-              Get early access
-            </button>
             <p class="trust-note">Private. Secure. Yours.</p>
+            <form class="access-form" id="access-form" novalidate>
+              <label class="sr-only" for="access-email">Your email address</label>
+              <input
+                class="access-input"
+                id="access-email"
+                name="email"
+                type="email"
+                inputmode="email"
+                autocomplete="email"
+                spellcheck="false"
+                maxlength="254"
+                placeholder="you@example.com"
+                required
+              />
+              <!-- Robots fill in every field they find; nobody else can see this one. -->
+              <div class="access-trap" aria-hidden="true">
+                <label for="access-website">Leave this empty</label>
+                <input
+                  id="access-website"
+                  name="website"
+                  type="text"
+                  tabindex="-1"
+                  autocomplete="off"
+                />
+              </div>
+              <button class="primary-link" type="submit">Get early access</button>
+            </form>
+            <p class="access-status" id="access-status" role="status"></p>
           </div>
         </div>
       </main>
