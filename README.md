@@ -52,7 +52,7 @@ The filesystem is the source of truth. Browsing scans one directory and atomical
 
 Only the selected root path is stored outside the library, in `~/Library/Application Support/Homebase/settings.json`. All file metadata lives in `.homebase`. Stop Homebase and remove `.homebase` to reset the rebuildable cache; choose or browse the folder again to recreate it. This cache is not a backup.
 
-`Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite’s proxy for development). The server explicitly binds to `127.0.0.1`, regardless of `ASPNETCORE_URLS`. Run a single Homebase process per preference directory/library. V0 assumes a trusted local user and filesystem; it is not a sandbox against other programs running under your account.
+`Homebase__Dropbox__AppKey` supplies the Dropbox app key. `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite’s proxy for development). The server explicitly binds to `127.0.0.1`, regardless of `ASPNETCORE_URLS`. Run a single Homebase process per preference directory/library. V0 assumes a trusted local user and filesystem; it is not a sandbox against other programs running under your account.
 
 ### Future importers and desktop packaging
 
@@ -68,6 +68,32 @@ Core logic has no web or desktop dependency. ASP.NET serves the compiled UI and 
 
 Open http://127.0.0.1:5210. This produces a local executable and its assets, not a signed `.app` or `.dmg` yet. No remote access, household users, billing, AI, photo management, or synchronization is included.
 
+## Dropbox
+
+Homebase can copy a file out of Dropbox onto storage you own, then keep that copy current as the
+original changes. It is one-way — Dropbox to your folder — and Homebase asks only for read-only
+permissions, so it cannot change anything in your Dropbox account.
+
+Create an app at [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps) with the
+`account_info.read`, `files.metadata.read` and `files.content.read` permissions and the redirect URI
+`http://localhost:5210/api/providers/dropbox/callback`, then start Homebase with its app key:
+
+```sh
+Homebase__Dropbox__AppKey=your-app-key ./scripts/run.sh
+```
+
+Open **Dropbox** in the sidebar, connect the account, and choose a file to bring home. Sign-in uses
+the authorization-code flow with PKCE, so there is no client secret; the refresh token is written
+with owner-only permissions to the preference directory, never into the library folder where it
+would travel alongside synced files.
+
+Synced files land in `Files/Dropbox/` as ordinary files, and the normal browser shows them. **Check
+for changes** compares each tracked file against Dropbox and downloads any newer revision, writing
+beside the destination and moving into place so an interrupted download can't leave a half-written
+file. Homebase overwrites only files it wrote itself and still recognises: if you edit your copy, or
+something already occupies the destination, it says so and leaves the file alone. Hidden files and
+folders aren't synced yet.
+
 ## Landing page
 
 The standalone messaging page is in [`landing/`](landing/README.md). Preview it with `npm --prefix src/homebase-web run dev:landing` at **http://127.0.0.1:5174**. Build it with `npm --prefix src/homebase-web run build:landing`; the static output goes to `artifacts/landing/` and contains no file-browser API.
@@ -78,7 +104,7 @@ The standalone messaging page is in [`landing/`](landing/README.md). Preview it 
 ./scripts/check.sh
 ```
 
-Builds/type-checks the frontend and runs backend integration tests for persistence, indexing, file integrity/downloads, root switching, unavailable folders, symlinks, traversal, and local request boundaries. Tests use disposable fixtures and isolated settings, never your selected library.
+Builds/type-checks the frontend and runs backend integration tests for persistence, indexing, file integrity/downloads, root switching, unavailable folders, symlinks, traversal, local request boundaries, and Dropbox sync (bringing a file home, following a later revision, and refusing to overwrite a copy you changed). Tests use disposable fixtures and isolated settings, never your selected library.
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 

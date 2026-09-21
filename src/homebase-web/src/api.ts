@@ -17,6 +17,46 @@ export interface DirectoryListing {
   indexedAt: string;
 }
 
+export interface DropboxStatus {
+  configured: boolean;
+  connected: boolean;
+  accountName: string | null;
+}
+export interface DropboxEntry {
+  id: string;
+  name: string;
+  pathLower: string;
+  pathDisplay: string;
+  isFolder: boolean;
+  size: number | null;
+  rev: string | null;
+  serverModified: string | null;
+}
+export type SyncState =
+  | "current"
+  | "remoteChanged"
+  | "localEdited"
+  | "localMissing";
+export interface SyncedFile {
+  provider: string;
+  remotePath: string;
+  remoteRev: string;
+  localPath: string;
+  size: number;
+  syncedAt: string;
+}
+export interface SyncedFileStatus {
+  file: SyncedFile;
+  state: SyncState;
+  remoteRev: string | null;
+}
+export interface SyncOutcome {
+  localPath: string;
+  state: SyncState;
+  downloaded: boolean;
+  detail: string | null;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,

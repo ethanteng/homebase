@@ -1,5 +1,6 @@
 using System.Net;
 using Homebase.Core;
+using Homebase.Core.Providers;
 using Homebase.Server;
 using Microsoft.Data.Sqlite;
 
@@ -21,6 +22,22 @@ builder.Services.AddSingleton(provider => new SettingsStore(
 builder.Services.AddSingleton<MetadataIndex>();
 builder.Services.AddSingleton<LibraryService>();
 builder.Services.AddSingleton<IFolderPicker, NativeFolderPicker>();
+builder.Services.AddSingleton(provider => new DropboxTokenStore(
+    provider.GetRequiredService<IConfiguration>()["Homebase:ConfigDirectory"] ?? defaultConfig));
+// One shared client; downloads of large files need a generous timeout.
+builder.Services.AddSingleton(_ => new HttpClient { Timeout = TimeSpan.FromMinutes(30) });
+builder.Services.AddSingleton(provider => new DropboxApi(
+    provider.GetRequiredService<HttpClient>(),
+    provider.GetRequiredService<DropboxTokenStore>(),
+    provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:AppKey"]));
+builder.Services.AddSingleton<IDropboxApi>(provider => provider.GetRequiredService<DropboxApi>());
+builder.Services.AddSingleton<SyncedFileStore>();
+builder.Services.AddSingleton<SyncService>();
+builder.Services.AddSingleton<DropboxAuthFlow>();
+// Sync states cross the wire as names, so the UI never depends on enum ordering.
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(
+    new System.Text.Json.Serialization.JsonStringEnumConverter(System.Text.Json.JsonNamingPolicy.CamelCase)));
+var redirectUri = $"http://localhost:{port}/api/providers/dropbox/callback";
 
 var app = builder.Build();
 app.Use(async (context, next) =>
@@ -35,7 +52,10 @@ app.Use(async (context, next) =>
     context.Response.Headers.XContentTypeOptions = "nosniff";
     context.Response.Headers["Referrer-Policy"] = "no-referrer";
     context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
-    if (request.Path.StartsWithSegments("/api"))
+    // Dropbox returns the browser here by redirect, so this one path is necessarily cross-site.
+    // It carries no authority of its own: the state parameter is checked before the code is used.
+    var providerCallback = request.Path.Equals("/api/providers/dropbox/callback");
+    if (request.Path.StartsWithSegments("/api") && !providerCallback)
     {
         context.Response.Headers.CacheControl = "no-store";
         var origin = request.Headers.Origin.ToString();
@@ -53,7 +73,14 @@ app.Use(async (context, next) =>
     {
         var (status, detail) = error switch
         {
-            LibraryException library => (library.Code switch { "not_found" => 404, "not_configured" or "unavailable" or "busy" => 409, "unsupported" => 501, _ => 400 }, library.Message),
+            LibraryException library => (library.Code switch
+            {
+                "not_found" => 404,
+                "not_configured" or "unavailable" or "busy" or "conflict"
+                    or "provider_unconfigured" or "provider_disconnected" or "provider_auth" or "provider_failed" => 409,
+                "unsupported" => 501,
+                _ => 400
+            }, library.Message),
             UnauthorizedAccessException => (403, "Homebase can’t access this folder. Check its permissions and macOS privacy settings."),
             SqliteException => (500, "Homebase couldn’t update its local index. Check disk space and folder permissions. Your files haven’t been changed."),
             ArgumentException => (400, "This folder path isn’t valid."),
@@ -82,6 +109,44 @@ app.MapGet("/api/files/download", async (string path, LibraryService library, Ca
     // Always download arbitrary user content; HTML/SVG must never run on the app's origin.
     return Results.File(stream, "application/octet-stream", name, enableRangeProcessing: true);
 });
+app.MapGet("/api/providers/dropbox", (DropboxApi dropbox) =>
+    Results.Ok(new { configured = dropbox.IsConfigured, connected = dropbox.IsConnected, accountName = dropbox.AccountName }));
+app.MapPost("/api/providers/dropbox/connect", (DropboxApi dropbox, DropboxAuthFlow flow) =>
+    Results.Ok(new { authorizeUrl = flow.Begin(dropbox.AppKey, redirectUri) }));
+app.MapPost("/api/providers/dropbox/disconnect", (DropboxApi dropbox) =>
+{
+    dropbox.Disconnect();
+    return Results.Ok(new { connected = false });
+});
+// Dropbox sends the browser back here. Responses are redirects, not JSON, because a person is looking at them.
+app.MapGet("/api/providers/dropbox/callback", async (string? code, string? state, string? error, DropboxApi dropbox, DropboxAuthFlow flow, CancellationToken cancellationToken) =>
+{
+    if (error is not null || code is null) return Results.Redirect("/?dropbox=denied");
+    try
+    {
+        await dropbox.ConnectAsync(code, flow.Consume(state), redirectUri, cancellationToken);
+        return Results.Redirect("/?dropbox=connected");
+    }
+    catch (Exception failure) when (failure is LibraryException or HttpRequestException)
+    {
+        app.Logger.LogWarning(failure, "Dropbox sign-in failed");
+        return Results.Redirect("/?dropbox=failed");
+    }
+});
+app.MapGet("/api/providers/dropbox/files", async (string? path, IDropboxApi dropbox, CancellationToken cancellationToken) =>
+    Results.Ok(await dropbox.ListFolderAsync(path ?? "", cancellationToken)));
+
+app.MapGet("/api/sync", async (SyncService sync, CancellationToken cancellationToken) =>
+    Results.Ok(await sync.StatusAsync(cancellationToken)));
+app.MapPost("/api/sync", async (TrackFile request, SyncService sync, CancellationToken cancellationToken) =>
+    Results.Ok(await sync.TrackAsync(request.RemotePath, cancellationToken)));
+app.MapPost("/api/sync/refresh", async (SyncService sync, CancellationToken cancellationToken) =>
+    Results.Ok(await sync.RefreshAsync(cancellationToken)));
+app.MapPost("/api/sync/forget", (TrackFile request, SyncService sync) =>
+{
+    sync.Forget(request.RemotePath);
+    return Results.Ok(new { forgotten = request.RemotePath });
+});
 app.Map("/api/{**path}", () => Results.Problem("This endpoint doesn’t exist.", statusCode: 404));
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -89,4 +154,5 @@ app.MapFallbackToFile("index.html");
 app.Run();
 
 public sealed record SelectRoot(string Path);
+public sealed record TrackFile(string RemotePath);
 public partial class Program;

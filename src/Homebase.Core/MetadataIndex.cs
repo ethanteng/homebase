@@ -5,7 +5,8 @@ namespace Homebase.Core;
 // A disposable cache of observed filesystem metadata, never the source of file contents.
 public sealed class MetadataIndex
 {
-    private static SqliteConnection Open(string root)
+    // Shared with the provider sync store so both use one database and one set of path checks.
+    internal static SqliteConnection Open(string root)
     {
         var path = PathPolicy.PrepareMetadata(root);
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
@@ -23,7 +24,13 @@ public sealed class MetadataIndex
                 CREATE TABLE IF NOT EXISTS directories (
                     path TEXT PRIMARY KEY, indexed_at TEXT NOT NULL, skipped_count INTEGER NOT NULL
                 );
-                PRAGMA user_version = 1;
+                CREATE TABLE IF NOT EXISTS synced_files (
+                    provider TEXT NOT NULL, remote_path TEXT NOT NULL, remote_rev TEXT NOT NULL,
+                    local_path TEXT NOT NULL, size INTEGER NOT NULL,
+                    local_size INTEGER NOT NULL, local_modified_at TEXT NOT NULL, synced_at TEXT NOT NULL,
+                    PRIMARY KEY (provider, remote_path)
+                );
+                PRAGMA user_version = 2;
                 """;
             command.ExecuteNonQuery();
             return connection;
