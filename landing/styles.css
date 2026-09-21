@@ -355,3 +355,76 @@ h1 {
     transition: none !important;
   }
 }
+/* A class-level display wins over the user agent's [hidden] rule, so hiding the
+   form after a successful signup has to be said explicitly. */
+.access-form[hidden] {
+  display: none;
+}
+.access-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  align-items: stretch;
+}
+.access-input {
+  flex: 1 1 260px;
+  max-width: 340px;
+  min-height: 56px;
+  padding: 16px 18px;
+  border: 1px solid #55605b;
+  border-radius: 3px;
+  background: #1d211f;
+  color: #f7f7f2;
+  font: inherit;
+  font-size: 1.0625rem;
+}
+.access-input::placeholder {
+  color: #8b938e;
+}
+.access-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-color: var(--accent);
+}
+.access-form .primary-link {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.access-form .primary-link:disabled {
+  opacity: 0.6;
+}
+/* Off-screen rather than display:none — some bots skip what is not rendered. */
+.access-trap {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.access-status {
+  margin-top: 14px;
+  min-height: 1.5em;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.access-status[data-tone="done"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+.access-status[data-tone="problem"] {
+  color: #ffb493;
+}
+@media (max-width: 600px) {
+  .access-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  /* The flex basis measures height once the row becomes a column, so the input
+     has to stop flexing or it stretches into a text area. */
+  .access-input {
+    flex: 0 0 auto;
+    max-width: none;
+  }
+}

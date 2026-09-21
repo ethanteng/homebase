@@ -33,13 +33,42 @@ In the Vercel project's Build and Deployment settings, keep **Root Directory** a
 
 Commit and push the configuration to trigger a new Git deployment. Redeploying an older commit will not include it. If the homepage returns 404 after a successful deployment, verify the root directory and that the deployment output contains `index.html` at its top level. The source page lives in `landing/`; it is not an index page at the repository root. The ordinary frontend `build` script builds the local file-browser app, so use `build:landing` for this website.
 
+## Early-access signups
+
+`api/subscribe.js` is a Vercel serverless function at `/api/subscribe`. It validates the address and asks Mailtrap to email each signup to the notification address. Nothing is stored: the inbox is the list.
+
+The Mailtrap token is only ever read on the server. Never put it in `landing/main.js` or any other file the browser downloads — anything shipped to a browser is public.
+
+Set these in the Vercel project under **Settings → Environment Variables**, for every environment the page is deployed to:
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `MAILTRAP_TOKEN` | yes | Mailtrap API token. Sending tokens and sandbox tokens are different; use one that matches the mode below. |
+| `SIGNUP_NOTIFY_TO` | yes | Address that receives the signup notifications. |
+| `MAILTRAP_FROM` | no | Sender address. Defaults to `early-access@uncloud.life`. |
+| `MAILTRAP_INBOX_ID` | no | Set it to route through the Mailtrap sandbox (`sandbox.api.mailtrap.io`) instead of live sending. Useful for a preview deployment. |
+
+Live sending needs a **verified sending domain** in Mailtrap, and `MAILTRAP_FROM` has to be on that domain. Until the domain is verified, set `MAILTRAP_INBOX_ID` and read the signups in the sandbox inbox.
+
+Changing an environment variable does not change a deployment that already exists. Redeploy after setting them.
+
+The function answers with a generic message when Mailtrap fails or a variable is missing; the reason goes to the function log, not to the visitor. A missing variable never names itself in a response.
+
+Run the function's tests from the repository root:
+
+```sh
+node --test "api/*.test.js"
+```
+
+`./scripts/check.sh` runs them along with everything else.
+
 ## Refine the message
 
 Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.svg` is the shared brand mark and favicon. `main.js` rotates provider names every three seconds with a brief fade. Rotation has no visible controls; it stops for reduced-motion preferences and pauses in background tabs. Screen readers get a stable list of providers, and Dropbox remains visible without JavaScript. Charcoal, orange, and bold sans-serif type give the landing page its own identity, with emphasis on “at home.” Keep all content within the first viewport at normal desktop/mobile sizes; allow natural scrolling at enlarged accessibility text sizes. No analytics or signup database is included.
 
 Canonical and Open Graph URLs point to `https://uncloud.life/`. These metadata tags do not configure DNS, hosting, or deployment.
 
-The early-access link is awaiting an owner-provided email address or signup-form URL. Until that destination is supplied, the button is disabled. The button reads “Get early access” without an arrow or a status note above it. Don’t publish the page as an active signup funnel until the link is connected.
+“Get early access” submits an email address to the signup function described below. Keep the field and the button as one short row under “Private. Secure. Yours.”; on success the form is replaced by a confirmation line.
 
 For the first few conversations, share the page and ask:
 
