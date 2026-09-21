@@ -49,11 +49,46 @@ public sealed partial class UserStore(ControlDatabase database)
     {
         var name = Normalize(username);
         PasswordHasher.Require(password);
+        using var connection = database.Open();
+        return Insert(connection, null, name, displayName, password, isAdmin);
+    }
+
+    /// <summary>
+    /// The first account on this host, which is an administrator. The count and the insert are one
+    /// write transaction because setup is open to anybody until it succeeds: two people racing a
+    /// fresh host would otherwise both see no accounts and both end up administrators, leaving one
+    /// of them holding an account the other never meant to create. In practice the race is hard to
+    /// reach at the moment, because opening a connection runs the schema DDL and so takes the write
+    /// lock — but that is an accident of how <see cref="ControlDatabase.Open"/> happens to work,
+    /// not a guarantee, and it would vanish the moment opening were made cheaper.
+    /// </summary>
+    public UserAccount CreateFirstAdmin(string? username, string? displayName, string password)
+    {
+        var name = Normalize(username);
+        PasswordHasher.Require(password);
+        using var connection = database.Open();
+        using var transaction = connection.BeginTransaction(deferred: false);
+        using (var count = connection.CreateCommand())
+        {
+            count.Transaction = transaction;
+            count.CommandText = "SELECT COUNT(*) FROM users";
+            if (Convert.ToInt32(count.ExecuteScalar()) != 0)
+                throw new LibraryException("This Uncloud already has accounts. Sign in instead.", "conflict");
+        }
+        var account = Insert(connection, transaction, name, displayName, password, isAdmin: true);
+        transaction.Commit();
+        return account;
+    }
+
+    private static UserAccount Insert(
+        SqliteConnection connection, SqliteTransaction? transaction,
+        string name, string? displayName, string password, bool isAdmin)
+    {
         var account = new UserAccount(Guid.NewGuid().ToString("N"), name,
             string.IsNullOrWhiteSpace(displayName) ? name : displayName.Trim(), isAdmin,
             DateTimeOffset.UtcNow, null);
-        using var connection = database.Open();
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO users(id, username, display_name, password_hash, is_admin, created_at, disabled_at)
             VALUES ($id, $username, $display, $hash, $admin, $created, NULL)
@@ -101,45 +136,50 @@ public sealed partial class UserStore(ControlDatabase database)
     public void SetPassword(string id, string password)
     {
         PasswordHasher.Require(password);
-        Execute("UPDATE users SET password_hash = $value WHERE id = $id", id, PasswordHasher.Hash(password));
-    }
-
-    public void SetDisplayName(string id, string displayName) =>
-        Execute("UPDATE users SET display_name = $value WHERE id = $id", id,
-            string.IsNullOrWhiteSpace(displayName)
-                ? throw new LibraryException("A name can't be blank.") : displayName.Trim());
-
-    public void SetDisabled(string id, bool disabled)
-    {
-        if (disabled) RequireAnotherAdmin(id, "disable");
-        Execute("UPDATE users SET disabled_at = $value WHERE id = $id", id,
-            disabled ? DateTimeOffset.UtcNow.ToString("O") : null);
-    }
-
-    public void SetAdmin(string id, bool isAdmin)
-    {
-        if (!isAdmin) RequireAnotherAdmin(id, "step down from");
-        Execute("UPDATE users SET is_admin = $value WHERE id = $id", id, isAdmin ? 1 : 0);
-    }
-
-    public void Delete(string id)
-    {
-        RequireAnotherAdmin(id, "delete");
         using var connection = database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM users WHERE id = $id";
-        command.Parameters.AddWithValue("$id", id);
-        if (command.ExecuteNonQuery() == 0) throw new LibraryException("There's no such account.", "not_found");
+        Execute(connection, null, "UPDATE users SET password_hash = $value WHERE id = $id",
+            id, PasswordHasher.Hash(password));
+    }
+
+    public void SetDisplayName(string id, string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName)) throw new LibraryException("A name can't be blank.");
+        using var connection = database.Open();
+        Execute(connection, null, "UPDATE users SET display_name = $value WHERE id = $id", id, displayName.Trim());
+    }
+
+    public void SetDisabled(string id, bool disabled) => Guarded(id, disabled ? "disable" : null,
+        "UPDATE users SET disabled_at = $value WHERE id = $id",
+        disabled ? DateTimeOffset.UtcNow.ToString("O") : null);
+
+    public void SetAdmin(string id, bool isAdmin) => Guarded(id, isAdmin ? null : "step down from",
+        "UPDATE users SET is_admin = $value WHERE id = $id", isAdmin ? 1 : 0);
+
+    public void Delete(string id) => Guarded(id, "delete", "DELETE FROM users WHERE id = $id", null);
+
+    /// <summary>
+    /// A change that could cost this host its last administrator, made as one write transaction
+    /// with the check that says it may not. Checking on one connection and writing on another
+    /// lets two administrators demote each other at once and leave nobody holding the keys.
+    /// </summary>
+    private void Guarded(string id, string? verb, string sql, object? value)
+    {
+        using var connection = database.Open();
+        using var transaction = connection.BeginTransaction(deferred: false);
+        if (verb is not null) RequireAnotherAdmin(connection, transaction, id, verb);
+        Execute(connection, transaction, sql, id, value);
+        transaction.Commit();
     }
 
     /// <summary>
     /// Refuses to leave the host with no way in. Losing the last administrator would mean nobody
     /// could choose a folder or add an account again, short of editing the database by hand.
     /// </summary>
-    private void RequireAnotherAdmin(string id, string verb)
+    private static void RequireAnotherAdmin(
+        SqliteConnection connection, SqliteTransaction transaction, string id, string verb)
     {
-        using var connection = database.Open();
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT COUNT(*) FROM users
             WHERE is_admin = 1 AND disabled_at IS NULL AND id <> $id
@@ -151,13 +191,15 @@ public sealed partial class UserStore(ControlDatabase database)
                 "conflict");
     }
 
-    private void Execute(string sql, string id, object? value)
+    private static void Execute(
+        SqliteConnection connection, SqliteTransaction? transaction, string sql, string id, object? value)
     {
-        using var connection = database.Open();
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = sql;
         command.Parameters.AddWithValue("$id", id);
-        command.Parameters.AddWithValue("$value", value ?? DBNull.Value);
+        if (sql.Contains("$value", StringComparison.Ordinal))
+            command.Parameters.AddWithValue("$value", value ?? DBNull.Value);
         if (command.ExecuteNonQuery() == 0) throw new LibraryException("There's no such account.", "not_found");
     }
 

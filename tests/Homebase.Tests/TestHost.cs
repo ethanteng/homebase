@@ -1,7 +1,9 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -39,6 +41,10 @@ public sealed class TestHost : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(_settings));
+        // TestServer leaves the connection's remote address unset, and forwarded headers are only
+        // believed when they come from a known proxy, so without this there is no proxy to be.
+        builder.ConfigureTestServices(services =>
+            services.AddSingleton<IStartupFilter>(new CallerAddress(IPAddress.Loopback)));
         if (_dropbox is not null)
             builder.ConfigureTestServices(services =>
                 services.AddSingleton<IDropboxApiFactory>(new StubDropboxFactory(_dropbox)));
@@ -90,6 +96,19 @@ public sealed class TestHost : WebApplicationFactory<Program>
     {
         var library = await client.GetFromJsonAsync<JsonElement>("/api/library");
         return library.GetProperty("rootPath").GetString()!;
+    }
+
+    private sealed class CallerAddress(IPAddress address) : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => builder =>
+        {
+            builder.Use(async (context, proceed) =>
+            {
+                context.Connection.RemoteIpAddress ??= address;
+                await proceed(context);
+            });
+            next(builder);
+        };
     }
 
     private sealed class StubDropboxFactory(Func<string, IDropboxConnection> forUser) : IDropboxApiFactory

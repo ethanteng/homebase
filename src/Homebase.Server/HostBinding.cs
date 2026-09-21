@@ -12,6 +12,7 @@ public sealed record HostBinding(
     IPAddress Address,
     int Port,
     IReadOnlySet<string> AllowedHosts,
+    IReadOnlyList<IPAddress> TrustedProxies,
     string? CertificatePath,
     string? CertificatePassword,
     string PublicUrl)
@@ -44,6 +45,18 @@ public sealed record HostBinding(
                 + "Homebase__AllowedHosts to the names people will use to reach it, such as "
                 + "Homebase__AllowedHosts=uncloud.local,192.168.1.10", "not_configured");
 
+        // Only a proxy named here may speak for the browser about scheme and host. Trusting the
+        // headers from anyone would let any client claim HTTPS, or any hostname it liked.
+        var proxies = new List<IPAddress>();
+        foreach (var entry in (configuration["Homebase:TrustedProxies"] ?? "")
+                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!IPAddress.TryParse(entry, out var proxy))
+                throw new LibraryException(
+                    $"Homebase__TrustedProxies must be IP addresses, not “{entry}”.");
+            proxies.Add(proxy);
+        }
+
         var certificate = configuration["Homebase:Certificate:Path"];
         if (certificate is { Length: > 0 } && !File.Exists(certificate))
             throw new LibraryException($"There's no certificate at {certificate}.", "not_found");
@@ -52,13 +65,17 @@ public sealed record HostBinding(
         var scheme = certificate is null ? "http" : "https";
         var publicUrl = (configuration["Homebase:PublicUrl"] ?? $"{scheme}://localhost:{port}").TrimEnd('/');
 
-        return new HostBinding(address, port, allowed, certificate,
+        return new HostBinding(address, port, allowed, proxies, certificate,
             configuration["Homebase:Certificate:Password"], publicUrl);
     }
 
-    /// <summary>What to say at startup when passwords would cross a network in the clear.</summary>
-    public string? Warning => IsLoopback || IsSecure ? null
+    /// <summary>
+    /// What to say at startup when passwords would cross a network in the clear. A named proxy
+    /// means somebody has said TLS ends in front of Uncloud, so there is nothing to warn about.
+    /// </summary>
+    public string? Warning => IsLoopback || IsSecure || TrustedProxies.Count > 0 ? null
         : $"Uncloud is listening on {Address}:{Port} without a certificate, so passwords and "
           + "files cross the network unencrypted. Set Homebase__Certificate__Path, or put a "
-          + "reverse proxy that terminates TLS in front of it.";
+          + "reverse proxy that terminates TLS in front of it and name it in "
+          + "Homebase__TrustedProxies.";
 }

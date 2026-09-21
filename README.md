@@ -71,7 +71,19 @@ Homebase__PublicUrl=https://uncloud.local:5210 \
 ./scripts/run.sh
 ```
 
-Without a certificate, passwords and files cross the network in the clear; Uncloud says so at startup rather than leaving you to notice. `Homebase__Certificate__Path` (with `Homebase__Certificate__Password`) serves HTTPS directly, or put a reverse proxy that terminates TLS in front of it. `Homebase__PublicUrl` sets the address Dropbox returns to, which must match the redirect URI registered with your Dropbox app.
+Without a certificate, passwords and files cross the network in the clear; Uncloud says so at startup rather than leaving you to notice. `Homebase__Certificate__Path` (with `Homebase__Certificate__Password`) serves HTTPS directly. `Homebase__PublicUrl` sets the address Dropbox returns to, which must match the redirect URI registered with your Dropbox app.
+
+Behind a reverse proxy that terminates TLS, name it in `Homebase__TrustedProxies` (a comma-separated list of the addresses it connects from):
+
+```sh
+Homebase__Bind=127.0.0.1 \
+Homebase__AllowedHosts=uncloud.local \
+Homebase__TrustedProxies=127.0.0.1 \
+Homebase__PublicUrl=https://uncloud.local \
+./scripts/run.sh
+```
+
+Uncloud otherwise sees plain HTTP on a loopback address while the browser sent an `https://` origin, and refuses every sign-in as cross-site. Only the addresses listed here are believed, and only about the scheme and host — trusting those headers from anyone would let any client claim HTTPS or any hostname it liked. A forwarded host must still be one of `Homebase__AllowedHosts`.
 
 ### Upgrading a single-user library
 

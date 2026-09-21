@@ -36,10 +36,17 @@ public sealed class SessionStore(ControlDatabase database)
     }
 
     /// <summary>
-    /// The account this token signs in as, or null. A session whose account was disabled or
-    /// deleted resolves to nothing, so revoking access doesn't wait for an expiry.
+    /// A live session: who it signs in as, and, when this request pushed its expiry out, the new
+    /// one. Extending the stored expiry alone would be pointless — the browser would still drop
+    /// the cookie at the thirty days it was first given, however active the person had been.
     /// </summary>
-    public UserAccount? Resolve(string? token)
+    public sealed record Resolved(UserAccount Account, DateTimeOffset? RenewedUntil);
+
+    /// <summary>
+    /// The session this token names, or null. A session whose account was disabled or deleted
+    /// resolves to nothing, so revoking access doesn't wait for an expiry.
+    /// </summary>
+    public Resolved? Resolve(string? token)
     {
         if (string.IsNullOrEmpty(token)) return null;
         var hash = Fingerprint(token);
@@ -69,16 +76,15 @@ public sealed class SessionStore(ControlDatabase database)
             return null;
         }
         if (!account.IsActive) return null;
-        if (expires - now < Lifetime - Refresh)
-        {
-            command.Parameters.Clear();
-            command.CommandText = "UPDATE sessions SET expires_at = $expires, seen_at = $seen WHERE token_hash = $hash";
-            command.Parameters.AddWithValue("$expires", (now + Lifetime).ToString("O"));
-            command.Parameters.AddWithValue("$seen", now.ToString("O"));
-            command.Parameters.AddWithValue("$hash", hash);
-            command.ExecuteNonQuery();
-        }
-        return account;
+        if (expires - now >= Lifetime - Refresh) return new Resolved(account, null);
+        var renewed = now + Lifetime;
+        command.Parameters.Clear();
+        command.CommandText = "UPDATE sessions SET expires_at = $expires, seen_at = $seen WHERE token_hash = $hash";
+        command.Parameters.AddWithValue("$expires", renewed.ToString("O"));
+        command.Parameters.AddWithValue("$seen", now.ToString("O"));
+        command.Parameters.AddWithValue("$hash", hash);
+        command.ExecuteNonQuery();
+        return new Resolved(account, renewed);
     }
 
     public void Delete(string? token)

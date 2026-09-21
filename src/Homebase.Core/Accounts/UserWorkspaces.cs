@@ -48,10 +48,20 @@ public sealed class UserWorkspaces(
         }
     }
 
-    /// <summary>Drops one account's workspace, after it is disabled or deleted.</summary>
+    /// <summary>
+    /// Drops one account's workspace, after it is disabled or deleted. Any import it had running
+    /// is stopped first: the background work holds its own workspace and a cached access token,
+    /// so without this it would carry on downloading into a folder whose owner has just had their
+    /// access taken away. Whatever already arrived stays, as it does for any stopped import.
+    /// </summary>
     public void Forget(string userId)
     {
-        lock (_lock) _workspaces.Remove(userId);
+        UserWorkspace? workspace;
+        lock (_lock)
+        {
+            _workspaces.Remove(userId, out workspace);
+        }
+        workspace?.Jobs.Cancel();
         dropbox.Forget(userId);
     }
 }

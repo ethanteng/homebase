@@ -3,6 +3,7 @@ using Homebase.Core.Accounts;
 using Homebase.Core.Nodes;
 using Homebase.Core.Providers;
 using Homebase.Server;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Data.Sqlite;
 
 // A published executable can be launched from Finder or any working directory.
@@ -87,6 +88,25 @@ string[] administrative =
     "/api/nodes"
 ];
 
+// Behind a proxy that terminates TLS, Kestrel sees plain HTTP on a loopback address while the
+// browser sent an https:// Origin. Without this the origin comparison below rejects every
+// mutation — sign-in included — and the session cookie goes out without Secure. Only the proxies
+// named in configuration are believed, and only about the scheme and host.
+if (binding.TrustedProxies.Count > 0)
+{
+    var forwarded = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
+        ForwardLimit = 1
+    };
+    forwarded.KnownIPNetworks.Clear();
+    forwarded.KnownProxies.Clear();
+    foreach (var proxy in binding.TrustedProxies) forwarded.KnownProxies.Add(proxy);
+    // A forwarded host still has to be one this Uncloud answers to.
+    foreach (var host in binding.AllowedHosts) forwarded.AllowedHosts.Add(host);
+    app.UseForwardedHeaders(forwarded);
+}
+
 app.Use(async (context, next) =>
 {
     var request = context.Request;
@@ -152,8 +172,13 @@ app.Use(async (context, next) =>
     if (!path.StartsWithSegments("/api")) { await next(context); return; }
 
     var token = context.Request.Cookies[SessionCookie];
-    if (context.RequestServices.GetRequiredService<SessionStore>().Resolve(token) is { } account)
-        context.Items[CurrentUser.Key] = new CurrentUser(account, token!);
+    if (context.RequestServices.GetRequiredService<SessionStore>().Resolve(token) is { } resolved)
+    {
+        context.Items[CurrentUser.Key] = new CurrentUser(resolved.Account, token!);
+        // The stored expiry moved, so the browser is handed the same token with the new one;
+        // otherwise it would discard a session it has been using all along.
+        if (resolved.RenewedUntil is { } until) IssueSession(context, new AuthSession(token!, until));
+    }
 
     var open = anonymous.Any(allowed => path.StartsWithSegments(allowed));
     if (!open && context.Items[CurrentUser.Key] is null)
@@ -239,9 +264,9 @@ app.MapDelete("/api/session", (HttpContext context, SessionStore sessions) =>
 // Open only while there are none: afterwards an administrator adds the rest.
 app.MapPost("/api/setup", (CreateUser request, HttpContext context, UserStore users, SessionStore sessions) =>
 {
-    if (users.Count() != 0)
-        throw new LibraryException("This Uncloud already has accounts. Sign in instead.", "conflict");
-    var account = users.Create(request.Username, request.DisplayName, request.Password ?? "", isAdmin: true);
+    // Checked and inserted as one transaction: until it succeeds this endpoint is open to
+    // anybody, so two people racing a fresh host must not both come away administrators.
+    var account = users.CreateFirstAdmin(request.Username, request.DisplayName, request.Password ?? "");
     IssueSession(context, sessions.Create(account.Id));
     return Results.Ok(new { user = Describe(account) });
 });
