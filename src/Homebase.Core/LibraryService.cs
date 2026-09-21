@@ -77,6 +77,6 @@ public sealed class LibraryService(SettingsStore settings, MetadataIndex index) 
         finally { _gate.Release(); }
     }
 
-    private string RequireRoot() => _root ?? throw new LibraryException("Choose your Homebase folder first.", "not_configured");
+    private string RequireRoot() => _root ?? throw new LibraryException("Choose your Uncloud folder first.", "not_configured");
     public void Dispose() => _gate.Dispose();
 }

@@ -26,7 +26,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
     public async Task<ImportResult> ImportAsync(string remotePath, CancellationToken cancellationToken)
     {
         if (!await _gate.WaitAsync(0, cancellationToken))
-            throw new LibraryException("Homebase is already importing. Let that finish first.", "busy");
+            throw new LibraryException("Uncloud is already importing. Let that finish first.", "busy");
         try
         {
             var root = RequireRoot();
@@ -100,7 +100,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
                 {
                     // Stopping quietly here would read as a complete import. Say what was left.
                     skipped.Add(new SkippedItem(child.PathDisplay,
-                        $"Homebase brings at most {MaxEntries:N0} files at a time, so the rest of this folder wasn’t visited."));
+                        $"Uncloud brings at most {MaxEntries:N0} files at a time, so the rest of this folder wasn’t visited."));
                     return files;
                 }
                 files.Add(child);
@@ -117,7 +117,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
         var fullPath = PathPolicy.Resolve(root, localPath);
         if (File.Exists(fullPath) || Directory.Exists(fullPath))
             throw new LibraryException(
-                $"A file already exists at {localPath}. Homebase won’t overwrite files it didn’t put there.", "conflict");
+                $"A file already exists at {localPath}. Uncloud won’t overwrite files it didn’t put there.", "conflict");
 
         var metadata = Path.GetDirectoryName(PathPolicy.PrepareMetadata(root))!;
         var temporary = Path.Combine(metadata, $"import.{Guid.NewGuid():N}.tmp");
@@ -148,7 +148,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
             catch (IOException) when (File.Exists(fullPath))
             {
                 throw new LibraryException(
-                    $"Something else created {localPath} while Homebase was downloading it, so it was left alone.", "conflict");
+                    $"Something else created {localPath} while Uncloud was downloading it, so it was left alone.", "conflict");
             }
 
             var written = new FileInfo(fullPath);
@@ -176,10 +176,10 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
         foreach (var part in relative.Split('/', StringSplitOptions.RemoveEmptyEntries))
             if (part.StartsWith('.'))
                 throw new LibraryException(
-                    $"Homebase doesn’t import hidden files or folders yet, and “{part}” is hidden.", "unsupported");
+                    $"Uncloud doesn’t import hidden files or folders yet, and “{part}” is hidden.", "unsupported");
         return $"{DestinationPrefix}/{relative}";
     }
 
     private string RequireRoot() =>
-        library.State.RootPath ?? throw new LibraryException("Choose your Homebase folder first.", "not_configured");
+        library.State.RootPath ?? throw new LibraryException("Choose your Uncloud folder first.", "not_configured");
 }

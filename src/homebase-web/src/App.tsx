@@ -46,7 +46,7 @@ export default function App() {
           setError(
             error instanceof Error
               ? error.message
-              : "Couldn’t connect to Homebase.",
+              : "Couldn’t connect to Uncloud.",
           );
       });
     return () => controller.abort();
@@ -76,14 +76,12 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <a href="#" className="brand" aria-label="Homebase home">
-          <span className="brand-mark">
-            <House size={23} strokeWidth={1.7} />
-          </span>
-          homebase<span className="version">v0</span>
+        <a href="#" className="brand" aria-label="Uncloud home">
+          <img className="brand-mark" src="/uncloud.svg" width="34" height="34" alt="" />
+          uncloud<span className="version">v0</span>
         </a>
         <div className="sidebar-section">
-          <span className="nav-label">YOUR HOMEBASE</span>
+          <span className="nav-label">YOUR UNCLOUD</span>
           <button
             className={`nav-item${view === "files" ? " active" : ""}`}
             onClick={() => {
@@ -127,12 +125,12 @@ export default function App() {
             </div>
             <strong>
               {library?.rootPath
-                ? library.name || "Homebase folder"
+                ? library.name || "Uncloud folder"
                 : "Your own little corner"}
             </strong>
             <p>
               {library?.rootPath
-                ? "Your Homebase folder"
+                ? "Your Uncloud folder"
                 : "A home for your files, on a computer you call your own."}
             </p>
             {library?.rootPath && (
@@ -154,7 +152,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <House size={15} />
-            <span>Homebase</span>
+            <span>Uncloud</span>
             <span className="slash">/</span>
             <strong>
               {view === "dropbox" ? "Dropbox" : view === "nodes" ? "Nodes" : "Files"}
@@ -172,7 +170,7 @@ export default function App() {
               <h1>Let’s reconnect</h1>
               <p>{error}</p>
               <p className="muted">
-                Make sure the Homebase app is running on this computer.
+                Make sure the Uncloud app is running on this computer.
               </p>
               <button
                 className="button primary"
@@ -184,7 +182,7 @@ export default function App() {
           ) : !library ? (
             <div className="file-loading" role="status">
               <LoaderCircle className="spin" size={24} />
-              Opening Homebase…
+              Opening Uncloud…
             </div>
           ) : library.rootPath && view === "nodes" ? (
             <NodesPanel />
@@ -201,7 +199,7 @@ export default function App() {
             <>
               <div className="page-heading welcome-heading">
                 <div>
-                  <span className="eyebrow">WELCOME TO HOMEBASE</span>
+                  <span className="eyebrow">WELCOME TO UNCLOUD</span>
                   <h1>
                     Your files, at home<span className="heading-dot">.</span>
                   </h1>
@@ -232,7 +230,7 @@ export default function App() {
         <div className="dialog-header">
           <div>
             <span className="eyebrow">ON THIS COMPUTER</span>
-            <h2 id="settings-title">Your Homebase folder</h2>
+            <h2 id="settings-title">Your Uncloud folder</h2>
           </div>
           <button
             className="icon-button"

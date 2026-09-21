@@ -108,7 +108,7 @@ export default function FolderSetup({
           </>
         )}
         <p className="muted">
-          Use an existing folder, or create a new one in Finder first. Homebase
+          Use an existing folder, or create a new one in Finder first. Uncloud
           remembers your choice.
         </p>
         {library.canPickFolder && (
@@ -136,7 +136,7 @@ export default function FolderSetup({
           className="path-input"
           value={path}
           onChange={(event) => setPath(event.target.value)}
-          placeholder="/Users/you/Homebase"
+          placeholder="/Users/you/Uncloud"
           autoComplete="off"
           spellCheck={false}
           required

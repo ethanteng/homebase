@@ -38,7 +38,7 @@ public sealed partial class NodeService(LibraryService library, ISyncthingApi sy
 
         var known = await syncthing.DevicesAsync(cancellationToken);
         if (known.Any(device => device.DeviceId == trimmed))
-            throw new LibraryException("That computer is already paired with Homebase.");
+            throw new LibraryException("That computer is already paired with Uncloud.");
 
         await syncthing.AddDeviceAsync(trimmed,
             string.IsNullOrWhiteSpace(name) ? "Another computer" : name.Trim(), cancellationToken);
@@ -49,18 +49,18 @@ public sealed partial class NodeService(LibraryService library, ISyncthingApi sy
     {
         Require();
         var root = library.State.RootPath
-            ?? throw new LibraryException("Choose your Homebase folder first.", "not_configured");
+            ?? throw new LibraryException("Choose your Uncloud folder first.", "not_configured");
 
         var normalized = (relativePath ?? "").Trim().Trim('/');
         // The library root holds .homebase/index.db, a live SQLite database. Copying that between
         // machines corrupts it, so only folders inside the library can ever be shared.
         if (normalized.Length == 0)
             throw new LibraryException(
-                "Share a folder inside your Homebase folder, not the whole thing.", "unsupported");
+                "Share a folder inside your Uncloud folder, not the whole thing.", "unsupported");
 
         var fullPath = PathPolicy.Resolve(root, normalized);
         if (!Directory.Exists(fullPath))
-            throw new LibraryException("That folder isn’t in your Homebase folder.", "not_found");
+            throw new LibraryException("That folder isn’t in your Uncloud folder.", "not_found");
 
         var paired = await syncthing.DevicesAsync(cancellationToken);
         var targets = deviceIds is { Count: > 0 }
@@ -70,7 +70,7 @@ public sealed partial class NodeService(LibraryService library, ISyncthingApi sy
             throw new LibraryException("Pair another computer before sharing a folder.", "no_devices");
         foreach (var target in targets)
             if (!paired.Any(device => device.DeviceId == target))
-                throw new LibraryException("That computer isn’t paired with Homebase yet.", "invalid_device");
+                throw new LibraryException("That computer isn’t paired with Uncloud yet.", "invalid_device");
 
         var folders = await syncthing.FoldersAsync(cancellationToken);
         var id = FolderId(normalized);
@@ -96,7 +96,7 @@ public sealed partial class NodeService(LibraryService library, ISyncthingApi sy
     {
         Require();
         var root = library.State.RootPath
-            ?? throw new LibraryException("Choose your Homebase folder first.", "not_configured");
+            ?? throw new LibraryException("Choose your Uncloud folder first.", "not_configured");
 
         var offer = (await syncthing.OffersAsync(cancellationToken))
             .FirstOrDefault(pending => pending.Id == folderId)
@@ -106,7 +106,7 @@ public sealed partial class NodeService(LibraryService library, ISyncthingApi sy
         var normalized = (relativePath ?? offer.Label).Trim().Trim('/');
         if (normalized.Length == 0)
             throw new LibraryException(
-                "Choose a folder inside your Homebase folder to keep this in.", "unsupported");
+                "Choose a folder inside your Uncloud folder to keep this in.", "unsupported");
 
         var fullPath = PathPolicy.Resolve(root, normalized);
         PathPolicy.RejectLink(fullPath);
@@ -133,6 +133,6 @@ public sealed partial class NodeService(LibraryService library, ISyncthingApi sy
     {
         if (!syncthing.IsAvailable)
             throw new LibraryException(
-                syncthing.Unavailable ?? "Syncthing isn’t running, so Homebase can’t reach other computers.", "unsupported");
+                syncthing.Unavailable ?? "Syncthing isn’t running, so Uncloud can’t reach other computers.", "unsupported");
     }
 }

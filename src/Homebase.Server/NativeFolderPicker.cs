@@ -30,7 +30,7 @@ public sealed class NativeFolderPicker : IFolderPicker
                 UseShellExecute = false
             };
             start.ArgumentList.Add("-e");
-            start.ArgumentList.Add("POSIX path of (choose folder with prompt \"Choose your Homebase folder\")");
+            start.ArgumentList.Add("POSIX path of (choose folder with prompt \"Choose your Uncloud folder\")");
             using var process = Process.Start(start) ?? throw new IOException("Could not open the folder chooser.");
             try
             {

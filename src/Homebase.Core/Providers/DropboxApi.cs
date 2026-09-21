@@ -21,7 +21,7 @@ public sealed class DropboxApi(HttpClient client, DropboxTokenStore tokens, stri
     public string? AccountName => tokens.LoadAccountName();
 
     public string AppKey => appKey ?? throw new LibraryException(
-        "Homebase isn’t set up for Dropbox yet. Add a Dropbox app key to connect.", "provider_unconfigured");
+        "Uncloud isn’t set up for Dropbox yet. Add a Dropbox app key to connect.", "provider_unconfigured");
 
     public async Task ConnectAsync(string code, string verifier, string redirectUri, CancellationToken cancellationToken)
     {
@@ -50,7 +50,7 @@ public sealed class DropboxApi(HttpClient client, DropboxTokenStore tokens, stri
             // A minute of headroom so a request can't start with a token that expires mid-flight.
             if (_accessToken is not null && DateTimeOffset.UtcNow < _expiresAt.AddMinutes(-1)) return _accessToken;
             var refresh = tokens.Load()
-                ?? throw new LibraryException("Connect Homebase to Dropbox first.", "provider_disconnected");
+                ?? throw new LibraryException("Connect Uncloud to Dropbox first.", "provider_disconnected");
             var result = await DropboxOAuth.RefreshAsync(client, AppKey, refresh, cancellationToken);
             _accessToken = result.AccessToken;
             _expiresAt = result.ExpiresAt;
@@ -129,11 +129,11 @@ public sealed class DropboxApi(HttpClient client, DropboxTokenStore tokens, stri
     private static LibraryException Failure(System.Net.HttpStatusCode status, string detail) => status switch
     {
         System.Net.HttpStatusCode.Unauthorized =>
-            new LibraryException("Dropbox rejected the connection. Connect Homebase to Dropbox again.", "provider_auth"),
+            new LibraryException("Dropbox rejected the connection. Connect Uncloud to Dropbox again.", "provider_auth"),
         System.Net.HttpStatusCode.Conflict when detail.Contains("not_found", StringComparison.Ordinal) =>
             new LibraryException("That file is no longer in Dropbox.", "not_found"),
         System.Net.HttpStatusCode.TooManyRequests =>
-            new LibraryException("Dropbox is asking Homebase to slow down. Try again in a moment.", "busy"),
+            new LibraryException("Dropbox is asking Uncloud to slow down. Try again in a moment.", "busy"),
         _ => new LibraryException($"Dropbox couldn’t complete that request ({(int)status}).", "provider_failed")
     };
 

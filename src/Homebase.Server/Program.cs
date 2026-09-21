@@ -71,7 +71,7 @@ app.Use(async (context, next) =>
         if (!sameOrigin || request.Headers["Sec-Fetch-Site"] == "cross-site"
             || (!HttpMethods.IsGet(request.Method) && !HttpMethods.IsHead(request.Method) && request.Headers["X-Homebase-Request"] != "1"))
         {
-            await Results.Problem("Open Homebase on this computer to make this request.", statusCode: 403).ExecuteAsync(context);
+            await Results.Problem("Open Uncloud on this computer to make this request.", statusCode: 403).ExecuteAsync(context);
             return;
         }
     }
@@ -89,12 +89,12 @@ app.Use(async (context, next) =>
                 "unsupported" => 501,
                 _ => 400
             }, library.Message),
-            UnauthorizedAccessException => (403, "Homebase can’t access this folder. Check its permissions and macOS privacy settings."),
-            SqliteException => (500, "Homebase couldn’t update its local index. Check disk space and folder permissions. Your files haven’t been changed."),
+            UnauthorizedAccessException => (403, "Uncloud can’t access this folder. Check its permissions and macOS privacy settings."),
+            SqliteException => (500, "Uncloud couldn’t update its local index. Check disk space and folder permissions. Your files haven’t been changed."),
             ArgumentException => (400, "This folder path isn’t valid."),
             _ => (409, "The file or drive isn’t available. Check it in Finder and refresh.")
         };
-        app.Logger.LogWarning(error, "Homebase operation failed");
+        app.Logger.LogWarning(error, "Uncloud operation failed");
         await Results.Problem(detail, statusCode: status).ExecuteAsync(context);
     }
 });

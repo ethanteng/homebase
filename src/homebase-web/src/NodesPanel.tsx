@@ -26,7 +26,7 @@ export default function NodesPanel() {
       setStatus(await api<NodeStatus>("/nodes"));
     } catch (problem: unknown) {
       setError(
-        problem instanceof Error ? problem.message : "Couldn’t reach Homebase.",
+        problem instanceof Error ? problem.message : "Couldn’t reach Uncloud.",
       );
     }
   }, []);
@@ -57,7 +57,7 @@ export default function NodesPanel() {
         body: JSON.stringify({ deviceId, name: deviceName || null }),
       });
       setNotice(
-        "Added. Now add this Homebase’s ID on the other computer — both sides have to agree.",
+        "Added. Now add this Uncloud’s ID on the other computer — both sides have to agree.",
       );
       setDeviceId("");
       setDeviceName("");
@@ -128,14 +128,14 @@ export default function NodesPanel() {
       )}
 
       {status && !status.available ? (
-        <div className="setup-card">
+        <div className="notice-card">
           <h2>Syncthing isn’t running</h2>
           <p className="field-help">
             {status.detail ??
-              "Homebase couldn’t start Syncthing on this computer."}{" "}
-            Homebase uses Syncthing to talk to your other computers. Install it
+              "Uncloud couldn’t start Syncthing on this computer."}{" "}
+            Uncloud uses Syncthing to talk to your other computers. Install it
             (<code>brew install syncthing</code> on a Mac), then restart
-            Homebase. If it lives somewhere unusual, set{" "}
+            Uncloud. If it lives somewhere unusual, set{" "}
             <code>Homebase__Syncthing__Path</code>.
           </p>
         </div>
@@ -249,7 +249,7 @@ export default function NodesPanel() {
                   className="path-input"
                   value={folderPath}
                   onChange={(event) => setFolderPath(event.target.value)}
-                  placeholder="A folder inside your Homebase folder, such as Files/Dropbox"
+                  placeholder="A folder inside your Uncloud folder, such as Files/Dropbox"
                   aria-label="Folder to share"
                   spellCheck={false}
                 />
@@ -267,8 +267,8 @@ export default function NodesPanel() {
                 </button>
               </div>
               <p className="field-help">
-                Share a folder inside your Homebase folder, not the whole thing —
-                Homebase keeps its own index in there, and copying that between
+                Share a folder inside your Uncloud folder, not the whole thing —
+                Uncloud keeps its own index in there, and copying that between
                 computers would break it. The other computer has to take the
                 folder up before anything moves.
               </p>

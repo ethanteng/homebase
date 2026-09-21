@@ -30,11 +30,11 @@ public sealed class DropboxAuthFlow
             var pending = _pending;
             _pending = null;
             if (pending is null || state is null || DateTimeOffset.UtcNow > pending.Value.Expires)
-                throw new LibraryException("That sign-in didn’t come from Homebase, or it took too long. Try again.", "provider_auth");
+                throw new LibraryException("That sign-in didn’t come from Uncloud, or it took too long. Try again.", "provider_auth");
             // Fixed-time comparison: the state is a secret for the length of the round trip.
             if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
                     System.Text.Encoding.UTF8.GetBytes(pending.Value.State), System.Text.Encoding.UTF8.GetBytes(state)))
-                throw new LibraryException("That sign-in didn’t come from Homebase. Try again.", "provider_auth");
+                throw new LibraryException("That sign-in didn’t come from Uncloud. Try again.", "provider_auth");
             return pending.Value.Verifier;
         }
     }

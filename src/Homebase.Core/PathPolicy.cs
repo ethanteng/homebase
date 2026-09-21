@@ -5,11 +5,11 @@ public static class PathPolicy
     public static string NormalizeRoot(string input)
     {
         if (string.IsNullOrWhiteSpace(input))
-            throw new LibraryException("Choose an existing folder for Homebase.");
+            throw new LibraryException("Choose an existing folder for Uncloud.");
         if (input == "~" || input.StartsWith("~/", StringComparison.Ordinal))
             input = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), input.Length > 2 ? input[2..] : "");
         if (!System.IO.Path.IsPathFullyQualified(input))
-            throw new LibraryException("Enter an absolute folder path, such as /Users/you/Homebase.");
+            throw new LibraryException("Enter an absolute folder path, such as /Users/you/Uncloud.");
 
         var fullPath = System.IO.Path.GetFullPath(input);
         if (!Directory.Exists(fullPath))
@@ -28,17 +28,17 @@ public static class PathPolicy
     public static string Resolve(string root, string? relativePath)
     {
         if (!Directory.Exists(root))
-            throw new LibraryException("Your Homebase folder is unavailable. Reconnect the drive or choose another folder.", "unavailable");
+            throw new LibraryException("Your Uncloud folder is unavailable. Reconnect the drive or choose another folder.", "unavailable");
         RejectLink(root);
         relativePath ??= "";
         if (System.IO.Path.IsPathRooted(relativePath) || relativePath.Contains('\\') || relativePath.Contains('\0'))
-            throw new LibraryException("Use a path inside your Homebase folder.");
+            throw new LibraryException("Use a path inside your Uncloud folder.");
 
         var current = root;
         foreach (var part in relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries))
         {
             if (part is "." or ".." || part.StartsWith('.'))
-                throw new LibraryException("Hidden folders and paths outside Homebase aren’t accessible.");
+                throw new LibraryException("Hidden folders and paths outside Uncloud aren’t accessible.");
             current = System.IO.Path.Combine(current, part);
             RejectLink(current);
         }
@@ -49,7 +49,7 @@ public static class PathPolicy
     {
         var entry = new FileInfo(path);
         if (entry.LinkTarget is not null || (entry.Exists && entry.Attributes.HasFlag(FileAttributes.ReparsePoint)))
-            throw new LibraryException("Symbolic links aren’t followed in Homebase v0.");
+            throw new LibraryException("Symbolic links aren’t followed in Uncloud v0.");
     }
 
     public static string PrepareMetadata(string root)
