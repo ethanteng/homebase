@@ -19,6 +19,15 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
     /// </summary>
     public int MaxEntries { get; init; } = 20000;
 
+    /// <summary>
+    /// The most room to leave alone on the drive. Filling a disk to the last byte breaks far more
+    /// than this import — the metadata index lives on the same disk and needs somewhere to write.
+    /// </summary>
+    public long Headroom { get; init; } = 256L * 1024 * 1024;
+
+    /// <summary>Free space on the library's drive; replaced in tests.</summary>
+    public Func<string, StorageReport?> Space { get; init; } = Storage.For;
+
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public IReadOnlyList<ImportedFile> Imported() => log.List(RequireRoot());
@@ -36,7 +45,10 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
             var skipped = new List<SkippedItem>();
             long bytes = 0;
 
-            foreach (var file in await CollectAsync(entry, skipped, cancellationToken))
+            var collected = await CollectAsync(entry, skipped, cancellationToken);
+            RequireRoomFor(root, collected);
+
+            foreach (var file in collected)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 try
@@ -59,6 +71,53 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
             return new ImportResult(imported, skipped, bytes);
         }
         finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// What this file or folder would bring home, measured without downloading anything. The walk
+    /// is the same one an import does, so the answer is the one the import will act on.
+    /// </summary>
+    public async Task<ImportEstimate> MeasureAsync(string remotePath, CancellationToken cancellationToken)
+    {
+        var root = RequireRoot();
+        var entry = await dropbox.GetMetadataAsync(remotePath, cancellationToken);
+        var files = await CollectAsync(entry, [], cancellationToken);
+        var home = AlreadyHome(root);
+        var arriving = files.Where(file => !home.Contains(file.PathLower)).ToArray();
+        var newBytes = arriving.Sum(file => file.Size ?? 0);
+        var free = Space(root)?.FreeBytes;
+        return new ImportEstimate(
+            files.Count, files.Sum(file => file.Size ?? 0), arriving.Length, newBytes, free, Fits(newBytes, free));
+    }
+
+    private HashSet<string> AlreadyHome(string root) =>
+        log.List(root).Where(file => file.Provider == Provider)
+            .Select(file => file.RemotePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether this much can be brought home without running the drive down to nothing. The room
+    /// held back shrinks with the space left, so a drive that is already tight still takes a small
+    /// file rather than refusing everything on principle.
+    /// </summary>
+    private bool Fits(long needed, long? free)
+    {
+        if (needed == 0 || free is null) return true;
+        return needed <= free.Value - Math.Min(Headroom, free.Value / 10);
+    }
+
+    /// <summary>
+    /// Refuses before a single byte is downloaded when the files can't fit. Running a drive out of
+    /// space halfway through a folder is a far worse outcome than not starting it.
+    /// </summary>
+    private void RequireRoomFor(string root, IReadOnlyList<DropboxEntry> files)
+    {
+        var home = AlreadyHome(root);
+        var needed = files.Where(file => !home.Contains(file.PathLower)).Sum(file => file.Size ?? 0);
+        var free = Space(root)?.FreeBytes;
+        if (Fits(needed, free)) return;
+        throw new LibraryException(
+            $"This would bring {Storage.Describe(needed)} home and only {Storage.Describe(free!.Value)} is free on "
+            + "your Uncloud drive. Make some room, or bring part of the folder instead.", "unavailable");
     }
 
     /// <summary>Flattens a file or folder into the ordinary files worth importing.</summary>

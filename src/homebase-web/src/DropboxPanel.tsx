@@ -5,15 +5,19 @@ import {
   CloudDownload,
   File,
   Folder,
+  HardDrive,
   LoaderCircle,
+  Ruler,
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize } from "./api";
 import type {
   DropboxEntry,
   DropboxStatus,
+  ImportEstimate,
   ImportResult,
   ImportedFile,
+  StorageReport,
 } from "./api";
 
 const dateFormat = new Intl.DateTimeFormat(undefined, {
@@ -23,8 +27,26 @@ const dateFormat = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 
-export default function DropboxPanel() {
+// A folder’s size costs a walk of the whole tree, so it reads as "Folder" until asked for.
+function describeFolder(estimate: ImportEstimate | undefined): string {
+  if (!estimate) return "Folder";
+  const files = `${estimate.fileCount} file${estimate.fileCount === 1 ? "" : "s"}`;
+  const total = `${formatSize(estimate.bytes)} · ${files}`;
+  if (estimate.newFileCount === 0) return `${total} · all already home`;
+  const arriving = `${formatSize(estimate.newBytes)} to bring home`;
+  return estimate.fits
+    ? `${total} · ${arriving}`
+    : `${total} · ${arriving} · won’t fit on your drive`;
+}
+
+interface Props {
+  onImported: () => void;
+}
+
+export default function DropboxPanel({ onImported }: Props) {
   const [status, setStatus] = useState<DropboxStatus | null>(null);
+  const [storage, setStorage] = useState<StorageReport | null>(null);
+  const [sizes, setSizes] = useState<Record<string, ImportEstimate>>({});
   const [imported, setImported] = useState<ImportedFile[]>([]);
   const [entries, setEntries] = useState<DropboxEntry[] | null>(null);
   const [remotePath, setRemotePath] = useState("");
@@ -38,6 +60,14 @@ export default function DropboxPanel() {
       setImported(await api<ImportedFile[]>("/imports"));
     } catch {
       // A failed read shouldn't replace what's already on screen.
+    }
+  }, []);
+
+  const loadStorage = useCallback(async () => {
+    try {
+      setStorage(await api<StorageReport>("/storage"));
+    } catch {
+      // Knowing the free space is a help, not a precondition.
     }
   }, []);
 
@@ -63,8 +93,11 @@ export default function DropboxPanel() {
   }, []);
 
   useEffect(() => {
-    if (status?.connected) void loadImported();
-  }, [status?.connected, loadImported]);
+    if (status?.connected) {
+      void loadImported();
+      void loadStorage();
+    }
+  }, [status?.connected, loadImported, loadStorage]);
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label);
@@ -97,6 +130,14 @@ export default function DropboxPanel() {
       setRemotePath(path);
     });
 
+  const measure = (entry: DropboxEntry) =>
+    run(`measure:${entry.pathLower}`, async () => {
+      const estimate = await api<ImportEstimate>(
+        `/imports/estimate?${new URLSearchParams({ remotePath: entry.pathLower })}`,
+      );
+      setSizes((current) => ({ ...current, [entry.pathLower]: estimate }));
+    });
+
   const bringHome = (entry: DropboxEntry) =>
     run(entry.pathLower, async () => {
       const outcome = await api<ImportResult>("/imports", {
@@ -117,6 +158,9 @@ export default function DropboxPanel() {
           : `${brought} ${problems} item${problems === 1 ? "" : "s"} not brought home — see below.`,
       );
       await loadImported();
+      await loadStorage();
+      // Files landed in the library, so the browser's view of it is now out of date.
+      onImported();
     });
 
   // Only the skips a person can act on; "already imported" is the ordinary case.
@@ -211,6 +255,20 @@ export default function DropboxPanel() {
             </section>
           )}
 
+          {storage?.freeBytes != null && (
+            <p className="library-note storage-note">
+              <HardDrive size={17} />
+              <span>
+                {formatSize(storage.freeBytes)} free
+                {storage.totalBytes != null
+                  ? ` of ${formatSize(storage.totalBytes)}`
+                  : ""}{" "}
+                on your Uncloud drive. Uncloud checks that a folder fits before
+                it brings anything home.
+              </span>
+            </p>
+          )}
+
           <section className="import-section">
             <div className="import-section-head">
               <h2>
@@ -252,10 +310,26 @@ export default function DropboxPanel() {
                     )}
                     <div>
                       <strong>{entry.name}</strong>
-                      <span className="muted">
-                        {entry.isFolder ? "Folder" : formatSize(entry.size)}
+                      <span
+                        className={`muted${sizes[entry.pathLower] && !sizes[entry.pathLower].fits ? " will-not-fit" : ""}`}
+                      >
+                        {entry.isFolder
+                          ? describeFolder(sizes[entry.pathLower])
+                          : formatSize(entry.size)}
                       </span>
                     </div>
+                    {entry.isFolder && !sizes[entry.pathLower] && (
+                      <button
+                        className="button"
+                        onClick={() => void measure(entry)}
+                        disabled={busy === `measure:${entry.pathLower}`}
+                      >
+                        <Ruler size={15} />
+                        {busy === `measure:${entry.pathLower}`
+                          ? "Measuring…"
+                          : "Check size"}
+                      </button>
+                    )}
                     {entry.isFolder && (
                       <button
                         className="button"

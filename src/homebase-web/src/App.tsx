@@ -11,8 +11,8 @@ import {
   Settings2,
   X,
 } from "lucide-react";
-import { api } from "./api";
-import type { LibraryState } from "./api";
+import { api, formatSize } from "./api";
+import type { LibraryState, StorageReport } from "./api";
 import DropboxPanel from "./DropboxPanel";
 import NodesPanel from "./NodesPanel";
 import FileBrowser from "./FileBrowser";
@@ -28,6 +28,7 @@ function readPath() {
 
 export default function App() {
   const [library, setLibrary] = useState<LibraryState | null>(null);
+  const [storage, setStorage] = useState<StorageReport | null>(null);
   const [error, setError] = useState("");
   const [path, setPath] = useState(readPath);
   const [revision, setRevision] = useState(0);
@@ -51,6 +52,17 @@ export default function App() {
       });
     return () => controller.abort();
   }, []);
+  useEffect(() => {
+    // Free space changes as files arrive, so this follows the same revision the browser does.
+    if (!library?.rootPath) return;
+    const controller = new AbortController();
+    api<StorageReport>("/storage", { signal: controller.signal })
+      .then(setStorage)
+      .catch(() => {
+        // A drive that won't say how full it is shouldn't take the app down with it.
+      });
+    return () => controller.abort();
+  }, [library?.rootPath, revision]);
   useEffect(() => {
     const onHash = () => setPath(readPath());
     window.addEventListener("hashchange", onHash);
@@ -136,6 +148,14 @@ export default function App() {
             {library?.rootPath && (
               <code title={library.rootPath}>{library.rootPath}</code>
             )}
+            {library?.rootPath && storage?.freeBytes != null && (
+              <span className="drive-space">
+                {formatSize(storage.freeBytes)} free
+                {storage.totalBytes != null
+                  ? ` of ${formatSize(storage.totalBytes)}`
+                  : ""}
+              </span>
+            )}
             <button onClick={() => setSettingsOpen(true)} disabled={!library}>
               {library?.rootPath ? "Manage folder" : "Choose a folder"}
               <ArrowUpRight size={14} />
@@ -187,7 +207,7 @@ export default function App() {
           ) : library.rootPath && view === "nodes" ? (
             <NodesPanel />
           ) : library.rootPath && view === "dropbox" ? (
-            <DropboxPanel />
+            <DropboxPanel onImported={() => setRevision((value) => value + 1)} />
           ) : library.rootPath ? (
             <FileBrowser
               rootPath={library.rootPath}

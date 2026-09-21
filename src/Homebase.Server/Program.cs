@@ -109,6 +109,12 @@ app.MapPut("/api/library", async (SelectRoot request, LibraryService library, Ca
     Results.Ok(await library.SelectRootAsync(request.Path, cancellationToken)));
 app.MapPost("/api/folder-picker", async (IFolderPicker picker, CancellationToken cancellationToken) =>
     Results.Ok(new { path = await picker.ChooseAsync(cancellationToken) }));
+app.MapGet("/api/storage", (LibraryService library) =>
+{
+    var root = library.State.RootPath;
+    var report = root is null ? null : Storage.For(root);
+    return Results.Ok(new { freeBytes = report?.FreeBytes, totalBytes = report?.TotalBytes });
+});
 app.MapGet("/api/files", async (string? path, LibraryService library, CancellationToken cancellationToken) =>
     Results.Ok(await library.BrowseAsync(path, cancellationToken)));
 app.MapGet("/api/files/download", async (string path, LibraryService library, CancellationToken cancellationToken) =>
@@ -147,6 +153,8 @@ app.MapGet("/api/providers/dropbox/files", async (string? path, IDropboxApi drop
 app.MapGet("/api/imports", (ImportService imports) => Results.Ok(imports.Imported()));
 app.MapPost("/api/imports", async (ImportRequest request, ImportService imports, CancellationToken cancellationToken) =>
     Results.Ok(await imports.ImportAsync(request.RemotePath, cancellationToken)));
+app.MapGet("/api/imports/estimate", async (string remotePath, ImportService imports, CancellationToken cancellationToken) =>
+    Results.Ok(await imports.MeasureAsync(remotePath, cancellationToken)));
 app.MapGet("/api/nodes", async (NodeService nodes, CancellationToken cancellationToken) =>
     Results.Ok(await nodes.StatusAsync(cancellationToken)));
 app.MapPost("/api/nodes", async (PairNode request, NodeService nodes, CancellationToken cancellationToken) =>

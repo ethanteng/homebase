@@ -200,6 +200,111 @@ public sealed class ImportTests : IDisposable
     }
 
     [Fact]
+    public void The_drive_a_folder_lives_on_reports_its_free_space()
+    {
+        // An external drive is its own volume, so this has to answer about the path, not the boot disk.
+        var report = Storage.For(_root);
+
+        Assert.NotNull(report);
+        Assert.True(report.FreeBytes > 0);
+        Assert.True(report.TotalBytes >= report.FreeBytes);
+    }
+
+    [Fact]
+    public async Task A_folder_that_would_fill_the_drive_is_refused_before_anything_arrives()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/big.bin", "rev1", new string('x', 4096));
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+
+        var error = await Assert.ThrowsAsync<LibraryException>(
+            () => imports.ImportAsync("/notes", CancellationToken.None));
+
+        Assert.Equal("unavailable", error.Code);
+        // Both numbers, so the message says what to do about it.
+        Assert.Contains("4 KB", error.Message);
+        Assert.Contains("1 KB", error.Message);
+        Assert.False(Directory.Exists(LocalPath("Files/Dropbox/notes")));
+        Assert.Empty(_imports.Imported());
+    }
+
+    [Fact]
+    public async Task Room_is_left_on_the_drive_rather_than_filling_it_to_the_last_byte()
+    {
+        _dropbox.AddFile("/notes/hello.txt", "rev1", "1234567890");
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            // Exactly enough room for the file and nothing to spare, which is not enough.
+            Space = _ => new StorageReport(FreeBytes: 10, TotalBytes: 100),
+            Headroom = 1024
+        };
+
+        await Assert.ThrowsAsync<LibraryException>(
+            () => imports.ImportAsync("/notes/hello.txt", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_folder_already_home_still_fits_however_little_room_is_left()
+    {
+        // Bringing a folder again costs nothing on disk, so a full drive mustn't refuse it.
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/one.txt", "rev1", "One.");
+        await _imports.ImportAsync("/notes", CancellationToken.None);
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 0, TotalBytes: 8192)
+        };
+
+        var result = await imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Empty(result.Imported);
+        Assert.All(result.Skipped, skip => Assert.True(skip.Expected));
+    }
+
+    [Fact]
+    public async Task Measuring_a_folder_leaves_out_what_is_already_home()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/one.txt", "rev1", "12345");
+        _dropbox.AddFile("/notes/two.txt", "rev1", "1234567890");
+        await _imports.ImportAsync("/notes/one.txt", CancellationToken.None);
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1_000_000, TotalBytes: 2_000_000)
+        };
+
+        var estimate = await imports.MeasureAsync("/notes", CancellationToken.None);
+
+        Assert.Equal(2, estimate.FileCount);
+        Assert.Equal(15, estimate.Bytes);
+        Assert.Equal(1, estimate.NewFileCount);
+        Assert.Equal(10, estimate.NewBytes);
+        Assert.Equal(1_000_000, estimate.FreeBytes);
+        Assert.True(estimate.Fits);
+    }
+
+    [Fact]
+    public async Task Measuring_says_when_a_folder_would_not_fit()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/big.bin", "rev1", new string('x', 4096));
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+
+        var estimate = await imports.MeasureAsync("/notes", CancellationToken.None);
+
+        Assert.Equal(4096, estimate.NewBytes);
+        Assert.False(estimate.Fits);
+    }
+
+    [Fact]
     public async Task A_hidden_path_is_refused_outright()
     {
         _dropbox.AddFile("/.config/secrets.txt", "rev1", "nope");

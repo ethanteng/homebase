@@ -213,6 +213,12 @@ p {
   text-overflow: ellipsis;
   margin-top: 7px;
 }
+.drive-space {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 5px;
+}
 .drive-card button {
   display: flex;
   align-items: center;
@@ -1418,4 +1424,17 @@ tbody tr.selected {
 .notice-card .field-help {
   margin: 0;
   max-width: 62ch;
+}
+
+.storage-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.storage-note span {
+  font-size: 11px;
+  line-height: 1.8;
+}
+/* A folder that won't fit has to read differently from one that simply hasn't been measured. */
+.import-list li .muted.will-not-fit {
+  color: var(--danger-text);
 }

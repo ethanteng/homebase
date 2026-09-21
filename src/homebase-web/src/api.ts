@@ -17,6 +17,20 @@ export interface DirectoryListing {
   indexedAt: string;
 }
 
+export interface StorageReport {
+  freeBytes: number | null;
+  totalBytes: number | null;
+}
+
+export interface ImportEstimate {
+  fileCount: number;
+  bytes: number;
+  newFileCount: number;
+  newBytes: number;
+  freeBytes: number | null;
+  fits: boolean;
+}
+
 export interface DropboxStatus {
   configured: boolean;
   connected: boolean;

@@ -30,3 +30,15 @@ public sealed record ImportResult(
     public int ImportedCount => Imported.Count;
     public int SkippedCount => Skipped.Count;
 }
+
+/// <summary>
+/// What a file or folder would bring, measured before anything is downloaded. New counts leave out
+/// what is already home, since bringing a folder again costs nothing on disk.
+/// </summary>
+public sealed record ImportEstimate(
+    int FileCount,
+    long Bytes,
+    int NewFileCount,
+    long NewBytes,
+    long? FreeBytes,
+    bool Fits);
