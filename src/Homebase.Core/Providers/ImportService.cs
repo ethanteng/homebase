@@ -10,7 +10,7 @@ namespace Homebase.Core.Providers;
 /// </summary>
 public sealed class ImportService(LibraryService library, ImportLog log, IDropboxApi dropbox, ILogger<ImportService> logger)
 {
-    public const string Provider = "dropbox";
+    public const string Provider = DropboxApi.ProviderName;
     public const string DestinationPrefix = "Files/Dropbox";
 
     /// <summary>
@@ -308,6 +308,13 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
         return $"{DestinationPrefix}/{relative}";
     }
 
-    private string RequireRoot() =>
-        library.State.RootPath ?? throw new LibraryException("Choose your Uncloud folder first.", "not_configured");
+    /// <summary>
+    /// The account's folder. Which folder that is was settled when the workspace was made, from
+    /// an authenticated session, so all that is left to check here is that it is still there.
+    /// </summary>
+    private string RequireRoot()
+    {
+        PathPolicy.Resolve(library.Root, "");
+        return library.Root;
+    }
 }

@@ -9,7 +9,13 @@ namespace Homebase.Core.Nodes;
 /// The peer protocol is Syncthing's; what lives here are Homebase's own rules about which
 /// paths may be shared at all.
 /// </summary>
-public sealed partial class NodeService(LibraryService library, ISyncthingApi syncthing)
+/// <remarks>
+/// Syncthing's configuration belongs to the whole host and has no notion of accounts, so these
+/// endpoints are administrator-only for now. The root is passed in rather than read from a
+/// shared service, so the path rules are still applied against one account's folder and a share
+/// can never reach outside it.
+/// </remarks>
+public sealed partial class NodeService(ISyncthingApi syncthing)
 {
     // Syncthing device IDs are eight dash-separated groups; the checksum is Syncthing's to verify.
     [GeneratedRegex("^[A-Z2-7]{7}(-[A-Z2-7]{7}){7}$")]
@@ -45,12 +51,9 @@ public sealed partial class NodeService(LibraryService library, ISyncthingApi sy
     }
 
     /// <summary>Shares one folder inside the library with paired devices.</summary>
-    public async Task<SharedFolder> ShareAsync(string relativePath, IReadOnlyList<string> deviceIds, CancellationToken cancellationToken)
+    public async Task<SharedFolder> ShareAsync(string root, string relativePath, IReadOnlyList<string> deviceIds, CancellationToken cancellationToken)
     {
         Require();
-        var root = library.State.RootPath
-            ?? throw new LibraryException("Choose your Uncloud folder first.", "not_configured");
-
         var normalized = (relativePath ?? "").Trim().Trim('/');
         // The library root holds .homebase/index.db, a live SQLite database. Copying that between
         // machines corrupts it, so only folders inside the library can ever be shared.
@@ -92,12 +95,9 @@ public sealed partial class NodeService(LibraryService library, ISyncthingApi sy
     /// the far side — Syncthing offers it and waits — so without this step the second computer
     /// stays unconfigured and nothing moves.
     /// </summary>
-    public async Task<SharedFolder> AcceptAsync(string folderId, string? relativePath, CancellationToken cancellationToken)
+    public async Task<SharedFolder> AcceptAsync(string root, string folderId, string? relativePath, CancellationToken cancellationToken)
     {
         Require();
-        var root = library.State.RootPath
-            ?? throw new LibraryException("Choose your Uncloud folder first.", "not_configured");
-
         var offer = (await syncthing.OffersAsync(cancellationToken))
             .FirstOrDefault(pending => pending.Id == folderId)
             ?? throw new LibraryException("No computer is offering that folder.", "not_found");

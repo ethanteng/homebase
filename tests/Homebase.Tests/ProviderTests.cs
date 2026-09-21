@@ -15,31 +15,36 @@ namespace Homebase.Tests;
 public sealed class ProviderTests : IDisposable
 {
     private readonly string _temporary = Path.Combine(Path.GetTempPath(), "homebase-tests", Guid.NewGuid().ToString("N"));
-    private readonly string _root;
+    private readonly string _host;
     private readonly string _config;
     private readonly StubDropbox _dropbox = new();
 
     public ProviderTests()
     {
         Directory.CreateDirectory(_temporary);
-        _root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        _host = Directory.CreateDirectory(Path.Combine(_temporary, "Host")).FullName;
         _config = Path.Combine(_temporary, "Config");
     }
 
-    private HttpClient CreateClient(TestApp app)
+    // One account here, so every workspace gets the same stub: these tests are about importing,
+    // not about whose connection is whose, which IsolationTests covers.
+    private TestHost CreateApp(StubDropbox? dropbox = null) => new(_config, _ => dropbox ?? _dropbox);
+
+    /// <summary>Signs in, chooses the host's folder, and hands back that account's own folder.</summary>
+    private async Task<(HttpClient Client, string Root)> StartAsync(TestHost app)
     {
-        var client = app.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Homebase-Request", "1");
-        return client;
+        var client = await app.SignUpAsync();
+        await TestHost.SetHostRootAsync(client, _host);
+        return (client, await TestHost.UserRootAsync(client));
     }
 
     [Fact]
     public async Task A_dropbox_file_is_brought_home_and_shows_up_in_the_browser()
     {
         _dropbox.Add("/notes/hello.txt", "rev1", "First draft.");
-        using var app = new TestApp(_config, _dropbox);
-        using var client = CreateClient(app);
-        (await client.PutAsJsonAsync("/api/library", new { path = _root })).EnsureSuccessStatusCode();
+        using var app = CreateApp();
+        var (client, root) = await StartAsync(app);
+        using var _ = client;
 
         Assert.Empty(await client.GetFromJsonAsync<JsonElement[]>("/api/imports") ?? []);
 
@@ -47,7 +52,7 @@ public sealed class ProviderTests : IDisposable
         Assert.Equal("Done", job.GetProperty("stage").GetString());
         Assert.Equal(1, job.GetProperty("result").GetProperty("importedCount").GetInt32());
 
-        var localFile = Path.Combine(_root, "Files", "Dropbox", "notes", "hello.txt");
+        var localFile = Path.Combine(root, "Files", "Dropbox", "notes", "hello.txt");
         Assert.Equal("First draft.", await File.ReadAllTextAsync(localFile));
 
         // The import is an ordinary file, so the normal browser sees it.
@@ -60,9 +65,9 @@ public sealed class ProviderTests : IDisposable
     public async Task A_later_dropbox_revision_leaves_the_imported_copy_alone()
     {
         _dropbox.Add("/notes/hello.txt", "rev1", "First draft.");
-        using var app = new TestApp(_config, _dropbox);
-        using var client = CreateClient(app);
-        (await client.PutAsJsonAsync("/api/library", new { path = _root })).EnsureSuccessStatusCode();
+        using var app = CreateApp();
+        var (client, root) = await StartAsync(app);
+        using var _ = client;
         await BringHome(client, "/notes/hello.txt");
 
         _dropbox.Add("/notes/hello.txt", "rev2", "Changed on Dropbox.");
@@ -70,32 +75,36 @@ public sealed class ProviderTests : IDisposable
 
         Assert.Equal(0, again.GetProperty("result").GetProperty("importedCount").GetInt32());
         Assert.Equal("First draft.",
-            await File.ReadAllTextAsync(Path.Combine(_root, "Files", "Dropbox", "notes", "hello.txt")));
+            await File.ReadAllTextAsync(Path.Combine(root, "Files", "Dropbox", "notes", "hello.txt")));
     }
 
     [Fact]
-    public async Task Importing_requires_a_chosen_folder_and_the_local_request_header()
+    public async Task Importing_requires_a_chosen_folder_a_session_and_the_local_request_header()
     {
         _dropbox.Add("/notes/hello.txt", "rev1", "First draft.");
-        using var app = new TestApp(_config, _dropbox);
-        using var bare = app.CreateClient();
-        using var client = CreateClient(app);
+        using var app = CreateApp();
+        using var signedIn = await app.SignUpAsync();
 
+        // Signed in, but the host has no folder yet, so there is nowhere to bring anything to.
         Assert.Equal(HttpStatusCode.Conflict,
-            (await client.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" })).StatusCode);
+            (await signedIn.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" })).StatusCode);
 
-        (await client.PutAsJsonAsync("/api/library", new { path = _root })).EnsureSuccessStatusCode();
+        await TestHost.SetHostRootAsync(signedIn, _host);
+        using var bare = app.CreateClient();
         Assert.Equal(HttpStatusCode.Forbidden,
             (await bare.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" })).StatusCode);
+        using var anonymous = app.Anonymous();
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await anonymous.PostAsJsonAsync("/api/imports", new { remotePath = "/notes/hello.txt" })).StatusCode);
     }
 
     [Fact]
     public async Task Starting_an_import_answers_before_the_files_have_arrived()
     {
         _dropbox.Add("/notes/hello.txt", "rev1", "First draft.");
-        using var app = new TestApp(_config, _dropbox);
-        using var client = CreateClient(app);
-        (await client.PutAsJsonAsync("/api/library", new { path = _root })).EnsureSuccessStatusCode();
+        using var app = CreateApp();
+        var (client, _) = await StartAsync(app);
+        using var __ = client;
 
         var response = await client.PostAsJsonAsync("/api/imports",
             new { remotePath = "/notes/hello.txt", label = "hello.txt" });
@@ -111,8 +120,9 @@ public sealed class ProviderTests : IDisposable
     [Fact]
     public async Task Dropbox_reports_itself_unconfigured_without_an_app_key()
     {
-        using var app = new TestApp(_config, _dropbox);
-        using var client = CreateClient(app);
+        using var app = CreateApp(new StubDropbox { IsConfigured = false, IsConnected = false });
+        var (client, _) = await StartAsync(app);
+        using var __ = client;
 
         var status = await client.GetFromJsonAsync<JsonElement>("/api/providers/dropbox");
 
@@ -169,38 +179,5 @@ public sealed class ProviderTests : IDisposable
                 new Dictionary<string, string?> { ["Homebase:Syncthing:Enabled"] = "false" }));
     }
 
-    private sealed class TestApp(string configDirectory, IDropboxApi dropbox) : WebApplicationFactory<Program>
-    {
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
-        {
-            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
-                new Dictionary<string, string?> { ["Homebase:ConfigDirectory"] = configDirectory }));
-            builder.ConfigureTestServices(services => services.AddSingleton(dropbox));
-        }
-    }
 
-    private sealed class StubDropbox : IDropboxApi
-    {
-        private readonly Dictionary<string, (DropboxEntry Entry, byte[] Content)> _files = new(StringComparer.OrdinalIgnoreCase);
-
-        public bool IsConfigured => true;
-        public bool IsConnected => true;
-
-        public void Add(string path, string rev, string contents) =>
-            _files[path] = (new DropboxEntry(path, Path.GetFileName(path), path.ToLowerInvariant(), path,
-                false, Encoding.UTF8.GetByteCount(contents), rev, DateTimeOffset.UtcNow), Encoding.UTF8.GetBytes(contents));
-
-        private (DropboxEntry Entry, byte[] Content) Require(string path) =>
-            _files.TryGetValue(path, out var file) ? file : throw new LibraryException("No such file on Dropbox.", "not_found");
-
-        public Task<DropboxAccount> GetAccountAsync(CancellationToken cancellationToken) =>
-            Task.FromResult(new DropboxAccount("id", "Stub", null));
-        public Task<IReadOnlyList<DropboxEntry>> ListFolderAsync(string path, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<DropboxEntry>>(_files.Values.Select(file => file.Entry).ToArray());
-
-        public Task<DropboxEntry> GetMetadataAsync(string path, CancellationToken cancellationToken) =>
-            Task.FromResult(Require(path).Entry);
-        public Task<Stream> DownloadAsync(string path, CancellationToken cancellationToken) =>
-            Task.FromResult<Stream>(new MemoryStream(Require(path).Content, writable: false));
-    }
 }

@@ -1,87 +1,92 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Homebase.Core;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Configuration;
 
 namespace Homebase.Tests;
 
 public sealed class LibraryTests : IDisposable
 {
     private readonly string _temporary = Path.Combine(Path.GetTempPath(), "homebase-tests", Guid.NewGuid().ToString("N"));
-    private readonly string _root;
+    private readonly string _host;
     private readonly string _config;
 
     public LibraryTests()
     {
         Directory.CreateDirectory(_temporary);
-        _root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        _host = Directory.CreateDirectory(Path.Combine(_temporary, "Host")).FullName;
         _config = Path.Combine(_temporary, "Config");
     }
 
-    private TestApp CreateApp() => new(_config);
-    private static HttpClient CreateClient(TestApp app)
+    private TestHost CreateApp() => new(_config);
+
+    /// <summary>A host with its folder chosen, signed in, and the caller's own folder found.</summary>
+    private async Task<(HttpClient Client, string Root)> StartAsync(TestHost app, string? hostRoot = null)
     {
-        var client = app.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Homebase-Request", "1");
-        return client;
+        var client = await app.SignUpAsync();
+        await TestHost.SetHostRootAsync(client, hostRoot ?? _host);
+        return (client, await TestHost.UserRootAsync(client));
     }
-    private async Task Select(HttpClient client, string? path = null)
+
+    private async Task<(HttpClient Client, string Root)> ReturnAsync(TestHost app)
     {
-        var response = await client.PutAsJsonAsync("/api/library", new { path = path ?? _root });
-        response.EnsureSuccessStatusCode();
+        var client = await app.SignInAsync("owner");
+        return (client, await TestHost.UserRootAsync(client));
     }
 
     [Fact]
     public async Task Setup_browse_download_and_restart_preserve_ordinary_files()
     {
-        Directory.CreateDirectory(Path.Combine(_root, "Documents"));
-        var filePath = Path.Combine(_root, "hello & café #1.txt");
-        await File.WriteAllTextAsync(filePath, "Home is here.");
-        var modified = File.GetLastWriteTimeUtc(filePath);
-        await File.WriteAllTextAsync(Path.Combine(_root, ".hidden"), "hidden");
+        string root;
         using (var app = CreateApp())
-        using (var client = CreateClient(app))
         {
-            var initial = await client.GetFromJsonAsync<LibraryState>("/api/library");
-            Assert.Null(initial!.RootPath);
-            Assert.Equal(HttpStatusCode.Conflict, (await client.GetAsync("/api/files")).StatusCode);
-            await Select(client);
-            Assert.True(File.Exists(Path.Combine(_config, "settings.json")));
-            var listing = await client.GetFromJsonAsync<DirectoryListing>("/api/files");
+            var client = await app.Anonymous().GetFromJsonAsync<JsonElement>("/api/session");
+            Assert.True(client.GetProperty("setupNeeded").GetBoolean());
+
+            (var signedIn, root) = await StartAsync(app);
+            using var _ = signedIn;
+            Directory.CreateDirectory(Path.Combine(root, "Documents"));
+            var filePath = Path.Combine(root, "hello & café #1.txt");
+            await File.WriteAllTextAsync(filePath, "Home is here.");
+            var modified = File.GetLastWriteTimeUtc(filePath);
+            await File.WriteAllTextAsync(Path.Combine(root, ".hidden"), "hidden");
+
+            // Everyone's files live under the host's folder, named by account, never beside it.
+            Assert.Equal(Path.Combine(_host, "users"), Path.GetDirectoryName(root));
+
+            var listing = await signedIn.GetFromJsonAsync<DirectoryListing>("/api/files");
             Assert.Equal(["Documents", "hello & café #1.txt"], listing!.Entries.Select(entry => entry.Name));
-            Assert.True(File.Exists(Path.Combine(_root, ".homebase", "index.db")));
-            var response = await client.GetAsync("/api/files/download?path=" + Uri.EscapeDataString("hello & café #1.txt"));
+            Assert.True(File.Exists(Path.Combine(root, ".homebase", "index.db")));
+            var response = await signedIn.GetAsync("/api/files/download?path=" + Uri.EscapeDataString("hello & café #1.txt"));
             Assert.Equal("Home is here.", await response.Content.ReadAsStringAsync());
             Assert.Equal("attachment", response.Content.Headers.ContentDisposition!.DispositionType);
             Assert.Equal("application/octet-stream", response.Content.Headers.ContentType!.MediaType);
             Assert.Equal(modified, File.GetLastWriteTimeUtc(filePath));
         }
         using var restarted = CreateApp();
-        using var restartedClient = CreateClient(restarted);
-        var restored = await restartedClient.GetFromJsonAsync<LibraryState>("/api/library");
-        Assert.Equal(PathPolicy.NormalizeRoot(_root), restored!.RootPath);
-        Assert.Equal(2, (await restartedClient.GetFromJsonAsync<DirectoryListing>("/api/files"))!.Entries.Count);
+        var (restoredClient, restoredRoot) = await ReturnAsync(restarted);
+        using var __ = restoredClient;
+        Assert.Equal(root, restoredRoot);
+        Assert.Equal(2, (await restoredClient.GetFromJsonAsync<DirectoryListing>("/api/files"))!.Entries.Count);
     }
 
     [Fact]
     public async Task Refresh_reconciles_added_changed_deleted_files_in_sqlite()
     {
         using var app = CreateApp();
-        using var client = CreateClient(app);
-        await Select(client);
-        await File.WriteAllTextAsync(Path.Combine(_root, "gone.txt"), "gone");
-        await File.WriteAllTextAsync(Path.Combine(_root, "changed.txt"), "before");
+        var (client, root) = await StartAsync(app);
+        using var _ = client;
+        await File.WriteAllTextAsync(Path.Combine(root, "gone.txt"), "gone");
+        await File.WriteAllTextAsync(Path.Combine(root, "changed.txt"), "before");
         (await client.GetAsync("/api/files")).EnsureSuccessStatusCode();
-        File.Delete(Path.Combine(_root, "gone.txt"));
-        await File.WriteAllTextAsync(Path.Combine(_root, "changed.txt"), "after, now longer");
-        await File.WriteAllTextAsync(Path.Combine(_root, "new.txt"), "new");
+        File.Delete(Path.Combine(root, "gone.txt"));
+        await File.WriteAllTextAsync(Path.Combine(root, "changed.txt"), "after, now longer");
+        await File.WriteAllTextAsync(Path.Combine(root, "new.txt"), "new");
         var listing = await client.GetFromJsonAsync<DirectoryListing>("/api/files");
         Assert.Equal(["changed.txt", "new.txt"], listing!.Entries.Select(entry => entry.Name));
         Assert.Equal(17, listing.Entries[0].Size);
-        using var connection = new SqliteConnection($"Data Source={Path.Combine(_root, ".homebase", "index.db")};Pooling=False");
+        using var connection = new SqliteConnection($"Data Source={Path.Combine(root, ".homebase", "index.db")};Pooling=False");
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT group_concat(name, ',') FROM (SELECT name FROM entries ORDER BY name)";
@@ -91,13 +96,18 @@ public sealed class LibraryTests : IDisposable
     [Fact]
     public async Task Index_is_recreated_if_removed_while_app_is_stopped()
     {
+        string root;
         using (var app = CreateApp())
-        using (var client = CreateClient(app)) { await Select(client); }
-        Directory.Delete(Path.Combine(_root, ".homebase"), recursive: true);
+        {
+            (var client, root) = await StartAsync(app);
+            client.Dispose();
+        }
+        Directory.Delete(Path.Combine(root, ".homebase"), recursive: true);
         using var restarted = CreateApp();
-        using var nextClient = CreateClient(restarted);
+        var (nextClient, _) = await ReturnAsync(restarted);
+        using var __ = nextClient;
         (await nextClient.GetAsync("/api/files")).EnsureSuccessStatusCode();
-        Assert.True(File.Exists(Path.Combine(_root, ".homebase", "index.db")));
+        Assert.True(File.Exists(Path.Combine(root, ".homebase", "index.db")));
     }
 
     [Theory]
@@ -110,8 +120,8 @@ public sealed class LibraryTests : IDisposable
     public async Task Browser_and_download_reject_escape_and_hidden_paths(string path)
     {
         using var app = CreateApp();
-        using var client = CreateClient(app);
-        await Select(client);
+        var (client, _) = await StartAsync(app);
+        using var __ = client;
         foreach (var endpoint in new[] { "/api/files", "/api/files/download" })
             Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(endpoint + "?path=" + Uri.EscapeDataString(path))).StatusCode);
     }
@@ -119,15 +129,15 @@ public sealed class LibraryTests : IDisposable
     [Fact]
     public async Task Symbolic_links_to_files_and_folders_are_never_browsed_or_downloaded()
     {
+        using var app = CreateApp();
+        var (client, root) = await StartAsync(app);
+        using var _ = client;
         var outside = Directory.CreateDirectory(Path.Combine(_temporary, "Outside")).FullName;
         var secret = Path.Combine(outside, "secret.txt");
         await File.WriteAllTextAsync(secret, "outside content");
-        Directory.CreateSymbolicLink(Path.Combine(_root, "linked-folder"), outside);
-        File.CreateSymbolicLink(Path.Combine(_root, "linked-file"), secret);
-        File.CreateSymbolicLink(Path.Combine(_root, "broken-link"), Path.Combine(outside, "missing"));
-        using var app = CreateApp();
-        using var client = CreateClient(app);
-        await Select(client);
+        Directory.CreateSymbolicLink(Path.Combine(root, "linked-folder"), outside);
+        File.CreateSymbolicLink(Path.Combine(root, "linked-file"), secret);
+        File.CreateSymbolicLink(Path.Combine(root, "broken-link"), Path.Combine(outside, "missing"));
         var listing = await client.GetFromJsonAsync<DirectoryListing>("/api/files");
         Assert.Empty(listing!.Entries);
         Assert.Equal(3, listing.SkippedCount);
@@ -139,50 +149,64 @@ public sealed class LibraryTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Metadata_symlinks_do_not_write_outside_root(bool databaseLink)
+    public async Task Metadata_symlinks_do_not_write_outside_an_account_folder(bool databaseLink)
     {
         var outside = Directory.CreateDirectory(Path.Combine(_temporary, "Outside")).FullName;
+        string root;
+        using (var first = CreateApp())
+        {
+            (var client, root) = await StartAsync(first);
+            client.Dispose();
+        }
+        Directory.Delete(Path.Combine(root, ".homebase"), recursive: true);
         if (databaseLink)
         {
-            Directory.CreateDirectory(Path.Combine(_root, ".homebase"));
-            File.CreateSymbolicLink(Path.Combine(_root, ".homebase", "index.db"), Path.Combine(outside, "target.db"));
+            Directory.CreateDirectory(Path.Combine(root, ".homebase"));
+            File.CreateSymbolicLink(Path.Combine(root, ".homebase", "index.db"), Path.Combine(outside, "target.db"));
         }
-        else Directory.CreateSymbolicLink(Path.Combine(_root, ".homebase"), outside);
+        else Directory.CreateSymbolicLink(Path.Combine(root, ".homebase"), outside);
+
         using var app = CreateApp();
-        using var client = CreateClient(app);
-        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync("/api/library", new { path = _root })).StatusCode);
+        using var returning = await app.SignInAsync("owner");
+        Assert.Equal(HttpStatusCode.BadRequest, (await returning.GetAsync("/api/files")).StatusCode);
         Assert.Empty(Directory.EnumerateFileSystemEntries(outside));
     }
 
     [Fact]
-    public async Task Root_switch_is_atomic_and_failed_selection_keeps_previous_root()
+    public async Task Host_folder_switch_moves_everyone_and_a_failed_switch_keeps_the_old_one()
     {
         using var app = CreateApp();
-        using var client = CreateClient(app);
-        await File.WriteAllTextAsync(Path.Combine(_root, "first.txt"), "first");
-        await Select(client);
-        Assert.Equal(HttpStatusCode.NotFound, (await client.PutAsJsonAsync("/api/library", new { path = Path.Combine(_temporary, "missing") })).StatusCode);
+        var (client, root) = await StartAsync(app);
+        using var _ = client;
+        await File.WriteAllTextAsync(Path.Combine(root, "first.txt"), "first");
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await client.PutAsJsonAsync("/api/host", new { path = Path.Combine(_temporary, "missing") })).StatusCode);
         Assert.Equal("first.txt", Assert.Single((await client.GetFromJsonAsync<DirectoryListing>("/api/files"))!.Entries).Name);
+
         var second = Directory.CreateDirectory(Path.Combine(_temporary, "Second")).FullName;
-        await File.WriteAllTextAsync(Path.Combine(second, "second.txt"), "second");
-        await Select(client, second);
-        Assert.Equal("second.txt", Assert.Single((await client.GetFromJsonAsync<DirectoryListing>("/api/files"))!.Entries).Name);
-        Assert.True(File.Exists(Path.Combine(_root, "first.txt")));
+        await TestHost.SetHostRootAsync(client, second);
+        var moved = await TestHost.UserRootAsync(client);
+        Assert.StartsWith(second, moved, StringComparison.Ordinal);
+        Assert.Empty((await client.GetFromJsonAsync<DirectoryListing>("/api/files"))!.Entries);
+
+        await TestHost.SetHostRootAsync(client, _host);
+        Assert.Equal("first.txt", Assert.Single((await client.GetFromJsonAsync<DirectoryListing>("/api/files"))!.Entries).Name);
+        Assert.True(File.Exists(Path.Combine(root, "first.txt")));
     }
 
     [Fact]
     public async Task Nested_and_empty_folders_work_and_missing_drive_can_be_replaced()
     {
-        Directory.CreateDirectory(Path.Combine(_root, "A", "Empty"));
         using var app = CreateApp();
-        using var client = CreateClient(app);
-        await Select(client);
+        var (client, root) = await StartAsync(app);
+        using var _ = client;
+        Directory.CreateDirectory(Path.Combine(root, "A", "Empty"));
         var listing = await client.GetFromJsonAsync<DirectoryListing>("/api/files?path=A%2FEmpty");
         Assert.Equal("A/Empty", listing!.Path);
         Assert.Empty(listing.Entries);
-        Directory.Move(_root, _root + "-offline");
+        Directory.Move(_host, _host + "-offline");
         Assert.Equal(HttpStatusCode.Conflict, (await client.GetAsync("/api/files")).StatusCode);
-        await Select(client, _root + "-offline");
+        await TestHost.SetHostRootAsync(client, _host + "-offline");
         (await client.GetAsync("/api/files")).EnsureSuccessStatusCode();
     }
 
@@ -190,32 +214,27 @@ public sealed class LibraryTests : IDisposable
     [InlineData("https://evil.example")]
     [InlineData("http://localhost:9999")]
     [InlineData("null")]
-    public async Task Cross_origin_requests_cannot_read_files_or_change_the_library(string origin)
+    public async Task Cross_origin_requests_cannot_read_files_or_change_the_host(string origin)
     {
         using var app = CreateApp();
-        using var client = CreateClient(app);
-        await Select(client);
+        var (client, _) = await StartAsync(app);
+        using var __ = client;
         client.DefaultRequestHeaders.Add("Origin", origin);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/files")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync("/api/library", new { path = _root })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync("/api/host", new { path = _host })).StatusCode);
     }
 
     [Fact]
-    public async Task Mutations_require_custom_header_and_host_must_be_loopback()
+    public async Task Mutations_require_custom_header_and_host_must_be_allowed()
     {
         using var app = CreateApp();
+        var (signedIn, _) = await StartAsync(app);
+        signedIn.Dispose();
         using var client = app.CreateClient();
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync("/api/library", new { path = _root })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync("/api/host", new { path = _host })).StatusCode);
         client.DefaultRequestHeaders.Host = "attacker.example";
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/library")).StatusCode);
     }
 
     public void Dispose() => Directory.Delete(_temporary, recursive: true);
-
-    private sealed class TestApp(string configDirectory) : WebApplicationFactory<Program>
-    {
-        protected override void ConfigureWebHost(IWebHostBuilder builder) =>
-            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
-                new Dictionary<string, string?> { ["Homebase:ConfigDirectory"] = configDirectory }));
-    }
 }
