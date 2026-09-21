@@ -118,13 +118,10 @@ p {
   font-weight: 700;
 }
 .brand-mark {
-  height: 37px;
-  width: 37px;
-  border-radius: 3px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  display: grid;
-  place-items: center;
+  height: 34px;
+  width: 34px;
+  display: block;
+  flex-shrink: 0;
 }
 .version {
   border: 1px solid var(--line);

@@ -77,9 +77,7 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <a href="#" className="brand" aria-label="Uncloud home">
-          <span className="brand-mark">
-            <House size={23} strokeWidth={1.7} />
-          </span>
+          <img className="brand-mark" src="/uncloud.svg" width="34" height="34" alt="" />
           uncloud<span className="version">v0</span>
         </a>
         <div className="sidebar-section">

@@ -54,12 +54,22 @@ button:focus-visible {
 .skip-link:focus {
   top: 20px;
 }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 .site-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 20px;
-  padding: clamp(22px, 4svh, 40px) 0;
+  justify-content: space-between;
+  padding: clamp(18px, 3svh, 30px) 0;
 }
 .wordmark {
   display: inline-flex;
@@ -74,52 +84,76 @@ button:focus-visible {
   width: 32px;
   height: 32px;
 }
-.stage {
-  font-size: 0.8125rem;
-  line-height: 1.4;
+.site-domain {
   color: var(--muted);
+  font-size: 0.8125rem;
+  letter-spacing: 0.035em;
 }
 .hero {
   display: grid;
   place-items: center;
   text-align: center;
-  padding: 20px 0 clamp(48px, 10svh, 100px);
+  padding: 16px 0 clamp(28px, 5svh, 50px);
 }
 .hero-content {
   width: 100%;
 }
 h1 {
-  font-size: clamp(3.5rem, min(6.7vw, 12svh), 6.8rem);
+  font-size: clamp(3rem, min(6.5vw, 10svh), 6rem);
   font-weight: 750;
-  line-height: 1.01;
-  letter-spacing: -0.065em;
+  line-height: 1.08;
+  letter-spacing: -0.06em;
 }
-h1 span {
+.headline-line {
+  display: block;
+}
+.headline-accent {
+  color: var(--accent);
+}
+.computer-description mark {
+  position: relative;
+  color: inherit;
+  background: transparent;
+  font-weight: 700;
+}
+.computer-description mark::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.08em;
+  height: 0.22em;
+  border-bottom: 2px solid var(--accent);
+  border-radius: 50%;
+  transform: rotate(-6deg);
+  pointer-events: none;
+}
+.service-rotation {
+  color: #171a19;
+  background: var(--accent);
+  padding: 0 0.12em 0.035em;
+  border-radius: 2px;
+  font-weight: 700;
+}
+.storage-accent {
   color: var(--accent);
   white-space: nowrap;
 }
-.description {
-  font-size: clamp(1rem, 1.5vw, 1.25rem);
-  line-height: 1.65;
-  color: var(--muted);
-  margin: clamp(23px, 4svh, 36px) auto 0;
-  max-width: 540px;
-}
 .access-action {
-  margin-top: clamp(28px, 4.5svh, 42px);
+  margin-top: clamp(36px, 5.5svh, 52px);
 }
 .primary-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 32px;
+  min-width: 220px;
   min-height: 56px;
   padding: 16px 24px;
   border: 0;
   border-radius: 3px;
   background: var(--accent);
   color: #171a19;
-  font-size: 1rem;
+  font-size: 1.25rem;
   font-weight: 600;
   transition: background 0.15s ease;
 }
@@ -129,23 +163,56 @@ h1 span {
 .primary-link:disabled {
   cursor: default;
 }
-.primary-link > span {
-  font-size: 1.25rem;
-  font-weight: 400;
-}
-#access-note {
+.trust-note {
+  margin-top: 18px;
   color: var(--muted);
-  font-size: 0.8125rem;
+  font-size: 1.125rem;
   line-height: 1.5;
-  margin-top: 14px;
+  letter-spacing: 0.03em;
+}
+.migration-details {
+  margin: 26px auto 0;
+  max-width: 720px;
+  color: var(--muted);
+  font-size: 1.25rem;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+.migration-intro {
+  color: #f7f7f2;
+  font-size: clamp(1.625rem, 2.6vw, 2.25rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+.service-rotation {
+  display: inline-block;
+  vertical-align: baseline;
+  text-align: center;
+  white-space: nowrap;
+}
+.service-name {
+  display: none;
+}
+.service-name.is-active {
+  display: block;
+  animation: service-appear 0.2s ease;
+}
+@keyframes service-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @media (max-width: 600px) {
   .page {
-    padding: 0 24px;
+    padding: 0 20px;
   }
   .site-header {
-    padding: 24px 0;
-    gap: 14px;
+    padding: 22px 0;
   }
   .wordmark {
     font-size: 1.25rem;
@@ -155,60 +222,106 @@ h1 span {
     width: 29px;
     height: 29px;
   }
-  .stage {
-    font-size: 0.75rem;
-    max-width: 90px;
-    text-align: right;
-  }
   .hero {
-    padding: 24px 0 75px;
+    padding: 12px 0 34px;
   }
   h1 {
-    font-size: clamp(2.35rem, 8.9vw, 3.5rem);
-  }
-  .description {
-    max-width: 300px;
-    font-size: 1rem;
-    margin-top: 24px;
-  }
-  .desktop-break {
-    display: none;
+    font-size: clamp(2rem, 10vw, 3.2rem);
+    line-height: 1.1;
   }
   .access-action {
-    margin-top: 31px;
+    margin-top: 40px;
+  }
+  .migration-details {
+    margin-top: 22px;
+    font-size: 1.125rem;
+    line-height: 1.55;
+  }
+  .migration-intro {
+    font-size: 1.625rem;
   }
 }
-@media (max-height: 580px) and (min-width: 601px) {
+@media (max-width: 600px) and (min-height: 740px) {
+  .hero {
+    padding-bottom: clamp(80px, 12svh, 120px);
+  }
+}
+@media (max-height: 650px) {
   .site-header {
-    padding: 17px 0;
+    padding-top: 15px;
+    padding-bottom: 15px;
   }
   .hero {
-    padding: 12px 0 24px;
+    padding-top: 10px;
+    padding-bottom: 20px;
   }
   h1 {
-    font-size: clamp(3rem, 14svh, 5rem);
-  }
-  .description {
-    margin-top: 16px;
-    font-size: 1rem;
-  }
-  .desktop-break {
-    display: none;
+    font-size: clamp(2rem, min(6vw, 9svh), 3.5rem);
   }
   .access-action {
-    margin-top: 21px;
+    margin-top: 28px;
   }
   .primary-link {
     min-height: 48px;
     padding-top: 12px;
     padding-bottom: 12px;
   }
-  #access-note {
-    margin-top: 9px;
+  .migration-details {
+    margin-top: 16px;
+    font-size: 1.0625rem;
+    line-height: 1.45;
+  }
+  .migration-intro {
+    font-size: 1.375rem;
+  }
+}
+@media (max-height: 450px) and (min-width: 601px) {
+  .site-header {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .hero {
+    padding-top: 0;
+    padding-bottom: 14px;
+  }
+  h1 {
+    font-size: clamp(1.7rem, 7.5svh, 2.2rem);
+    line-height: 1.05;
+  }
+  .access-action {
+    margin-top: 20px;
+  }
+  .primary-link {
+    min-height: 42px;
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+  .migration-details {
+    margin-top: 12px;
+    font-size: 1rem;
+  }
+  .migration-intro {
+    font-size: 1.25rem;
+  }
+}
+@media (max-height: 650px) and (max-width: 600px) {
+  .site-header {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .hero {
+    padding-top: 6px;
+    padding-bottom: 14px;
+  }
+  .primary-link {
+    min-height: 46px;
+    padding-top: 10px;
+    padding-bottom: 10px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   * {
+    animation: none !important;
     transition: none !important;
   }
 }

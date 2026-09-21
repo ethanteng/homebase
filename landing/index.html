@@ -4,53 +4,63 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#171a19" />
-    <title>Uncloud — Turn your computer into your personal cloud.</title>
+    <title>Uncloud — Stop paying for Dropbox, Evernote, and Google Drive.</title>
     <meta
       name="description"
-      content="Turn your computer into your personal cloud. Start with your files, on your Mac or a drive you own. Get early access to Uncloud."
+      content="Turn any computer you own into private storage for your household. Stop paying for Dropbox, Evernote, and Google Drive."
     />
     <meta
       property="og:title"
-      content="Uncloud — Turn your computer into your personal cloud."
+      content="Uncloud — Stop paying for Dropbox, Evernote, and Google Drive."
     />
     <meta
       property="og:description"
-      content="Start with your files. Keep them on your Mac or a drive you own."
+      content="Turn any computer you own into private storage for your household. Stop paying for Dropbox, Evernote, and Google Drive."
     />
     <meta property="og:type" content="website" />
-    <link rel="icon" type="image/svg+xml" href="./homebase.svg" />
+    <meta property="og:site_name" content="Uncloud" />
+    <meta property="og:url" content="https://uncloud.life/" />
+    <link rel="canonical" href="https://uncloud.life/" />
+    <link rel="icon" type="image/svg+xml" href="./uncloud.svg" />
     <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./main.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <div class="page">
       <header class="site-header">
         <a class="wordmark" href="./" aria-label="Uncloud home"
-          ><img src="./homebase.svg" width="32" height="32" alt="" />uncloud</a
+          ><img src="./uncloud.svg" width="32" height="32" alt="" />Uncloud</a
         >
-        <span class="stage">Starting with Mac</span>
+        <span class="site-domain">uncloud.life</span>
       </header>
       <main class="hero" id="main">
         <div class="hero-content">
           <h1>
-            Turn your computer<br />into your <span>personal cloud.</span>
+            <span class="headline-line">Stop paying for</span>
+            <span class="service-rotation" aria-hidden="true">
+              <span class="service-name is-active">Dropbox.</span>
+              <span class="service-name">Evernote.</span>
+              <span class="service-name">Google Drive.</span>
+            </span>
+            <span class="sr-only">Dropbox, Evernote, or Google Drive.</span>
           </h1>
-          <p class="description">
-            Start with your files. Keep them on your Mac<br
-              class="desktop-break"
-            />
-            or a drive you own.
-          </p>
+          <div class="migration-details">
+            <p class="migration-intro">
+              Your digital life belongs
+              <span class="headline-accent">at home.</span>
+            </p>
+            <p class="computer-description">
+              Turn <mark>any</mark> computer you own into
+              <span class="storage-accent">private storage</span> for your
+              household.
+            </p>
+          </div>
           <div class="access-action">
-            <button
-              class="primary-link"
-              type="button"
-              aria-describedby="access-note"
-              disabled
-            >
-              Get early access <span aria-hidden="true">↗</span>
+            <button class="primary-link" type="button" disabled>
+              Get early access
             </button>
-            <p id="access-note">Invitations open soon.</p>
+            <p class="trust-note">Private. Secure. Yours.</p>
           </div>
         </div>
       </main>
