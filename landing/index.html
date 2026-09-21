@@ -20,23 +20,77 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#171a19" />
-    <title>Uncloud — Stop paying for Dropbox, Evernote, and Google Drive.</title>
+    <title>Uncloud — Private Cloud Storage Without the Monthly Fee</title>
     <meta
       name="description"
-      content="Turn any computer you own into private storage for your household. Stop paying for Dropbox, Evernote, and Google Drive."
+      content="Turn any Mac, PC, or Linux computer into private cloud storage for your household. Replace Dropbox, Google Drive, iCloud, and more without recurring storage fees."
     />
     <meta
       property="og:title"
-      content="Uncloud — Stop paying for Dropbox, Evernote, and Google Drive."
+      content="Uncloud — Private Cloud Storage Without the Monthly Fee"
     />
     <meta
       property="og:description"
-      content="Turn any computer you own into private storage for your household. Stop paying for Dropbox, Evernote, and Google Drive."
+      content="Turn any Mac, PC, or Linux computer into private cloud storage for your household. Replace Dropbox, Google Drive, iCloud, and more without recurring storage fees."
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Uncloud" />
     <meta property="og:url" content="https://uncloud.life/" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content="https://uncloud.life/social-card.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Uncloud — Private cloud storage without the monthly fee. Your digital life belongs at home." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Uncloud — Private Cloud Storage Without the Monthly Fee" />
+    <meta name="twitter:description" content="Turn any Mac, PC, or Linux computer into private cloud storage for your household. Replace Dropbox, Google Drive, iCloud, and more without recurring storage fees." />
+    <meta name="twitter:image" content="https://uncloud.life/social-card.png" />
+    <meta name="twitter:image:alt" content="Uncloud — Private cloud storage without the monthly fee. Your digital life belongs at home." />
     <link rel="canonical" href="https://uncloud.life/" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://uncloud.life/#organization",
+            "name": "Uncloud",
+            "url": "https://uncloud.life/"
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://uncloud.life/#website",
+            "name": "Uncloud",
+            "url": "https://uncloud.life/",
+            "publisher": { "@id": "https://uncloud.life/#organization" }
+          },
+          {
+            "@type": "WebPage",
+            "@id": "https://uncloud.life/#webpage",
+            "url": "https://uncloud.life/",
+            "name": "Uncloud — Private Cloud Storage Without the Monthly Fee",
+            "description": "Turn any Mac, PC, or Linux computer into private cloud storage for your household. Replace Dropbox, Google Drive, iCloud, and more without recurring storage fees.",
+            "inLanguage": "en",
+            "isPartOf": { "@id": "https://uncloud.life/#website" },
+            "mainEntity": { "@id": "https://uncloud.life/#software" },
+            "image": "https://uncloud.life/social-card.png"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://uncloud.life/#software",
+            "name": "Uncloud",
+            "url": "https://uncloud.life/",
+            "description": "Uncloud is a private cloud storage app being built for households, using a Mac, PC, or Linux computer and storage you already own. Join early access to help shape it.",
+            "applicationCategory": "UtilitiesApplication",
+            "applicationSubCategory": "Private cloud storage",
+            "operatingSystem": ["macOS", "Windows", "Linux"],
+            "publisher": { "@id": "https://uncloud.life/#organization" },
+            "image": "https://uncloud.life/social-card.png"
+          }
+        ]
+      }
+    </script>
     <link rel="icon" type="image/svg+xml" href="./uncloud.svg" />
     <link rel="stylesheet" href="./styles.css" />
     <script type="module" src="./main.js"></script>
@@ -50,91 +104,107 @@
         >
         <span class="site-domain">uncloud.life</span>
       </header>
-      <main class="hero" id="main">
-        <div class="hero-content">
-          <h1>
-            <span class="headline-line">Stop paying for</span>
-            <span class="service-rotation" aria-hidden="true">
-              <span class="service-name is-active">Dropbox.</span>
-              <span class="service-name">Google Drive.</span>
-              <span class="service-name">OneDrive.</span>
-              <span class="service-name">iCloud.</span>
-              <span class="service-name">Google Photos.</span>
-              <span class="service-name">Evernote.</span>
-              <span class="service-name">Notion.</span>
-            </span>
-            <span class="sr-only">
-              Dropbox, Google Drive, OneDrive, iCloud, Google Photos, Evernote,
-              or Notion.
-            </span>
-          </h1>
-          <div class="migration-details">
-            <p class="migration-intro">
-              Your digital life belongs
-              <span class="headline-accent">at home.</span>
-            </p>
-            <p class="computer-description">
-              Turn <mark>any</mark> computer you own into
-              <span class="storage-accent">private storage</span> for your
-              household.
-            </p>
-          </div>
-          <div class="access-action">
-            <form class="access-form" id="access-form" novalidate>
-              <label class="sr-only" for="access-email">Your email address</label>
-              <input
-                class="access-input"
-                id="access-email"
-                name="email"
-                type="email"
-                inputmode="email"
-                autocomplete="email"
-                spellcheck="false"
-                maxlength="254"
-                placeholder="you@example.com"
-                required
-              />
-              <!-- Robots fill in every field they find; nobody else can see this one. -->
-              <div class="access-trap" aria-hidden="true">
-                <label for="access-website">Leave this empty</label>
+      <main id="main">
+        <section class="hero" aria-label="Get early access to Uncloud">
+          <div class="hero-content">
+            <h1>
+              <span class="headline-line">Stop paying for</span>
+              <span class="service-rotation" aria-hidden="true">
+                <span class="service-name is-active">Dropbox.</span>
+                <span class="service-name">Google Drive.</span>
+                <span class="service-name">OneDrive.</span>
+                <span class="service-name">iCloud.</span>
+                <span class="service-name">Google Photos.</span>
+                <span class="service-name">Evernote.</span>
+                <span class="service-name">Notion.</span>
+              </span>
+              <span class="sr-only">
+                Dropbox, Google Drive, OneDrive, iCloud, Google Photos, Evernote,
+                or Notion.
+              </span>
+            </h1>
+            <div class="migration-details">
+              <p class="migration-intro">
+                Your digital life belongs
+                <span class="headline-accent">at home.</span>
+              </p>
+              <p class="computer-description">
+                Turn <mark>any</mark> computer you own into
+                <span class="storage-accent">private storage</span> for your
+                household.
+              </p>
+            </div>
+            <div class="access-action">
+              <form class="access-form" id="access-form" novalidate>
+                <label class="sr-only" for="access-email">Your email address</label>
                 <input
-                  id="access-website"
-                  name="website"
-                  type="text"
-                  tabindex="-1"
-                  autocomplete="off"
+                  class="access-input"
+                  id="access-email"
+                  name="email"
+                  type="email"
+                  inputmode="email"
+                  autocomplete="email"
+                  spellcheck="false"
+                  maxlength="254"
+                  placeholder="you@example.com"
+                  required
                 />
+                <!-- Robots fill in every field they find; nobody else can see this one. -->
+                <div class="access-trap" aria-hidden="true">
+                  <label for="access-website">Leave this empty</label>
+                  <input
+                    id="access-website"
+                    name="website"
+                    type="text"
+                    tabindex="-1"
+                    autocomplete="off"
+                  />
+                </div>
+                <button class="primary-link" type="submit">Get early access</button>
+              </form>
+              <p class="access-status" id="access-status" role="status"></p>
+              <p class="trust-note">Private. Secure. Yours.</p>
+              <div class="platforms" role="group" aria-label="Platforms">
+                <span class="platform">
+                  <svg viewBox="0 0 24 24" width="33" height="33" fill="currentColor" aria-hidden="true" focusable="false">
+                    <path d="M15.4 5.2c.9-1.1 1.4-2.4 1.3-3.7-1.3.1-2.7.9-3.6 1.9-.8.9-1.5 2.3-1.3 3.6 1.4.1 2.7-.7 3.6-1.8Zm3.9 13.1c-.5 1.1-.8 1.6-1.4 2.5-.8 1.2-1.9 2.7-3.3 2.7-1.2 0-1.5-.8-3.2-.8-1.6 0-2 .8-3.2.8-1.4 0-2.4-1.3-3.2-2.5-2.3-3.5-2.6-7.6-1.2-9.8 1-1.6 2.6-2.5 4.1-2.5 1.3 0 2.2.8 3.3.8 1 0 1.7-.8 3.3-.8 1.3 0 2.8.7 3.8 2-3.3 1.8-2.8 6.4 1 7.6Z" transform="translate(1 -1) scale(.95)" />
+                  </svg>
+                  Mac
+                </span>
+                <span class="platform">
+                  <svg viewBox="0 0 24 24" width="33" height="33" fill="currentColor" aria-hidden="true" focusable="false">
+                    <path d="m2 4.6 8.2-1.1v7.7H2V4.6Zm9.8-1.3L22 1.8v9.4H11.8V3.3ZM2 12.8h8.2v7.7L2 19.4v-6.6Zm9.8 0H22v9.4l-10.2-1.5v-7.9Z" />
+                  </svg>
+                  PC
+                </span>
+                <span class="platform">
+                  <svg viewBox="0 0 24 24" width="33" height="33" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M8 8V6a4 4 0 0 1 8 0v2c0 3 3.5 5.3 3.5 8.5M8 8c0 3-3.5 5.3-3.5 8.5" />
+                    <path d="M9 11c-1.2 1.6-2 3.7-2 5.5A5 5 0 0 0 12 21a5 5 0 0 0 5-4.5c0-1.8-.8-3.9-2-5.5M9.5 9l2.5-1 2.5 1-2.5 2-2.5-2Z" />
+                    <path d="m7 17-4 2 1 2 5-1m8-3 4 2-1 2-5-1" />
+                    <circle cx="10.5" cy="6.5" r=".75" fill="currentColor" stroke="none" />
+                    <circle cx="13.5" cy="6.5" r=".75" fill="currentColor" stroke="none" />
+                  </svg>
+                  Linux
+                </span>
               </div>
-              <button class="primary-link" type="submit">Get early access</button>
-            </form>
-            <p class="access-status" id="access-status" role="status"></p>
-            <p class="trust-note">Private. Secure. Yours.</p>
-            <div class="platforms" role="group" aria-label="Platforms">
-              <span class="platform">
-                <svg viewBox="0 0 24 24" width="33" height="33" fill="currentColor" aria-hidden="true" focusable="false">
-                  <path d="M15.4 5.2c.9-1.1 1.4-2.4 1.3-3.7-1.3.1-2.7.9-3.6 1.9-.8.9-1.5 2.3-1.3 3.6 1.4.1 2.7-.7 3.6-1.8Zm3.9 13.1c-.5 1.1-.8 1.6-1.4 2.5-.8 1.2-1.9 2.7-3.3 2.7-1.2 0-1.5-.8-3.2-.8-1.6 0-2 .8-3.2.8-1.4 0-2.4-1.3-3.2-2.5-2.3-3.5-2.6-7.6-1.2-9.8 1-1.6 2.6-2.5 4.1-2.5 1.3 0 2.2.8 3.3.8 1 0 1.7-.8 3.3-.8 1.3 0 2.8.7 3.8 2-3.3 1.8-2.8 6.4 1 7.6Z" transform="translate(1 -1) scale(.95)" />
-                </svg>
-                Mac
-              </span>
-              <span class="platform">
-                <svg viewBox="0 0 24 24" width="33" height="33" fill="currentColor" aria-hidden="true" focusable="false">
-                  <path d="m2 4.6 8.2-1.1v7.7H2V4.6Zm9.8-1.3L22 1.8v9.4H11.8V3.3ZM2 12.8h8.2v7.7L2 19.4v-6.6Zm9.8 0H22v9.4l-10.2-1.5v-7.9Z" />
-                </svg>
-                PC
-              </span>
-              <span class="platform">
-                <svg viewBox="0 0 24 24" width="33" height="33" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                  <path d="M8 8V6a4 4 0 0 1 8 0v2c0 3 3.5 5.3 3.5 8.5M8 8c0 3-3.5 5.3-3.5 8.5" />
-                  <path d="M9 11c-1.2 1.6-2 3.7-2 5.5A5 5 0 0 0 12 21a5 5 0 0 0 5-4.5c0-1.8-.8-3.9-2-5.5M9.5 9l2.5-1 2.5 1-2.5 2-2.5-2Z" />
-                  <path d="m7 17-4 2 1 2 5-1m8-3 4 2-1 2-5-1" />
-                  <circle cx="10.5" cy="6.5" r=".75" fill="currentColor" stroke="none" />
-                  <circle cx="13.5" cy="6.5" r=".75" fill="currentColor" stroke="none" />
-                </svg>
-                Linux
-              </span>
             </div>
           </div>
-        </div>
+        </section>
+        <section class="about" aria-labelledby="about-heading">
+          <h2 id="about-heading">Private cloud storage, on your own computer.</h2>
+          <p>
+            Uncloud is a private cloud storage app being built for households.
+            Turn a Mac, PC, or Linux computer you already own into a personal
+            cloud for your files.
+          </p>
+          <p>
+            With Dropbox and Google Drive, your files live on a provider’s
+            servers. Uncloud is built around storage you own and control,
+            without recurring storage fees. Join early access to help shape a
+            simpler way to bring your digital life home.
+          </p>
+        </section>
       </main>
     </div>
   </body>
