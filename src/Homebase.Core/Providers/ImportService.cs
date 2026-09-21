@@ -124,7 +124,15 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
         try
         {
             var destination = PathPolicy.Resolve(root, DestinationFor(file));
-            return File.Exists(destination) || Directory.Exists(destination);
+            if (File.Exists(destination) || Directory.Exists(destination)) return true;
+            // A file standing where one of the folders above it belongs blocks the download just
+            // as surely: the import fails making that folder rather than fetching anything.
+            for (var above = Path.GetDirectoryName(destination);
+                 above is not null && above.Length > root.Length;
+                 above = Path.GetDirectoryName(above))
+                if (File.Exists(above))
+                    return true;
+            return false;
         }
         catch (LibraryException)
         {

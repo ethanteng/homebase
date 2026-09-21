@@ -291,6 +291,30 @@ public sealed class ImportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_file_standing_where_a_folder_belongs_blocks_only_what_is_under_it()
+    {
+        // Nothing can be written beneath an ordinary file, so those bytes are never fetched and
+        // must not be counted — least of all against the files that could have arrived.
+        var notes = Directory.CreateDirectory(LocalPath("Files/Dropbox/notes")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(notes, "archive"), "Not a folder.");
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFolder("/notes/archive");
+        _dropbox.AddFile("/notes/archive/big.bin", "rev1", new string('x', 4096));
+        _dropbox.AddFile("/notes/small.txt", "rev1", "Small.");
+        var imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance)
+        {
+            Space = _ => new StorageReport(FreeBytes: 1024, TotalBytes: 8192),
+            Headroom = 0
+        };
+
+        var result = await imports.ImportAsync("/notes", CancellationToken.None);
+
+        Assert.Equal("Files/Dropbox/notes/small.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Contains(result.Skipped, skip => skip.RemotePath.EndsWith("big.bin"));
+        Assert.Equal("Not a folder.", await File.ReadAllTextAsync(Path.Combine(notes, "archive")));
+    }
+
+    [Fact]
     public async Task Measuring_leaves_out_a_file_whose_place_is_already_taken()
     {
         var destination = LocalPath("Files/Dropbox/notes");

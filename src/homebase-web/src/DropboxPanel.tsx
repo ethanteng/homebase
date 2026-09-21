@@ -101,10 +101,12 @@ export default function DropboxPanel({ onImported }: Props) {
     if (!status?.connected) return;
     void loadImported();
     void loadStorage();
-    // An import outlives the page that started it, so a reload finds it rather than losing it.
+    // An import outlives the page that started it, so a reload finds it rather than losing it —
+    // including one that finished while the panel was closed. Leaving the page is encouraged, so
+    // what an import ended up doing has to survive coming back to look.
     api<{ job: ImportJob | null }>("/imports/job")
-      .then(({ job: running }) => {
-        if (running?.running) setJob(running);
+      .then(({ job: existing }) => {
+        if (existing) setJob(existing);
       })
       .catch(() => {
         // Nothing to pick up is the ordinary case, not a problem to report.
