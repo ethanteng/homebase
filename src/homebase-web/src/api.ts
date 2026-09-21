@@ -103,7 +103,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     } | null;
     throw new Error(
       problem?.detail ??
-        `Homebase couldn’t complete this request (${response.status}).`,
+        `Uncloud couldn’t complete this request (${response.status}).`,
     );
   }
   return response.json() as Promise<T>;

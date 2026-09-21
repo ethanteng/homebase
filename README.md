@@ -1,4 +1,4 @@
-# Homebase v0
+# Uncloud v0
 
 [![CI](https://github.com/ethanteng/homebase/actions/workflows/ci.yml/badge.svg)](https://github.com/ethanteng/homebase/actions/workflows/ci.yml)
 
@@ -13,7 +13,7 @@ cd /Users/ethanteng/Projects/homebase
 ./scripts/run.sh
 ```
 
-Open **http://127.0.0.1:5210**. Choose an existing folder in Finder, or enter its absolute path (`~/Homebase` also works), then select **Use this folder**. Create a new folder in Finder first if needed. Stop the app with Ctrl+C.
+Open **http://127.0.0.1:5210**. Choose an existing folder in Finder, or enter its absolute path (`~/Uncloud` also works), then select **Use this folder**. Create a new folder in Finder first if needed. Stop the app with Ctrl+C.
 
 The run script installs frontend dependencies when needed, builds the UI, and starts the backend serving both the app and API. First-time dependency restore requires internet; the app itself works offline. `scripts/dotnet.sh` finds an SDK matching the major version in `global.json`, checking PATH, `~/.dotnet`, then `~/.cache/homebase/dotnet`. An older `dotnet` on PATH is skipped rather than used.
 
@@ -36,7 +36,7 @@ Open **http://127.0.0.1:5173** for live frontend updates. Vite proxies `/api` to
 - Live filesystem reads on navigation/refresh; a transactional SQLite metadata cache at `<root>/.homebase/index.db`.
 - Empty, loading, missing-folder, permission, and connection error states.
 
-Homebase doesn’t move, modify, or delete your existing files. Hidden entries (including `.homebase`) stay out of the browser. Symbolic links are skipped; traversal and direct hidden-path requests are rejected. Arbitrary file content is downloaded as an attachment, never executed on the app’s origin. The local API restricts host/origin and requires a custom header for mutations.
+Uncloud doesn’t move, modify, or delete your existing files. Hidden entries (including `.homebase`) stay out of the browser. Symbolic links are skipped; traversal and direct hidden-path requests are rejected. Arbitrary file content is downloaded as an attachment, never executed on the app’s origin. The local API restricts host/origin and requires a custom header for mutations.
 
 ## Architecture
 
@@ -50,9 +50,9 @@ tests/Homebase.Tests/    Integration tests against real temporary files and SQLi
 
 The filesystem is the source of truth. Browsing scans one directory and atomically replaces that directory’s cached entries. There is no recursive scan, file watcher, content index, or global search yet. Metadata for unvisited or removed nested folders may be stale until visited; the UI always reads disk. Filtering covers the current folder only. Keep v0 to reasonably sized individual directories; pagination is a later step.
 
-Only the selected root path is stored outside the library, in `~/Library/Application Support/Homebase/settings.json`. All file metadata lives in `.homebase`. Stop Homebase and remove `.homebase` to reset the rebuildable cache; choose or browse the folder again to recreate it. This cache is not a backup.
+Only the selected root path is stored outside the library, in `~/Library/Application Support/Homebase/settings.json`. All file metadata lives in `.homebase`. Stop Uncloud and remove `.homebase` to reset the rebuildable cache; choose or browse the folder again to recreate it. This cache is not a backup.
 
-`Homebase__Dropbox__AppKey` supplies the Dropbox app key. `Homebase__Syncthing__*` configures the Syncthing process described above. `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite’s proxy for development). The server explicitly binds to `127.0.0.1`, regardless of `ASPNETCORE_URLS`. Run a single Homebase process per preference directory/library. V0 assumes a trusted local user and filesystem; it is not a sandbox against other programs running under your account.
+`Homebase__Dropbox__AppKey` supplies the Dropbox app key. `Homebase__Syncthing__*` configures the Syncthing process described above. `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite’s proxy for development). The server explicitly binds to `127.0.0.1`, regardless of `ASPNETCORE_URLS`. Run a single Uncloud process per preference directory/library. V0 assumes a trusted local user and filesystem; it is not a sandbox against other programs running under your account.
 
 ### Future importers and desktop packaging
 
@@ -70,14 +70,14 @@ Open http://127.0.0.1:5210. This produces a local executable and its assets, not
 
 ## Dropbox
 
-Homebase copies files and folders out of Dropbox onto storage you own. An import happens **once**:
-after a file is here, this copy is the one that counts, and Homebase never goes back to Dropbox for
-it. Nothing already on disk is ever overwritten. Homebase asks only for read-only permissions, so it
+Uncloud copies files and folders out of Dropbox onto storage you own. An import happens **once**:
+after a file is here, this copy is the one that counts, and Uncloud never goes back to Dropbox for
+it. Nothing already on disk is ever overwritten. Uncloud asks only for read-only permissions, so it
 cannot change anything in your Dropbox account either.
 
 Create an app at [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps) with the
 `account_info.read`, `files.metadata.read` and `files.content.read` permissions and the redirect URI
-`http://localhost:5210/api/providers/dropbox/callback`, then start Homebase with its app key:
+`http://localhost:5210/api/providers/dropbox/callback`, then start Uncloud with its app key:
 
 ```sh
 Homebase__Dropbox__AppKey=your-app-key ./scripts/run.sh
@@ -97,20 +97,20 @@ recorded in `.homebase` as provenance: what came from where, and when.
 
 ## Other computers
 
-Homebase can keep a folder the same across computers you own. Open **Nodes** in the sidebar, give
+Uncloud can keep a folder the same across computers you own. Open **Nodes** in the sidebar, give
 the other computer this one's ID, paste its ID here, then share a folder. Sharing only *offers* the
 folder: the other computer has to take it up before anything moves, which it does under **Offered to
-you** if it is also running Homebase, or in Syncthing's own interface if it isn't. After that, a
+you** if it is also running Uncloud, or in Syncthing's own interface if it isn't. After that, a
 change made on either side shows up on the other.
 
-The peer protocol is [Syncthing](https://syncthing.net)'s, not Homebase's: device identity, discovery,
-NAT traversal, encryption and conflict handling are all its work. Homebase supervises a Syncthing
+The peer protocol is [Syncthing](https://syncthing.net)'s, not Uncloud's: device identity, discovery,
+NAT traversal, encryption and conflict handling are all its work. Uncloud supervises a Syncthing
 process with its own home directory under the preference directory and its own loopback-only port,
-started and stopped with the app. Install Syncthing (`brew install syncthing`) and restart Homebase;
-if it isn't there, the rest of Homebase works and the Nodes panel says what's missing.
+started and stopped with the app. Install Syncthing (`brew install syncthing`) and restart Uncloud;
+if it isn't there, the rest of Uncloud works and the Nodes panel says what's missing.
 
-Shared folders have to be **inside** your Homebase folder, never the folder itself: `.homebase`
-holds a live SQLite database, and copying that between machines corrupts it. Homebase refuses the
+Shared folders have to be **inside** your Uncloud folder, never the folder itself: `.homebase`
+holds a live SQLite database, and copying that between machines corrupts it. Uncloud refuses the
 root and adds `.homebase` to the folder's ignore patterns as a second line of defence.
 
 Folders are shared as `sendreceive`, so either side may change a file. If both change the same file
@@ -135,4 +135,4 @@ Builds/type-checks the frontend and runs backend integration tests for persisten
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 
-If macOS blocks a folder, check **System Settings → Privacy & Security → Files and Folders** for the app or terminal launching Homebase. If a drive disconnects, reconnect it and refresh, or choose another root in Storage settings.
+If macOS blocks a folder, check **System Settings → Privacy & Security → Files and Folders** for the app or terminal launching Uncloud. If a drive disconnects, reconnect it and refresh, or choose another root in Storage settings.

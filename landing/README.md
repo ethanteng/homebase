@@ -1,6 +1,6 @@
-# Homebase landing page
+# Uncloud landing page
 
-A single-screen, static page for trying the Homebase message: **“Turn your computer into your personal cloud.”** One headline, one sentence, one early-access action. “Personal cloud” is the product direction; the supporting copy describes the first Mac file-storage milestone. Use “your computer” while broader hardware support remains unproven.
+A single-screen, static page for trying the Uncloud message: **“Turn your computer into your personal cloud.”** One headline, one sentence, one early-access action. “Personal cloud” is the product direction; the supporting copy describes the first Mac file-storage milestone. Use “your computer” while broader hardware support remains unproven.
 
 ## Preview and build
 
@@ -24,7 +24,7 @@ The early-access link is awaiting an owner-provided email address or signup-form
 
 For the first few conversations, share the page and ask:
 
-1. What do you think Homebase does?
+1. What do you think Uncloud does?
 2. Which files would you want to bring home?
 3. What would stop you from trying it?
 

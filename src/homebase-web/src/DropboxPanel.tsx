@@ -57,7 +57,7 @@ export default function DropboxPanel() {
       .then(setStatus)
       .catch((problem: unknown) =>
         setError(
-          problem instanceof Error ? problem.message : "Couldn’t reach Homebase.",
+          problem instanceof Error ? problem.message : "Couldn’t reach Uncloud.",
         ),
       );
   }, []);
@@ -138,7 +138,7 @@ export default function DropboxPanel() {
           </h1>
           <p>
             Copy files and folders onto storage you own. Once a file is here,
-            this copy is the one that counts — Homebase won’t go back to Dropbox
+            this copy is the one that counts — Uncloud won’t go back to Dropbox
             for it.
           </p>
         </div>
@@ -156,21 +156,21 @@ export default function DropboxPanel() {
       )}
 
       {!status.configured ? (
-        <div className="setup-card">
-          <h2>Homebase needs a Dropbox app key</h2>
+        <div className="notice-card">
+          <h2>Uncloud needs a Dropbox app key</h2>
           <p className="field-help">
             Create an app at dropbox.com/developers/apps with the{" "}
             <code>account_info.read</code>, <code>files.metadata.read</code> and{" "}
-            <code>files.content.read</code> permissions, then start Homebase
+            <code>files.content.read</code> permissions, then start Uncloud
             with <code>Homebase__Dropbox__AppKey</code> set to its app key.
-            Homebase only ever reads from Dropbox.
+            Uncloud only ever reads from Dropbox.
           </p>
         </div>
       ) : !status.connected ? (
-        <div className="setup-card">
+        <div className="notice-card">
           <h2>Connect your Dropbox</h2>
           <p className="field-help">
-            Homebase asks for read-only access. It can copy files down to your
+            Uncloud asks for read-only access. It can copy files down to your
             folder, and it cannot change anything in your Dropbox.
           </p>
           <button
@@ -272,7 +272,7 @@ export default function DropboxPanel() {
 
           <section className="import-section">
             <div className="import-section-head">
-              <h2>In your Homebase folder</h2>
+              <h2>In your Uncloud folder</h2>
             </div>
             {imported.length === 0 ? (
               <p className="field-help">

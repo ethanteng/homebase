@@ -379,7 +379,7 @@ export default function FileBrowser({
               Download file
             </a>
             <p className="field-help">
-              This is an ordinary file in your Homebase folder. You can always
+              This is an ordinary file in your Uncloud folder. You can always
               open it directly in Finder.
             </p>
           </aside>
@@ -388,7 +388,7 @@ export default function FileBrowser({
       <div className="library-note">
         <ShieldMark />
         <p>
-          Your files stay yours. Homebase reads this folder and keeps a local
+          Your files stay yours. Uncloud reads this folder and keeps a local
           index.
           <br />
           <span>Changes you make in Finder appear when you refresh.</span>
