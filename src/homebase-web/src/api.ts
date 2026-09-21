@@ -58,6 +58,29 @@ export interface ImportResult {
   skippedCount: number;
 }
 
+export interface NodeDevice {
+  deviceId: string;
+  name: string;
+  connected: boolean;
+  address: string | null;
+}
+export interface SharedFolder {
+  id: string;
+  label: string;
+  localPath: string;
+  deviceIds: string[];
+  state: string | null;
+  files: number;
+  bytes: number;
+}
+export interface NodeStatus {
+  available: boolean;
+  detail: string | null;
+  deviceId: string | null;
+  devices: NodeDevice[];
+  folders: SharedFolder[];
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,

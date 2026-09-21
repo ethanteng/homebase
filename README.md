@@ -52,7 +52,7 @@ The filesystem is the source of truth. Browsing scans one directory and atomical
 
 Only the selected root path is stored outside the library, in `~/Library/Application Support/Homebase/settings.json`. All file metadata lives in `.homebase`. Stop Homebase and remove `.homebase` to reset the rebuildable cache; choose or browse the folder again to recreate it. This cache is not a backup.
 
-`Homebase__Dropbox__AppKey` supplies the Dropbox app key. `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite’s proxy for development). The server explicitly binds to `127.0.0.1`, regardless of `ASPNETCORE_URLS`. Run a single Homebase process per preference directory/library. V0 assumes a trusted local user and filesystem; it is not a sandbox against other programs running under your account.
+`Homebase__Dropbox__AppKey` supplies the Dropbox app key. `Homebase__Syncthing__*` configures the Syncthing process described above. `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite’s proxy for development). The server explicitly binds to `127.0.0.1`, regardless of `ASPNETCORE_URLS`. Run a single Homebase process per preference directory/library. V0 assumes a trusted local user and filesystem; it is not a sandbox against other programs running under your account.
 
 ### Future importers and desktop packaging
 
@@ -95,6 +95,30 @@ moved into place, so an interrupted transfer can't leave a half-written file, an
 overwrites — a file that appears mid-transfer wins. The revision and a SHA-256 of each import are
 recorded in `.homebase` as provenance: what came from where, and when.
 
+## Other computers
+
+Homebase can keep a folder the same across computers you own. Open **Nodes** in the sidebar, give
+the other computer this one's ID, paste its ID here, then share a folder. A change made on either
+side shows up on the other.
+
+The peer protocol is [Syncthing](https://syncthing.net)'s, not Homebase's: device identity, discovery,
+NAT traversal, encryption and conflict handling are all its work. Homebase supervises a Syncthing
+process with its own home directory under the preference directory and its own loopback-only port,
+started and stopped with the app. Install Syncthing (`brew install syncthing`) and restart Homebase;
+if it isn't there, the rest of Homebase works and the Nodes panel says what's missing.
+
+Shared folders have to be **inside** your Homebase folder, never the folder itself: `.homebase`
+holds a live SQLite database, and copying that between machines corrupts it. Homebase refuses the
+root and adds `.homebase` to the folder's ignore patterns as a second line of defence.
+
+Folders are shared as `sendreceive`, so either side may change a file. If both change the same file
+while disconnected, Syncthing keeps both — the loser is renamed with a `.sync-conflict-` suffix
+beside the winner, so nothing is lost, but you may have a duplicate to tidy up.
+
+`Homebase__Syncthing__Path` points at the binary if it isn't on `PATH`,
+`Homebase__Syncthing__GuiPort` moves its local API off 8390, and
+`Homebase__Syncthing__Enabled=false` switches the whole thing off.
+
 ## Landing page
 
 The standalone messaging page is in [`landing/`](landing/README.md). Preview it with `npm --prefix src/homebase-web run dev:landing` at **http://127.0.0.1:5174**. Build it with `npm --prefix src/homebase-web run build:landing`; the static output goes to `artifacts/landing/` and contains no file-browser API.
@@ -105,7 +129,7 @@ The standalone messaging page is in [`landing/`](landing/README.md). Preview it 
 ./scripts/check.sh
 ```
 
-Builds/type-checks the frontend and runs backend integration tests for persistence, indexing, file integrity/downloads, root switching, unavailable folders, symlinks, traversal, local request boundaries, and Dropbox imports (single files, whole folders, skipping what's already here, and refusing to overwrite anything it didn't write). Tests use disposable fixtures and isolated settings, never your selected library.
+Builds/type-checks the frontend and runs backend integration tests for persistence, indexing, file integrity/downloads, root switching, unavailable folders, symlinks, traversal, local request boundaries, Dropbox imports (single files, whole folders, skipping what's already here, and refusing to overwrite anything it didn't write), and node pairing and folder sharing (device-ID validation, and refusing to share the library root or any hidden or out-of-bounds path). Tests use disposable fixtures and isolated settings, never your selected library.
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 

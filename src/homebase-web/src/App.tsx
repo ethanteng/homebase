@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   CloudDownload,
   Files,
+  Laptop,
   FolderOpen,
   HardDrive,
   House,
@@ -13,6 +14,7 @@ import {
 import { api } from "./api";
 import type { LibraryState } from "./api";
 import DropboxPanel from "./DropboxPanel";
+import NodesPanel from "./NodesPanel";
 import FileBrowser from "./FileBrowser";
 import FolderSetup from "./FolderSetup";
 
@@ -30,7 +32,7 @@ export default function App() {
   const [path, setPath] = useState(readPath);
   const [revision, setRevision] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [view, setView] = useState<"files" | "dropbox">(
+  const [view, setView] = useState<"files" | "dropbox" | "nodes">(
     () => (window.location.search.includes("dropbox=") ? "dropbox" : "files"),
   );
   const dialog = useRef<HTMLDialogElement>(null);
@@ -101,6 +103,14 @@ export default function App() {
             Dropbox
           </button>
           <button
+            className={`nav-item${view === "nodes" ? " active" : ""}`}
+            onClick={() => setView("nodes")}
+            disabled={!library?.rootPath}
+          >
+            <Laptop size={18} />
+            Nodes
+          </button>
+          <button
             className="nav-item"
             onClick={() => setSettingsOpen(true)}
             disabled={!library}
@@ -146,7 +156,9 @@ export default function App() {
             <House size={15} />
             <span>Homebase</span>
             <span className="slash">/</span>
-            <strong>{view === "dropbox" ? "Dropbox" : "Files"}</strong>
+            <strong>
+              {view === "dropbox" ? "Dropbox" : view === "nodes" ? "Nodes" : "Files"}
+            </strong>
           </div>
           <span className="private-label">
             <span className="status-dot" />
@@ -174,6 +186,8 @@ export default function App() {
               <LoaderCircle className="spin" size={24} />
               Opening Homebase…
             </div>
+          ) : library.rootPath && view === "nodes" ? (
+            <NodesPanel />
           ) : library.rootPath && view === "dropbox" ? (
             <DropboxPanel />
           ) : library.rootPath ? (

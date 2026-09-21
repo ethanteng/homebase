@@ -1,5 +1,6 @@
 using System.Net;
 using Homebase.Core;
+using Homebase.Core.Nodes;
 using Homebase.Core.Providers;
 using Homebase.Server;
 using Microsoft.Data.Sqlite;
@@ -34,6 +35,11 @@ builder.Services.AddSingleton<IDropboxApi>(provider => provider.GetRequiredServi
 builder.Services.AddSingleton<ImportLog>();
 builder.Services.AddSingleton<ImportService>();
 builder.Services.AddSingleton<DropboxAuthFlow>();
+builder.Services.AddSingleton<SyncthingHost>();
+builder.Services.AddSingleton<ISyncthingEndpoint>(provider => provider.GetRequiredService<SyncthingHost>());
+builder.Services.AddHostedService(provider => provider.GetRequiredService<SyncthingHost>());
+builder.Services.AddSingleton<ISyncthingApi, SyncthingApi>();
+builder.Services.AddSingleton<NodeService>();
 var redirectUri = $"http://localhost:{port}/api/providers/dropbox/callback";
 
 var app = builder.Build();
@@ -74,7 +80,8 @@ app.Use(async (context, next) =>
             {
                 "not_found" => 404,
                 "not_configured" or "unavailable" or "busy" or "conflict"
-                    or "provider_unconfigured" or "provider_disconnected" or "provider_auth" or "provider_failed" => 409,
+                    or "provider_unconfigured" or "provider_disconnected" or "provider_auth" or "provider_failed"
+                    or "invalid_device" or "no_devices" or "node_failed" => 409,
                 "unsupported" => 501,
                 _ => 400
             }, library.Message),
@@ -136,6 +143,15 @@ app.MapGet("/api/providers/dropbox/files", async (string? path, IDropboxApi drop
 app.MapGet("/api/imports", (ImportService imports) => Results.Ok(imports.Imported()));
 app.MapPost("/api/imports", async (ImportRequest request, ImportService imports, CancellationToken cancellationToken) =>
     Results.Ok(await imports.ImportAsync(request.RemotePath, cancellationToken)));
+app.MapGet("/api/nodes", async (NodeService nodes, CancellationToken cancellationToken) =>
+    Results.Ok(await nodes.StatusAsync(cancellationToken)));
+app.MapPost("/api/nodes", async (PairNode request, NodeService nodes, CancellationToken cancellationToken) =>
+{
+    await nodes.PairAsync(request.DeviceId, request.Name, cancellationToken);
+    return Results.Ok(await nodes.StatusAsync(cancellationToken));
+});
+app.MapPost("/api/nodes/folders", async (ShareFolder request, NodeService nodes, CancellationToken cancellationToken) =>
+    Results.Ok(await nodes.ShareAsync(request.Path, request.DeviceIds ?? [], cancellationToken)));
 app.Map("/api/{**path}", () => Results.Problem("This endpoint doesn’t exist.", statusCode: 404));
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -144,4 +160,6 @@ app.Run();
 
 public sealed record SelectRoot(string Path);
 public sealed record ImportRequest(string RemotePath);
+public sealed record PairNode(string DeviceId, string? Name);
+public sealed record ShareFolder(string Path, IReadOnlyList<string>? DeviceIds);
 public partial class Program;
