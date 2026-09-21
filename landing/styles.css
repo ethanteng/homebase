@@ -729,6 +729,14 @@ h1 span {
 
   .access-form {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  /* The flex basis measures height once the row becomes a column, so the input
+     has to stop flexing or it stretches into a text area. */
+  .access-input {
+    flex: 0 0 auto;
+    max-width: none;
   }
 
   .access-input,
