@@ -14,8 +14,7 @@ public sealed class DropboxApiTests : IDisposable
     [Fact]
     public async Task A_folder_larger_than_one_page_is_listed_in_full()
     {
-        var tokens = new DropboxTokenStore(_temporary);
-        await tokens.SaveAsync("refresh-token", "Test", CancellationToken.None);
+        var tokens = new HeldTokens("refresh-token");
         var handler = new ScriptedDropbox();
         using var client = new HttpClient(handler);
         var api = new DropboxApi(client, tokens, "app-key");
@@ -31,8 +30,7 @@ public sealed class DropboxApiTests : IDisposable
     [Fact]
     public async Task An_expired_connection_is_reported_rather_than_retried_forever()
     {
-        var tokens = new DropboxTokenStore(_temporary);
-        await tokens.SaveAsync("refresh-token", "Test", CancellationToken.None);
+        var tokens = new HeldTokens("refresh-token");
         using var client = new HttpClient(new ScriptedDropbox { Unauthorized = true });
         var api = new DropboxApi(client, tokens, "app-key");
 
@@ -47,8 +45,7 @@ public sealed class DropboxApiTests : IDisposable
     {
         // A rate-limited listing used to surface as a folder that couldn't be read, which left
         // it and its whole subtree out of an import that otherwise reported success.
-        var tokens = new DropboxTokenStore(_temporary);
-        await tokens.SaveAsync("refresh-token", "Test", CancellationToken.None);
+        var tokens = new HeldTokens("refresh-token");
         var handler = new ScriptedDropbox { RateLimitFirstListing = true };
         using var client = new HttpClient(handler);
         var waited = new List<TimeSpan>();
@@ -67,8 +64,7 @@ public sealed class DropboxApiTests : IDisposable
     [Fact]
     public async Task A_refusal_Dropbox_will_repeat_is_not_tried_again()
     {
-        var tokens = new DropboxTokenStore(_temporary);
-        await tokens.SaveAsync("refresh-token", "Test", CancellationToken.None);
+        var tokens = new HeldTokens("refresh-token");
         var handler = new ScriptedDropbox { Unauthorized = true };
         using var client = new HttpClient(handler);
         var api = new DropboxApi(client, tokens, "app-key")
@@ -131,5 +127,20 @@ public sealed class DropboxApiTests : IDisposable
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
             };
         }
+    }
+
+    /// <summary>A connection held in memory, so these tests are about the HTTP client alone.</summary>
+    private sealed class HeldTokens(string? refreshToken) : IProviderTokens
+    {
+        private string? _token = refreshToken;
+
+        public string? Load() => _token;
+        public string? LoadAccountName() => "Test";
+        public Task SaveAsync(string refresh, string? accountName, CancellationToken cancellationToken)
+        {
+            _token = refresh;
+            return Task.CompletedTask;
+        }
+        public void Clear() => _token = null;
     }
 }

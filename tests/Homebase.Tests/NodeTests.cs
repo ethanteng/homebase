@@ -19,12 +19,12 @@ public sealed class NodeTests : IDisposable
         Directory.CreateDirectory(_temporary);
         _root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
         Directory.CreateDirectory(Path.Combine(_root, "Shared"));
-        _library = new LibraryService(new SettingsStore(Path.Combine(_temporary, "Config")), new MetadataIndex());
-        _library.SelectRootAsync(_root, CancellationToken.None).GetAwaiter().GetResult();
+        _library = new LibraryService(_root, new MetadataIndex());
+        _library.Initialize();
         // Selecting a root resolves symbolic links in its ancestors, which on macOS turns
         // /var into /private/var. Compare against what the library actually holds.
         _root = _library.State.RootPath!;
-        _nodes = new NodeService(_library, _syncthing);
+        _nodes = new NodeService(_syncthing);
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public sealed class NodeTests : IDisposable
         foreach (var path in new[] { "", "/", "  " })
         {
             var error = await Assert.ThrowsAsync<LibraryException>(
-                () => _nodes.ShareAsync(path, [], CancellationToken.None));
+                () => _nodes.ShareAsync(_root, path, [], CancellationToken.None));
             Assert.Equal("unsupported", error.Code);
         }
         Assert.Empty(_syncthing.Folders);
@@ -49,7 +49,7 @@ public sealed class NodeTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_root, ".homebase", "nested"));
 
         foreach (var path in new[] { "../outside", "Shared/../../outside", ".homebase", ".homebase/nested" })
-            await Assert.ThrowsAsync<LibraryException>(() => _nodes.ShareAsync(path, [], CancellationToken.None));
+            await Assert.ThrowsAsync<LibraryException>(() => _nodes.ShareAsync(_root, path, [], CancellationToken.None));
         Assert.Empty(_syncthing.Folders);
     }
 
@@ -58,25 +58,25 @@ public sealed class NodeTests : IDisposable
     {
         await _nodes.PairAsync(Peer, "Laptop", CancellationToken.None);
 
-        var folder = await _nodes.ShareAsync("Shared", [], CancellationToken.None);
+        var folder = await _nodes.ShareAsync(_root, "Shared", [], CancellationToken.None);
 
         Assert.Equal(Path.Combine(_root, "Shared"), _syncthing.Folders[folder.Id].Path);
         Assert.Equal([Peer], _syncthing.Folders[folder.Id].Devices);
         Assert.Contains(".homebase", _syncthing.Ignores[folder.Id]);
-        await Assert.ThrowsAsync<LibraryException>(() => _nodes.ShareAsync("Shared", [], CancellationToken.None));
+        await Assert.ThrowsAsync<LibraryException>(() => _nodes.ShareAsync(_root, "Shared", [], CancellationToken.None));
     }
 
     [Fact]
     public async Task Sharing_needs_a_folder_that_exists_and_a_computer_to_share_it_with()
     {
         Assert.Equal("no_devices",
-            (await Assert.ThrowsAsync<LibraryException>(() => _nodes.ShareAsync("Shared", [], CancellationToken.None))).Code);
+            (await Assert.ThrowsAsync<LibraryException>(() => _nodes.ShareAsync(_root, "Shared", [], CancellationToken.None))).Code);
 
         await _nodes.PairAsync(Peer, "Laptop", CancellationToken.None);
         Assert.Equal("not_found",
-            (await Assert.ThrowsAsync<LibraryException>(() => _nodes.ShareAsync("Missing", [], CancellationToken.None))).Code);
+            (await Assert.ThrowsAsync<LibraryException>(() => _nodes.ShareAsync(_root, "Missing", [], CancellationToken.None))).Code);
         Assert.Equal("invalid_device",
-            (await Assert.ThrowsAsync<LibraryException>(() => _nodes.ShareAsync("Shared", [Self], CancellationToken.None))).Code);
+            (await Assert.ThrowsAsync<LibraryException>(() => _nodes.ShareAsync(_root, "Shared", [Self], CancellationToken.None))).Code);
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public sealed class NodeTests : IDisposable
         await _nodes.PairAsync(Peer, "Laptop", CancellationToken.None);
         _syncthing.Offers.Add(new PendingFolder("offered-id", "Shared", Peer, "Laptop"));
 
-        var folder = await _nodes.AcceptAsync("offered-id", null, CancellationToken.None);
+        var folder = await _nodes.AcceptAsync(_root, "offered-id", null, CancellationToken.None);
 
         Assert.Equal("offered-id", folder.Id);
         Assert.Equal(Path.Combine(_root, "Shared"), _syncthing.Folders["offered-id"].Path);
@@ -132,13 +132,13 @@ public sealed class NodeTests : IDisposable
 
         // The offered label comes from the other computer, so it gets this library's rules too.
         await Assert.ThrowsAsync<LibraryException>(
-            () => _nodes.AcceptAsync("offered-id", null, CancellationToken.None));
+            () => _nodes.AcceptAsync(_root, "offered-id", null, CancellationToken.None));
         Assert.Equal("not_found",
             (await Assert.ThrowsAsync<LibraryException>(
-                () => _nodes.AcceptAsync("no-such-offer", "Shared", CancellationToken.None))).Code);
+                () => _nodes.AcceptAsync(_root, "no-such-offer", "Shared", CancellationToken.None))).Code);
 
         // A folder that doesn't exist yet is created, since accepting means expecting files.
-        var folder = await _nodes.AcceptAsync("offered-id", "Inbox/Laptop", CancellationToken.None);
+        var folder = await _nodes.AcceptAsync(_root, "offered-id", "Inbox/Laptop", CancellationToken.None);
 
         Assert.True(Directory.Exists(Path.Combine(_root, "Inbox", "Laptop")));
         Assert.Equal(Path.Combine(_root, "Inbox", "Laptop"), _syncthing.Folders[folder.Id].Path);
@@ -153,13 +153,13 @@ public sealed class NodeTests : IDisposable
         Directory.CreateSymbolicLink(Path.Combine(_temporary, "Link"), Path.Combine(_temporary, "Real"));
 
         using var library = new LibraryService(
-            new SettingsStore(Path.Combine(_temporary, "LinkedConfig")), new MetadataIndex());
-        await library.SelectRootAsync(Path.Combine(_temporary, "Link"), CancellationToken.None);
+            PathPolicy.NormalizeRoot(Path.Combine(_temporary, "Link")), new MetadataIndex());
+        library.Initialize();
         var syncthing = new FakeSyncthing();
-        var nodes = new NodeService(library, syncthing);
+        var nodes = new NodeService(syncthing);
         await nodes.PairAsync(Peer, "Laptop", CancellationToken.None);
 
-        var folder = await nodes.ShareAsync("Shared", [], CancellationToken.None);
+        var folder = await nodes.ShareAsync(library.Root, "Shared", [], CancellationToken.None);
 
         Assert.Equal(real, syncthing.Folders[folder.Id].Path);
         Assert.DoesNotContain("Link", syncthing.Folders[folder.Id].Path);

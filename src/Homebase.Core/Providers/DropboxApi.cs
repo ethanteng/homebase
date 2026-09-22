@@ -8,8 +8,11 @@ namespace Homebase.Core.Providers;
 /// Dropbox's HTTP API, read-only. Homebase asks for metadata and content and nothing else, so a
 /// mistake here cannot change what is in the connected account.
 /// </summary>
-public sealed class DropboxApi(HttpClient client, DropboxTokenStore tokens, string? appKey) : IDropboxApi
+public sealed class DropboxApi(HttpClient client, IProviderTokens tokens, string? appKey) : IDropboxConnection
 {
+    /// <summary>The name this provider's connections are stored under.</summary>
+    public const string ProviderName = "dropbox";
+
     private const string Api = "https://api.dropboxapi.com";
     private const string Content = "https://content.dropboxapi.com";
     // However long Dropbox asks for, an import shouldn't stall on one folder for minutes.

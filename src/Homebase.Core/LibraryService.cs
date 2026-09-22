@@ -1,41 +1,26 @@
 namespace Homebase.Core;
 
-public sealed class LibraryService(SettingsStore settings, MetadataIndex index) : IDisposable
+/// <summary>
+/// One account's files. The root is fixed when this is made, from the session the request was
+/// authenticated with, so no caller can point it at somebody else's folder. Each account gets
+/// its own instance and its own gate, so one person browsing never holds up another.
+/// </summary>
+public sealed class LibraryService(string root, MetadataIndex index) : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private string? _root = settings.Load();
 
-    public LibraryState State
-    {
-        get
-        {
-            var root = _root;
-            return new(root, root is null ? null : new DirectoryInfo(root).Name);
-        }
-    }
+    public string Root => root;
 
-    public async Task<LibraryState> SelectRootAsync(string path, CancellationToken cancellationToken)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            var root = PathPolicy.NormalizeRoot(path);
-            if (root.Split(Path.DirectorySeparatorChar).Any(part => part.Equals(".homebase", StringComparison.OrdinalIgnoreCase)))
-                throw new LibraryException("Choose your files folder, not a .homebase metadata folder.");
-            index.Initialize(root);
-            await settings.SaveAsync(root, cancellationToken);
-            _root = root;
-            return State;
-        }
-        finally { _gate.Release(); }
-    }
+    public LibraryState State => new(root, new DirectoryInfo(root).Name);
+
+    /// <summary>Makes the metadata database if this folder hasn't been opened before.</summary>
+    public void Initialize() => index.Initialize(root);
 
     public async Task<DirectoryListing> BrowseAsync(string? relativePath, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var root = RequireRoot();
             var fullPath = PathPolicy.Resolve(root, relativePath);
             if (!Directory.Exists(fullPath)) throw new LibraryException("This folder is no longer available.", "not_found");
             var normalized = Path.GetRelativePath(root, fullPath).Replace(Path.DirectorySeparatorChar, '/');
@@ -70,13 +55,12 @@ public sealed class LibraryService(SettingsStore settings, MetadataIndex index) 
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var fullPath = PathPolicy.Resolve(RequireRoot(), path);
+            var fullPath = PathPolicy.Resolve(root, path);
             if (!File.Exists(fullPath)) throw new LibraryException("This file is no longer available.", "not_found");
             return (new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan), Path.GetFileName(fullPath));
         }
         finally { _gate.Release(); }
     }
 
-    private string RequireRoot() => _root ?? throw new LibraryException("Choose your Uncloud folder first.", "not_configured");
     public void Dispose() => _gate.Dispose();
 }

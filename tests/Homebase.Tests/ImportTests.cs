@@ -17,8 +17,8 @@ public sealed class ImportTests : IDisposable
     {
         Directory.CreateDirectory(_temporary);
         _root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
-        _library = new LibraryService(new SettingsStore(Path.Combine(_temporary, "Config")), new MetadataIndex());
-        _library.SelectRootAsync(_root, CancellationToken.None).GetAwaiter().GetResult();
+        _library = new LibraryService(_root, new MetadataIndex());
+        _library.Initialize();
         _imports = new ImportService(_library, new ImportLog(), _dropbox, NullLogger<ImportService>.Instance);
     }
 
