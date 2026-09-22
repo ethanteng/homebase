@@ -23,7 +23,7 @@ The landing HTML loads GTM only on `uncloud.life` and `www.uncloud.life`. There 
 | `page_view` / sessions | Arrival, with Google Ads auto-tagging and campaign attribution | Diagnostic |
 | GA4 engaged sessions / `user_engagement` | Standard GA4 engagement; use engagement rate and average engagement time | Diagnostic |
 | `cta_click` | First attempt to submit Get early access on that page, including invalid/empty input; Enter key also counts | Diagnostic only |
-| `generate_lead` | Signup endpoint confirms a new notification was accepted by the live mail provider | Primary business outcome |
+| `generate_lead` | Signup endpoint confirms the address was written to the Airtable signup table | Primary business outcome |
 
 `generate_lead` is a GA4 key event, counted once per session, with no default monetary value. This is a waitlist request, not a paid customer, verified email, or activated user.
 
@@ -33,8 +33,9 @@ The event tag includes `landing_version=cloud-subscriptions-v1`, registered as t
 
 ## Counting and data boundaries
 
-- The browser waits for `/api/subscribe` to return `accepted: true`; failed submissions, honeypots, short-window repeats, sandbox sends and legacy ambiguous success responses do not generate leads.
-- Concurrent/repeated submissions on the same rendered form are blocked. The existing server duplicate guard is in-memory and lasts ten minutes per warm instance. It is not a durable unique-person database; compare eventual lead quality and duplicates in the signup inbox.
+- The browser waits for `/api/subscribe` to return `accepted: true`; failed submissions, honeypots, short-window repeats and legacy ambiguous success responses do not generate leads. Mailtrap sandbox mode no longer suppresses the lead: it affects only the notification email, while the Airtable record — the thing `accepted: true` now reports — is written either way.
+- Concurrent/repeated submissions on the same rendered form are blocked. The server's in-memory duplicate guard still lasts ten minutes per warm instance, but the Airtable write upserts on the address, so the table holds one row per person no matter how many sessions or warm instances a repeat crosses. GA4 still counts a lead per session, so the table is the authority on how many people signed up and GA4 is the authority on which campaigns brought them.
+- The signup record carries `utm_source` and the browser's referrer alongside the address, collected at submit time in the page. These go to Airtable only; they are never pushed into the data layer.
 - Email addresses, typed form contents, API response errors, and user IDs are never pushed into the data layer or event parameters.
 - GA4 email redaction remains enabled. Avoid personal data in campaign parameters or URLs.
 - Google signals and advertising personalization signals are disabled by the page; personalized advertising is disabled on the GA4–Ads link. No enhanced conversions or remarketing audience was configured.

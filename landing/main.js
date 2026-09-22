@@ -47,6 +47,18 @@ if (form && status) {
     status.dataset.tone = tone;
   }
 
+  // Where this visitor came from, recorded alongside the signup because it is
+  // gone the moment the page is. This goes to the signup record, never to the
+  // data layer, and never carries anything the visitor typed.
+  function origin() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return { source: params.get("utm_source") || "", referrer: document.referrer || "" };
+    } catch {
+      return {};
+    }
+  }
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (submitting || form.hidden) return;
@@ -73,13 +85,14 @@ if (form && status) {
         body: JSON.stringify({
           email,
           website: form.querySelector("#access-website").value,
+          ...origin(),
         }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "That didn’t go through.");
 
       // A successful HTTP response can also mean a bot trap or a repeat.
-      if (result.accepted === true && result.sandbox !== true) {
+      if (result.accepted === true) {
         measure("generate_lead");
       }
 
