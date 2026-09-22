@@ -12,6 +12,38 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args,
     ContentRootPath = Directory.Exists(publishedAssets) ? AppContext.BaseDirectory : null
 });
+
+// Remote access is settled before anything is served. The tunnel's address is the name this
+// host answers to and the address Dropbox returns the browser to, so the binding below is built
+// from it rather than corrected once requests are already arriving under it.
+static string Join(string? existing, params string[] additions) => string.Join(',',
+    (existing ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Concat(additions).Distinct(StringComparer.OrdinalIgnoreCase));
+
+// Read once before anything is started, so a missing certificate or an unreadable bind address
+// is refused while there is still nothing running to clean up.
+HostBinding.From(builder.Configuration);
+
+var remoteLog = LoggerFactory.Create(logging => logging.AddConsole());
+var remote = RemoteAccess.From(builder.Configuration, remoteLog.CreateLogger("Homebase.RemoteAccess"));
+if (remote.IsEnabled)
+{
+    var announced = remote.Open(builder.Configuration.GetValue("Homebase:Port", 5210));
+    builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["Homebase:AllowedHosts"] = Join(builder.Configuration["Homebase:AllowedHosts"], announced),
+        // The tunnel client runs on this machine and reaches Uncloud over loopback: it is the
+        // proxy, and naming it is what lets the https:// origin the browser sent be believed
+        // while Kestrel itself is serving plain HTTP.
+        ["Homebase:TrustedProxies"] = Join(builder.Configuration["Homebase:TrustedProxies"], "127.0.0.1", "::1"),
+        ["Homebase:PublicUrl"] = builder.Configuration["Homebase:PublicUrl"] is { Length: > 0 } configured
+            ? configured
+            : $"https://{announced}"
+    });
+}
+
+void StopTunnel() => remote.DisposeAsync().AsTask().GetAwaiter().GetResult();
+
 var startup = HostBinding.From(builder.Configuration);
 // Explicit binding: environment URLs must never decide who can reach the host's files.
 builder.WebHost.ConfigureKestrel(options => options.Listen(startup.Address, startup.Port, listen =>
@@ -27,6 +59,7 @@ var defaultConfig = OperatingSystem.IsMacOS()
 static string ConfigDirectory(IServiceProvider provider, string fallback) =>
     provider.GetRequiredService<IConfiguration>()["Homebase:ConfigDirectory"] ?? fallback;
 
+builder.Services.AddSingleton(remote);
 builder.Services.AddSingleton(provider => HostBinding.From(provider.GetRequiredService<IConfiguration>()));
 builder.Services.AddSingleton(provider => new ControlDatabase(ConfigDirectory(provider, defaultConfig)));
 builder.Services.AddSingleton(provider => new SecretProtector(ConfigDirectory(provider, defaultConfig)));
@@ -60,13 +93,17 @@ builder.Services.AddSingleton<DropboxAuthFlow>();
 // An import's stage travels as its name, not as whichever number the enum happens to sit at.
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
-var app = builder.Build();
+WebApplication app;
+try { app = builder.Build(); }
+catch { StopTunnel(); throw; }
 var binding = app.Services.GetRequiredService<HostBinding>();
 var redirectUri = $"{binding.PublicUrl}/api/providers/dropbox/callback";
 // Read-only, and the same three whoever's app is being set up.
 string[] DropboxScopes = ["account_info.read", "files.metadata.read", "files.content.read"];
 if (binding.Warning is { } warning) app.Logger.LogWarning("{Warning}", warning);
-app.Services.GetRequiredService<SessionStore>().PruneExpired();
+// A tunnel that drops is an outage of reaching this host from outside, never of the host, so
+// this reopens in the background while everyone on the network carries on.
+remote.Watch(binding.Port);
 
 const string SessionCookie = "uncloud_session";
 // Reached without a session. Everything else is refused until somebody signs in.
@@ -82,7 +119,8 @@ string[] administrative =
 [
     "/api/host",
     "/api/users",
-    "/api/folder-picker"
+    "/api/folder-picker",
+    "/api/remote-access"
 ];
 
 // Behind a proxy that terminates TLS, Kestrel sees plain HTTP on a loopback address while the
@@ -91,9 +129,16 @@ string[] administrative =
 // named in configuration are believed, and only about the scheme and host.
 if (binding.TrustedProxies.Count > 0)
 {
+    // A tunnel adds the client's own address to that. Everything it carries reaches Kestrel from
+    // loopback, so without this the sign-in throttle would count every person on the internet
+    // into one bucket, and ten wrong guesses from anywhere would lock out every account on the
+    // host, including whoever is sitting at it. Only a tunnel Uncloud opened itself is taken at
+    // its word about who the client is: a proxy somebody else configured is believed about the
+    // scheme and host it was named for, and nothing more.
+    var client = remote.IsEnabled ? ForwardedHeaders.XForwardedFor : ForwardedHeaders.None;
     var forwarded = new ForwardedHeadersOptions
     {
-        ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
+        ForwardedHeaders = client | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
         ForwardLimit = 1
     };
     forwarded.KnownIPNetworks.Clear();
@@ -107,8 +152,10 @@ if (binding.TrustedProxies.Count > 0)
 app.Use(async (context, next) =>
 {
     var request = context.Request;
-    // Host validation also prevents DNS rebinding from turning a browser into a way in.
-    if (!binding.AllowedHosts.Contains(request.Host.Host))
+    // Host validation also prevents DNS rebinding from turning a browser into a way in. An
+    // unnamed tunnel comes back under a different address after a reconnect, so what it carries
+    // now is asked as well as what was configured at startup.
+    if (!binding.AllowedHosts.Contains(request.Host.Host) && !remote.Answers(request.Host.Host))
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
         return;
@@ -259,8 +306,17 @@ app.MapDelete("/api/session", (HttpContext context, SessionStore sessions) =>
 
 // The first account on a fresh host, which is an administrator because somebody has to be.
 // Open only while there are none: afterwards an administrator adds the rest.
-app.MapPost("/api/setup", (CreateUser request, HttpContext context, UserStore users, SessionStore sessions) =>
+app.MapPost("/api/setup", (CreateUser request, HttpContext context, UserStore users, SessionStore sessions, RemoteAccess access) =>
 {
+    // Until this succeeds there is nobody to refuse anybody, so whoever finds the address first
+    // becomes the administrator of the host. A tunnel puts that address on the internet, so this
+    // one door stays shut to it: the rest of Uncloud is reachable through the tunnel as ever.
+    if (access.Answers(context.Request.Host.Host))
+        throw new LibraryException(
+            "Set up this Uncloud on the computer it runs on, or from its own network. The first "
+            + "account can’t be created over the internet, because until it exists there is "
+            + "nobody here to say who may.", "forbidden");
+
     // Checked and inserted as one transaction: until it succeeds this endpoint is open to
     // anybody, so two people racing a fresh host must not both come away administrators.
     var account = users.CreateFirstAdmin(request.Username, request.DisplayName, request.Password ?? "");
@@ -436,6 +492,13 @@ app.MapGet("/api/imports/estimate", async (string remotePath, string? source, Cu
     var workspace = workspaces.For(user.Account);
     return Results.Ok(await workspace.Imports.MeasureAsync(
         workspace.Source(Sources.Name(source)), remotePath, cancellationToken));
+});
+
+// Where this host can be reached from outside the house, for the administrator to pass on.
+app.MapGet("/api/remote-access", (RemoteAccess access, HostBinding self) =>
+{
+    var state = access.State;
+    return Results.Ok(new { state.Provider, state.Hostname, state.Url, state.Status, state.Detail, self.PublicUrl });
 });
 
 app.MapGet("/api/host", (HostService host, IFolderPicker picker) =>
@@ -660,7 +723,16 @@ app.Map("/api/{**path}", () => Results.Problem("This endpoint doesn’t exist.",
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapFallbackToFile("index.html");
-app.Run();
+
+app.Services.GetRequiredService<SessionStore>().PruneExpired();
+try { app.Run(); }
+finally
+{
+    // Whether the host stopped for a reason or never managed to listen at all, the tunnel
+    // program is a child of this process and stopping it is nobody else's job.
+    StopTunnel();
+    remoteLog.Dispose();
+}
 
 public sealed record SelectRoot(string Path);
 public sealed record SignIn(string? Username, string? Password);

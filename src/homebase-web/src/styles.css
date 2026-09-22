@@ -1749,3 +1749,31 @@ tbody tr.selected {
   vertical-align: -2px;
   margin-right: 4px;
 }
+
+/* The public address is the one thing on this form meant to be read out or pasted elsewhere,
+   so it is set apart from the folder path above it and given room to be selected. */
+.remote-access .remote-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.remote-address {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.remote-address a {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 13px;
+  /* A long tunnel name must wrap rather than widen the dialog. */
+  overflow-wrap: anywhere;
+}
+.remote-address .button {
+  padding: 6px 12px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+

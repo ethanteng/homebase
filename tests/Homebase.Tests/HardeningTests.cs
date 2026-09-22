@@ -174,6 +174,35 @@ public sealed class HardeningTests : IDisposable
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task A_proxy_cannot_be_told_who_its_client_is()
+    {
+        var settings = new Dictionary<string, string?>
+        {
+            ["Homebase:Bind"] = "0.0.0.0",
+            ["Homebase:AllowedHosts"] = "uncloud.local",
+            ["Homebase:TrustedProxies"] = "127.0.0.1"
+        };
+        using var app = new TestHost(_config, settings: settings);
+        using var owner = await app.SignUpAsync("ada");
+
+        // A proxy is named to be believed about the scheme and the host, and about nothing else.
+        // Were a forwarded client address taken from it as well, anybody reaching Uncloud through
+        // it could invent a new one per attempt and never meet the sign-in throttle at all.
+        using var guessing = Proxied(app);
+        HttpStatusCode last = default;
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            guessing.DefaultRequestHeaders.Remove("X-Forwarded-For");
+            guessing.DefaultRequestHeaders.Add("X-Forwarded-For", $"203.0.113.{attempt + 1}");
+            var refused = await guessing.PostAsJsonAsync("/api/session",
+                new { username = $"guess{attempt}", password = "not the password" });
+            last = refused.StatusCode;
+        }
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, last);
+    }
+
     /// <summary>A request as a TLS-terminating reverse proxy would pass it on.</summary>
     private static HttpClient Proxied(TestHost app)
     {

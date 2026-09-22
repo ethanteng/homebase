@@ -30,6 +30,17 @@ export interface HostState {
   canPickFolder: boolean;
 }
 
+export interface RemoteAccessState {
+  provider: string;
+  // The name the tunnel is carrying right now, absent while there isn't one.
+  hostname: string | null;
+  url: string | null;
+  status: "off" | "opening" | "on" | "reconnecting";
+  detail: string | null;
+  // Where Dropbox is told to return the browser, which the tunnel usually decides.
+  publicUrl: string;
+}
+
 export interface ClaimResult {
   moved: string[];
   skipped: { name: string; reason: string }[];
