@@ -168,10 +168,14 @@ without a certificate.
 - **Not an OS sandbox.** One process runs as one operating-system user and can read every
   user's directory. Isolation is enforced in Uncloud, not by the kernel. Anyone with a shell
   on the host, or any other program running as that OS user, can read everything.
-- **Nodes / Syncthing is out of scope.** Syncthing's configuration is global and has no
-  concept of users, so showing it to everyone would break the isolation promise outright. The
-  `/api/nodes` endpoints are therefore admin-only for now. If node-based distribution matters
-  later, per-user device and folder ownership needs its own design pass.
+- **No replication, and no remote access.** Uncloud serves one host. It does not copy your
+  files anywhere else, and it is only reachable where the host is reachable. An earlier version
+  supervised a Syncthing process to mirror folders between machines; that was removed once the
+  host became the place everything lives, because it solved neither problem well. It mirrored
+  rather than versioned, so it was never a backup — a deletion propagated like anything else —
+  and its configuration was global, with no concept of accounts, so every account would have
+  seen every other account's shared folders. Backup belongs to a tool built for it; the README
+  says which. Getting at your files from outside the network is genuinely unsolved.
 - **No invitations, e-mail, or password reset by mail.** An admin sets a password and hands it
   over. Self-service recovery needs a mail path Uncloud doesn't have.
 - **No audit log** of who read what.
@@ -196,7 +200,8 @@ selection and v0 adoption, LAN binding with a host allowlist and optional TLS, t
 Users panel, and tests that a member cannot reach another member's files by any route.
 
 **Phase 2.** Per-user quotas. Sharing a folder between accounts on the same host. An audit
-log. Session listing and revocation from the account page.
+log. Session listing and revocation from the account page. Reaching the host from outside its
+network, which nothing covers today.
 
 **Phase 3.** Google Drive and iCloud connectors. The per-user connector model already
 generalises: `connectors` is keyed by `(user_id, provider)` and `IProviderTokens` is the only

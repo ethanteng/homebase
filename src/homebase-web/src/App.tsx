@@ -3,7 +3,6 @@ import {
   ArrowUpRight,
   CloudDownload,
   Files,
-  Laptop,
   LoaderCircle,
   LogOut,
   HardDrive,
@@ -16,14 +15,13 @@ import {
 import { api, formatSize, SignedOutError } from "./api";
 import type { LibraryState, Session, StorageReport, User } from "./api";
 import DropboxPanel from "./DropboxPanel";
-import NodesPanel from "./NodesPanel";
 import FileBrowser from "./FileBrowser";
 import HostSetup from "./HostSetup";
 import SignIn from "./SignIn";
 import UsersPanel from "./UsersPanel";
 import AccountPanel from "./AccountPanel";
 
-type View = "files" | "dropbox" | "nodes" | "users";
+type View = "files" | "dropbox" | "users";
 type Dialog = "host" | "account" | null;
 
 function readPath() {
@@ -223,14 +221,6 @@ export default function App() {
                 <Users size={18} />
                 People
               </button>
-              <button
-                className={`nav-item${view === "nodes" ? " active" : ""}`}
-                onClick={() => setView("nodes")}
-                disabled={!hasFolder}
-              >
-                <Laptop size={18} />
-                Nodes
-              </button>
               <button className="nav-item" onClick={() => setDialog("host")}>
                 <Settings2 size={18} />
                 Storage settings
@@ -297,11 +287,9 @@ export default function App() {
             <strong>
               {view === "dropbox"
                 ? "Dropbox"
-                : view === "nodes"
-                  ? "Nodes"
-                  : view === "users"
-                    ? "People"
-                    : "My files"}
+                : view === "users"
+                  ? "People"
+                  : "My files"}
             </strong>
           </div>
           <span className="private-label">
@@ -312,8 +300,6 @@ export default function App() {
         <div className="main-content">
           {view === "users" && me.isAdmin ? (
             <UsersPanel me={me} />
-          ) : hasFolder && view === "nodes" && me.isAdmin ? (
-            <NodesPanel />
           ) : hasFolder && view === "dropbox" ? (
             <DropboxPanel onImported={() => setRevision((value) => value + 1)} />
           ) : hasFolder ? (

@@ -1,14 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using Homebase.Core;
 using Homebase.Core.Providers;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Homebase.Tests;
 
@@ -135,20 +129,6 @@ public sealed class ProviderTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsync("/api/providers/dropbox/connect", null)).StatusCode);
     }
 
-    [Fact]
-    public void Syncthing_state_is_kept_where_preferences_are_not_in_the_temporary_directory()
-    {
-        // With no ConfigDirectory set — the ordinary installation — Syncthing's device identity
-        // and pairings must not land somewhere a cleanup can take them.
-        using var app = new DefaultDirectoryApp();
-        using var client = app.CreateClient();
-
-        var home = app.Services.GetRequiredService<Homebase.Server.SyncthingHost>().Home;
-
-        Assert.False(home.StartsWith(Path.GetTempPath(), StringComparison.Ordinal),
-            $"Syncthing state would be lost from {home}");
-        Assert.EndsWith("syncthing", home);
-    }
 
     /// <summary>Starts an import the way the panel does, and waits for the job behind it to settle.</summary>
     private static async Task<JsonElement> BringHome(HttpClient client, string remotePath)
@@ -174,13 +154,6 @@ public sealed class ProviderTests : IDisposable
         try { Directory.Delete(_temporary, true); } catch (IOException) { }
     }
 
-    /// <summary>The app as installed: no configuration overrides, and Syncthing not started.</summary>
-    private sealed class DefaultDirectoryApp : WebApplicationFactory<Program>
-    {
-        protected override void ConfigureWebHost(IWebHostBuilder builder) =>
-            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
-                new Dictionary<string, string?> { ["Homebase:Syncthing:Enabled"] = "false" }));
-    }
 
 
 }

@@ -1,6 +1,5 @@
 using Homebase.Core;
 using Homebase.Core.Accounts;
-using Homebase.Core.Nodes;
 using Homebase.Core.Providers;
 using Homebase.Server;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -50,15 +49,6 @@ builder.Services.AddSingleton<IDropboxApiFactory>(provider => new DropboxApiFact
     provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:AppKey"]));
 builder.Services.AddSingleton<UserWorkspaces>();
 builder.Services.AddSingleton<DropboxAuthFlow>();
-builder.Services.AddSingleton(provider => new SyncthingHost(
-    ConfigDirectory(provider, defaultConfig),
-    provider.GetRequiredService<IConfiguration>(),
-    provider.GetRequiredService<ILogger<SyncthingHost>>(),
-    provider.GetRequiredService<HttpClient>()));
-builder.Services.AddSingleton<ISyncthingEndpoint>(provider => provider.GetRequiredService<SyncthingHost>());
-builder.Services.AddHostedService(provider => provider.GetRequiredService<SyncthingHost>());
-builder.Services.AddSingleton<ISyncthingApi, SyncthingApi>();
-builder.Services.AddSingleton<NodeService>();
 // An import's stage travels as its name, not as whichever number the enum happens to sit at.
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
@@ -82,10 +72,7 @@ string[] administrative =
 [
     "/api/host",
     "/api/users",
-    "/api/folder-picker",
-    // Syncthing's configuration is the whole host's and knows nothing about accounts, so
-    // showing it to everybody would hand each person a list of everybody else's shared folders.
-    "/api/nodes"
+    "/api/folder-picker"
 ];
 
 // Behind a proxy that terminates TLS, Kestrel sees plain HTTP on a loopback address while the
@@ -489,18 +476,6 @@ app.MapDelete("/api/users/{id}", (string id, UserStore users, SessionStore sessi
     return Results.Ok(new { deleted = true, filesRemainAt = folder });
 });
 
-app.MapGet("/api/nodes", async (NodeService nodes, CancellationToken cancellationToken) =>
-    Results.Ok(await nodes.StatusAsync(cancellationToken)));
-app.MapPost("/api/nodes", async (PairNode request, NodeService nodes, CancellationToken cancellationToken) =>
-{
-    await nodes.PairAsync(request.DeviceId, request.Name, cancellationToken);
-    return Results.Ok(await nodes.StatusAsync(cancellationToken));
-});
-app.MapPost("/api/nodes/folders", async (ShareFolder request, CurrentUser user, UserWorkspaces workspaces, NodeService nodes, CancellationToken cancellationToken) =>
-    Results.Ok(await nodes.ShareAsync(workspaces.For(user.Account).Root, request.Path, request.DeviceIds ?? [], cancellationToken)));
-app.MapPost("/api/nodes/folders/accept", async (AcceptFolder request, CurrentUser user, UserWorkspaces workspaces, NodeService nodes, CancellationToken cancellationToken) =>
-    Results.Ok(await nodes.AcceptAsync(workspaces.For(user.Account).Root, request.FolderId, request.Path, cancellationToken)));
-
 app.Map("/api/{**path}", () => Results.Problem("This endpoint doesn’t exist.", statusCode: 404));
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -513,7 +488,4 @@ public sealed record CreateUser(string? Username, string? DisplayName, string? P
 public sealed record UpdateUser(string? DisplayName, string? Password, bool? IsAdmin, bool? Disabled);
 public sealed record ChangePassword(string? CurrentPassword, string? NewPassword);
 public sealed record ImportRequest(string RemotePath, string? Label);
-public sealed record PairNode(string DeviceId, string? Name);
-public sealed record ShareFolder(string Path, IReadOnlyList<string>? DeviceIds);
-public sealed record AcceptFolder(string FolderId, string? Path);
 public partial class Program;
