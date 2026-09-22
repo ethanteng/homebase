@@ -179,7 +179,10 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
     /// <summary>Why this folder can't be a place, or null when it can.</summary>
     private string? Refusal(string path)
     {
-        if (Nested(path, configDirectory))
+        // Both sides resolved before they are compared. A path is only ever refused for matching,
+        // so a folder reached one way and named another — /var against /private/var on macOS, or any
+        // symbolic link above it — would be two strings that don't match and a check that passes.
+        if (Nested(path, Safe(configDirectory)))
             return "That folder holds Uncloud’s own settings, which includes everybody’s passwords. Choose another one.";
         if (host.RootPath is { } root && Nested(path, Safe(root)))
             return "That folder holds everybody’s Uncloud files. Bringing files in from it would let anyone here read everybody else’s, so choose a folder outside it.";

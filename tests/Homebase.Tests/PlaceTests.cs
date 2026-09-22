@@ -157,6 +157,25 @@ public sealed class PlaceTests : IDisposable
     }
 
     [Fact]
+    public void A_folder_named_one_way_and_reached_another_is_still_the_folder_it_is()
+    {
+        // Every refusal here works by comparing two paths, so both sides have to be resolved first
+        // or the check passes on a spelling. macOS reaches temporary folders through /var, which is
+        // a link into /private/var, and the preference directory can sit behind a link anywhere.
+        var real = Directory.CreateDirectory(Path.Combine(_temporary, "Preferences")).FullName;
+        var reachedBy = Path.Combine(_temporary, "PreferencesLink");
+        Directory.CreateSymbolicLink(reachedBy, real);
+
+        // Uncloud was told where its settings are by the name with the link in it.
+        var places = new ImportPlaces(new ControlDatabase(reachedBy), new HostService(new ControlDatabase(reachedBy)), reachedBy);
+
+        // Offering the same folder under its real name must not get past the refusal.
+        var refusal = Assert.Throws<LibraryException>(() => places.Add(real, "Sneaky"));
+        Assert.Equal("forbidden", refusal.Code);
+        Assert.Contains("passwords", refusal.Message);
+    }
+
+    [Fact]
     public void A_place_that_comes_to_hold_the_host_folder_is_refused_when_it_is_used()
     {
         // Defence in depth for the pair above. Both ways in are refused, but a place is checked
