@@ -7,7 +7,7 @@ namespace Homebase.Tests;
 /// <summary>A Dropbox account that exists only in memory, so imports can be tested offline.</summary>
 public sealed class StubDropbox : IDropboxConnection
 {
-    private readonly Dictionary<string, (DropboxEntry Entry, byte[] Content)> _files = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (SourceEntry Entry, byte[] Content)> _files = new(StringComparer.OrdinalIgnoreCase);
 
     public bool IsConfigured { get; init; } = true;
     public bool IsConnected { get; set; } = true;
@@ -27,25 +27,25 @@ public sealed class StubDropbox : IDropboxConnection
     private readonly List<string> _downloaded = [];
 
     public void Add(string path, string rev, string contents) =>
-        _files[path] = (new DropboxEntry(path, Path.GetFileName(path), path.ToLowerInvariant(), path,
+        _files[path] = (new SourceEntry(path, Path.GetFileName(path), path.ToLowerInvariant(), path,
             false, Encoding.UTF8.GetByteCount(contents), rev, DateTimeOffset.UtcNow), Encoding.UTF8.GetBytes(contents));
 
     public void AddFolder(string path) =>
-        _files[path] = (new DropboxEntry(path, Path.GetFileName(path), path.ToLowerInvariant(), path,
+        _files[path] = (new SourceEntry(path, Path.GetFileName(path), path.ToLowerInvariant(), path,
             true, null, null, DateTimeOffset.UtcNow), []);
 
-    private (DropboxEntry Entry, byte[] Content) Require(string path) =>
+    private (SourceEntry Entry, byte[] Content) Require(string path) =>
         _files.TryGetValue(path, out var file) ? file : throw new LibraryException("No such file on Dropbox.", "not_found");
 
     public Task<DropboxAccount> GetAccountAsync(CancellationToken cancellationToken) =>
         Task.FromResult(new DropboxAccount("id", AccountName ?? "Stub", null));
     // Only the files: handing a folder back its own entry would walk the import in circles.
-    public Task<IReadOnlyList<DropboxEntry>> ListFolderAsync(string path, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<DropboxEntry>>(
+    public Task<IReadOnlyList<SourceEntry>> ListFolderAsync(string path, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<SourceEntry>>(
             _files.Values.Where(file => !file.Entry.IsFolder).Select(file => file.Entry).ToArray());
-    public Task<DropboxEntry> GetMetadataAsync(string path, CancellationToken cancellationToken) =>
+    public Task<SourceEntry> GetMetadataAsync(string path, CancellationToken cancellationToken) =>
         Task.FromResult(Require(path).Entry);
-    public async Task<Stream> DownloadAsync(string path, CancellationToken cancellationToken)
+    public async Task<Stream> OpenAsync(string path, CancellationToken cancellationToken)
     {
         var file = Require(path);
         if (Gated)

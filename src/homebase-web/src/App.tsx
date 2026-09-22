@@ -3,6 +3,8 @@ import {
   ArrowUpRight,
   CloudDownload,
   Files,
+  FolderTree,
+  Laptop,
   LoaderCircle,
   LogOut,
   HardDrive,
@@ -14,15 +16,17 @@ import {
 } from "lucide-react";
 import { api, formatSize, SignedOutError } from "./api";
 import type { LibraryState, Session, StorageReport, User } from "./api";
-import DropboxPanel from "./DropboxPanel";
+import ImportPanel from "./ImportPanel";
+import ImportSettings from "./ImportSettings";
 import FileBrowser from "./FileBrowser";
+import SyncPanel from "./SyncPanel";
 import HostSetup from "./HostSetup";
 import SignIn from "./SignIn";
 import UsersPanel from "./UsersPanel";
 import AccountPanel from "./AccountPanel";
 
-type View = "files" | "dropbox" | "users";
-type Dialog = "host" | "account" | null;
+type View = "files" | "import" | "sync" | "users";
+type Dialog = "host" | "imports" | "account" | null;
 
 function readPath() {
   try {
@@ -39,9 +43,10 @@ export default function App() {
   const [error, setError] = useState("");
   const [path, setPath] = useState(readPath);
   const [revision, setRevision] = useState(0);
+  const [importSettings, setImportSettings] = useState(0);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [view, setView] = useState<View>(() =>
-    window.location.search.includes("dropbox=") ? "dropbox" : "files",
+    window.location.search.includes("dropbox=") ? "import" : "files",
   );
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -205,12 +210,20 @@ export default function App() {
             My files<span className="nav-shortcut">⌂</span>
           </button>
           <button
-            className={`nav-item${view === "dropbox" ? " active" : ""}`}
-            onClick={() => setView("dropbox")}
+            className={`nav-item${view === "import" ? " active" : ""}`}
+            onClick={() => setView("import")}
             disabled={!hasFolder}
           >
             <CloudDownload size={18} />
-            Dropbox
+            Bring files in
+          </button>
+          <button
+            className={`nav-item${view === "sync" ? " active" : ""}`}
+            onClick={() => setView("sync")}
+            disabled={!hasFolder}
+          >
+            <Laptop size={18} />
+            My computers
           </button>
           {me.isAdmin && (
             <>
@@ -224,6 +237,10 @@ export default function App() {
               <button className="nav-item" onClick={() => setDialog("host")}>
                 <Settings2 size={18} />
                 Storage settings
+              </button>
+              <button className="nav-item" onClick={() => setDialog("imports")}>
+                <FolderTree size={18} />
+                Where files come from
               </button>
             </>
           )}
@@ -285,11 +302,13 @@ export default function App() {
             <span>Uncloud</span>
             <span className="slash">/</span>
             <strong>
-              {view === "dropbox"
-                ? "Dropbox"
-                : view === "users"
-                  ? "People"
-                  : "My files"}
+              {view === "import"
+                ? "Bring files in"
+                : view === "sync"
+                  ? "My computers"
+                  : view === "users"
+                    ? "People"
+                    : "My files"}
             </strong>
           </div>
           <span className="private-label">
@@ -300,8 +319,17 @@ export default function App() {
         <div className="main-content">
           {view === "users" && me.isAdmin ? (
             <UsersPanel me={me} />
-          ) : hasFolder && view === "dropbox" ? (
-            <DropboxPanel onImported={() => setRevision((value) => value + 1)} />
+          ) : hasFolder && view === "import" ? (
+            <ImportPanel
+              onImported={() => setRevision((value) => value + 1)}
+              // An administrator setting the host's key helps everybody, so that is where
+              // they land; anybody else sets their own, which needs nothing from them.
+              onConfigure={() => setDialog(me.isAdmin ? "imports" : "account")}
+              canConfigure={me.isAdmin}
+              settingsRevision={importSettings}
+            />
+          ) : hasFolder && view === "sync" ? (
+            <SyncPanel />
           ) : hasFolder ? (
             <FileBrowser
               rootPath={library!.rootPath!}
@@ -365,7 +393,9 @@ export default function App() {
             <h2 id="settings-title">
               {dialog === "account"
                 ? "Your sign-in"
-                : "Where everyone’s files live"}
+                : dialog === "imports"
+                  ? "Where files come from"
+                  : "Where everyone’s files live"}
             </h2>
           </div>
           <button
@@ -376,11 +406,21 @@ export default function App() {
             <X size={20} />
           </button>
         </div>
-        {dialog === "account" && <AccountPanel me={me} />}
+        {dialog === "account" && (
+          <AccountPanel
+            me={me}
+            onDropboxChanged={() => setImportSettings((value) => value + 1)}
+          />
+        )}
         {dialog === "host" && me.isAdmin && (
           <HostSetup
             compact
             onSaved={() => setRevision((value) => value + 1)}
+          />
+        )}
+        {dialog === "imports" && me.isAdmin && (
+          <ImportSettings
+            onChanged={() => setImportSettings((value) => value + 1)}
           />
         )}
       </dialog>

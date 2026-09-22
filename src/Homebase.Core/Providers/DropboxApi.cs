@@ -8,7 +8,7 @@ namespace Homebase.Core.Providers;
 /// Dropbox's HTTP API, read-only. Homebase asks for metadata and content and nothing else, so a
 /// mistake here cannot change what is in the connected account.
 /// </summary>
-public sealed class DropboxApi(HttpClient client, IProviderTokens tokens, string? appKey) : IDropboxConnection
+public sealed class DropboxApi(HttpClient client, IProviderTokens tokens, Func<string?> appKey) : IDropboxConnection
 {
     /// <summary>The name this provider's connections are stored under.</summary>
     public const string ProviderName = "dropbox";
@@ -30,12 +30,27 @@ public sealed class DropboxApi(HttpClient client, IProviderTokens tokens, string
     /// <summary>Waiting between attempts, replaced in tests so they don't sleep.</summary>
     public Func<TimeSpan, CancellationToken, Task> Wait { get; init; } = Task.Delay;
 
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(appKey);
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(appKey());
     public bool IsConnected => IsConfigured && tokens.Load() is not null;
     public string? AccountName => tokens.LoadAccountName();
 
-    public string AppKey => appKey ?? throw new LibraryException(
-        "Uncloud isn’t set up for Dropbox yet. Add a Dropbox app key to connect.", "provider_unconfigured");
+    /// <summary>
+    /// Read afresh every time rather than captured: an administrator can set or change the app key
+    /// while Uncloud is running, and a client holding the old one would refuse every request with
+    /// nothing on screen to explain why.
+    /// </summary>
+    public string AppKey
+    {
+        get
+        {
+            var key = appKey();
+            return string.IsNullOrWhiteSpace(key)
+                ? throw new LibraryException(
+                    "This Uncloud isn’t set up for Dropbox yet. An administrator needs to add a Dropbox app key under Bringing files in.",
+                    "provider_unconfigured")
+                : key;
+        }
+    }
 
     public async Task ConnectAsync(string code, string verifier, string redirectUri, CancellationToken cancellationToken)
     {
@@ -84,11 +99,11 @@ public sealed class DropboxApi(HttpClient client, IProviderTokens tokens, string
             root.TryGetProperty("email", out var email) ? email.GetString() : null);
     }
 
-    public async Task<IReadOnlyList<DropboxEntry>> ListFolderAsync(string path, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<SourceEntry>> ListFolderAsync(string path, CancellationToken cancellationToken)
     {
         // Dropbox represents the account root as an empty string, not "/".
         var argument = new { path = path is "" or "/" ? "" : path.TrimEnd('/') };
-        var entries = new List<DropboxEntry>();
+        var entries = new List<SourceEntry>();
         // Dropbox pages large folders. Without following the cursor, everything past the first
         // page would simply be absent from the picker with no sign that it was missing.
         var endpoint = "/2/files/list_folder";
@@ -108,13 +123,13 @@ public sealed class DropboxApi(HttpClient client, IProviderTokens tokens, string
             .ToArray();
     }
 
-    public async Task<DropboxEntry> GetMetadataAsync(string path, CancellationToken cancellationToken)
+    public async Task<SourceEntry> GetMetadataAsync(string path, CancellationToken cancellationToken)
     {
         using var document = await RpcAsync("/2/files/get_metadata", JsonSerializer.Serialize(new { path }), cancellationToken);
         return ReadEntry(document.RootElement);
     }
 
-    public async Task<Stream> DownloadAsync(string path, CancellationToken cancellationToken)
+    public async Task<Stream> OpenAsync(string path, CancellationToken cancellationToken)
     {
         for (var attempt = 1; ; attempt++)
         {
@@ -177,18 +192,18 @@ public sealed class DropboxApi(HttpClient client, IProviderTokens tokens, string
         _ => new LibraryException($"Dropbox couldn’t complete that request ({(int)status}).", "provider_failed")
     };
 
-    private static IEnumerable<DropboxEntry> ReadEntries(JsonElement root)
+    private static IEnumerable<SourceEntry> ReadEntries(JsonElement root)
     {
         if (!root.TryGetProperty("entries", out var entries)) yield break;
         foreach (var entry in entries.EnumerateArray()) yield return ReadEntry(entry);
     }
 
-    private static DropboxEntry ReadEntry(JsonElement element)
+    private static SourceEntry ReadEntry(JsonElement element)
     {
         var tag = element.TryGetProperty(".tag", out var value) ? value.GetString() : null;
         var pathDisplay = element.TryGetProperty("path_display", out var display) ? display.GetString() ?? "" : "";
         var pathLower = element.TryGetProperty("path_lower", out var lower) ? lower.GetString() ?? "" : "";
-        return new DropboxEntry(
+        return new SourceEntry(
             element.TryGetProperty("id", out var id) ? id.GetString() ?? pathLower : pathLower,
             element.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "",
             pathLower,

@@ -27,8 +27,8 @@ storage volume, but almost everything that used to be a singleton is now per-use
                                      │
           ┌──────────────────────────┼──────────────────────────┐
           ▼                          ▼                          ▼
-   LibraryService            IDropboxConnection            ImportJobs
-   (root = users/<id>)       (that user's token)           (that user's queue)
+   LibraryService        IImportSource per source        ImportJobs
+   (root = users/<id>)   (their token, or a shared place) (that user's queue)
 ```
 
 The one rule everything else rests on: **a user's root directory is derived from the
@@ -50,7 +50,7 @@ the same volume.
   users/
     2f6c…/                      one user, named by opaque id
       .homebase/index.db          that user's metadata cache
-      Files/Dropbox/…             that user's imports
+      Files/Dropbox/…             that user's imports, one folder per source
     9ab1…/                      another user; nothing above can see into it
 ```
 
@@ -113,6 +113,34 @@ state-changing request is a non-GET, must carry a same-origin `Origin`, and must
 - **Throttling.** Failed sign-ins are counted per username and per client address in memory.
   Ten failures inside fifteen minutes refuses further attempts for that window.
 
+## Places to import from
+
+Bringing files in from a folder on the host's own computer is the friendliest way in — a household
+whose Dropbox app already syncs to disk never has to touch a developer console — and it is also the
+one feature that could undo everything above if it took a path from a request.
+
+It doesn't. Uncloud runs as one operating-system user and can read whatever that user can, so a
+member naming a folder would read straight across every other account. Instead:
+
+- **Only an administrator adds a place.** `/api/host/places` sits under the administrative prefix.
+  Adding one shares it with every account on the host, which is a decision about the host.
+- **A request names a place by id, never by path.** `UserWorkspace.Source(id)` looks the id up in
+  the host's list; a path in the request is only ever *relative to* the place it resolved to, and
+  goes through `PathPolicy.Resolve` — the same rejection of `..`, absolute paths, backslashes, NULs
+  and dot-prefixed segments, and the same refusal of symbolic links at every level.
+- **A place can never touch the host root or the preference directory**, in either direction: not
+  be it, not contain it, not sit inside it. A place containing the host root would hand out every
+  account's files; one containing the preference directory would hand out the password hashes and
+  the host key that seals everybody's refresh tokens.
+- **That check runs every time a place is used**, not only when it is added. The host's folder can
+  move afterwards, and a place that was legitimate when added may now hold it. `ImportPlaces.Require`
+  re-checks and refuses.
+- **Links inside a place are left out of listings** rather than followed, because a link in
+  somebody's synced folder can point anywhere, the host root included.
+
+Removing a place stops further imports from it and touches nothing already brought home: those are
+ordinary files in an account's own folder, and the provenance record is that account's too.
+
 ## The Dropbox return trip
 
 The OAuth callback is the one endpoint that must work without a session, because it is a
@@ -122,6 +150,21 @@ the user who started it**, keyed so that a returning `state` names the account t
 The state is 512 bits of randomness, compared in fixed time, valid for ten minutes, and
 consumed exactly once. Two people connecting Dropbox at the same moment no longer overwrite
 each other's pending exchange, which the single-slot v0 design would have done.
+
+The state also carries **where the person was**. Dropbox returns the browser to the one redirect URI
+registered with the app, which need not be the address they opened Uncloud at: `127.0.0.1` and
+`localhost` are one host but two cookie jars, so landing on the other one reads as being signed out
+at the moment the connection succeeded. The callback sends them back to the origin the connect
+request came from — but only if it is one `Homebase__AllowedHosts` already permits, so a return
+address can never become a way to send somebody off this host. A state Uncloud never issued has no
+return address to offer and falls back to a relative hop.
+
+Which Dropbox *app* an account connects through is its own choice: its own key first, then the
+host's, then `Homebase__Dropbox__AppKey`. An app key is not a secret — PKCE is the flow for a
+program that cannot keep one — so there is nothing in letting a member set theirs that an
+administrator needs to gate, and reserving it would make everybody's Dropbox wait on one person.
+The consequences are scoped the same way: changing the host's key clears only the connections that
+were made through it, and changing an account's own clears only that account's.
 
 Refresh tokens are sealed with AES-256-GCM under the host key, with the user id and provider
 name as additional authenticated data. A sealed token therefore cannot be decrypted after
@@ -168,17 +211,60 @@ without a certificate.
 - **Not an OS sandbox.** One process runs as one operating-system user and can read every
   user's directory. Isolation is enforced in Uncloud, not by the kernel. Anyone with a shell
   on the host, or any other program running as that OS user, can read everything.
-- **No replication, and no remote access.** Uncloud serves one host. It does not copy your
-  files anywhere else, and it is only reachable where the host is reachable. An earlier version
-  supervised a Syncthing process to mirror folders between machines; that was removed once the
-  host became the place everything lives, because it solved neither problem well. It mirrored
-  rather than versioned, so it was never a backup — a deletion propagated like anything else —
-  and its configuration was global, with no concept of accounts, so every account would have
-  seen every other account's shared folders. Backup belongs to a tool built for it; the README
-  says which. Getting at your files from outside the network is genuinely unsolved.
+- **Not a backup.** Syncing with your own computers (below) copies
+  files to them, but it mirrors: a deletion on a laptop deletes the host's copy too, and the 30
+  days of versions the host keeps are for undoing that, not for surviving a dead drive. Backup
+  belongs to a tool built for it; the README says which.
 - **No invitations, e-mail, or password reset by mail.** An admin sets a password and hands it
   over. Self-service recovery needs a mail path Uncloud doesn't have.
 - **No audit log** of who read what.
+
+## Syncing with your own computers
+
+People keep their files on their own laptops too, and expect adding, editing or deleting one there
+to reach the host. That is Syncthing's job, not a thing to rebuild: rename detection, conflict
+copies, retries, NAT traversal and offline catch-up are all hard and all solved there.
+
+An earlier, administrator-only version did this and was taken out, for two reasons. Its
+configuration was global with no notion of accounts, so it could only be offered to administrators
+without handing every account a list of everybody's shared folders; and it mirrored without
+versioning, so a deletion on a laptop was simply gone. This version answers both.
+
+**Ownership.** There is still one Syncthing with one configuration for the whole host. Two tables
+in the control database say who owns what: `sync_devices(device_id PRIMARY KEY, user_id, …)` and
+`sync_folders(folder_id PRIMARY KEY, user_id, path, …)`, both cascading with the account.
+`SyncService` answers every call from these rows, filtered by the id from the session, and only
+then consults Syncthing for live state. So:
+
+- A computer belongs to one account. Pairing one another account has is refused, without saying
+  whose. A computer that could be claimed twice would let one person send folders to another's
+  laptop, or see the folders it offers.
+- Folders are stored as a path relative to the account's own root, resolved through `PathPolicy`
+  like any browse, and only ever sent to that account's own computers. Folder ids hash the account
+  id with the path, so two people's `Documents` are two folders.
+- Offers (folders a computer proposes) are shown only to the account that owns the computer, and
+  taking one up is the only way a laptop's folder comes into existence here. Paired devices are
+  added with `autoAcceptFolders` and `introducer` off, so a laptop can't create folders or pair
+  other computers by itself.
+- Anything naming a computer or folder another account owns gets the same `not_found` as one that
+  doesn't exist.
+
+**Keeping `.homebase` out.** An account's whole folder can be synced, which means its live SQLite
+index is inside a synced folder. Uncloud writes `.stignore` excluding `.homebase` *before* adding
+the folder to Syncthing, so no first scan ever sees it; the file is added to, never replaced.
+
+**Deletions.** Every folder is `sendreceive` with staggered versioning (30 days) on the host, so a
+file a laptop deletes or replaces is kept under the folder's hidden `.stversions`. The browser
+hides dot-entries, so versions don't clutter anybody's files; there is no restore UI yet.
+
+**Keeping Syncthing honest.** `ReconcileAsync` runs when Syncthing first answers and whenever the
+host's folder moves. It points each folder at `<host root>/users/<id>/<path>` — if the files
+aren't there, Syncthing's folder marker is missing and it stops the folder rather than propagating
+an empty directory as mass deletion — makes sure every folder is versioned and guarded, pauses the
+computers of disabled accounts, and gives folders left by the administrator-only version to the
+account whose folder they are in. Disabling an account pauses its computers immediately when
+Syncthing is up; deleting one removes them, and is refused while Syncthing can't be reached, so a
+laptop can't keep writing into a deleted account's folder.
 
 ## Migrating a v0 library
 
@@ -197,11 +283,11 @@ leftover `<host root>/.homebase/index.db` is a rebuildable cache and is left alo
 **Phase 1 — implemented.** Control database, accounts, sign-in and sessions, admin role,
 per-user roots, per-user Dropbox connections, per-user imports, per-user usage, host root
 selection and v0 adoption, LAN binding with a host allowlist and optional TLS, the admin
-Users panel, and tests that a member cannot reach another member's files by any route.
+Users panel, per-account syncing with each person's own computers, and tests that a member cannot
+reach another member's files — or computers, or synced folders — by any route.
 
 **Phase 2.** Per-user quotas. Sharing a folder between accounts on the same host. An audit
-log. Session listing and revocation from the account page. Reaching the host from outside its
-network, which nothing covers today.
+log. Session listing and revocation from the account page. Restoring a file from `.stversions` in the browser.
 
 **Phase 3.** Google Drive and iCloud connectors. The per-user connector model already
 generalises: `connectors` is keyed by `(user_id, provider)` and `IProviderTokens` is the only

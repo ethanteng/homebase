@@ -25,20 +25,29 @@ public static class PathPolicy
         return System.IO.Path.TrimEndingDirectorySeparator(current);
     }
 
-    public static string Resolve(string root, string? relativePath)
+    public static string Resolve(string root, string? relativePath) =>
+        Resolve(root, relativePath,
+            "Your Uncloud folder is unavailable. Reconnect the drive or choose another folder.",
+            "Use a path inside your Uncloud folder.",
+            "Hidden folders and paths outside Uncloud aren’t accessible.");
+
+    /// <summary>
+    /// The same containment rules, worded for somewhere that isn’t the library: a folder files are
+    /// being brought in from is not the reader’s Uncloud folder, and saying so confuses people.
+    /// Only the wording differs — what is refused does not.
+    /// </summary>
+    public static string Resolve(string root, string? relativePath, string unavailable, string outside, string hidden)
     {
-        if (!Directory.Exists(root))
-            throw new LibraryException("Your Uncloud folder is unavailable. Reconnect the drive or choose another folder.", "unavailable");
+        if (!Directory.Exists(root)) throw new LibraryException(unavailable, "unavailable");
         RejectLink(root);
         relativePath ??= "";
         if (System.IO.Path.IsPathRooted(relativePath) || relativePath.Contains('\\') || relativePath.Contains('\0'))
-            throw new LibraryException("Use a path inside your Uncloud folder.");
+            throw new LibraryException(outside);
 
         var current = root;
         foreach (var part in relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (part is "." or ".." || part.StartsWith('.'))
-                throw new LibraryException("Hidden folders and paths outside Uncloud aren’t accessible.");
+            if (part is "." or ".." || part.StartsWith('.')) throw new LibraryException(hidden);
             current = System.IO.Path.Combine(current, part);
             RejectLink(current);
         }
