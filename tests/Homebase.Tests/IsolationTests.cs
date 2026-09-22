@@ -126,7 +126,7 @@ public sealed class IsolationTests : IDisposable
         string[] endpoints =
         [
             "/api/library", "/api/files", "/api/files/download?path=x", "/api/storage",
-            "/api/imports", "/api/imports/job", "/api/providers/dropbox", "/api/providers/dropbox/files",
+            "/api/imports", "/api/imports/job", "/api/providers/dropbox", "/api/imports/sources",
             "/api/host", "/api/users"
         ];
         foreach (var endpoint in endpoints)

@@ -4,15 +4,16 @@ using Microsoft.Extensions.Logging;
 namespace Homebase.Core.Providers;
 
 /// <summary>
-/// Copies files and folders out of a provider and into the library, once. After an import the
-/// library's copy is the one that counts — Homebase does not go back to the provider for it,
-/// so nothing here ever overwrites a file that is already on disk.
+/// Copies files and folders out of somewhere and into the library, once. After an import the
+/// library's copy is the one that counts — Homebase does not go back for it, so nothing here ever
+/// overwrites a file that is already on disk.
+///
+/// Where the files come from is the caller's choice and nothing here depends on it: an online
+/// account and a folder on this computer are both an <see cref="IImportSource"/>, and get the same
+/// walk, the same room check, the same never-overwrite rule and the same log.
 /// </summary>
-public sealed class ImportService(LibraryService library, ImportLog log, IDropboxApi dropbox, ILogger<ImportService> logger)
+public sealed class ImportService(LibraryService library, ImportLog log, ILogger<ImportService> logger)
 {
-    public const string Provider = DropboxApi.ProviderName;
-    public const string DestinationPrefix = "Files/Dropbox";
-
     /// <summary>
     /// A folder import walks the remote tree; the cap guards against a pathological account
     /// rather than expressing a considered limit. Reaching it is always reported, never silent.
@@ -39,38 +40,38 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
     public void RequireLibrary() => RequireRoot();
 
     /// <summary>Imports one file, or every ordinary file beneath one folder.</summary>
-    public Task<ImportResult> ImportAsync(string remotePath, CancellationToken cancellationToken) =>
-        ImportAsync(remotePath, null, cancellationToken);
+    public Task<ImportResult> ImportAsync(IImportSource source, string remotePath, CancellationToken cancellationToken) =>
+        ImportAsync(source, remotePath, null, cancellationToken);
 
     /// <summary>
     /// As above, reporting its way through so something running in the background can be watched.
     /// </summary>
     public async Task<ImportResult> ImportAsync(
-        string remotePath, IProgress<ImportProgress>? progress, CancellationToken cancellationToken)
+        IImportSource source, string remotePath, IProgress<ImportProgress>? progress, CancellationToken cancellationToken)
     {
         if (!await _gate.WaitAsync(0, cancellationToken))
             throw new LibraryException("Uncloud is already importing. Let that finish first.", "busy");
         try
         {
             var root = RequireRoot();
-            var entry = await dropbox.GetMetadataAsync(remotePath, cancellationToken);
+            var entry = await source.GetMetadataAsync(remotePath, cancellationToken);
             var imported = new List<ImportedItem>();
             var skipped = new List<SkippedItem>();
             long bytes = 0;
 
-            var collected = await CollectAsync(entry, skipped, cancellationToken);
-            RequireRoomFor(root, collected);
+            var collected = await CollectAsync(source, entry, skipped, cancellationToken);
+            RequireRoomFor(source, root, collected);
             var done = 0;
             progress?.Report(new ImportProgress(collected.Count, done, bytes, null));
 
             foreach (var file in collected)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                progress?.Report(new ImportProgress(collected.Count, done, bytes, file.PathDisplay));
+                progress?.Report(new ImportProgress(collected.Count, done, bytes, file.DisplayPath));
                 try
                 {
-                    var item = await ImportOneAsync(root, file, cancellationToken);
-                    if (item is null) skipped.Add(new SkippedItem(file.PathDisplay, "Already imported.", Expected: true));
+                    var item = await ImportOneAsync(source, root, file, cancellationToken);
+                    if (item is null) skipped.Add(new SkippedItem(file.DisplayPath, "Already imported.", Expected: true));
                     else
                     {
                         imported.Add(item);
@@ -80,8 +81,9 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
                 catch (Exception failure) when (Recoverable(failure, cancellationToken))
                 {
                     // One unreachable or refused file must not abandon the rest of the folder.
-                    logger.LogWarning(failure, "Dropbox file {RemotePath} was not brought home", file.PathDisplay);
-                    skipped.Add(new SkippedItem(file.PathDisplay, Reason(failure)));
+                    logger.LogWarning(failure, "{Provider} file {RemotePath} was not brought home",
+                        source.ProviderId, file.DisplayPath);
+                    skipped.Add(new SkippedItem(file.DisplayPath, Reason(failure)));
                 }
                 done++;
             }
@@ -95,12 +97,12 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
     /// What this file or folder would bring home, measured without downloading anything. The walk
     /// is the same one an import does, so the answer is the one the import will act on.
     /// </summary>
-    public async Task<ImportEstimate> MeasureAsync(string remotePath, CancellationToken cancellationToken)
+    public async Task<ImportEstimate> MeasureAsync(IImportSource source, string remotePath, CancellationToken cancellationToken)
     {
         var root = RequireRoot();
-        var entry = await dropbox.GetMetadataAsync(remotePath, cancellationToken);
-        var files = await CollectAsync(entry, [], cancellationToken);
-        var arriving = Arriving(root, files);
+        var entry = await source.GetMetadataAsync(remotePath, cancellationToken);
+        var files = await CollectAsync(source, entry, [], cancellationToken);
+        var arriving = Arriving(source, root, files);
         var newBytes = arriving.Sum(file => file.Size ?? 0);
         var free = Space(root)?.FreeBytes;
         return new ImportEstimate(
@@ -112,18 +114,18 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
     /// taken by something Uncloud didn't write, is passed over without downloading, so counting it
     /// would hold a folder back over room it was never going to need.
     /// </summary>
-    private IReadOnlyList<DropboxEntry> Arriving(string root, IReadOnlyList<DropboxEntry> files)
+    private IReadOnlyList<SourceEntry> Arriving(IImportSource source, string root, IReadOnlyList<SourceEntry> files)
     {
-        var home = log.List(root).Where(file => file.Provider == Provider)
+        var home = log.List(root).Where(file => file.Provider == source.ProviderId)
             .Select(file => file.RemotePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return files.Where(file => !home.Contains(file.PathLower) && !Occupied(root, file)).ToArray();
+        return files.Where(file => !home.Contains(file.Path) && !Occupied(source, root, file)).ToArray();
     }
 
-    private static bool Occupied(string root, DropboxEntry file)
+    private static bool Occupied(IImportSource source, string root, SourceEntry file)
     {
         try
         {
-            var destination = PathPolicy.Resolve(root, DestinationFor(file));
+            var destination = PathPolicy.Resolve(root, DestinationFor(source, file));
             if (File.Exists(destination) || Directory.Exists(destination)) return true;
             // A file standing where one of the folders above it belongs blocks the download just
             // as surely: the import fails making that folder rather than fetching anything.
@@ -156,9 +158,9 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
     /// Refuses before a single byte is downloaded when the files can't fit. Running a drive out of
     /// space halfway through a folder is a far worse outcome than not starting it.
     /// </summary>
-    private void RequireRoomFor(string root, IReadOnlyList<DropboxEntry> files)
+    private void RequireRoomFor(IImportSource source, string root, IReadOnlyList<SourceEntry> files)
     {
-        var needed = Arriving(root, files).Sum(file => file.Size ?? 0);
+        var needed = Arriving(source, root, files).Sum(file => file.Size ?? 0);
         var free = Space(root)?.FreeBytes;
         if (Fits(needed, free)) return;
         throw new LibraryException(
@@ -167,22 +169,22 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
     }
 
     /// <summary>Flattens a file or folder into the ordinary files worth importing.</summary>
-    private async Task<IReadOnlyList<DropboxEntry>> CollectAsync(
-        DropboxEntry entry, List<SkippedItem> skipped, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<SourceEntry>> CollectAsync(
+        IImportSource source, SourceEntry entry, List<SkippedItem> skipped, CancellationToken cancellationToken)
     {
         if (!entry.IsFolder) return [entry];
 
-        var files = new List<DropboxEntry>();
+        var files = new List<SourceEntry>();
         var folders = new Queue<string>();
-        folders.Enqueue(entry.PathLower);
+        folders.Enqueue(entry.Path);
         while (folders.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var folder = folders.Dequeue();
-            IReadOnlyList<DropboxEntry> children;
+            IReadOnlyList<SourceEntry> children;
             try
             {
-                children = await dropbox.ListFolderAsync(folder, cancellationToken);
+                children = await source.ListFolderAsync(folder, cancellationToken);
             }
             catch (Exception failure) when (Recoverable(failure, cancellationToken))
             {
@@ -190,7 +192,8 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
                 // which collection would otherwise discard before a single download began. Losing a
                 // whole subtree is worth a line in the log: the import itself reads as a success.
                 logger.LogWarning(failure,
-                    "Dropbox folder {RemotePath} couldn’t be listed, so it and everything under it was left behind", folder);
+                    "{Provider} folder {RemotePath} couldn’t be listed, so it and everything under it was left behind",
+                    source.ProviderId, folder);
                 skipped.Add(new SkippedItem(folder, Reason(failure)));
                 continue;
             }
@@ -198,20 +201,20 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
             {
                 if (child.Name.StartsWith('.'))
                 {
-                    skipped.Add(new SkippedItem(child.PathDisplay, "Hidden files aren’t imported yet."));
+                    skipped.Add(new SkippedItem(child.DisplayPath, "Hidden files aren’t imported yet."));
                     continue;
                 }
                 if (child.IsFolder)
                 {
-                    folders.Enqueue(child.PathLower);
+                    folders.Enqueue(child.Path);
                     continue;
                 }
                 if (files.Count >= MaxEntries)
                 {
                     // Stopping quietly here would read as a complete import. Say what was left.
-                    logger.LogWarning("Dropbox folder {RemotePath} holds more than {MaxEntries} files, so the rest wasn’t visited",
-                        entry.PathDisplay, MaxEntries);
-                    skipped.Add(new SkippedItem(child.PathDisplay,
+                    logger.LogWarning("{Provider} folder {RemotePath} holds more than {MaxEntries} files, so the rest wasn’t visited",
+                        source.ProviderId, entry.DisplayPath, MaxEntries);
+                    skipped.Add(new SkippedItem(child.DisplayPath,
                         $"Uncloud brings at most {MaxEntries:N0} files at a time, so the rest of this folder wasn’t visited."));
                     return files;
                 }
@@ -232,16 +235,18 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
 
     /// <summary>
     /// What to tell someone reading the skipped list. A timeout's own message says only that a task
-    /// was cancelled, which explains nothing about their file.
+    /// was cancelled, which explains nothing about their file. Worded without naming where the file
+    /// came from, because by here it could be any of them.
     /// </summary>
     private static string Reason(Exception failure) =>
-        failure is OperationCanceledException ? "Dropbox took too long to answer." : failure.Message;
+        failure is OperationCanceledException ? "Getting this file took too long." : failure.Message;
 
-    private async Task<ImportedItem?> ImportOneAsync(string root, DropboxEntry entry, CancellationToken cancellationToken)
+    private async Task<ImportedItem?> ImportOneAsync(
+        IImportSource source, string root, SourceEntry entry, CancellationToken cancellationToken)
     {
-        if (log.Contains(root, Provider, entry.PathLower)) return null;
+        if (log.Contains(root, source.ProviderId, entry.Path)) return null;
 
-        var localPath = DestinationFor(entry);
+        var localPath = DestinationFor(source, entry);
         var fullPath = PathPolicy.Resolve(root, localPath);
         if (File.Exists(fullPath) || Directory.Exists(fullPath))
             throw new LibraryException(
@@ -258,7 +263,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
 
             // Written beside the destination and moved into place, so an interrupted transfer
             // cannot leave a half-written file where a whole one belongs.
-            await using (var remote = await dropbox.DownloadAsync(entry.PathLower, cancellationToken))
+            await using (var remote = await source.OpenAsync(entry.Path, cancellationToken))
             await using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                              1 << 16, FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
@@ -281,8 +286,8 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
 
             var written = new FileInfo(fullPath);
             log.Record(root, new ImportedFile(
-                Provider, entry.PathLower, entry.Rev ?? "", localPath, written.Length, hash, DateTimeOffset.UtcNow));
-            return new ImportedItem(localPath, entry.PathDisplay, written.Length);
+                source.ProviderId, entry.Path, entry.Rev ?? "", localPath, written.Length, hash, DateTimeOffset.UtcNow));
+            return new ImportedItem(localPath, entry.DisplayPath, written.Length);
         }
         finally
         {
@@ -297,15 +302,15 @@ public sealed class ImportService(LibraryService library, ImportLog log, IDropbo
         return Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken));
     }
 
-    private static string DestinationFor(DropboxEntry entry)
+    private static string DestinationFor(IImportSource source, SourceEntry entry)
     {
-        var relative = entry.PathDisplay.TrimStart('/');
+        var relative = entry.DisplayPath.TrimStart('/');
         if (relative.Length == 0) relative = entry.Name;
         foreach (var part in relative.Split('/', StringSplitOptions.RemoveEmptyEntries))
             if (part.StartsWith('.'))
                 throw new LibraryException(
                     $"Uncloud doesn’t import hidden files or folders yet, and “{part}” is hidden.", "unsupported");
-        return $"{DestinationPrefix}/{relative}";
+        return $"{source.DestinationPrefix}/{relative}";
     }
 
     /// <summary>

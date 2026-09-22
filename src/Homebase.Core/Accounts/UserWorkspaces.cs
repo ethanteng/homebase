@@ -14,6 +14,7 @@ public sealed class UserWorkspaces(
     MetadataIndex index,
     ImportLog log,
     IDropboxApiFactory dropbox,
+    ImportPlaces places,
     ILoggerFactory loggers)
 {
     private readonly Dictionary<string, UserWorkspace> _workspaces = new(StringComparer.Ordinal);
@@ -42,7 +43,7 @@ public sealed class UserWorkspaces(
             }
             if (_workspaces.TryGetValue(userId, out var existing)) return existing;
             var workspace = new UserWorkspace(
-                userId, UserPaths.RootFor(root, userId), index, log, dropbox.For(userId), loggers);
+                userId, UserPaths.RootFor(root, userId), index, log, dropbox.For(userId), places, loggers);
             _workspaces[userId] = workspace;
             return workspace;
         }

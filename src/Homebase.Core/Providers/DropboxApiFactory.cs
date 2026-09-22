@@ -8,7 +8,7 @@ namespace Homebase.Core.Providers;
 /// Two accounts never reach the same instance, so one person's connection can't answer for
 /// another's even momentarily.
 /// </summary>
-public sealed class DropboxApiFactory(HttpClient client, ConnectorStore connectors, string? appKey) : IDropboxApiFactory
+public sealed class DropboxApiFactory(HttpClient client, ConnectorStore connectors, Func<string?> appKey) : IDropboxApiFactory
 {
     private readonly ConcurrentDictionary<string, DropboxApi> _clients = new(StringComparer.Ordinal);
 
@@ -16,4 +16,10 @@ public sealed class DropboxApiFactory(HttpClient client, ConnectorStore connecto
         new DropboxApi(client, new ConnectorTokens(connectors, id, DropboxApi.ProviderName), appKey));
 
     public void Forget(string userId) => _clients.TryRemove(userId, out _);
+
+    /// <summary>
+    /// Drops every cached client, after the host's app key changes. Each holds a short-lived access
+    /// token issued to the old app, which would go on working for minutes after the change.
+    /// </summary>
+    public void ForgetAll() => _clients.Clear();
 }

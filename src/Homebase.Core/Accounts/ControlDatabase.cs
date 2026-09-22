@@ -4,7 +4,8 @@ namespace Homebase.Core.Accounts;
 
 /// <summary>
 /// The host's own database: who has an account, which sessions are live, which provider
-/// connections belong to whom, and where the host keeps everyone's files. It lives beside the
+/// connections belong to whom, where the host keeps everyone's files, and which folders on this
+/// computer files may be brought in from. It lives beside the
 /// host's preferences rather than under the storage root, so it is outside the reach of the
 /// per-user boundary it helps define, and nothing in it travels with anybody's files.
 /// </summary>
@@ -46,7 +47,10 @@ public sealed class ControlDatabase(string directory)
                     connected_at TEXT NOT NULL,
                     PRIMARY KEY (user_id, provider)
                 );
-                PRAGMA user_version = 1;
+                CREATE TABLE IF NOT EXISTS import_places (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, added_at TEXT NOT NULL
+                );
+                PRAGMA user_version = 2;
                 """;
             command.ExecuteNonQuery();
             // Password hashes and sealed tokens live here; nobody else on the host needs to read it.

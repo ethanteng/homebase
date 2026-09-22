@@ -17,7 +17,7 @@ public sealed class DropboxApiTests : IDisposable
         var tokens = new HeldTokens("refresh-token");
         var handler = new ScriptedDropbox();
         using var client = new HttpClient(handler);
-        var api = new DropboxApi(client, tokens, "app-key");
+        var api = new DropboxApi(client, tokens, () => "app-key");
 
         var entries = await api.ListFolderAsync("", CancellationToken.None);
 
@@ -32,7 +32,7 @@ public sealed class DropboxApiTests : IDisposable
     {
         var tokens = new HeldTokens("refresh-token");
         using var client = new HttpClient(new ScriptedDropbox { Unauthorized = true });
-        var api = new DropboxApi(client, tokens, "app-key");
+        var api = new DropboxApi(client, tokens, () => "app-key");
 
         var error = await Assert.ThrowsAsync<Homebase.Core.LibraryException>(
             () => api.GetMetadataAsync("/notes/hello.txt", CancellationToken.None));
@@ -49,7 +49,7 @@ public sealed class DropboxApiTests : IDisposable
         var handler = new ScriptedDropbox { RateLimitFirstListing = true };
         using var client = new HttpClient(handler);
         var waited = new List<TimeSpan>();
-        var api = new DropboxApi(client, tokens, "app-key")
+        var api = new DropboxApi(client, tokens, () => "app-key")
         {
             Wait = (delay, _) => { waited.Add(delay); return Task.CompletedTask; }
         };
@@ -67,7 +67,7 @@ public sealed class DropboxApiTests : IDisposable
         var tokens = new HeldTokens("refresh-token");
         var handler = new ScriptedDropbox { Unauthorized = true };
         using var client = new HttpClient(handler);
-        var api = new DropboxApi(client, tokens, "app-key")
+        var api = new DropboxApi(client, tokens, () => "app-key")
         {
             Wait = (_, _) => throw new InvalidOperationException("An expired connection must not be waited out.")
         };

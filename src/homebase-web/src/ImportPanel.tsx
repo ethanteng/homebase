@@ -6,19 +6,20 @@ import {
   CircleStop,
   File,
   Folder,
+  FolderTree,
   HardDrive,
   LoaderCircle,
   Ruler,
   TriangleAlert,
 } from "lucide-react";
-import { api, formatSize } from "./api";
+import { api, DROPBOX, formatSize } from "./api";
 import type {
-  DropboxEntry,
-  DropboxStatus,
   ImportEstimate,
   ImportJob,
   ImportResult,
+  ImportSources,
   ImportedFile,
+  SourceEntry,
   StorageReport,
 } from "./api";
 
@@ -43,22 +44,42 @@ function describeFolder(estimate: ImportEstimate | undefined): string {
 
 interface Props {
   onImported: () => void;
+  onConfigure: () => void;
+  canConfigure: boolean;
+  /** Bumped when an administrator changes the places or the Dropbox app key. */
+  settingsRevision: number;
 }
 
-export default function DropboxPanel({ onImported }: Props) {
-  const [status, setStatus] = useState<DropboxStatus | null>(null);
+/**
+ * Bringing files in, from wherever they are. A folder on this computer and a Dropbox account are
+ * the same thing here: a list to walk and files to copy onto storage you own. The only part that
+ * differs is that Dropbox has to be signed in to first.
+ */
+export default function ImportPanel({
+  onImported,
+  onConfigure,
+  canConfigure,
+  settingsRevision,
+}: Props) {
+  const [sources, setSources] = useState<ImportSources | null>(null);
+  const [sourceId, setSourceId] = useState<string | null>(null);
   const [storage, setStorage] = useState<StorageReport | null>(null);
   const [sizes, setSizes] = useState<Record<string, ImportEstimate>>({});
   const [imported, setImported] = useState<ImportedFile[]>([]);
-  const [entries, setEntries] = useState<DropboxEntry[] | null>(null);
+  const [entries, setEntries] = useState<SourceEntry[] | null>(null);
   const [remotePath, setRemotePath] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [loadFailure, setLoadFailure] = useState("");
   const [notice, setNotice] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [job, setJob] = useState<ImportJob | null>(null);
   // An import is finished with once its outcome has been shown, however often it is polled after.
   const settled = useRef<string | null>(null);
+
+  const place = sources?.places.find((candidate) => candidate.id === sourceId) ?? null;
+  const onDropbox = sourceId === DROPBOX;
+  const dropbox = sources?.dropbox ?? null;
 
   const loadImported = useCallback(async () => {
     try {
@@ -76,6 +97,19 @@ export default function DropboxPanel({ onImported }: Props) {
     }
   }, []);
 
+  const loadSources = useCallback(async () => {
+    try {
+      const latest = await api<ImportSources>("/imports/sources");
+      setSources(latest);
+      return latest;
+    } catch (problem: unknown) {
+      setLoadFailure(
+        problem instanceof Error ? problem.message : "Couldn’t reach Uncloud.",
+      );
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     const outcome = new URLSearchParams(window.location.search).get("dropbox");
     if (outcome) {
@@ -88,17 +122,36 @@ export default function DropboxPanel({ onImported }: Props) {
       );
       window.history.replaceState(null, "", window.location.pathname);
     }
-    api<DropboxStatus>("/providers/dropbox")
-      .then(setStatus)
-      .catch((problem: unknown) =>
-        setError(
-          problem instanceof Error ? problem.message : "Couldn’t reach Uncloud.",
-        ),
-      );
-  }, []);
+    void loadSources().then((latest) => {
+      if (!latest) return;
+      // Coming back from a Dropbox sign-in means Dropbox is what they were doing. Otherwise the
+      // first folder on this computer is the friendlier place to start: nothing to sign in to.
+      if (outcome || latest.places.length === 0) setSourceId(DROPBOX);
+      else setSourceId(latest.places[0].id);
+    });
+  }, [loadSources]);
+
+  // A place added or removed in the settings dialog has to show up here without a reload, or
+  // adding one and finding nothing changed reads as it not having worked.
+  useEffect(() => {
+    if (settingsRevision === 0) return;
+    void loadSources().then((latest) => {
+      if (!latest) return;
+      setSourceId((current) => {
+        // Somewhere that has just been taken away is no longer somewhere to be looking at.
+        if (current !== DROPBOX && !latest.places.some((place) => place.id === current))
+          return latest.places[0]?.id ?? DROPBOX;
+        // Sitting on Dropbox with no way to connect it, when a folder has just been shared, is
+        // looking at the one thing here that can't be used. Only moved from a choice nobody made.
+        if (current === DROPBOX && !latest.dropbox.configured && latest.places.length > 0)
+          return latest.places[0].id;
+        return current;
+      });
+    });
+  }, [settingsRevision, loadSources]);
 
   useEffect(() => {
-    if (!status?.connected) return;
+    if (!sources) return;
     void loadImported();
     void loadStorage();
     // An import outlives the page that started it, so a reload finds it rather than losing it —
@@ -106,12 +159,24 @@ export default function DropboxPanel({ onImported }: Props) {
     // what an import ended up doing has to survive coming back to look.
     api<{ job: ImportJob | null }>("/imports/job")
       .then(({ job: existing }) => {
-        if (existing) setJob(existing);
+        if (!existing) return;
+        setJob(existing);
+        // Show the place it is coming from, not whichever one happened to be selected.
+        setSourceId(existing.sourceId);
       })
       .catch(() => {
         // Nothing to pick up is the ordinary case, not a problem to report.
       });
-  }, [status?.connected, loadImported, loadStorage]);
+  }, [sources, loadImported, loadStorage]);
+
+  // Switching places starts again: a listing and a set of measurements belong to one place only.
+  useEffect(() => {
+    setEntries(null);
+    setRemotePath("");
+    setSizes({});
+    setResult(null);
+    setError("");
+  }, [sourceId]);
 
   useEffect(() => {
     if (!job?.running) return;
@@ -187,28 +252,32 @@ export default function DropboxPanel({ onImported }: Props) {
   const browse = (path: string) =>
     run("browse", async () => {
       setEntries(
-        await api<DropboxEntry[]>(
-          `/providers/dropbox/files?${new URLSearchParams({ path })}`,
+        await api<SourceEntry[]>(
+          `/imports/sources/${encodeURIComponent(sourceId ?? DROPBOX)}/files?${new URLSearchParams({ path })}`,
         ),
       );
       setRemotePath(path);
     });
 
-  const measure = (entry: DropboxEntry) =>
-    run(`measure:${entry.pathLower}`, async () => {
+  const measure = (entry: SourceEntry) =>
+    run(`measure:${entry.path}`, async () => {
       const estimate = await api<ImportEstimate>(
-        `/imports/estimate?${new URLSearchParams({ remotePath: entry.pathLower })}`,
+        `/imports/estimate?${new URLSearchParams({ remotePath: entry.path, source: sourceId ?? DROPBOX })}`,
       );
-      setSizes((current) => ({ ...current, [entry.pathLower]: estimate }));
+      setSizes((current) => ({ ...current, [entry.path]: estimate }));
     });
 
-  const bringHome = (entry: DropboxEntry) =>
-    run(entry.pathLower, async () => {
+  const bringHome = (entry: SourceEntry) =>
+    run(entry.path, async () => {
       setNotice("");
       setResult(null);
       const { job: started } = await api<{ job: ImportJob }>("/imports", {
         method: "POST",
-        body: JSON.stringify({ remotePath: entry.pathLower, label: entry.name }),
+        body: JSON.stringify({
+          remotePath: entry.path,
+          label: entry.name,
+          source: sourceId ?? DROPBOX,
+        }),
       });
       setJob(started);
     });
@@ -221,21 +290,35 @@ export default function DropboxPanel({ onImported }: Props) {
   // Only the skips a person can act on; "already imported" is the ordinary case.
   const problems = (result?.skipped ?? []).filter((skip) => !skip.expected);
 
-  if (error && !status)
+  if (loadFailure)
     return (
       <div className="empty-state connection-error" role="alert">
         <TriangleAlert size={32} />
-        <h1>Couldn’t load Dropbox</h1>
-        <p>{error}</p>
+        <h1>Couldn’t see what’s available</h1>
+        <p>{loadFailure}</p>
       </div>
     );
-  if (!status)
+  if (!sources || sourceId === null)
     return (
       <div className="file-loading" role="status">
         <LoaderCircle className="spin" size={24} />
-        Checking Dropbox…
+        Looking for places to bring files in from…
       </div>
     );
+
+  const sourceName = onDropbox ? "Dropbox" : (place?.name ?? "this place");
+  // Dropbox needs signing in to; a folder on this computer needs to actually be there.
+  const blocked = onDropbox
+    ? !dropbox?.configured
+      ? "unconfigured"
+      : !dropbox.connected
+        ? "disconnected"
+        : null
+    : !place
+      ? "gone"
+      : !place.available
+        ? "unavailable"
+        : null;
 
   return (
     <>
@@ -243,15 +326,60 @@ export default function DropboxPanel({ onImported }: Props) {
         <div>
           <span className="eyebrow">BRING YOUR FILES HOME</span>
           <h1>
-            Dropbox<span className="heading-dot">.</span>
+            Bringing files in<span className="heading-dot">.</span>
           </h1>
           <p>
             Copy files and folders onto storage you own. Once a file is here,
-            this copy is the one that counts — Uncloud won’t go back to Dropbox
-            for it.
+            this copy is the one that counts — Uncloud won’t go back for it.
           </p>
         </div>
       </div>
+
+      <section className="import-section">
+        <div className="import-section-head">
+          <h2>Where from</h2>
+          {canConfigure && (
+            <button className="refresh-button" onClick={onConfigure}>
+              Manage places
+            </button>
+          )}
+        </div>
+        <div className="source-picker" role="tablist" aria-label="Where to bring files in from">
+          {sources.places.map((candidate) => (
+            <button
+              key={candidate.id}
+              role="tab"
+              aria-selected={sourceId === candidate.id}
+              className={`source-chip${sourceId === candidate.id ? " active" : ""}${candidate.available ? "" : " unavailable"}`}
+              onClick={() => setSourceId(candidate.id)}
+              title={candidate.path}
+            >
+              <FolderTree size={17} strokeWidth={1.6} />
+              <span>{candidate.name}</span>
+              {!candidate.available && <em>not connected</em>}
+            </button>
+          ))}
+          <button
+            role="tab"
+            aria-selected={onDropbox}
+            className={`source-chip${onDropbox ? " active" : ""}`}
+            onClick={() => setSourceId(DROPBOX)}
+          >
+            <CloudDownload size={17} strokeWidth={1.6} />
+            <span>Dropbox</span>
+            {/* A folder on this computer is very often called "Dropbox" too, so the online one
+                has to say which it is rather than leave two identical chips side by side. */}
+            <em>{(dropbox?.connected && dropbox.accountName) || "online"}</em>
+          </button>
+        </div>
+        {sources.places.length === 0 && (
+          <p className="field-help">
+            {canConfigure
+              ? "Uncloud can also bring files in straight from a folder on this computer — the one your Dropbox or Google Drive app already syncs, or an old backup drive. Add one under Manage places and nothing needs signing in to."
+              : "Whoever looks after this Uncloud can also share folders from this computer to bring files in from, with nothing to sign in to."}
+          </p>
+        )}
+      </section>
 
       {notice && (
         <p className="library-note" role="status">
@@ -264,18 +392,22 @@ export default function DropboxPanel({ onImported }: Props) {
         </p>
       )}
 
-      {!status.configured ? (
+      {blocked === "unconfigured" ? (
         <div className="notice-card">
-          <h2>Uncloud needs a Dropbox app key</h2>
+          <h2>Dropbox isn’t set up on this Uncloud yet</h2>
           <p className="field-help">
-            Create an app at dropbox.com/developers/apps with the{" "}
-            <code>account_info.read</code>, <code>files.metadata.read</code> and{" "}
-            <code>files.content.read</code> permissions, then start Uncloud
-            with <code>Homebase__Dropbox__AppKey</code> set to its app key.
-            Uncloud only ever reads from Dropbox.
+            {canConfigure
+              ? "Connecting to Dropbox needs a Dropbox app key for this Uncloud. It takes a couple of minutes and Uncloud walks you through it."
+              : "Ask whoever looks after this Uncloud to add a Dropbox app key. Until then, bring files in from a folder on this computer instead."}
           </p>
+          {canConfigure && (
+            <button className="button primary" onClick={onConfigure}>
+              Set up Dropbox
+              <ArrowUpRight size={15} />
+            </button>
+          )}
         </div>
-      ) : !status.connected ? (
+      ) : blocked === "disconnected" ? (
         <div className="notice-card">
           <h2>Connect your Dropbox</h2>
           <p className="field-help">
@@ -290,6 +422,19 @@ export default function DropboxPanel({ onImported }: Props) {
             {busy === "connect" ? "Opening Dropbox…" : "Connect Dropbox"}
             <ArrowUpRight size={15} />
           </button>
+        </div>
+      ) : blocked === "unavailable" ? (
+        <div className="notice-card">
+          <h2>{place!.name} isn’t here right now</h2>
+          <p className="field-help">
+            Uncloud can’t find <code>{place!.path}</code>. If it’s on a drive,
+            plug it back in and reload this page.
+          </p>
+        </div>
+      ) : blocked === "gone" ? (
+        <div className="notice-card">
+          <h2>That place has been removed</h2>
+          <p className="field-help">Choose another one above.</p>
         </div>
       ) : (
         <>
@@ -352,7 +497,7 @@ export default function DropboxPanel({ onImported }: Props) {
               </div>
               <span className="muted">
                 {job.totalFiles === 0
-                  ? "Counting the files, before anything is downloaded."
+                  ? "Counting the files, before anything is copied."
                   : `${job.completedFiles} of ${job.totalFiles} file${job.totalFiles === 1 ? "" : "s"} · ${formatSize(job.bytes)} brought home`}
               </span>
               {job.currentFile && (
@@ -382,8 +527,10 @@ export default function DropboxPanel({ onImported }: Props) {
           <section className="import-section">
             <div className="import-section-head">
               <h2>
-                On Dropbox
-                {status.accountName ? ` · ${status.accountName}` : ""}
+                In {sourceName}
+                {onDropbox && dropbox?.accountName
+                  ? ` · ${dropbox.accountName}`
+                  : ""}
                 {remotePath ? ` · ${remotePath}` : ""}
               </h2>
               {remotePath && (
@@ -405,10 +552,10 @@ export default function DropboxPanel({ onImported }: Props) {
                 onClick={() => void browse("")}
                 disabled={busy === "browse"}
               >
-                {busy === "browse" ? "Loading…" : "Show my Dropbox files"}
+                {busy === "browse" ? "Loading…" : `Show what’s in ${sourceName}`}
               </button>
             ) : entries.length === 0 ? (
-              <p className="field-help">This Dropbox folder is empty.</p>
+              <p className="field-help">This folder is empty.</p>
             ) : (
               <ul className="import-list">
                 {entries.map((entry) => (
@@ -421,21 +568,21 @@ export default function DropboxPanel({ onImported }: Props) {
                     <div>
                       <strong>{entry.name}</strong>
                       <span
-                        className={`muted${sizes[entry.pathLower] && !sizes[entry.pathLower].fits ? " will-not-fit" : ""}`}
+                        className={`muted${sizes[entry.path] && !sizes[entry.path].fits ? " will-not-fit" : ""}`}
                       >
                         {entry.isFolder
-                          ? describeFolder(sizes[entry.pathLower])
+                          ? describeFolder(sizes[entry.path])
                           : formatSize(entry.size)}
                       </span>
                     </div>
-                    {entry.isFolder && !sizes[entry.pathLower] && (
+                    {entry.isFolder && !sizes[entry.path] && (
                       <button
                         className="button"
                         onClick={() => void measure(entry)}
-                        disabled={busy === `measure:${entry.pathLower}`}
+                        disabled={busy === `measure:${entry.path}`}
                       >
                         <Ruler size={15} />
-                        {busy === `measure:${entry.pathLower}`
+                        {busy === `measure:${entry.path}`
                           ? "Measuring…"
                           : "Check size"}
                       </button>
@@ -443,7 +590,7 @@ export default function DropboxPanel({ onImported }: Props) {
                     {entry.isFolder && (
                       <button
                         className="button"
-                        onClick={() => void browse(entry.pathLower)}
+                        onClick={() => void browse(entry.path)}
                         disabled={busy === "browse"}
                       >
                         Open
@@ -453,10 +600,10 @@ export default function DropboxPanel({ onImported }: Props) {
                     <button
                       className="button primary"
                       onClick={() => void bringHome(entry)}
-                      disabled={job?.running || busy === entry.pathLower}
+                      disabled={job?.running || busy === entry.path}
                     >
                       <CloudDownload size={15} />
-                      {job?.running && job.remotePath === entry.pathLower
+                      {job?.running && job.remotePath === entry.path
                         ? "Bringing…"
                         : "Bring home"}
                     </button>
@@ -477,12 +624,12 @@ export default function DropboxPanel({ onImported }: Props) {
             ) : (
               <ul className="import-list">
                 {imported.map((file) => (
-                  <li key={file.remotePath}>
+                  <li key={`${file.provider}:${file.remotePath}`}>
                     <File size={19} strokeWidth={1.6} />
                     <div>
                       <strong>{file.localPath}</strong>
                       <span className="muted">
-                        {formatSize(file.size)} · imported{" "}
+                        {formatSize(file.size)} · brought home{" "}
                         {dateFormat.format(new Date(file.importedAt))} · from{" "}
                         {file.remotePath}
                       </span>

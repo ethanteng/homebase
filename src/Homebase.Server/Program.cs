@@ -43,10 +43,18 @@ builder.Services.AddSingleton<ImportLog>();
 builder.Services.AddSingleton<IFolderPicker, NativeFolderPicker>();
 // One shared client; downloads of large files need a generous timeout.
 builder.Services.AddSingleton(_ => new HttpClient { Timeout = TimeSpan.FromMinutes(30) });
+builder.Services.AddSingleton(provider => new DropboxAppKey(
+    provider.GetRequiredService<ControlDatabase>(),
+    provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:AppKey"]));
 builder.Services.AddSingleton<IDropboxApiFactory>(provider => new DropboxApiFactory(
     provider.GetRequiredService<HttpClient>(),
     provider.GetRequiredService<ConnectorStore>(),
-    provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:AppKey"]));
+    // A function, not a value: an administrator can set the app key while Uncloud is running.
+    () => provider.GetRequiredService<DropboxAppKey>().Current));
+builder.Services.AddSingleton(provider => new ImportPlaces(
+    provider.GetRequiredService<ControlDatabase>(),
+    provider.GetRequiredService<HostService>(),
+    ConfigDirectory(provider, defaultConfig)));
 builder.Services.AddSingleton<UserWorkspaces>();
 builder.Services.AddSingleton<DropboxAuthFlow>();
 // An import's stage travels as its name, not as whichever number the enum happens to sit at.
@@ -306,11 +314,25 @@ app.MapGet("/api/files/download", async (string path, CurrentUser user, UserWork
 app.MapGet("/api/providers/dropbox", (CurrentUser user, UserWorkspaces workspaces) =>
 {
     var dropbox = workspaces.For(user.Account).Dropbox;
-    return Results.Ok(new { configured = dropbox.IsConfigured, connected = dropbox.IsConnected, accountName = dropbox.AccountName });
+    return Results.Ok(new
+    {
+        configured = dropbox.IsConfigured,
+        connected = dropbox.IsConnected,
+        accountName = dropbox.AccountName,
+        // Only an administrator can do anything about a host with no app key, so only they are
+        // shown how; everyone else is told who to ask.
+        canConfigure = user.IsAdmin
+    });
 });
 
-app.MapPost("/api/providers/dropbox/connect", (CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
-    Results.Ok(new { authorizeUrl = flow.Begin(user.Id, workspaces.For(user.Account).Dropbox.AppKey, redirectUri) }));
+app.MapPost("/api/providers/dropbox/connect", (HttpContext context, CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
+    Results.Ok(new
+    {
+        authorizeUrl = flow.Begin(user.Id, workspaces.For(user.Account).Dropbox.AppKey, redirectUri,
+            // Where to put them back afterwards. Dropbox returns the browser to the one registered
+            // address, which may not be the one they are using.
+            $"{context.Request.Scheme}://{context.Request.Host}")
+    }));
 
 app.MapPost("/api/providers/dropbox/disconnect", (CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
 {
@@ -324,40 +346,109 @@ app.MapPost("/api/providers/dropbox/disconnect", (CurrentUser user, UserWorkspac
 // that a cross-site navigation may not carry.
 app.MapGet("/api/providers/dropbox/callback", async (string? code, string? state, string? error, UserWorkspaces workspaces, DropboxAuthFlow flow, CancellationToken cancellationToken) =>
 {
-    if (error is not null || code is null) return Results.Redirect("/?dropbox=denied");
+    // Where the person pressed Connect, if that address is one this Uncloud answers to. Anything
+    // else is ignored in favour of a relative hop, so the return address can never become a way to
+    // send somebody off this host.
+    string Back(string? returnTo, string outcome)
+    {
+        if (returnTo is not null && Uri.TryCreate(returnTo, UriKind.Absolute, out var origin)
+            && origin.Scheme is "http" or "https" && binding.AllowedHosts.Contains(origin.Host))
+            return $"{origin.Scheme}://{origin.Authority}/?dropbox={outcome}";
+        return $"/?dropbox={outcome}";
+    }
+
+    // Consumed first, and whatever the outcome: a refusal ends this attempt as surely as a
+    // success does, and the state is the only thing that says which address to go back to.
+    string? returnTo = null;
+    string? verifier = null;
+    string? userId = null;
     try
     {
-        var (userId, verifier) = flow.Consume(state);
+        (userId, verifier, returnTo) = flow.Consume(state);
+    }
+    catch (LibraryException expired)
+    {
+        app.Logger.LogWarning(expired, "A Dropbox sign-in came back with a state Uncloud didn’t recognise");
+    }
+    if (error is not null || code is null) return Results.Redirect(Back(returnTo, "denied"));
+    if (verifier is null || userId is null) return Results.Redirect(Back(returnTo, "failed"));
+    try
+    {
         await workspaces.For(userId).Dropbox.ConnectAsync(code, verifier, redirectUri, cancellationToken);
-        return Results.Redirect("/?dropbox=connected");
+        return Results.Redirect(Back(returnTo, "connected"));
     }
     catch (Exception failure) when (failure is LibraryException or HttpRequestException)
     {
         app.Logger.LogWarning(failure, "Dropbox sign-in failed");
-        return Results.Redirect("/?dropbox=failed");
+        return Results.Redirect(Back(returnTo, "failed"));
     }
 });
 
-app.MapGet("/api/providers/dropbox/files", async (string? path, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
-    Results.Ok(await workspaces.For(user.Account).Dropbox.ListFolderAsync(path ?? "", cancellationToken)));
+// Everywhere files can be brought in from, as this account sees them: the folders an
+// administrator has shared, and this account's own Dropbox.
+app.MapGet("/api/imports/sources", (CurrentUser user, UserWorkspaces workspaces, ImportPlaces places) =>
+{
+    var dropbox = workspaces.For(user.Account).Dropbox;
+    return Results.Ok(new
+    {
+        places = places.List().Select(place => new
+        {
+            place.Id,
+            place.Name,
+            place.Path,
+            // Said plainly rather than discovered by trying: an unplugged drive is a normal thing
+            // for a household to have, not an error.
+            available = Directory.Exists(place.Path)
+        }),
+        dropbox = new
+        {
+            configured = dropbox.IsConfigured,
+            connected = dropbox.IsConnected,
+            accountName = dropbox.AccountName
+        }
+    });
+});
+
+// Browsing one place. The id chooses among the places on the list; the path is relative to that
+// place, so there is no way to name a folder outside one.
+app.MapGet("/api/imports/sources/{sourceId}/files", async (string sourceId, string? path, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+    Results.Ok(await workspaces.For(user.Account).Source(sourceId).ListFolderAsync(path ?? "", cancellationToken)));
 
 app.MapGet("/api/imports", (CurrentUser user, UserWorkspaces workspaces) =>
     Results.Ok(workspaces.For(user.Account).Imports.Imported()));
 // Starting an import answers immediately; the work itself is watched through the job below.
 app.MapPost("/api/imports", (ImportRequest request, CurrentUser user, UserWorkspaces workspaces) =>
-    Results.Ok(new { job = workspaces.For(user.Account).Jobs.Start(request.RemotePath, request.Label) }));
+{
+    var workspace = workspaces.For(user.Account);
+    var sourceId = Sources.Name(request.Source);
+    return Results.Ok(new
+    {
+        job = workspace.Jobs.Start(workspace.Source(sourceId), sourceId, request.RemotePath, request.Label)
+    });
+});
 app.MapGet("/api/imports/job", (CurrentUser user, UserWorkspaces workspaces) =>
     Results.Ok(new { job = workspaces.For(user.Account).Jobs.Current }));
 app.MapPost("/api/imports/job/cancel", (CurrentUser user, UserWorkspaces workspaces) =>
     Results.Ok(new { job = workspaces.For(user.Account).Jobs.Cancel() }));
-app.MapGet("/api/imports/estimate", async (string remotePath, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
-    Results.Ok(await workspaces.For(user.Account).Imports.MeasureAsync(remotePath, cancellationToken)));
+app.MapGet("/api/imports/estimate", async (string remotePath, string? source, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+{
+    var workspace = workspaces.For(user.Account);
+    return Results.Ok(await workspace.Imports.MeasureAsync(
+        workspace.Source(Sources.Name(source)), remotePath, cancellationToken));
+});
 
 app.MapGet("/api/host", (HostService host, IFolderPicker picker) =>
     Results.Ok(new { rootPath = host.RootPath, canPickFolder = picker.IsSupported }));
 
-app.MapPut("/api/host", (SelectRoot request, HostService host, UsageService usage) =>
+app.MapPut("/api/host", (SelectRoot request, HostService host, UsageService usage, ImportPlaces places) =>
 {
+    // Refused here rather than left to break later: a folder everybody on this host may read from
+    // cannot also be where everybody's files live, or bringing files in would read across accounts.
+    if (places.Conflicting(request.Path) is { } clash)
+        throw new LibraryException(
+            $"“{clash.Name}” is somewhere everyone here brings files in from, and it holds this folder "
+            + "(or sits inside it). Remove it under Where files come from, or choose a different folder.",
+            "conflict");
     var root = host.SelectRoot(request.Path);
     usage.Invalidate(root);
     return Results.Ok(new { rootPath = root });
@@ -402,6 +493,55 @@ app.MapPost("/api/host/unclaimed", (CurrentUser user, HostService host, UserWork
 
 app.MapPost("/api/folder-picker", async (IFolderPicker picker, CancellationToken cancellationToken) =>
     Results.Ok(new { path = await picker.ChooseAsync(cancellationToken) }));
+
+// The folders everybody on this Uncloud may bring files in from. Administrative, because adding one
+// shares it with every account here.
+app.MapGet("/api/host/places", (ImportPlaces places, IFolderPicker picker) =>
+    Results.Ok(new
+    {
+        places = places.List().Select(place => new
+        {
+            place.Id,
+            place.Name,
+            place.Path,
+            place.AddedAt,
+            place.DestinationPrefix,
+            available = Directory.Exists(place.Path)
+        }),
+        suggestions = places.Suggestions(),
+        canPickFolder = picker.IsSupported
+    }));
+
+app.MapPost("/api/host/places", (AddPlace request, ImportPlaces places) =>
+    Results.Ok(places.Add(request.Path, request.Name)));
+
+app.MapDelete("/api/host/places/{id}", (string id, ImportPlaces places) =>
+{
+    places.Remove(id);
+    return Results.Ok(new { removed = true });
+});
+
+// Which Dropbox app this household's connections are made through. The key is not a secret — see
+// DropboxAppKey — but only an administrator sets it, because it is the host's.
+app.MapGet("/api/host/dropbox", (DropboxAppKey appKey) => Results.Ok(new
+{
+    appKey = appKey.Stored,
+    configured = appKey.Current is not null,
+    appKey.FromEnvironment,
+    redirectUri,
+    scopes = new[] { "account_info.read", "files.metadata.read", "files.content.read" }
+}));
+
+app.MapPut("/api/host/dropbox", (SetDropboxAppKey request, DropboxAppKey appKey, ConnectorStore connectors, IDropboxApiFactory dropbox) =>
+{
+    if (!appKey.Set(request.AppKey))
+        return Results.Ok(new { configured = appKey.Current is not null, disconnected = 0 });
+    // Every connection was authorised through the app that key named, so none of them can be
+    // refreshed any more. Clearing them makes the panel say "connect" instead of failing later.
+    var disconnected = connectors.ClearAll(DropboxApi.ProviderName);
+    dropbox.ForgetAll();
+    return Results.Ok(new { configured = appKey.Current is not null, disconnected });
+});
 
 app.MapGet("/api/users", (UserStore users, HostService host, UsageService usage) =>
 {
@@ -487,5 +627,17 @@ public sealed record SignIn(string? Username, string? Password);
 public sealed record CreateUser(string? Username, string? DisplayName, string? Password, bool IsAdmin = false);
 public sealed record UpdateUser(string? DisplayName, string? Password, bool? IsAdmin, bool? Disabled);
 public sealed record ChangePassword(string? CurrentPassword, string? NewPassword);
-public sealed record ImportRequest(string RemotePath, string? Label);
+/// <summary>
+/// Somewhere to bring files in from, as a request names it: a place's id, or "dropbox". Absent
+/// means Dropbox, which is what the only source used to be.
+/// </summary>
+public static class Sources
+{
+    public static string Name(string? source) =>
+        string.IsNullOrWhiteSpace(source) ? Homebase.Core.Providers.DropboxApi.ProviderName : source.Trim();
+}
+
+public sealed record ImportRequest(string RemotePath, string? Label, string? Source);
+public sealed record AddPlace(string? Path, string? Name);
+public sealed record SetDropboxAppKey(string? AppKey);
 public partial class Program;

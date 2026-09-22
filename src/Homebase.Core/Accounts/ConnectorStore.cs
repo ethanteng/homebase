@@ -59,6 +59,20 @@ public sealed class ConnectorStore(ControlDatabase database, SecretProtector pro
     }
 
     /// <summary>
+    /// Drops every account's connection to one provider. Used when the host's app key changes:
+    /// those tokens were issued to the old app and cannot be refreshed against the new one, so
+    /// keeping them would only fail later, somewhere nobody is looking.
+    /// </summary>
+    public int ClearAll(string provider)
+    {
+        using var connection = database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM connectors WHERE provider = $provider";
+        command.Parameters.AddWithValue("$provider", provider);
+        return command.ExecuteNonQuery();
+    }
+
+    /// <summary>
     /// Authenticated alongside the token but never encrypted. Moving a row between accounts
     /// therefore breaks the seal rather than handing the new owner somebody else's Dropbox.
     /// </summary>
