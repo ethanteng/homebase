@@ -184,6 +184,21 @@ public sealed class PlaceTests : IDisposable
         Assert.Contains("passwords", refusal.Message);
     }
 
+    /// <summary>
+    /// <paramref name="path"/> with every link in it resolved away, so that resolving it again
+    /// changes nothing. Only tests that count resolution passes need this.
+    /// </summary>
+    private static string Settled(string path)
+    {
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var resolved = PathPolicy.NormalizeRoot(path);
+            if (resolved == path) return path;
+            path = resolved;
+        }
+        throw new InvalidOperationException($"{path} never stopped moving.");
+    }
+
     [Fact]
     public void A_folder_reached_through_too_many_links_is_refused_rather_than_guessed_at()
     {
@@ -198,7 +213,12 @@ public sealed class PlaceTests : IDisposable
         // follows a chain of links to its end. It takes two rewrites and a third pass to see that
         // it has stopped moving. Rather than contriving one that outlasts the real bound, the bound
         // is brought down — the behaviour under test is what happens when the passes run out.
-        var settings = Directory.CreateDirectory(Path.Combine(_temporary, "Settings")).FullName;
+        //
+        // Counting passes means starting from a folder that costs none. macOS hands out temporary
+        // folders under /var, which is itself a link, and a link's stored target brings that back
+        // unresolved every time — so an ambient temporary folder would add a pass on macOS and
+        // move the bound this test is aimed at.
+        var settings = Directory.CreateDirectory(Path.Combine(Settled(_temporary), "Links", "Settings")).FullName;
         var real = Directory.CreateDirectory(Path.Combine(settings, "private", "Preferences")).FullName;
         Directory.CreateSymbolicLink(Path.Combine(settings, "var"), Path.Combine(settings, "private"));
         var reachedBy = Path.Combine(settings, "private", "PreferencesLink");
