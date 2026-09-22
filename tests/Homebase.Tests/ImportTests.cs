@@ -536,6 +536,53 @@ public sealed class ImportTests : IDisposable
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
+    [Fact]
+    public async Task Two_files_whose_names_differ_only_in_case_are_two_files()
+    {
+        // The estimate and the import have to agree about what is already home, and the log is
+        // SQLite, whose text comparison is case-sensitive. Matching case-insensitively when
+        // measuring made them disagree: the estimate wrote this file off as already here, and the
+        // import then fetched it anyway — over room the drive was never checked for.
+        //
+        // Built from the log rather than from two files on disk, because whether a volume can hold
+        // both at once is exactly the thing that differs between the machines this runs on.
+        var source = new CaseKeepingSource();
+        source.Add("/Photo.jpg", "one");
+        source.Add("/photo.jpg", "another");
+        new ImportLog().Record(_root, new ImportedFile(
+            source.ProviderId, "/Photo.jpg", "rev1", "Files/Camera/Photo.jpg", 3, "hash", DateTimeOffset.UtcNow));
+
+        var estimate = await _imports.MeasureAsync(source, "/", CancellationToken.None);
+
+        Assert.Equal(2, estimate.FileCount);
+        Assert.Equal(1, estimate.NewFileCount);
+    }
+
+    /// <summary>A source that names its files exactly as they are, the way a folder on disk does.</summary>
+    private sealed class CaseKeepingSource : IImportSource
+    {
+        private readonly Dictionary<string, (SourceEntry Entry, byte[] Content)> _files = new(StringComparer.Ordinal);
+
+        public string ProviderId => "folder:test";
+        public string DestinationPrefix => "Files/Camera";
+
+        public void Add(string path, string contents) => _files[path] = (
+            new SourceEntry(path, Path.GetFileName(path), path, path, false,
+                Encoding.UTF8.GetByteCount(contents), "rev1", DateTimeOffset.UtcNow),
+            Encoding.UTF8.GetBytes(contents));
+
+        public Task<SourceEntry> GetMetadataAsync(string path, CancellationToken cancellationToken) =>
+            Task.FromResult(_files.TryGetValue(path, out var file)
+                ? file.Entry
+                : new SourceEntry(path, "root", path, path, true, null, null, null));
+
+        public Task<IReadOnlyList<SourceEntry>> ListFolderAsync(string path, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<SourceEntry>>(_files.Values.Select(file => file.Entry).ToArray());
+
+        public Task<Stream> OpenAsync(string path, CancellationToken cancellationToken) =>
+            Task.FromResult<Stream>(new MemoryStream(_files[path].Content, writable: false));
+    }
+
     private sealed class FakeDropbox : IDropboxApi
     {
         private readonly Dictionary<string, SourceEntry> _entries = new(StringComparer.OrdinalIgnoreCase);

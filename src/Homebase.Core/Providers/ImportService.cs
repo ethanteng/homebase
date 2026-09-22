@@ -116,8 +116,12 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
     /// </summary>
     private IReadOnlyList<SourceEntry> Arriving(IImportSource source, string root, IReadOnlyList<SourceEntry> files)
     {
+        // Exactly how the log compares them. The log is SQLite, whose default text comparison is
+        // case-sensitive, so matching case-insensitively here made the two disagree: a file the
+        // estimate wrote off as already home was one the import then went and fetched, over room
+        // the drive was never checked for. Dropbox hands back lowercased paths either way.
         var home = log.List(root).Where(file => file.Provider == source.ProviderId)
-            .Select(file => file.RemotePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .Select(file => file.RemotePath).ToHashSet(StringComparer.Ordinal);
         return files.Where(file => !home.Contains(file.Path) && !Occupied(source, root, file)).ToArray();
     }
 

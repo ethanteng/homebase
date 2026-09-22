@@ -532,14 +532,16 @@ app.MapGet("/api/host/dropbox", (DropboxAppKey appKey) => Results.Ok(new
     scopes = new[] { "account_info.read", "files.metadata.read", "files.content.read" }
 }));
 
-app.MapPut("/api/host/dropbox", (SetDropboxAppKey request, DropboxAppKey appKey, ConnectorStore connectors, IDropboxApiFactory dropbox) =>
+app.MapPut("/api/host/dropbox", (SetDropboxAppKey request, DropboxAppKey appKey, ConnectorStore connectors, UserWorkspaces workspaces) =>
 {
     if (!appKey.Set(request.AppKey))
         return Results.Ok(new { configured = appKey.Current is not null, disconnected = 0 });
     // Every connection was authorised through the app that key named, so none of them can be
     // refreshed any more. Clearing them makes the panel say "connect" instead of failing later.
     var disconnected = connectors.ClearAll(DropboxApi.ProviderName);
-    dropbox.ForgetAll();
+    // Deleting the stored tokens is only half of it: a client already in use holds a live access
+    // token of its own. Dropping the workspaces stops those, and whatever they were importing.
+    workspaces.ForgetAll();
     return Results.Ok(new { configured = appKey.Current is not null, disconnected });
 });
 

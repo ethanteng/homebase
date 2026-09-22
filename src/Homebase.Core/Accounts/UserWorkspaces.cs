@@ -65,4 +65,30 @@ public sealed class UserWorkspaces(
         workspace?.Jobs.Cancel();
         dropbox.Forget(userId);
     }
+
+    /// <summary>
+    /// Drops every account's workspace, after the host's Dropbox app key changes. Forgetting the
+    /// cached clients at the factory is not enough on its own: a workspace already built holds the
+    /// client it was made with, and that client answers from a cached access token without going
+    /// back to the refresh token that has just been deleted. Until that token expired, an account
+    /// whose connection was supposedly signed out could carry on reading Dropbox.
+    ///
+    /// So each held client is disconnected, which is what clears its cached token, and any import
+    /// running on it is stopped — the same treatment an account gets when it is disabled.
+    /// </summary>
+    public void ForgetAll()
+    {
+        UserWorkspace[] workspaces;
+        lock (_lock)
+        {
+            workspaces = _workspaces.Values.ToArray();
+            _workspaces.Clear();
+        }
+        foreach (var workspace in workspaces)
+        {
+            workspace.Jobs.Cancel();
+            workspace.Dropbox.Disconnect();
+        }
+        dropbox.ForgetAll();
+    }
 }

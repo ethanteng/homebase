@@ -128,6 +128,36 @@ public sealed class DropboxSetupTests : IDisposable
     }
 
     [Fact]
+    public async Task Changing_the_app_key_also_stops_the_clients_already_holding_a_token()
+    {
+        // Deleting the stored refresh tokens is not enough on its own. A Dropbox client that has
+        // already been used holds a live access token and answers from it without going back to
+        // the refresh token, so an account signed out on paper could keep reading Dropbox until
+        // that token expired — and a running import would carry on downloading. Disconnecting the
+        // client is what clears that token, so this watches for the disconnect itself.
+        var stub = new StubDropbox();
+        using var app = new TestHost(_config, _ => stub);
+        using var client = await StartAsync(app);
+        (await client.PutAsJsonAsync("/api/host/dropbox", new { appKey = "first-key" })).EnsureSuccessStatusCode();
+
+        var workspaces = app.Services.GetRequiredService<UserWorkspaces>();
+        var account = app.Services.GetRequiredService<UserStore>().List().Single();
+        app.Services.GetRequiredService<ConnectorStore>()
+            .Save(account.Id, DropboxApi.ProviderName, "refresh-token", "Their Dropbox");
+        // Built and used, which is what leaves a client cached behind the workspace.
+        var before = workspaces.For(account.Id);
+        Assert.True(stub.IsConnected);
+
+        (await client.PutAsJsonAsync("/api/host/dropbox", new { appKey = "second-key" }))
+            .EnsureSuccessStatusCode();
+
+        // The client the workspace was holding was disconnected rather than left with its token,
+        // and the next request builds a fresh workspace rather than handing back the old one.
+        Assert.False(stub.IsConnected);
+        Assert.NotSame(before, workspaces.For(account.Id));
+    }
+
+    [Fact]
     public async Task The_redirect_address_to_register_is_the_one_Uncloud_will_actually_use()
     {
         using var app = new TestHost(_config, settings: new Dictionary<string, string?>
