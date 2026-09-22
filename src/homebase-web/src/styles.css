@@ -1580,6 +1580,176 @@ tbody tr.selected {
   margin-bottom: 26px;
 }
 
+/* Where files come from. A row of places to choose between, each a tab: a folder on this
+   computer, or a Dropbox account. Chips rather than a select, because the choice is the point
+   of the screen and there are rarely more than a handful. */
+.source-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+.source-chip:hover:not(.active) {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+.source-chip.active {
+  border-color: var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.source-chip svg {
+  flex-shrink: 0;
+}
+/* The account or drive behind the name, said quietly: it identifies the chip without
+   competing with it. */
+.source-chip em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A drive that isn't plugged in is still worth showing — it explains where a place went. */
+.source-chip.unavailable span {
+  color: var(--muted);
+}
+.source-chip.unavailable em {
+  color: var(--danger-text);
+}
+
+/* Explanatory text under a heading is prose, and prose wants a measure. Without one it runs
+   the width of the page and stops reading as an aside. */
+.import-section > .field-help {
+  max-width: 72ch;
+}
+
+/* The administrator's side of the same screen, inside the settings dialog. There is more to say
+   here than in the other dialogs, so it gets more room to say it in. */
+.settings-dialog:has(.import-settings) {
+  width: 620px;
+}
+.import-settings {
+  display: flex;
+  flex-direction: column;
+}
+.import-settings .import-section {
+  margin-top: 22px;
+}
+/* Two settings that have nothing to do with each other, one above the other in one dialog: the
+   rule is what stops the second reading as more of the first. Between sections rather than above
+   each, because a notice can sit at the top and the first section is then not the first child. */
+.import-settings .import-section + .import-section {
+  margin-top: 30px;
+  padding-top: 26px;
+  border-top: 1px solid var(--line);
+}
+.import-settings h3,
+.account-dropbox h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.import-settings h3 svg,
+.account-dropbox h3 svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+/* The four setup steps and a redirect address to copy need the same room here as they get on
+   the administrator's side of the same job. */
+.settings-dialog:has(.account-dropbox) {
+  width: 620px;
+}
+.account-dropbox {
+  margin-top: 30px;
+  padding-top: 26px;
+  border-top: 1px solid var(--line);
+}
+.account-dropbox .button {
+  align-self: flex-start;
+}
+.import-settings .import-list {
+  margin-top: 16px;
+}
+.import-settings .step-label {
+  display: block;
+  margin-top: 26px;
+}
+/* Suggestions are offers, not state: lighter than the list of places actually shared. */
+.import-list.suggestions {
+  background: none;
+  border-style: dashed;
+}
+/* .setup-form carries the welcome screen's generous padding, which is wrong for a form sitting
+   inside a section that already has its own spacing. */
+.inline-form {
+  padding: 0;
+  margin-top: 26px;
+  max-width: 460px;
+}
+.inline-form .step-label {
+  margin-top: 0;
+}
+.setup-steps {
+  margin: 4px 0 18px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+  max-width: 62ch;
+}
+.setup-steps strong {
+  color: var(--text);
+  font-weight: 550;
+}
+.setup-steps a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+}
+/* The redirect address has to be copied exactly, so it gets a line and a button of its own
+   rather than sitting inline where a double-click would take half of it. */
+.copy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.copy-row code {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.field-help svg {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
 /* The public address is the one thing on this form meant to be read out or pasted elsewhere,
    so it is set apart from the folder path above it and given room to be selected. */
 .remote-access .remote-heading {

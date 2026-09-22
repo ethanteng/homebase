@@ -2,30 +2,22 @@ namespace Homebase.Core.Providers;
 
 public sealed record DropboxAccount(string AccountId, string Name, string? Email);
 
-/// <summary>One entry as Dropbox reports it. <paramref name="Rev"/> is Dropbox's per-revision
-/// identifier: when it changes, the file's contents changed.</summary>
-public sealed record DropboxEntry(
-    string Id,
-    string Name,
-    string PathLower,
-    string PathDisplay,
-    bool IsFolder,
-    long? Size,
-    string? Rev,
-    DateTimeOffset? ServerModified);
-
 /// <summary>
 /// The seam between sync logic and Dropbox's HTTP API, so the engine is testable offline.
 /// Implementations are responsible for supplying and refreshing access tokens.
+///
+/// A Dropbox account is one of the places files can be brought in from, so the reading half is
+/// <see cref="IImportSource"/> and the import engine sees nothing Dropbox-specific at all. Where
+/// entries land, and what "already imported" means, are the same for every Dropbox connection.
 /// </summary>
-public interface IDropboxApi
+public interface IDropboxApi : IImportSource
 {
     bool IsConfigured { get; }
     bool IsConnected { get; }
     Task<DropboxAccount> GetAccountAsync(CancellationToken cancellationToken);
-    Task<IReadOnlyList<DropboxEntry>> ListFolderAsync(string path, CancellationToken cancellationToken);
-    Task<DropboxEntry> GetMetadataAsync(string path, CancellationToken cancellationToken);
-    Task<Stream> DownloadAsync(string path, CancellationToken cancellationToken);
+
+    string IImportSource.ProviderId => DropboxApi.ProviderName;
+    string IImportSource.DestinationPrefix => "Files/Dropbox";
 }
 
 /// <summary>
@@ -51,4 +43,6 @@ public interface IDropboxApiFactory
     IDropboxConnection For(string userId);
     /// <summary>Drops any cached client for this account, after a sign-out or a deletion.</summary>
     void Forget(string userId);
+    /// <summary>Drops every cached client, after the host's Dropbox app key changes.</summary>
+    void ForgetAll();
 }

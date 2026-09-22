@@ -69,6 +69,17 @@ public sealed class TestHost : WebApplicationFactory<Program>
         return client;
     }
 
+    /// <summary>
+    /// A client that stops at a redirect instead of following it. A provider callback answers with
+    /// one, and where it sends the browser is the thing worth looking at.
+    /// </summary>
+    public HttpClient NotFollowingRedirects()
+    {
+        var client = CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add("X-Homebase-Request", "1");
+        return client;
+    }
+
     /// <summary>Creates the first account, which is this host's administrator, and signs in.</summary>
     public async Task<HttpClient> SignUpAsync(string username = "owner", string password = Password)
     {
@@ -126,5 +137,6 @@ public sealed class TestHost : WebApplicationFactory<Program>
     {
         public IDropboxConnection For(string userId) => forUser(userId);
         public void Forget(string userId) { }
+        public void ForgetAll() { }
     }
 }
