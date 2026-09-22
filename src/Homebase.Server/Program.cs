@@ -20,6 +20,10 @@ static string Join(string? existing, params string[] additions) => string.Join('
     (existing ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Concat(additions).Distinct(StringComparer.OrdinalIgnoreCase));
 
+// Read once before anything is started, so a missing certificate or an unreadable bind address
+// is refused while there is still nothing running to clean up.
+HostBinding.From(builder.Configuration);
+
 var remoteLog = LoggerFactory.Create(logging => logging.AddConsole());
 var remote = RemoteAccess.From(builder.Configuration, remoteLog.CreateLogger("Homebase.RemoteAccess"));
 if (remote.IsEnabled)
@@ -37,6 +41,8 @@ if (remote.IsEnabled)
             : $"https://{announced}"
     });
 }
+
+void StopTunnel() => remote.DisposeAsync().AsTask().GetAwaiter().GetResult();
 
 var startup = HostBinding.From(builder.Configuration);
 // Explicit binding: environment URLs must never decide who can reach the host's files.
@@ -79,16 +85,15 @@ builder.Services.AddSingleton<DropboxAuthFlow>();
 // An import's stage travels as its name, not as whichever number the enum happens to sit at.
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
-var app = builder.Build();
+WebApplication app;
+try { app = builder.Build(); }
+catch { StopTunnel(); throw; }
 var binding = app.Services.GetRequiredService<HostBinding>();
 var redirectUri = $"{binding.PublicUrl}/api/providers/dropbox/callback";
 if (binding.Warning is { } warning) app.Logger.LogWarning("{Warning}", warning);
 // A tunnel that drops is an outage of reaching this host from outside, never of the host, so
 // this reopens in the background while everyone on the network carries on.
 remote.Watch(binding.Port);
-app.Lifetime.ApplicationStopping.Register(() => remote.DisposeAsync().AsTask().GetAwaiter().GetResult());
-app.Lifetime.ApplicationStopped.Register(remoteLog.Dispose);
-app.Services.GetRequiredService<SessionStore>().PruneExpired();
 
 const string SessionCookie = "uncloud_session";
 // Reached without a session. Everything else is refused until somebody signs in.
@@ -116,7 +121,12 @@ if (binding.TrustedProxies.Count > 0)
 {
     var forwarded = new ForwardedHeadersOptions
     {
-        ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
+        // The client's own address among them: everything arriving through a tunnel reaches
+        // Kestrel from loopback, and without this the sign-in throttle counts every person on
+        // the internet into one bucket — ten wrong guesses from anywhere would lock out every
+        // account on the host, including whoever is sitting at it.
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+            | ForwardedHeaders.XForwardedHost,
         ForwardLimit = 1
     };
     forwarded.KnownIPNetworks.Clear();
@@ -284,8 +294,17 @@ app.MapDelete("/api/session", (HttpContext context, SessionStore sessions) =>
 
 // The first account on a fresh host, which is an administrator because somebody has to be.
 // Open only while there are none: afterwards an administrator adds the rest.
-app.MapPost("/api/setup", (CreateUser request, HttpContext context, UserStore users, SessionStore sessions) =>
+app.MapPost("/api/setup", (CreateUser request, HttpContext context, UserStore users, SessionStore sessions, RemoteAccess access) =>
 {
+    // Until this succeeds there is nobody to refuse anybody, so whoever finds the address first
+    // becomes the administrator of the host. A tunnel puts that address on the internet, so this
+    // one door stays shut to it: the rest of Uncloud is reachable through the tunnel as ever.
+    if (access.Answers(context.Request.Host.Host))
+        throw new LibraryException(
+            "Set up this Uncloud on the computer it runs on, or from its own network. The first "
+            + "account can’t be created over the internet, because until it exists there is "
+            + "nobody here to say who may.", "forbidden");
+
     // Checked and inserted as one transaction: until it succeeds this endpoint is open to
     // anybody, so two people racing a fresh host must not both come away administrators.
     var account = users.CreateFirstAdmin(request.Username, request.DisplayName, request.Password ?? "");
@@ -522,7 +541,16 @@ app.Map("/api/{**path}", () => Results.Problem("This endpoint doesn’t exist.",
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapFallbackToFile("index.html");
-app.Run();
+
+app.Services.GetRequiredService<SessionStore>().PruneExpired();
+try { app.Run(); }
+finally
+{
+    // Whether the host stopped for a reason or never managed to listen at all, the tunnel
+    // program is a child of this process and stopping it is nobody else's job.
+    StopTunnel();
+    remoteLog.Dispose();
+}
 
 public sealed record SelectRoot(string Path);
 public sealed record SignIn(string? Username, string? Password);

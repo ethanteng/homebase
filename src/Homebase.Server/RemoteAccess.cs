@@ -139,7 +139,7 @@ public sealed class RemoteAccess(
     public static RemoteAccess From(IConfiguration configuration, ILogger logger) =>
         Override?.Invoke(configuration) ?? new RemoteAccess(RemoteAccessOptions.From(configuration), logger);
 
-    private readonly Func<RemoteAccessOptions, ITunnel> _tunnels = tunnels ?? (each => new ProcessTunnel(each));
+    private readonly Func<RemoteAccessOptions, ITunnel> _tunnels = tunnels ?? (each => new ProcessTunnel(each, logger));
     private readonly CancellationTokenSource _stopping = new();
     private readonly object _gate = new();
     private ITunnel? _tunnel;
@@ -224,21 +224,25 @@ public sealed class RemoteAccess(
             {
                 ITunnel? current;
                 lock (_gate) current = _tunnel;
-                if (current is null) break;
-                try { await current.Closed.WaitAsync(_stopping.Token); }
-                catch (OperationCanceledException) { return; }
-                catch (Exception failure) { logger.LogWarning(failure, "The tunnel to this Uncloud stopped"); }
-                if (_stopping.IsCancellationRequested) return;
+                if (current is not null)
+                {
+                    try { await current.Closed.WaitAsync(_stopping.Token); }
+                    catch (OperationCanceledException) { return; }
+                    catch (Exception failure) { logger.LogWarning(failure, "The tunnel to this Uncloud stopped"); }
+                    if (_stopping.IsCancellationRequested) return;
+                    Settle(null, "reconnecting", "The tunnel stopped and Uncloud is opening another.");
+                    lock (_gate) { if (ReferenceEquals(_tunnel, current)) _tunnel = null; }
+                    await Retire(current);
+                }
 
-                Settle(null, "reconnecting", "The tunnel stopped and Uncloud is opening another.");
-                await current.DisposeAsync();
                 try { await Task.Delay(backoff, _stopping.Token); }
                 catch (OperationCanceledException) { return; }
                 backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, 60));
 
+                ITunnel? next = null;
                 try
                 {
-                    var next = _tunnels(options);
+                    next = _tunnels(options);
                     lock (_gate) _tunnel = next;
                     using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
                     deadline.CancelAfter(options.Timeout);
@@ -251,10 +255,22 @@ public sealed class RemoteAccess(
                 catch (Exception failure)
                 {
                     logger.LogWarning(failure, "Couldn’t open a tunnel to this Uncloud; trying again");
+                    // A tunnel that failed to open is never left as the current one. Waiting on it
+                    // to close would be waiting on a program that timed out but is still running,
+                    // or one that never started, and neither will ever say so — which would end
+                    // the retries for good on the first failure.
+                    lock (_gate) { if (ReferenceEquals(_tunnel, next)) _tunnel = null; }
+                    if (next is not null) await Retire(next);
                     Settle(null, "reconnecting", "Uncloud couldn’t open a tunnel and is trying again.");
                 }
             }
         });
+    }
+
+    private async Task Retire(ITunnel tunnel)
+    {
+        try { await tunnel.DisposeAsync(); }
+        catch (Exception failure) { logger.LogWarning(failure, "Couldn’t stop a tunnel that had already gone"); }
     }
 
     private void Settle(string? hostname, string status, string? detail)
@@ -277,10 +293,15 @@ public sealed class RemoteAccess(
 /// A tunnel that is somebody else's program. Uncloud runs it, reads the address out of what it
 /// prints, and stops it on the way out so a funnel never outlives the host it was opened for.
 /// </summary>
-public sealed class ProcessTunnel(RemoteAccessOptions options) : ITunnel
+public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) : ITunnel
 {
+    private const int Remembered = 20;
+
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<string> _address = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // The last thing the program said. An address is one line out of dozens, and everything a
+    // failure to sign in or to reach the service would have explained is in the rest of them.
+    private readonly Queue<string> _recent = new();
     private Process? _process;
 
     public Task Closed => _closed.Task;
@@ -300,8 +321,8 @@ public sealed class ProcessTunnel(RemoteAccessOptions options) : ITunnel
         process.Exited += (_, _) =>
         {
             _address.TrySetException(new LibraryException(
-                $"{options.Executable} stopped with code {process.ExitCode} instead of opening a tunnel. "
-                + "Its output is in Uncloud's log.", "unavailable"));
+                $"{options.Executable} stopped with code {process.ExitCode} instead of opening a tunnel, "
+                + $"saying:{Environment.NewLine}{Said()}", "unavailable"));
             _closed.TrySetResult();
         };
         _process = process;
@@ -325,15 +346,31 @@ public sealed class ProcessTunnel(RemoteAccessOptions options) : ITunnel
     private void Read(string? line)
     {
         if (line is null) return;
+        lock (_recent)
+        {
+            _recent.Enqueue(line);
+            while (_recent.Count > Remembered) _recent.Dequeue();
+        }
+        logger.LogDebug("{Executable}: {Line}", options.Executable, line);
         if (_address.Task.IsCompleted) return;
         if (options.Announcement.Match(line) is { Success: true } found)
             _address.TrySetResult(found.Groups[1].Value);
+    }
+
+    private string Said()
+    {
+        lock (_recent) return _recent.Count == 0 ? "nothing at all." : string.Join(Environment.NewLine, _recent);
     }
 
     public async ValueTask DisposeAsync()
     {
         var process = Interlocked.Exchange(ref _process, null);
         if (process is null) return;
+        // Stopped before it ever gave an address — a timeout, most often. Whatever it did say is
+        // the only account of why, and this is the last moment anybody can be told.
+        if (!_address.Task.IsCompletedSuccessfully)
+            logger.LogWarning("{Executable} never opened a tunnel, saying:{Break}{Said}",
+                options.Executable, Environment.NewLine, Said());
         try
         {
             if (!process.HasExited)

@@ -133,16 +133,22 @@ Homebase__RemoteAccess__Hostname=files.example.com \
 Install the tunnel program yourself — `tailscale` or `cloudflared` — and sign it in first. Uncloud
 runs it, and stops it on the way out, so a funnel never outlives the host it was opened for.
 
-Three things follow from turning this on, and are worth knowing before you do:
+Four things follow from turning this on, and are worth knowing before you do:
 
+- **The first account is still made at the host.** Until one exists there is nobody on this
+  Uncloud to refuse anybody, so whoever asks first becomes its administrator. Setting up is
+  therefore refused through the tunnel, and has to be done at the computer or from its own
+  network. Everything else is reachable through the tunnel as usual.
 - **The address is settled before the first request is served, and startup fails if it can't be.**
   Remote access was asked for, and a host that came up without it would be quietly unreachable for
   everyone not on the network. A tunnel that drops *later* is only an outage of reaching the host
   from outside: Uncloud opens another in the background while everyone at home carries on.
 - **Loopback becomes a trusted proxy.** The tunnel client runs on this machine and reaches Uncloud
   over `127.0.0.1`, and it is where TLS ends, so the `https://` origin the browser sent has to be
-  believed for sign-in to work at all. Anything else with a shell on the host could claim the same
-  — which it could already, since it can read every account's files directly.
+  believed for sign-in to work at all — as is the client address it forwards, without which the
+  sign-in throttle would count everybody arriving through the tunnel into one bucket and ten wrong
+  guesses from anywhere would lock out the whole household. Anything else with a shell on the host
+  could claim the same — which it could already, since it can read every account's files directly.
 - **`Homebase__PublicUrl` follows the tunnel unless you set it.** That address must be registered
   as the redirect URI of your Dropbox app. A throwaway `trycloudflare.com` name changes on every
   restart, so Dropbox can't be connected through one; use Tailscale or a named tunnel for that.
@@ -250,7 +256,7 @@ The standalone **Uncloud** messaging page for **uncloud.life** is in [`landing/`
 ./scripts/check.sh
 ```
 
-Builds/type-checks the frontend and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, remote access over a tunnel (the announced address becoming the one this host answers to and where Dropbox returns the browser, a configured public URL not being overruled, an address only administrators are shown, following a tunnel that reconnects under a new name without opening the door to one it never carried, and refusing to start when the tunnel program isn't there), persistence, indexing, file integrity/downloads, host folder switching, unavailable folders, symlinks, traversal, request boundaries, Dropbox imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked). Tests use disposable fixtures and isolated settings, never your real library or accounts.
+Builds/type-checks the frontend and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, remote access over a tunnel (the announced address becoming the one this host answers to and where Dropbox returns the browser, a configured public URL not being overruled, an address only administrators are shown, refusing to let the first account be claimed over the internet, counting a stranger's guessing against the stranger rather than the whole household, following a tunnel that reconnects under a new name without opening the door to one it never carried, and refusing to start when the tunnel program isn't there), persistence, indexing, file integrity/downloads, host folder switching, unavailable folders, symlinks, traversal, request boundaries, Dropbox imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked). Tests use disposable fixtures and isolated settings, never your real library or accounts.
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 

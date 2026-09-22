@@ -48,12 +48,13 @@ public sealed class RemoteAccessTests : IDisposable
     }
 
     /// <summary>A browser arriving through the tunnel, as the tunnel passes it on.</summary>
-    private static HttpClient Through(TestHost app, string hostname)
+    private static HttpClient Through(TestHost app, string hostname, string from = "203.0.113.5")
     {
         var client = app.Anonymous();
         client.DefaultRequestHeaders.Host = hostname;
         client.DefaultRequestHeaders.Add("X-Forwarded-Proto", "https");
         client.DefaultRequestHeaders.Add("X-Forwarded-Host", hostname);
+        client.DefaultRequestHeaders.Add("X-Forwarded-For", from);
         client.DefaultRequestHeaders.Add("Origin", $"https://{hostname}");
         return client;
     }
@@ -78,9 +79,11 @@ public sealed class RemoteAccessTests : IDisposable
         using var tunnels = Open("tailscale", Announced);
         using var app = new TestHost(_config);
 
+        using var owner = await app.SignUpAsync("ada");
+
         using var arriving = Through(app, Announced);
-        var response = await arriving.PostAsJsonAsync("/api/setup",
-            new { username = "ada", displayName = "Ada", password = TestHost.Password });
+        var response = await arriving.PostAsJsonAsync("/api/session",
+            new { username = "ada", password = TestHost.Password });
 
         response.EnsureSuccessStatusCode();
         // The tunnel is where TLS ends, so the session cookie has to be issued for https even
@@ -102,13 +105,15 @@ public sealed class RemoteAccessTests : IDisposable
 
         // What cloudflared and tailscale actually send: the browser's Host header passed through
         // untouched and the scheme forwarded beside it, with no X-Forwarded-Host at all.
+        using var owner = await app.SignUpAsync("ada");
+
         using var arriving = app.Anonymous();
         arriving.DefaultRequestHeaders.Host = Announced;
         arriving.DefaultRequestHeaders.Add("X-Forwarded-Proto", "https");
         arriving.DefaultRequestHeaders.Add("Origin", $"https://{Announced}");
 
-        var response = await arriving.PostAsJsonAsync("/api/setup",
-            new { username = "ada", displayName = "Ada", password = TestHost.Password });
+        var response = await arriving.PostAsJsonAsync("/api/session",
+            new { username = "ada", password = TestHost.Password });
 
         response.EnsureSuccessStatusCode();
         Assert.Contains("secure", Assert.Single(response.Headers.GetValues("Set-Cookie")),
@@ -121,7 +126,7 @@ public sealed class RemoteAccessTests : IDisposable
         const string Announced = "home.tail9f3a.ts.net";
         using var tunnels = Open("tailscale", Announced);
         using var app = new TestHost(_config);
-        using var admin = await SignUpThroughAsync(app, Announced);
+        using var admin = await app.SignUpAsync("ada");
 
         var state = await admin.GetFromJsonAsync<JsonElement>("/api/remote-access");
 
@@ -142,7 +147,7 @@ public sealed class RemoteAccessTests : IDisposable
         {
             ["Homebase:PublicUrl"] = "https://files.example.com"
         });
-        using var admin = await SignUpThroughAsync(app, Announced);
+        using var admin = await app.SignUpAsync("ada");
 
         var state = await admin.GetFromJsonAsync<JsonElement>("/api/remote-access");
 
@@ -158,16 +163,12 @@ public sealed class RemoteAccessTests : IDisposable
         const string Announced = "home.tail9f3a.ts.net";
         using var tunnels = Open("tailscale", Announced);
         using var app = new TestHost(_config);
-        using var admin = await SignUpThroughAsync(app, Announced);
+        using var admin = await app.SignUpAsync("ada");
         await TestHost.SetHostRootAsync(admin, _host);
         (await admin.PostAsJsonAsync("/api/users",
             new { username = "bo", displayName = "bo", password = TestHost.Password })).EnsureSuccessStatusCode();
 
-        using var member = Through(app, Announced);
-        var signIn = await member.PostAsJsonAsync("/api/session",
-            new { username = "bo", password = TestHost.Password });
-        signIn.EnsureSuccessStatusCode();
-        KeepSession(member, signIn);
+        using var member = await SignInThroughAsync(app, Announced, "bo");
 
         // The address is the administrator's to hand out, alongside everything else about the
         // host that only they are shown.
@@ -200,6 +201,58 @@ public sealed class RemoteAccessTests : IDisposable
         // refused before and after a reconnect alike.
         using var never = Through(app, "someone-else-99.trycloudflare.com");
         Assert.Equal(HttpStatusCode.Forbidden, (await never.GetAsync("/api/health")).StatusCode);
+    }
+
+    [Fact]
+    public async Task The_first_account_cannot_be_claimed_over_the_internet()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        using var tunnels = Open("tailscale", Announced);
+        using var app = new TestHost(_config);
+
+        // Until the first account exists there is nobody here to refuse anybody, so whoever asks
+        // first becomes this host's administrator. The tunnel puts that address on the internet.
+        using var arriving = Through(app, Announced);
+        var claimed = await arriving.PostAsJsonAsync("/api/setup",
+            new { username = "mallory", displayName = "Mallory", password = TestHost.Password });
+
+        Assert.Equal(HttpStatusCode.Forbidden, claimed.StatusCode);
+
+        // And the owner, at the host itself, still sets it up as they always could.
+        using var owner = await app.SignUpAsync("ada");
+        var session = await owner.GetFromJsonAsync<JsonElement>("/api/session");
+        Assert.Equal("ada", session.GetProperty("user").GetProperty("username").GetString());
+    }
+
+    [Fact]
+    public async Task Guessing_from_the_internet_is_counted_against_the_guesser()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        using var tunnels = Open("tailscale", Announced);
+        using var app = new TestHost(_config);
+        using var owner = await app.SignUpAsync("ada");
+
+        // Everything through a tunnel reaches Kestrel from loopback. Unless the forwarded client
+        // address is the one counted, a spray of invented usernames from one stranger fills the
+        // single bucket every other person on the host shares.
+        using var attacker = Through(app, Announced, from: "198.51.100.66");
+        HttpStatusCode last = default;
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            var refused = await attacker.PostAsJsonAsync("/api/session",
+                new { username = $"guess{attempt}", password = "not the password" });
+            last = refused.StatusCode;
+            Assert.True(last is HttpStatusCode.Unauthorized or HttpStatusCode.TooManyRequests,
+                $"A wrong password answered {last}.");
+        }
+
+        // The wall is still there, and it is the stranger who has run into it.
+        Assert.Equal(HttpStatusCode.TooManyRequests, last);
+
+        // Ada is somewhere else entirely, and her sign-in is not the stranger's to spend.
+        using var ada = await SignInThroughAsync(app, Announced, "ada", from: "203.0.113.9");
+        var session = await ada.GetFromJsonAsync<JsonElement>("/api/session");
+        Assert.Equal("ada", session.GetProperty("user").GetProperty("username").GetString());
     }
 
     [Fact]
@@ -279,11 +332,13 @@ public sealed class RemoteAccessTests : IDisposable
     private static RemoteAccessOptions Read(Dictionary<string, string?> settings) =>
         RemoteAccessOptions.From(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
 
-    private static async Task<HttpClient> SignUpThroughAsync(TestHost app, string hostname)
+    /// <summary>Signs in through the tunnel as an account that was set up at the host itself.</summary>
+    private static async Task<HttpClient> SignInThroughAsync(
+        TestHost app, string hostname, string username, string from = "203.0.113.5")
     {
-        var client = Through(app, hostname);
-        var response = await client.PostAsJsonAsync("/api/setup",
-            new { username = "ada", displayName = "Ada", password = TestHost.Password });
+        var client = Through(app, hostname, from);
+        var response = await client.PostAsJsonAsync("/api/session",
+            new { username, password = TestHost.Password });
         response.EnsureSuccessStatusCode();
         KeepSession(client, response);
         return client;
