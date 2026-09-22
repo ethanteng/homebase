@@ -27,8 +27,8 @@ storage volume, but almost everything that used to be a singleton is now per-use
                                      │
           ┌──────────────────────────┼──────────────────────────┐
           ▼                          ▼                          ▼
-   LibraryService            IDropboxConnection            ImportJobs
-   (root = users/<id>)       (that user's token)           (that user's queue)
+   LibraryService        IImportSource per source        ImportJobs
+   (root = users/<id>)   (their token, or a shared place) (that user's queue)
 ```
 
 The one rule everything else rests on: **a user's root directory is derived from the
@@ -50,7 +50,7 @@ the same volume.
   users/
     2f6c…/                      one user, named by opaque id
       .homebase/index.db          that user's metadata cache
-      Files/Dropbox/…             that user's imports
+      Files/Dropbox/…             that user's imports, one folder per source
     9ab1…/                      another user; nothing above can see into it
 ```
 
@@ -113,6 +113,34 @@ state-changing request is a non-GET, must carry a same-origin `Origin`, and must
 - **Throttling.** Failed sign-ins are counted per username and per client address in memory.
   Ten failures inside fifteen minutes refuses further attempts for that window.
 
+## Places to import from
+
+Bringing files in from a folder on the host's own computer is the friendliest way in — a household
+whose Dropbox app already syncs to disk never has to touch a developer console — and it is also the
+one feature that could undo everything above if it took a path from a request.
+
+It doesn't. Uncloud runs as one operating-system user and can read whatever that user can, so a
+member naming a folder would read straight across every other account. Instead:
+
+- **Only an administrator adds a place.** `/api/host/places` sits under the administrative prefix.
+  Adding one shares it with every account on the host, which is a decision about the host.
+- **A request names a place by id, never by path.** `UserWorkspace.Source(id)` looks the id up in
+  the host's list; a path in the request is only ever *relative to* the place it resolved to, and
+  goes through `PathPolicy.Resolve` — the same rejection of `..`, absolute paths, backslashes, NULs
+  and dot-prefixed segments, and the same refusal of symbolic links at every level.
+- **A place can never touch the host root or the preference directory**, in either direction: not
+  be it, not contain it, not sit inside it. A place containing the host root would hand out every
+  account's files; one containing the preference directory would hand out the password hashes and
+  the host key that seals everybody's refresh tokens.
+- **That check runs every time a place is used**, not only when it is added. The host's folder can
+  move afterwards, and a place that was legitimate when added may now hold it. `ImportPlaces.Require`
+  re-checks and refuses.
+- **Links inside a place are left out of listings** rather than followed, because a link in
+  somebody's synced folder can point anywhere, the host root included.
+
+Removing a place stops further imports from it and touches nothing already brought home: those are
+ordinary files in an account's own folder, and the provenance record is that account's too.
+
 ## The Dropbox return trip
 
 The OAuth callback is the one endpoint that must work without a session, because it is a
@@ -122,6 +150,21 @@ the user who started it**, keyed so that a returning `state` names the account t
 The state is 512 bits of randomness, compared in fixed time, valid for ten minutes, and
 consumed exactly once. Two people connecting Dropbox at the same moment no longer overwrite
 each other's pending exchange, which the single-slot v0 design would have done.
+
+The state also carries **where the person was**. Dropbox returns the browser to the one redirect URI
+registered with the app, which need not be the address they opened Uncloud at: `127.0.0.1` and
+`localhost` are one host but two cookie jars, so landing on the other one reads as being signed out
+at the moment the connection succeeded. The callback sends them back to the origin the connect
+request came from — but only if it is one `Homebase__AllowedHosts` already permits, so a return
+address can never become a way to send somebody off this host. A state Uncloud never issued has no
+return address to offer and falls back to a relative hop.
+
+Which Dropbox *app* an account connects through is its own choice: its own key first, then the
+host's, then `Homebase__Dropbox__AppKey`. An app key is not a secret — PKCE is the flow for a
+program that cannot keep one — so there is nothing in letting a member set theirs that an
+administrator needs to gate, and reserving it would make everybody's Dropbox wait on one person.
+The consequences are scoped the same way: changing the host's key clears only the connections that
+were made through it, and changing an account's own clears only that account's.
 
 Refresh tokens are sealed with AES-256-GCM under the host key, with the user id and provider
 name as additional authenticated data. A sealed token therefore cannot be decrypted after

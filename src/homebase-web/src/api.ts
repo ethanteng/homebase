@@ -79,17 +79,81 @@ export interface DropboxStatus {
   configured: boolean;
   connected: boolean;
   accountName: string | null;
+  // Only an administrator can add the host's Dropbox app key, so only they are shown how.
+  canConfigure: boolean;
 }
-export interface DropboxEntry {
+
+/// One file or folder as the place it came from describes it. The same shape whether it came from
+/// a Dropbox account or a folder on the host's own disk.
+export interface SourceEntry {
   id: string;
   name: string;
-  pathLower: string;
-  pathDisplay: string;
+  path: string;
+  displayPath: string;
   isFolder: boolean;
   size: number | null;
   rev: string | null;
-  serverModified: string | null;
+  modified: string | null;
 }
+
+/// A folder on the host's computer that an administrator has shared with everyone here.
+export interface ImportPlace {
+  id: string;
+  name: string;
+  path: string;
+  available: boolean;
+}
+
+export interface ImportSources {
+  places: ImportPlace[];
+  dropbox: {
+    configured: boolean;
+    connected: boolean;
+    accountName: string | null;
+  };
+}
+
+export interface ManagedPlace extends ImportPlace {
+  addedAt: string;
+  destinationPrefix: string;
+}
+
+export interface SuggestedPlace {
+  name: string;
+  path: string;
+}
+
+export interface HostPlaces {
+  places: ManagedPlace[];
+  suggestions: SuggestedPlace[];
+  canPickFolder: boolean;
+}
+
+export interface DropboxAppSettings {
+  appKey: string | null;
+  configured: boolean;
+  // A key supplied by Homebase__Dropbox__AppKey rather than typed in here.
+  fromEnvironment: boolean;
+  redirectUri: string;
+  scopes: string[];
+}
+
+/// Where the app key an account connects through came from.
+export type DropboxKeySource = "None" | "Own" | "Host" | "Environment";
+
+export interface MyDropboxApp {
+  // This account's own key, as opposed to whatever it falls back to.
+  appKey: string | null;
+  configured: boolean;
+  source: DropboxKeySource;
+  // Whether leaving the box empty still leaves this account able to connect.
+  hostProvides: boolean;
+  redirectUri: string;
+  scopes: string[];
+}
+
+/// Dropbox is always reachable by this name; a folder on this computer is named by its id.
+export const DROPBOX = "dropbox";
 export interface ImportedFile {
   provider: string;
   remotePath: string;
@@ -122,6 +186,8 @@ export type ImportStage = "Measuring" | "Bringing" | "Done" | "Stopped" | "Faile
 
 export interface ImportJob {
   id: string;
+  // Which place it is coming from, so a reload shows the right one.
+  sourceId: string;
   remotePath: string;
   label: string;
   stage: ImportStage;

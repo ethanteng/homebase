@@ -14,6 +14,7 @@ public sealed class UserWorkspaces(
     MetadataIndex index,
     ImportLog log,
     IDropboxApiFactory dropbox,
+    ImportPlaces places,
     ILoggerFactory loggers)
 {
     private readonly Dictionary<string, UserWorkspace> _workspaces = new(StringComparer.Ordinal);
@@ -42,7 +43,7 @@ public sealed class UserWorkspaces(
             }
             if (_workspaces.TryGetValue(userId, out var existing)) return existing;
             var workspace = new UserWorkspace(
-                userId, UserPaths.RootFor(root, userId), index, log, dropbox.For(userId), loggers);
+                userId, UserPaths.RootFor(root, userId), index, log, dropbox.For(userId), places, loggers);
             _workspaces[userId] = workspace;
             return workspace;
         }
@@ -62,6 +63,74 @@ public sealed class UserWorkspaces(
             _workspaces.Remove(userId, out workspace);
         }
         workspace?.Jobs.Cancel();
+        dropbox.Forget(userId);
+    }
+
+    /// <summary>
+    /// Drops every account's workspace, after the host's Dropbox app key changes. Forgetting the
+    /// cached clients at the factory is not enough on its own: a workspace already built holds the
+    /// client it was made with, and that client answers from a cached access token without going
+    /// back to the refresh token that has just been deleted. Until that token expired, an account
+    /// whose connection was supposedly signed out could carry on reading Dropbox.
+    ///
+    /// So each held client is disconnected, which is what clears its cached token, and any import
+    /// running on it is stopped — the same treatment an account gets when it is disabled.
+    ///
+    /// Only the accounts <paramref name="affected"/> picks out: somebody connecting through their
+    /// own app key is untouched by the host's changing, and stopping their import would be exactly
+    /// the dependence on an administrator that having their own key is meant to remove.
+    /// </summary>
+    public void ForgetAll(Func<string, bool> affected)
+    {
+        UserWorkspace[] workspaces;
+        lock (_lock)
+        {
+            workspaces = _workspaces.Where(entry => affected(entry.Key)).Select(entry => entry.Value).ToArray();
+            foreach (var workspace in workspaces) _workspaces.Remove(workspace.UserId);
+        }
+        foreach (var workspace in workspaces)
+        {
+            workspace.Jobs.Cancel();
+            workspace.Dropbox.Disconnect();
+            dropbox.Forget(workspace.UserId);
+        }
+    }
+
+    /// <summary>
+    /// Stops every import running from one place, after it is taken off the list. Deleting the row
+    /// is not enough on its own: a running import holds the source it started with, which carries
+    /// the folder it resolved to and never asks again, so it would carry on reading a folder that
+    /// is no longer shared — the very case an administrator removing a folder shared by mistake is
+    /// trying to stop. Whatever already arrived stays, as it does for any stopped import.
+    /// </summary>
+    public int CancelImportsFrom(string sourceId)
+    {
+        UserWorkspace[] workspaces;
+        lock (_lock) workspaces = _workspaces.Values.ToArray();
+        var stopped = 0;
+        foreach (var workspace in workspaces)
+            if (workspace.Jobs.Current is { Running: true } job && job.SourceId == sourceId)
+            {
+                workspace.Jobs.Cancel();
+                stopped++;
+            }
+        return stopped;
+    }
+
+    /// <summary>
+    /// The same, for one account, after that account changes the Dropbox app key it connects
+    /// through. Their connection was authorised against the old app and cannot be refreshed against
+    /// the new one, so it has to go — and only theirs, because nobody else's key moved.
+    /// </summary>
+    public void ForgetDropbox(string userId)
+    {
+        UserWorkspace? workspace;
+        lock (_lock)
+        {
+            _workspaces.Remove(userId, out workspace);
+        }
+        workspace?.Jobs.Cancel();
+        workspace?.Dropbox.Disconnect();
         dropbox.Forget(userId);
     }
 }
