@@ -1776,4 +1776,58 @@ tbody tr.selected {
   font-size: 13px;
   flex-shrink: 0;
 }
-
+.device-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.device-id code {
+  font-size: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  overflow-wrap: anywhere;
+  flex: 1;
+  min-width: 240px;
+}
+.sync-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--line-strong);
+}
+.sync-dot.on {
+  background: var(--ok);
+}
+.sync-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.sync-form .path-input {
+  flex: 1;
+  min-width: 220px;
+  width: auto;
+}
+.import-list li .path-input {
+  max-width: 220px;
+  padding: 8px 10px;
+}
+.pairing-code {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pairing-code code {
+  font-size: 18px;
+  letter-spacing: 2px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+}

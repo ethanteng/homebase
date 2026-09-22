@@ -1,6 +1,7 @@
 using Homebase.Core;
 using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
+using Homebase.Core.Sync;
 using Homebase.Server;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Data.Sqlite;
@@ -90,6 +91,17 @@ builder.Services.AddSingleton(provider => new ImportPlaces(
     ConfigDirectory(provider, defaultConfig)));
 builder.Services.AddSingleton<UserWorkspaces>();
 builder.Services.AddSingleton<DropboxAuthFlow>();
+builder.Services.AddSingleton(provider => new SyncthingHost(
+    ConfigDirectory(provider, defaultConfig),
+    provider.GetRequiredService<IConfiguration>(),
+    provider.GetRequiredService<ILogger<SyncthingHost>>(),
+    provider.GetRequiredService<HttpClient>()));
+builder.Services.AddSingleton<ISyncthingEndpoint>(provider => provider.GetRequiredService<SyncthingHost>());
+builder.Services.AddHostedService(provider => provider.GetRequiredService<SyncthingHost>());
+builder.Services.AddSingleton<ISyncthingApi, SyncthingApi>();
+builder.Services.AddSingleton<SyncOwnership>();
+builder.Services.AddSingleton<SyncService>();
+builder.Services.AddSingleton<PairingCodes>();
 // An import's stage travels as its name, not as whichever number the enum happens to sit at.
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
@@ -104,6 +116,16 @@ if (binding.Warning is { } warning) app.Logger.LogWarning("{Warning}", warning);
 // A tunnel that drops is an outage of reaching this host from outside, never of the host, so
 // this reopens in the background while everyone on the network carries on.
 remote.Watch(binding.Port);
+// Once Syncthing answers, bring its configuration in line with who owns what. Until then nothing
+// syncs, so there is nothing to be out of line.
+_ = app.Services.GetRequiredService<SyncthingHost>().Ready.ContinueWith(async _ =>
+{
+    try { await app.Services.GetRequiredService<SyncService>().ReconcileAsync(app.Lifetime.ApplicationStopping); }
+    catch (Exception error) when (error is LibraryException or IOException or UnauthorizedAccessException or OperationCanceledException)
+    {
+        app.Logger.LogWarning(error, "Couldn’t bring Syncthing in line with Uncloud’s accounts");
+    }
+}, TaskScheduler.Default);
 
 const string SessionCookie = "uncloud_session";
 // Reached without a session. Everything else is refused until somebody signs in.
@@ -112,7 +134,9 @@ string[] anonymous =
     "/api/health",
     "/api/session",
     "/api/setup",
-    "/api/providers/dropbox/callback"
+    "/api/providers/dropbox/callback",
+    // The Uncloud app on somebody's computer has no session; the pairing code is its authority.
+    "/api/sync/pair"
 ];
 // Reached only by an administrator: the host's own folder, and the accounts on it.
 string[] administrative =
@@ -194,7 +218,7 @@ app.Use(async (context, next) =>
                 "host_key" => 500,
                 "not_configured" or "unavailable" or "busy" or "conflict"
                     or "provider_unconfigured" or "provider_disconnected" or "provider_auth" or "provider_failed"
-                    or "invalid_device" or "no_devices" or "node_failed" => 409,
+                    or "invalid_device" or "no_devices" or "sync_unavailable" or "sync_failed" => 409,
                 "unsupported" => 501,
                 _ => 400
             }, library.Message),
@@ -504,7 +528,7 @@ app.MapGet("/api/remote-access", (RemoteAccess access, HostBinding self) =>
 app.MapGet("/api/host", (HostService host, IFolderPicker picker) =>
     Results.Ok(new { rootPath = host.RootPath, canPickFolder = picker.IsSupported }));
 
-app.MapPut("/api/host", (SelectRoot request, HostService host, UsageService usage, ImportPlaces places) =>
+app.MapPut("/api/host", async (SelectRoot request, HostService host, UsageService usage, ImportPlaces places, SyncService sync, CancellationToken cancellationToken) =>
 {
     // Refused here rather than left to break later: a folder everybody on this host may read from
     // cannot also be where everybody's files live, or bringing files in would read across accounts.
@@ -515,6 +539,10 @@ app.MapPut("/api/host", (SelectRoot request, HostService host, UsageService usag
             "conflict");
     var root = host.SelectRoot(request.Path);
     usage.Invalidate(root);
+    // Synced folders follow the host's folder. If Syncthing isn't up, this happens when it is;
+    // if it refuses, the folder has still moved, and the next start tries again.
+    try { await sync.ReconcileAsync(cancellationToken); }
+    catch (LibraryException error) { app.Logger.LogWarning(error, "Couldn’t point synced folders at the new host folder"); }
     return Results.Ok(new { rootPath = root });
 });
 
@@ -683,7 +711,7 @@ app.MapPost("/api/users", (CreateUser request, UserStore users, UserWorkspaces w
     return Results.Ok(Describe(account));
 });
 
-app.MapPatch("/api/users/{id}", (string id, UpdateUser request, CurrentUser actor, UserStore users, SessionStore sessions, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
+app.MapPatch("/api/users/{id}", async (string id, UpdateUser request, CurrentUser actor, UserStore users, SessionStore sessions, UserWorkspaces workspaces, DropboxAuthFlow flow, SyncService sync, CancellationToken cancellationToken) =>
 {
     if (users.Find(id) is null) throw new LibraryException("There’s no such account.", "not_found");
     if (request.DisplayName is not null) users.SetDisplayName(id, request.DisplayName);
@@ -703,14 +731,19 @@ app.MapPatch("/api/users/{id}", (string id, UpdateUser request, CurrentUser acto
             workspaces.Forget(id);
             flow.Forget(id);
         }
+        // A disabled account's computers stop syncing too, and start again when it is enabled.
+        // The account has changed either way; a Syncthing that refuses is caught up on next start.
+        try { await sync.SuspendAsync(id, disabled, cancellationToken); }
+        catch (LibraryException error) { app.Logger.LogWarning(error, "Couldn’t pause or resume {Id}'s computers", id); }
     }
     return Results.Ok(Describe(users.Find(id)!));
 });
 
-app.MapDelete("/api/users/{id}", (string id, UserStore users, SessionStore sessions, UserWorkspaces workspaces, DropboxAuthFlow flow, HostService host, DropboxAppKey appKey) =>
+app.MapDelete("/api/users/{id}", async (string id, UserStore users, SessionStore sessions, UserWorkspaces workspaces, DropboxAuthFlow flow, HostService host, DropboxAppKey appKey, SyncService sync, CancellationToken cancellationToken) =>
 {
     if (users.Find(id) is null) throw new LibraryException("There’s no such account.", "not_found");
-    users.Delete(id);
+    // Nothing may carry on syncing into a deleted account's folder.
+    await sync.ForgetAsync(id, () => users.Delete(id), cancellationToken);
     sessions.DeleteAllFor(id);
     workspaces.Forget(id);
     flow.Forget(id);
@@ -721,6 +754,35 @@ app.MapDelete("/api/users/{id}", (string id, UserStore users, SessionStore sessi
         ? Path.Combine(root, UserPaths.UsersDirectory, id)
         : null;
     return Results.Ok(new { deleted = true, filesRemainAt = folder });
+});
+
+// Each account's own computers, and the folders it keeps the same on them. Nothing here takes a
+// root or an owner from the request: both come from the session.
+app.MapGet("/api/sync", async (CurrentUser user, SyncService sync, CancellationToken cancellationToken) =>
+    Results.Ok(await sync.StatusAsync(user.Id, cancellationToken)));
+app.MapPost("/api/sync/devices", async (PairDevice request, CurrentUser user, SyncService sync, CancellationToken cancellationToken) =>
+{
+    await sync.PairAsync(user.Id, request.DeviceId, request.Name, cancellationToken);
+    return Results.Ok(await sync.StatusAsync(user.Id, cancellationToken));
+});
+app.MapDelete("/api/sync/devices/{deviceId}", async (string deviceId, CurrentUser user, SyncService sync, CancellationToken cancellationToken) =>
+{
+    await sync.UnpairAsync(user.Id, deviceId, cancellationToken);
+    return Results.Ok(await sync.StatusAsync(user.Id, cancellationToken));
+});
+// A code for the Uncloud app on this person's computer, and the app redeeming it.
+app.MapPost("/api/sync/pairing-codes", (CurrentUser user, PairingCodes codes) => Results.Ok(codes.Issue(user.Id)));
+app.MapPost("/api/sync/pair", async (RedeemPairing request, HttpContext context, PairingCodes codes, CancellationToken cancellationToken) =>
+    Results.Ok(await codes.RedeemAsync(request.Code, request.DeviceId, request.Name,
+        context.Connection.RemoteIpAddress?.ToString(), cancellationToken)));
+app.MapPost("/api/sync/folders", async (SyncFolderRequest request, CurrentUser user, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>
+    Results.Ok(await sync.ShareAsync(user.Id, workspaces.For(user.Account).Root, request.Path, request.DeviceIds, cancellationToken)));
+app.MapPost("/api/sync/folders/accept", async (AcceptFolder request, CurrentUser user, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>
+    Results.Ok(await sync.AcceptAsync(user.Id, workspaces.For(user.Account).Root, request.FolderId, request.Path, cancellationToken)));
+app.MapDelete("/api/sync/folders/{folderId}", async (string folderId, CurrentUser user, SyncService sync, CancellationToken cancellationToken) =>
+{
+    await sync.StopAsync(user.Id, folderId, cancellationToken);
+    return Results.Ok(await sync.StatusAsync(user.Id, cancellationToken));
 });
 
 app.Map("/api/{**path}", () => Results.Problem("This endpoint doesn’t exist.", statusCode: 404));
@@ -756,4 +818,8 @@ public static class Sources
 public sealed record ImportRequest(string RemotePath, string? Label, string? Source);
 public sealed record AddPlace(string? Path, string? Name);
 public sealed record SetDropboxAppKey(string? AppKey);
+public sealed record PairDevice(string DeviceId, string? Name);
+public sealed record SyncFolderRequest(string? Path, IReadOnlyList<string>? DeviceIds);
+public sealed record AcceptFolder(string FolderId, string? Path);
+public sealed record RedeemPairing(string? Code, string? DeviceId, string? Name);
 public partial class Program;

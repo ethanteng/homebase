@@ -158,6 +158,17 @@ public sealed partial class UserStore(ControlDatabase database)
     public void Delete(string id) => Guarded(id, "delete", "DELETE FROM users WHERE id = $id", null);
 
     /// <summary>
+    /// Says now whether <see cref="Delete"/> would be refused, for callers with work to do before
+    /// deleting that shouldn't be done for an account that will stay. Delete still checks again.
+    /// </summary>
+    public void RequireDeletable(string id)
+    {
+        using var connection = database.Open();
+        using var transaction = connection.BeginTransaction();
+        RequireAnotherAdmin(connection, transaction, id, "delete");
+    }
+
+    /// <summary>
     /// A change that could cost this host its last administrator, made as one write transaction
     /// with the check that says it may not. Checking on one connection and writing on another
     /// lets two administrators demote each other at once and leave nobody holding the keys.

@@ -36,12 +36,13 @@ Open **http://127.0.0.1:5173** for live frontend updates. Vite proxies `/api` to
 - One host folder, chosen once, holding a folder per account under `users/`.
 - Imports from folders on the host's computer and from per-account Dropbox connections, with a metadata index.
 - In-app Dropbox setup, per account or host-wide, and host-managed places to import from, so nothing needs a terminal.
+- Per-account syncing with your own computers through Syncthing, so changes made on a laptop — additions, edits and deletions — reach the host, with deleted and replaced files kept for 30 days.
 - Native macOS folder chooser, with a manual path fallback.
 - Nested folder navigation, breadcrumbs, browser back/forward, folder-local filtering and sorting, file details, and downloads.
 - Live filesystem reads on navigation/refresh; a transactional SQLite metadata cache at `<user folder>/.homebase/index.db`.
 - Empty, loading, missing-folder, permission, sign-in, and connection error states.
 
-Uncloud doesn’t move, modify, or delete your existing files. Hidden entries (including `.homebase`) stay out of the browser. Symbolic links are skipped; traversal and direct hidden-path requests are rejected. Arbitrary file content is downloaded as an attachment, never executed on the app’s origin. The API restricts host/origin, requires a custom header for mutations, and refuses everything but sign-in without a session.
+Uncloud doesn’t move, modify, or delete your existing files — except in a folder you choose to sync with your own computers, where a change made on one of them, deletion included, is made here too. Hidden entries (including `.homebase`) stay out of the browser. Symbolic links are skipped; traversal and direct hidden-path requests are rejected. Arbitrary file content is downloaded as an attachment, never executed on the app’s origin. The API restricts host/origin, requires a custom header for mutations, and refuses everything but sign-in without a session.
 
 ## Architecture
 
@@ -59,7 +60,7 @@ The filesystem is the source of truth. Browsing scans one directory and atomical
 Accounts, sessions, host settings and sealed provider tokens live in `~/Library/Application Support/Homebase/homebase.db`, beside a 32-byte `host.key`, outside the storage root and so outside the boundary they define. Each account's file metadata lives in its own `.homebase`. Stop Uncloud and remove a `.homebase` to reset that rebuildable cache; browse the folder again to recreate it. This cache is not a backup.
 
 `Homebase__Dropbox__AppKey` supplies the host's Dropbox app key for a host that would rather not use
-the settings screen; an account with its own key ignores it. `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite's proxy for development). Run a single Uncloud process per preference directory. Uncloud is not a sandbox: one process runs as one operating-system user and can read every account's folder, so isolation is enforced in Uncloud, not by the kernel, and anyone with a shell on the host can read everything.
+the settings screen; an account with its own key ignores it. `Homebase__Syncthing__*` configures the Syncthing process described under [Your own computers](#your-own-computers). `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite's proxy for development). Run a single Uncloud process per preference directory. Uncloud is not a sandbox: one process runs as one operating-system user and can read every account's folder, so isolation is enforced in Uncloud, not by the kernel, and anyone with a shell on the host can read everything.
 
 ### Reaching it from other computers
 
@@ -288,10 +289,71 @@ revision (or, from a folder, the size and modification time) and a SHA-256 of ea
 recorded in `.homebase` as provenance: what came from where, and when. A folder on this computer is
 copied, never moved: the originals stay exactly where they were.
 
+## Your own computers
+
+Each person can keep their files in a folder on their own laptop or desktop as well. Add, change or
+delete a file there and the same happens on the host, and the other way round; a computer that was
+offline catches up when it reconnects. Open **My computers** in the sidebar.
+
+The sync protocol is [Syncthing](https://syncthing.net)'s, not Uncloud's: device identity,
+discovery, NAT traversal, encryption and conflict handling are all its work. The host runs one
+Syncthing, supervised by Uncloud with its own home directory under the preference directory and its
+own loopback-only API port, started and stopped with the app. Install it on the host
+(`brew install syncthing`; 1.x and 2.x both work) and restart Uncloud. Each person installs
+Syncthing on their own computer too.
+
+1. On your computer, add the host's ID (shown in **My computers**) as a remote device.
+2. In **My computers**, paste your computer's ID and **Add computer**.
+3. Either **Sync folder** in Uncloud — a folder such as `Documents`, or leave it empty for all of
+   your files — and accept the offer in Syncthing on your computer; or share a folder from your
+   computer, and **Keep it here** when it appears under **Offered by your computers**.
+
+Instead of copying device IDs, a computer can pair itself with a code. **Get a pairing code** in
+**My computers** shows a ten-character code that works once, for ten minutes. A client on the
+computer sends it to `POST /api/sync/pair` as `{ "code", "deviceId", "name" }`, without a session
+and with the `X-Homebase-Request: 1` header, and gets back `{ "hostDeviceId", "accountName" }`.
+That computer is now paired with the account that asked for the code. Codes are stored only as
+hashes, a new one replaces the last, wrong guesses are throttled per address, and a mistake that
+isn't the code's — a malformed device ID, a computer another account already has — doesn't use it
+up. This is the API the planned Uncloud desktop app, which will carry its own Syncthing, will use.
+
+Syncthing has one configuration for the whole host and no idea of accounts, so Uncloud records
+which account every computer and every folder belongs to and answers everything from that record.
+Each person sees and manages only their own computers, folders and offers; a computer can be paired
+with one account only; a folder can only be made inside your own space and only sent to your own
+computers; and a pairing request is refused without saying which other account has that computer.
+Disabling an account pauses its computers, and deleting one removes them — refused while Syncthing
+can't be reached, so nothing carries on writing into the folder of an account that no longer
+exists. Folders synced by the older administrator-only version are given to the account whose
+folder they are in the next time Uncloud starts.
+
+Uncloud's index is kept out: before Syncthing first sees a folder, Uncloud writes a `.stignore`
+there that excludes `.homebase` (and `.DS_Store`), adding to any rules already in it. One synced
+folder can't sit inside or around another. Moving the host's folder moves where every synced folder
+points; if the new one doesn't hold the files, Syncthing stops that folder with an error rather than
+treating the empty folder as everything having been deleted.
+
+Folders are two-way (`sendreceive`). If a file changes on both sides while they're apart, Syncthing
+keeps both and renames the loser with `.sync-conflict-` beside the winner, so you may have a
+duplicate to tidy up. **A deletion on your laptop deletes the file here.** Every synced folder on the
+host keeps what it deletes or replaces for 30 days under a hidden `.stversions` folder
+(Syncthing's staggered versioning), which is how a mistake on a laptop is undone — there is no
+restore button yet, so that means copying it back out of `.stversions`.
+
+Syncthing connects through its global discovery and relays by default, so your computers keep
+syncing when they're away from home, whether or not the host has a tunnel open for the web
+interface. A pairing code can be redeemed through that tunnel too; guesses are counted per
+client, the same as sign-in.
+
+`Homebase__Syncthing__Path` points at the binary if it isn't on `PATH`,
+`Homebase__Syncthing__GuiPort` moves its local API off 8390, and
+`Homebase__Syncthing__Enabled=false` switches the whole thing off.
+
 ## Keeping a copy
 
-Uncloud doesn't replicate your files anywhere. One host, one drive: if that drive dies, everything
-on it is gone. Set up a backup before you put anything you care about here.
+Syncing isn't a backup of the host, and nothing else copies your files anywhere. One host, one
+drive: if that drive dies, everything that exists only there is gone. Set up a backup before you
+put anything you care about here.
 
 Anything that copies a directory works, because the library is ordinary files in ordinary folders —
 nothing has to understand Uncloud to back it up. On macOS, include the host folder in Time Machine.
@@ -311,8 +373,8 @@ if it comes along, and fine if it doesn't. The control database that holds accou
 tokens lives in the preference directory, so back that up separately if you want the accounts
 themselves to survive, not just the files.
 
-Reaching your files while away from the host is not solved yet; see the [design
-notes](docs/multi-user.md).
+The web interface is reachable from outside the house only through a tunnel, described above.
+Syncing with your own computers works from anywhere either way.
 
 ## Landing page
 
@@ -324,7 +386,7 @@ The standalone **Uncloud** messaging page for **uncloud.life** is in [`landing/`
 ./scripts/check.sh
 ```
 
-Builds/type-checks the frontend and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, remote access over a tunnel (the announced address becoming the one this host answers to and where Dropbox returns the browser, a configured public URL not being overruled, an address only administrators are shown, refusing to let the first account be claimed over the internet, counting a stranger's guessing against the stranger rather than the whole household, refusing to take a client's word for its own address through a proxy that isn't a tunnel, following a tunnel that reconnects under a new name without opening the door to one it never carried, and refusing to start when the tunnel program isn't there), persistence, indexing, file integrity/downloads, host folder switching, unavailable folders, symlinks, traversal, request boundaries, imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked), places on the host's computer (bringing a folder home, the refusals that keep a place from reaching the host's folder or the preference directory — including after the host's folder moves — only an administrator adding one, paths that try to walk out of one, links left unfollowed, and two places kept from sharing a folder in the library), and in-app Dropbox setup (setting the host's app key and an account's own, an account's key winning over the host's and falling back to it when cleared, the environment variable behind both, signing out only the connections a changed key would have broken, the redirect address to register, and a sign-in returning to the address it started from). Tests use disposable fixtures and isolated settings, never your real library or accounts.
+Builds/type-checks the frontend and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, remote access over a tunnel (the announced address becoming the one this host answers to and where Dropbox returns the browser, a configured public URL not being overruled, an address only administrators are shown, refusing to let the first account be claimed over the internet, counting a stranger's guessing against the stranger rather than the whole household, refusing to take a client's word for its own address through a proxy that isn't a tunnel, following a tunnel that reconnects under a new name without opening the door to one it never carried, and refusing to start when the tunnel program isn't there), persistence, indexing, file integrity/downloads, host folder switching, unavailable folders, symlinks, traversal, request boundaries, imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked), places on the host's computer (bringing a folder home, the refusals that keep a place from reaching the host's folder or the preference directory — including after the host's folder moves — only an administrator adding one, paths that try to walk out of one, links left unfollowed, and two places kept from sharing a folder in the library), in-app Dropbox setup (setting the host's app key and an account's own, an account's key winning over the host's and falling back to it when cleared, the environment variable behind both, signing out only the connections a changed key would have broken, the redirect address to register, and a sign-in returning to the address it started from), and syncing with your own computers (device-ID checks, one account per computer, each account seeing and using only its own computers, folders and offers, folders confined to the account's space and never nested, Uncloud's index ignored before Syncthing first scans, offered names held to the same rules, pausing a disabled account's computers and removing a deleted one's, adopting folders from the administrator-only version, following a moved host folder, and pairing codes that are single-use, expiring, throttled and bound to the account that asked). Tests use disposable fixtures and isolated settings, never your real library or accounts.
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Homebase.Core;
 using Homebase.Core.Accounts;
+using Homebase.Core.Sync;
 
 namespace Homebase.Tests;
 
@@ -16,6 +17,7 @@ public sealed class IsolationTests : IDisposable
     private readonly string _host;
     private readonly string _config;
     private readonly StubDropboxes _dropbox = new();
+    private readonly FakeSyncthing _syncthing = new();
 
     public IsolationTests()
     {
@@ -27,7 +29,7 @@ public sealed class IsolationTests : IDisposable
         _config = Path.Combine(_temporary, "Config");
     }
 
-    private TestHost CreateApp() => new(_config, _dropbox.For);
+    private TestHost CreateApp() => new(_config, _dropbox.For, syncthing: _syncthing);
 
     /// <summary>An administrator and an ordinary member, each with a file of their own.</summary>
     private async Task<(HttpClient Admin, string AdminRoot, HttpClient Member, string MemberRoot)> TwoAccountsAsync(TestHost app)
@@ -127,7 +129,7 @@ public sealed class IsolationTests : IDisposable
         [
             "/api/library", "/api/files", "/api/files/download?path=x", "/api/storage",
             "/api/imports", "/api/imports/job", "/api/providers/dropbox", "/api/imports/sources",
-            "/api/host", "/api/users"
+            "/api/host", "/api/users", "/api/sync"
         ];
         foreach (var endpoint in endpoints)
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(endpoint)).StatusCode);
@@ -231,6 +233,92 @@ public sealed class IsolationTests : IDisposable
             await Task.Delay(15);
         }
         throw new TimeoutException("The import never finished.");
+    }
+
+    [Fact]
+    public async Task One_account_can_neither_see_nor_use_anothers_computers_or_synced_folders()
+    {
+        const string Laptop = "ZZZZZZZ-YYYYYYY-XXXXXXX-WWWWWWW-VVVVVVV-UUUUUUU-TTTTTTT-SSSSSSS";
+        using var app = CreateApp();
+        var (admin, adminRoot, member, _) = await TwoAccountsAsync(app);
+        using var ___ = admin;
+        using var ____ = member;
+        Directory.CreateDirectory(Path.Combine(adminRoot, "Diaries"));
+        (await admin.PostAsJsonAsync("/api/sync/devices", new { deviceId = Laptop, name = "Ada’s laptop" })).EnsureSuccessStatusCode();
+        var shared = await (await admin.PostAsJsonAsync("/api/sync/folders", new { path = "Diaries" })).Content.ReadFromJsonAsync<JsonElement>();
+        var folderId = shared.GetProperty("id").GetString()!;
+        _syncthing.Offers.Add(new SyncthingOffer("ada-photos", "Photos", Laptop));
+
+        var seen = await member.GetFromJsonAsync<JsonElement>("/api/sync");
+        Assert.Empty(seen.GetProperty("devices").EnumerateArray());
+        Assert.Empty(seen.GetProperty("folders").EnumerateArray());
+        Assert.Empty(seen.GetProperty("offers").EnumerateArray());
+        Assert.DoesNotContain(Laptop, seen.GetRawText());
+
+        Assert.Equal(HttpStatusCode.NotFound, (await member.DeleteAsync($"/api/sync/devices/{Laptop}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await member.DeleteAsync($"/api/sync/folders/{folderId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await member.PostAsJsonAsync("/api/sync/folders",
+            new { path = "", deviceIds = new[] { Laptop } })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await member.PostAsJsonAsync("/api/sync/folders/accept",
+            new { folderId = "ada-photos", path = "Photos" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await member.PostAsJsonAsync("/api/sync/devices",
+            new { deviceId = Laptop })).StatusCode);
+
+        // Everything the administrator set up is exactly as it was.
+        Assert.Equal([Laptop], _syncthing.Folders[folderId].DeviceIds);
+        Assert.Equal(Path.Combine(adminRoot, "Diaries"), _syncthing.Folders[folderId].Path);
+        Assert.Single(_syncthing.Folders);
+    }
+
+    [Fact]
+    public async Task Disabling_or_deleting_an_account_stops_its_computers_syncing()
+    {
+        const string Desktop = "QQQQQQQ-RRRRRRR-SSSSSSS-TTTTTTT-UUUUUUU-VVVVVVV-WWWWWWW-XXXXXXX";
+        using var app = CreateApp();
+        var (admin, _, member, memberRoot) = await TwoAccountsAsync(app);
+        using var ___ = admin;
+        using var ____ = member;
+        var memberId = Path.GetFileName(memberRoot);
+        (await member.PostAsJsonAsync("/api/sync/devices", new { deviceId = Desktop })).EnsureSuccessStatusCode();
+        (await member.PostAsJsonAsync("/api/sync/folders", new { path = "" })).EnsureSuccessStatusCode();
+
+        (await admin.PatchAsJsonAsync($"/api/users/{memberId}", new { disabled = true })).EnsureSuccessStatusCode();
+        Assert.True(_syncthing.Devices[Desktop].Paused);
+        (await admin.PatchAsJsonAsync($"/api/users/{memberId}", new { disabled = false })).EnsureSuccessStatusCode();
+        Assert.False(_syncthing.Devices[Desktop].Paused);
+
+        (await admin.DeleteAsync($"/api/users/{memberId}")).EnsureSuccessStatusCode();
+        Assert.Empty(_syncthing.Devices);
+        Assert.Empty(_syncthing.Folders);
+        Assert.Equal("Bo's taxes.", await File.ReadAllTextAsync(Path.Combine(memberRoot, "bo-taxes.txt")));
+    }
+
+    [Fact]
+    public async Task A_computer_pairs_with_a_code_and_no_session_but_only_a_signed_in_person_gets_one()
+    {
+        const string Laptop = "ZZZZZZZ-YYYYYYY-XXXXXXX-WWWWWWW-VVVVVVV-UUUUUUU-TTTTTTT-SSSSSSS";
+        using var app = CreateApp();
+        var (admin, _, member, _) = await TwoAccountsAsync(app);
+        using var ___ = admin;
+        using var ____ = member;
+        using var computer = app.Anonymous();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await computer.PostAsync("/api/sync/pairing-codes", null)).StatusCode);
+        var code = (await (await member.PostAsync("/api/sync/pairing-codes", null)).Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("code").GetString();
+
+        var paired = await computer.PostAsJsonAsync("/api/sync/pair", new { code, deviceId = Laptop, name = "Bo’s laptop" });
+        paired.EnsureSuccessStatusCode();
+        var result = await paired.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(FakeSyncthing.Self, result.GetProperty("hostDeviceId").GetString());
+        Assert.Equal("bo", result.GetProperty("accountName").GetString());
+
+        // Paired with the member who asked, visible to them and nobody else, and no session issued.
+        Assert.Single((await member.GetFromJsonAsync<JsonElement>("/api/sync")).GetProperty("devices").EnumerateArray());
+        Assert.Empty((await admin.GetFromJsonAsync<JsonElement>("/api/sync")).GetProperty("devices").EnumerateArray());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await computer.GetAsync("/api/sync")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await computer.PostAsJsonAsync("/api/sync/pair", new { code, deviceId = Laptop })).StatusCode);
     }
 
     public void Dispose()

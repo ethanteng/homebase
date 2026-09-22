@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
+using Homebase.Core.Sync;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -22,6 +23,7 @@ public sealed class TestHost : WebApplicationFactory<Program>
 
     private readonly Dictionary<string, string?> _settings;
     private readonly Func<string, IDropboxConnection>? _dropbox;
+    private readonly ISyncthingApi? _syncthing;
 
     static TestHost() =>
         // A real host hashes once a month; this suite signs in hundreds of times a run.
@@ -30,12 +32,19 @@ public sealed class TestHost : WebApplicationFactory<Program>
     public TestHost(
         string configDirectory,
         Func<string, IDropboxConnection>? dropbox = null,
-        IDictionary<string, string?>? settings = null)
+        IDictionary<string, string?>? settings = null,
+        ISyncthingApi? syncthing = null)
     {
-        _settings = new Dictionary<string, string?> { ["Homebase:ConfigDirectory"] = configDirectory };
+        _settings = new Dictionary<string, string?>
+        {
+            ["Homebase:ConfigDirectory"] = configDirectory,
+            // A developer with Syncthing installed must not have the suite start a real one.
+            ["Homebase:Syncthing:Enabled"] = "false"
+        };
         if (settings is not null)
             foreach (var (key, value) in settings) _settings[key] = value;
         _dropbox = dropbox;
+        _syncthing = syncthing;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -48,6 +57,8 @@ public sealed class TestHost : WebApplicationFactory<Program>
         if (_dropbox is not null)
             builder.ConfigureTestServices(services =>
                 services.AddSingleton<IDropboxApiFactory>(new StubDropboxFactory(_dropbox)));
+        if (_syncthing is not null)
+            builder.ConfigureTestServices(services => services.AddSingleton(_syncthing));
     }
 
     /// <summary>A client that isn't signed in, but does carry the header mutations require.</summary>

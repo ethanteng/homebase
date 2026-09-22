@@ -4,6 +4,7 @@ import {
   CloudDownload,
   Files,
   FolderTree,
+  Laptop,
   LoaderCircle,
   LogOut,
   HardDrive,
@@ -18,12 +19,13 @@ import type { LibraryState, Session, StorageReport, User } from "./api";
 import ImportPanel from "./ImportPanel";
 import ImportSettings from "./ImportSettings";
 import FileBrowser from "./FileBrowser";
+import SyncPanel from "./SyncPanel";
 import HostSetup from "./HostSetup";
 import SignIn from "./SignIn";
 import UsersPanel from "./UsersPanel";
 import AccountPanel from "./AccountPanel";
 
-type View = "files" | "import" | "users";
+type View = "files" | "import" | "sync" | "users";
 type Dialog = "host" | "imports" | "account" | null;
 
 function readPath() {
@@ -215,6 +217,14 @@ export default function App() {
             <CloudDownload size={18} />
             Bring files in
           </button>
+          <button
+            className={`nav-item${view === "sync" ? " active" : ""}`}
+            onClick={() => setView("sync")}
+            disabled={!hasFolder}
+          >
+            <Laptop size={18} />
+            My computers
+          </button>
           {me.isAdmin && (
             <>
               <button
@@ -294,9 +304,11 @@ export default function App() {
             <strong>
               {view === "import"
                 ? "Bring files in"
-                : view === "users"
-                  ? "People"
-                  : "My files"}
+                : view === "sync"
+                  ? "My computers"
+                  : view === "users"
+                    ? "People"
+                    : "My files"}
             </strong>
           </div>
           <span className="private-label">
@@ -316,6 +328,8 @@ export default function App() {
               canConfigure={me.isAdmin}
               settingsRevision={importSettings}
             />
+          ) : hasFolder && view === "sync" ? (
+            <SyncPanel />
           ) : hasFolder ? (
             <FileBrowser
               rootPath={library!.rootPath!}

@@ -4,10 +4,11 @@ namespace Homebase.Core.Accounts;
 
 /// <summary>
 /// The host's own database: who has an account, which sessions are live, which provider
-/// connections belong to whom, what each account has set for itself, where the host keeps
-/// everyone's files, and which folders on this computer files may be brought in from. It lives beside the
-/// host's preferences rather than under the storage root, so it is outside the reach of the
-/// per-user boundary it helps define, and nothing in it travels with anybody's files.
+/// connections and synced computers belong to whom, what each account has set for itself,
+/// where the host keeps everyone's files, and which folders on this computer files may be
+/// brought in from. It lives beside the host's preferences rather than under the storage root,
+/// so it is outside the reach of the per-user boundary it helps define, and nothing in it
+/// travels with anybody's files.
 /// </summary>
 public sealed class ControlDatabase(string directory)
 {
@@ -55,7 +56,25 @@ public sealed class ControlDatabase(string directory)
                 CREATE TABLE IF NOT EXISTS import_places (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, added_at TEXT NOT NULL
                 );
-                PRAGMA user_version = 3;
+                -- Syncthing's configuration is the whole host's. These say which account each
+                -- paired computer and each synced folder belongs to, which Syncthing can't.
+                CREATE TABLE IF NOT EXISTS sync_devices (
+                    device_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL, added_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS sync_folders (
+                    folder_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    path TEXT NOT NULL, added_at TEXT NOT NULL
+                );
+                -- Short-lived codes that pair a computer without a session. Only hashes are kept.
+                CREATE TABLE IF NOT EXISTS pairing_codes (
+                    code_hash TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    expires_at TEXT NOT NULL
+                );
+                PRAGMA user_version = 4;
                 """;
             command.ExecuteNonQuery();
             // Password hashes and sealed tokens live here; nobody else on the host needs to read it.
