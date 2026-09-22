@@ -41,16 +41,19 @@ Every API token is only ever read on the server. Never put one in `landing/main.
 
 ### The Airtable table
 
-Create a base, then a table (named `Signups` unless you set `AIRTABLE_TABLE`) with these fields. The names have to match exactly; Airtable rejects a write that names a field the table does not have.
+The base is **Uncloud**, and the table is `Signups` unless you set `AIRTABLE_TABLE`. Field names have to match exactly; Airtable rejects a write that names a field the table does not have.
 
 | Field | Type | Written when |
 | --- | --- | --- |
-| `Email` | Single line text, and the table's primary field | Always. The row is upserted on this field, so one person is one row however many times they sign up. |
-| `Signed Up` | Date, with time enabled | Always. The most recent request — Airtable's own **Created time** field holds the first, if you add one. |
+| `Email` | Email, and the table's primary field | Always. The row is upserted on this field, so one person is one row however many times they sign up. |
+| `Signed Up` | Date, with time enabled | Always. The most recent request; a repeat signup moves it. |
 | `Source` | Single line text | Only when the visit carried a `utm_source`. |
 | `Referrer` | Single line text | Only when the browser reported one. |
+| `Created` | Created time | Never by the function. Airtable computes it, so it holds the *first* signup even after `Signed Up` has moved. |
 
 `Source` and `Referrer` are left out of the write when empty rather than sent blank: the upsert sets every field it is given, so a later visit with no campaign would otherwise erase what the first one recorded.
+
+The base also has a `Preview Signups` table with the same four written fields. Point `AIRTABLE_TABLE` at it from Vercel's Preview environment and test signups stay out of the real list; drop the table if previews should not take signups at all.
 
 Create a **personal access token** at [airtable.com/create/tokens](https://airtable.com/create/tokens) with the `data.records:read` and `data.records:write` scopes, granted to this base only. The old API keys stopped working in February 2024.
 
