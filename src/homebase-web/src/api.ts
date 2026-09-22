@@ -125,35 +125,6 @@ export interface ImportJob {
   running: boolean;
 }
 
-export interface NodeDevice {
-  deviceId: string;
-  name: string;
-  connected: boolean;
-  address: string | null;
-}
-export interface SharedFolder {
-  id: string;
-  label: string;
-  localPath: string;
-  deviceIds: string[];
-  state: string | null;
-  files: number;
-  bytes: number;
-}
-export interface PendingFolder {
-  id: string;
-  label: string;
-  offeredBy: string;
-  offeredByName: string;
-}
-export interface NodeStatus {
-  available: boolean;
-  detail: string | null;
-  deviceId: string | null;
-  devices: NodeDevice[];
-  folders: SharedFolder[];
-  offers: PendingFolder[];
-}
 
 /// Thrown when a session has ended, so the app can ask for a sign-in rather than showing an
 /// error nobody can act on.

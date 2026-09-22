@@ -57,7 +57,7 @@ The filesystem is the source of truth. Browsing scans one directory and atomical
 
 Accounts, sessions, host settings and sealed provider tokens live in `~/Library/Application Support/Homebase/homebase.db`, beside a 32-byte `host.key`, outside the storage root and so outside the boundary they define. Each account's file metadata lives in its own `.homebase`. Stop Uncloud and remove a `.homebase` to reset that rebuildable cache; browse the folder again to recreate it. This cache is not a backup.
 
-`Homebase__Dropbox__AppKey` supplies the Dropbox app key. `Homebase__Syncthing__*` configures the Syncthing process described below. `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite's proxy for development). Run a single Uncloud process per preference directory. Uncloud is not a sandbox: one process runs as one operating-system user and can read every account's folder, so isolation is enforced in Uncloud, not by the kernel, and anyone with a shell on the host can read everything.
+`Homebase__Dropbox__AppKey` supplies the Dropbox app key. `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite's proxy for development). Run a single Uncloud process per preference directory. Uncloud is not a sandbox: one process runs as one operating-system user and can read every account's folder, so isolation is enforced in Uncloud, not by the kernel, and anyone with a shell on the host can read everything.
 
 ### Reaching it from other computers
 
@@ -149,34 +149,31 @@ moved into place, so an interrupted transfer can't leave a half-written file, an
 overwrites — a file that appears mid-transfer wins. The revision and a SHA-256 of each import are
 recorded in `.homebase` as provenance: what came from where, and when.
 
-## Other computers
+## Keeping a copy
 
-Syncthing's configuration belongs to the whole host and knows nothing about accounts, so **Nodes**
-is administrator-only and its per-account design is still to come.
+Uncloud doesn't replicate your files anywhere. One host, one drive: if that drive dies, everything
+on it is gone. Set up a backup before you put anything you care about here.
 
-Uncloud can keep a folder the same across computers you own. Open **Nodes** in the sidebar, give
-the other computer this one's ID, paste its ID here, then share a folder. Sharing only *offers* the
-folder: the other computer has to take it up before anything moves, which it does under **Offered to
-you** if it is also running Uncloud, or in Syncthing's own interface if it isn't. After that, a
-change made on either side shows up on the other.
+Anything that copies a directory works, because the library is ordinary files in ordinary folders —
+nothing has to understand Uncloud to back it up. On macOS, include the host folder in Time Machine.
+Otherwise [restic](https://restic.net) or [rclone](https://rclone.org) to a second drive or an
+offsite target does the job:
 
-The peer protocol is [Syncthing](https://syncthing.net)'s, not Uncloud's: device identity, discovery,
-NAT traversal, encryption and conflict handling are all its work. Uncloud supervises a Syncthing
-process with its own home directory under the preference directory and its own loopback-only port,
-started and stopped with the app. Install Syncthing (`brew install syncthing`) and restart Uncloud;
-if it isn't there, the rest of Uncloud works and the Nodes panel says what's missing.
+```sh
+restic -r /Volumes/Backup/uncloud backup ~/Uncloud
+```
 
-Shared folders have to be **inside** your Uncloud folder, never the folder itself: `.homebase`
-holds a live SQLite database, and copying that between machines corrupts it. Uncloud refuses the
-root and adds `.homebase` to the folder's ignore patterns as a second line of defence.
+Prefer something that keeps **versions** rather than a live mirror. A mirror propagates a deletion
+as faithfully as it propagates a new file, so it protects you against a failed drive and not at all
+against the far more common way people lose things, which is deleting them and noticing later.
 
-Folders are shared as `sendreceive`, so either side may change a file. If both change the same file
-while disconnected, Syncthing keeps both — the loser is renamed with a `.sync-conflict-` suffix
-beside the winner, so nothing is lost, but you may have a duplicate to tidy up.
+`.homebase/index.db` is a live SQLite database and a rebuildable cache, not a backup — it is fine
+if it comes along, and fine if it doesn't. The control database that holds accounts and connector
+tokens lives in the preference directory, so back that up separately if you want the accounts
+themselves to survive, not just the files.
 
-`Homebase__Syncthing__Path` points at the binary if it isn't on `PATH`,
-`Homebase__Syncthing__GuiPort` moves its local API off 8390, and
-`Homebase__Syncthing__Enabled=false` switches the whole thing off.
+Reaching your files while away from the host is not solved yet; see the [design
+notes](docs/multi-user.md).
 
 ## Landing page
 
@@ -188,7 +185,7 @@ The standalone **Uncloud** messaging page for **uncloud.life** is in [`landing/`
 ./scripts/check.sh
 ```
 
-Builds/type-checks the frontend and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, persistence, indexing, file integrity/downloads, host folder switching, unavailable folders, symlinks, traversal, request boundaries, Dropbox imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked), and node pairing, folder sharing and accepting an offered folder (device-ID validation, refusing the library root or any hidden or out-of-bounds path, and keeping Syncthing's state where preferences live rather than somewhere temporary). Tests use disposable fixtures and isolated settings, never your real library or accounts.
+Builds/type-checks the frontend and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, persistence, indexing, file integrity/downloads, host folder switching, unavailable folders, symlinks, traversal, request boundaries, Dropbox imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked). Tests use disposable fixtures and isolated settings, never your real library or accounts.
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 

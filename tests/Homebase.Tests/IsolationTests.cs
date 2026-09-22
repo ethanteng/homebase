@@ -101,7 +101,7 @@ public sealed class IsolationTests : IDisposable
         using var ___ = admin;
         using var ____ = member;
 
-        foreach (var endpoint in new[] { "/api/host", "/api/host/unclaimed", "/api/users", "/api/nodes" })
+        foreach (var endpoint in new[] { "/api/host", "/api/host/unclaimed", "/api/users" })
             Assert.Equal(HttpStatusCode.Forbidden, (await member.GetAsync(endpoint)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await member.PutAsJsonAsync("/api/host", new { path = _host })).StatusCode);
@@ -127,7 +127,7 @@ public sealed class IsolationTests : IDisposable
         [
             "/api/library", "/api/files", "/api/files/download?path=x", "/api/storage",
             "/api/imports", "/api/imports/job", "/api/providers/dropbox", "/api/providers/dropbox/files",
-            "/api/host", "/api/users", "/api/nodes"
+            "/api/host", "/api/users"
         ];
         foreach (var endpoint in endpoints)
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(endpoint)).StatusCode);

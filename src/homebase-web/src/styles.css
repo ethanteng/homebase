@@ -1376,33 +1376,6 @@ tbody tr.selected {
     flex-basis: 100%;
   }
 }
-.device-id {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-.device-id code {
-  font-size: 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--paper);
-  overflow-wrap: anywhere;
-  flex: 1;
-  min-width: 240px;
-}
-.sync-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--line-strong);
-}
-.sync-dot.on {
-  background: var(--ok);
-}
 
 /* A plain informational card. Distinct from .setup-card, which is the welcome
    screen's two-column layout and puts a heading and its text in separate columns. */
