@@ -4,9 +4,10 @@ namespace Homebase.Core.Accounts;
 
 /// <summary>
 /// The host's own database: who has an account, which sessions are live, which provider
-/// connections belong to whom, and where the host keeps everyone's files. It lives beside the
-/// host's preferences rather than under the storage root, so it is outside the reach of the
-/// per-user boundary it helps define, and nothing in it travels with anybody's files.
+/// connections and synced computers belong to whom, and where the host keeps everyone's files.
+/// It lives beside the host's preferences rather than under the storage root, so it is outside
+/// the reach of the per-user boundary it helps define, and nothing in it travels with anybody's
+/// files.
 /// </summary>
 public sealed class ControlDatabase(string directory)
 {
@@ -46,7 +47,19 @@ public sealed class ControlDatabase(string directory)
                     connected_at TEXT NOT NULL,
                     PRIMARY KEY (user_id, provider)
                 );
-                PRAGMA user_version = 1;
+                -- Syncthing's configuration is the whole host's. These say which account each
+                -- paired computer and each synced folder belongs to, which Syncthing can't.
+                CREATE TABLE IF NOT EXISTS sync_devices (
+                    device_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL, added_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS sync_folders (
+                    folder_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    path TEXT NOT NULL, added_at TEXT NOT NULL
+                );
+                PRAGMA user_version = 2;
                 """;
             command.ExecuteNonQuery();
             // Password hashes and sealed tokens live here; nobody else on the host needs to read it.

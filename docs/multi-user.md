@@ -168,17 +168,61 @@ without a certificate.
 - **Not an OS sandbox.** One process runs as one operating-system user and can read every
   user's directory. Isolation is enforced in Uncloud, not by the kernel. Anyone with a shell
   on the host, or any other program running as that OS user, can read everything.
-- **No replication, and no remote access.** Uncloud serves one host. It does not copy your
-  files anywhere else, and it is only reachable where the host is reachable. An earlier version
-  supervised a Syncthing process to mirror folders between machines; that was removed once the
-  host became the place everything lives, because it solved neither problem well. It mirrored
-  rather than versioned, so it was never a backup — a deletion propagated like anything else —
-  and its configuration was global, with no concept of accounts, so every account would have
-  seen every other account's shared folders. Backup belongs to a tool built for it; the README
-  says which. Getting at your files from outside the network is genuinely unsolved.
+- **Not a backup, and no remote web access.** Syncing with your own computers (below) copies
+  files to them, but it mirrors: a deletion on a laptop deletes the host's copy too, and the 30
+  days of versions the host keeps are for undoing that, not for surviving a dead drive. Backup
+  belongs to a tool built for it; the README says which. Uncloud's web interface is only
+  reachable where the host is.
 - **No invitations, e-mail, or password reset by mail.** An admin sets a password and hands it
   over. Self-service recovery needs a mail path Uncloud doesn't have.
 - **No audit log** of who read what.
+
+## Syncing with your own computers
+
+People keep their files on their own laptops too, and expect adding, editing or deleting one there
+to reach the host. That is Syncthing's job, not a thing to rebuild: rename detection, conflict
+copies, retries, NAT traversal and offline catch-up are all hard and all solved there.
+
+An earlier, administrator-only version did this and was taken out, for two reasons. Its
+configuration was global with no notion of accounts, so it could only be offered to administrators
+without handing every account a list of everybody's shared folders; and it mirrored without
+versioning, so a deletion on a laptop was simply gone. This version answers both.
+
+**Ownership.** There is still one Syncthing with one configuration for the whole host. Two tables
+in the control database say who owns what: `sync_devices(device_id PRIMARY KEY, user_id, …)` and
+`sync_folders(folder_id PRIMARY KEY, user_id, path, …)`, both cascading with the account.
+`SyncService` answers every call from these rows, filtered by the id from the session, and only
+then consults Syncthing for live state. So:
+
+- A computer belongs to one account. Pairing one another account has is refused, without saying
+  whose. A computer that could be claimed twice would let one person send folders to another's
+  laptop, or see the folders it offers.
+- Folders are stored as a path relative to the account's own root, resolved through `PathPolicy`
+  like any browse, and only ever sent to that account's own computers. Folder ids hash the account
+  id with the path, so two people's `Documents` are two folders.
+- Offers (folders a computer proposes) are shown only to the account that owns the computer, and
+  taking one up is the only way a laptop's folder comes into existence here. Paired devices are
+  added with `autoAcceptFolders` and `introducer` off, so a laptop can't create folders or pair
+  other computers by itself.
+- Anything naming a computer or folder another account owns gets the same `not_found` as one that
+  doesn't exist.
+
+**Keeping `.homebase` out.** An account's whole folder can be synced, which means its live SQLite
+index is inside a synced folder. Uncloud writes `.stignore` excluding `.homebase` *before* adding
+the folder to Syncthing, so no first scan ever sees it; the file is added to, never replaced.
+
+**Deletions.** Every folder is `sendreceive` with staggered versioning (30 days) on the host, so a
+file a laptop deletes or replaces is kept under the folder's hidden `.stversions`. The browser
+hides dot-entries, so versions don't clutter anybody's files; there is no restore UI yet.
+
+**Keeping Syncthing honest.** `ReconcileAsync` runs when Syncthing first answers and whenever the
+host's folder moves. It points each folder at `<host root>/users/<id>/<path>` — if the files
+aren't there, Syncthing's folder marker is missing and it stops the folder rather than propagating
+an empty directory as mass deletion — makes sure every folder is versioned and guarded, pauses the
+computers of disabled accounts, and gives folders left by the administrator-only version to the
+account whose folder they are in. Disabling an account pauses its computers immediately when
+Syncthing is up; deleting one removes them, and is refused while Syncthing can't be reached, so a
+laptop can't keep writing into a deleted account's folder.
 
 ## Migrating a v0 library
 
@@ -197,11 +241,12 @@ leftover `<host root>/.homebase/index.db` is a rebuildable cache and is left alo
 **Phase 1 — implemented.** Control database, accounts, sign-in and sessions, admin role,
 per-user roots, per-user Dropbox connections, per-user imports, per-user usage, host root
 selection and v0 adoption, LAN binding with a host allowlist and optional TLS, the admin
-Users panel, and tests that a member cannot reach another member's files by any route.
+Users panel, per-account syncing with each person's own computers, and tests that a member cannot
+reach another member's files — or computers, or synced folders — by any route.
 
 **Phase 2.** Per-user quotas. Sharing a folder between accounts on the same host. An audit
 log. Session listing and revocation from the account page. Reaching the host from outside its
-network, which nothing covers today.
+network, which nothing covers today. Restoring a file from `.stversions` in the browser.
 
 **Phase 3.** Google Drive and iCloud connectors. The per-user connector model already
 generalises: `connectors` is keyed by `(user_id, provider)` and `IProviderTokens` is the only

@@ -125,6 +125,36 @@ export interface ImportJob {
   running: boolean;
 }
 
+export interface SyncDevice {
+  deviceId: string;
+  name: string;
+  connected: boolean;
+  address: string | null;
+}
+export interface SyncFolder {
+  id: string;
+  path: string;
+  label: string;
+  deviceIds: string[];
+  state: string | null;
+  error: string | null;
+  files: number;
+  bytes: number;
+}
+export interface SyncOffer {
+  folderId: string;
+  label: string;
+  deviceId: string;
+  deviceName: string;
+}
+export interface SyncStatus {
+  available: boolean;
+  detail: string | null;
+  hostDeviceId: string | null;
+  devices: SyncDevice[];
+  folders: SyncFolder[];
+  offers: SyncOffer[];
+}
 
 /// Thrown when a session has ended, so the app can ask for a sign-in rather than showing an
 /// error nobody can act on.

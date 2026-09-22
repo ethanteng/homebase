@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   CloudDownload,
   Files,
+  Laptop,
   LoaderCircle,
   LogOut,
   HardDrive,
@@ -16,12 +17,13 @@ import { api, formatSize, SignedOutError } from "./api";
 import type { LibraryState, Session, StorageReport, User } from "./api";
 import DropboxPanel from "./DropboxPanel";
 import FileBrowser from "./FileBrowser";
+import SyncPanel from "./SyncPanel";
 import HostSetup from "./HostSetup";
 import SignIn from "./SignIn";
 import UsersPanel from "./UsersPanel";
 import AccountPanel from "./AccountPanel";
 
-type View = "files" | "dropbox" | "users";
+type View = "files" | "dropbox" | "sync" | "users";
 type Dialog = "host" | "account" | null;
 
 function readPath() {
@@ -212,6 +214,14 @@ export default function App() {
             <CloudDownload size={18} />
             Dropbox
           </button>
+          <button
+            className={`nav-item${view === "sync" ? " active" : ""}`}
+            onClick={() => setView("sync")}
+            disabled={!hasFolder}
+          >
+            <Laptop size={18} />
+            My computers
+          </button>
           {me.isAdmin && (
             <>
               <button
@@ -287,9 +297,11 @@ export default function App() {
             <strong>
               {view === "dropbox"
                 ? "Dropbox"
-                : view === "users"
-                  ? "People"
-                  : "My files"}
+                : view === "sync"
+                  ? "My computers"
+                  : view === "users"
+                    ? "People"
+                    : "My files"}
             </strong>
           </div>
           <span className="private-label">
@@ -302,6 +314,8 @@ export default function App() {
             <UsersPanel me={me} />
           ) : hasFolder && view === "dropbox" ? (
             <DropboxPanel onImported={() => setRevision((value) => value + 1)} />
+          ) : hasFolder && view === "sync" ? (
+            <SyncPanel />
           ) : hasFolder ? (
             <FileBrowser
               rootPath={library!.rootPath!}
