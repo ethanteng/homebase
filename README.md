@@ -2,65 +2,277 @@
 
 [![CI](https://github.com/ethanteng/homebase/actions/workflows/ci.yml/badge.svg)](https://github.com/ethanteng/homebase/actions/workflows/ci.yml)
 
-A self-hosted file library for a household. One computer holds everyone's files on storage you own; each person signs in and sees only their own folder and their own connected accounts. ASP.NET Core + React/TypeScript + SQLite. No cloud account required.
+A self-hosted file library for a household. One computer you already own — the **host** — keeps
+everyone's files on storage you own. Each person signs in and sees only their own folder, their own
+connected accounts and their own computers. ASP.NET Core + React/TypeScript + SQLite, with
+Syncthing for keeping laptops in step and an optional bundled tunnel for reaching the host from
+anywhere. No cloud account required.
 
-## Run
+The application, its source folders and its storage paths still use the internal name Homebase.
 
-Requires [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) and [Node.js](https://nodejs.org/) 22.12+ (an LTS release recommended).
+- [What's built](#whats-built)
+- [Set up a host](#set-up-a-host) — for whoever looks after the Uncloud
+- [Using Uncloud](#using-uncloud) — for everyone with an account
+- [Reference](#reaching-the-host): network access, tunnels, importing, syncing, backups
+- [Development](#development)
+
+## What's built
+
+**Accounts and isolation**
+
+- Username-and-password accounts with sessions. The first account is the administrator; an
+  administrator can add people, give them a new password, make them administrators too, sign them
+  out for good, or delete them, and the last administrator can't be removed.
+- One host folder holds a folder per account under `users/<opaque id>/`. Which folder a request
+  may touch comes from the signed-in session, never from the request, and every path goes through
+  one policy that refuses traversal, hidden entries and symbolic links.
+- Sign-in guesses are throttled; changing a password signs you out everywhere else. The API checks
+  host and origin, requires a custom header on anything that changes state, and refuses everything
+  but sign-in without a session.
+- Accounts, sessions, host settings and sealed connector tokens live in a control database in the
+  preference directory, outside the storage folder.
+
+**Browsing**
+
+- Nested folders, breadcrumbs, browser back/forward, filtering and sorting within a folder, file
+  details and downloads. Files are always read live from disk; a per-account SQLite cache in
+  `.homebase/index.db` holds metadata and is rebuildable.
+- The sidebar shows how much you are using and how much is free on the drive.
+
+**Bringing files in** — two sources, one import engine
+
+- **A folder on the host's computer**: a Dropbox, Google Drive, OneDrive or iCloud Drive folder a
+  desktop app already syncs, an old drive, `Documents`. An administrator chooses which folders are
+  offered; nobody signs in to anything.
+- **A Dropbox account online**, read-only, over OAuth with PKCE. Each account connects its own
+  Dropbox. The Dropbox app key can be set by the administrator for everybody, or by any person for
+  themselves, entirely in the app.
+- Imports run as background jobs with progress and **Stop**, check the drive has room before
+  starting, never overwrite anything, bring only what's new on a repeat, and log provenance.
+
+**Your own computers**
+
+- Each person can keep a folder on their laptop or desktop in two-way sync with their Uncloud folder
+  through [Syncthing](https://syncthing.net), which the host runs and supervises. Computers,
+  folders and offers are owned per account. Deleted or replaced files are kept on the host for 30
+  days. Syncing works from anywhere, not only at home.
+- One-time pairing codes let a future desktop app pair a computer without copying device IDs.
+
+**Reaching the host**
+
+- Loopback-only by default. It can be opened to the home network (host allowlist required, HTTPS
+  with your own certificate or behind a reverse proxy), or to the internet through a tunnel: the
+  bundled one, built on Tailscale's `tsnet`, needs only a free Tailscale account and one click;
+  an existing `tailscale` or `cloudflared` install also works.
+
+**Also in this repository**
+
+- A landing page for [www.uncloud.life](https://www.uncloud.life/) with an early-access signup
+  that records to Airtable ([`landing/`](landing/README.md)).
+- Integration tests over real temporary files and SQLite, run by `./scripts/check.sh` in CI on
+  macOS and Linux.
+
+**Not built yet**
+
+- Uploading, renaming, moving or deleting files in the web interface. Files arrive by import or
+  by syncing a computer.
+- Sharing a folder between accounts, per-account storage quotas, search across folders, and a
+  restore button for synced files.
+- Direct connectors for Google Drive, iCloud or Evernote (use their synced folders instead).
+- A packaged, signed app, a background service that starts with the computer, and a desktop client.
+  The folder chooser is macOS-only; elsewhere you type a path.
+- Any backup. See [Keeping a copy](#keeping-a-copy).
+
+## Set up a host
+
+The host is the computer everybody's files live on. It needs to stay on and awake while people use
+it. Anything that runs .NET works; macOS is the most exercised, and Linux runs in CI.
+
+### 1. Install what it needs
+
+| | Needed for | macOS | Debian/Ubuntu |
+| --- | --- | --- | --- |
+| [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) | Always | `brew install --cask dotnet-sdk` | [Microsoft's packages](https://learn.microsoft.com/dotnet/core/install/linux) |
+| [Node.js](https://nodejs.org/) 22.12+ | Always, to build the interface | `brew install node` | [NodeSource](https://github.com/nodesource/distributions) or `nvm` |
+| [Syncthing](https://syncthing.net) 1.x or 2.x | Syncing people's computers | `brew install syncthing` | `sudo apt install syncthing` |
+| [Go](https://go.dev/dl/) | The bundled tunnel, when running from source | `brew install go` | [go.dev/dl](https://go.dev/dl/) |
+
+`scripts/dotnet.sh` finds an SDK matching the major version in `global.json` on `PATH`, in
+`~/.dotnet`, or in `~/.cache/homebase/dotnet`, and skips an older `dotnet` rather than using it.
+Only the first dependency restore needs the internet; Uncloud itself works offline.
+
+You don't need to start Syncthing yourself. Uncloud runs its own copy, with its own configuration
+under the preference directory, and stops it on the way out. Without Syncthing installed,
+everything except **My computers** still works.
+
+### 2. Get the code and start it
 
 ```sh
-cd /Users/ethanteng/Projects/homebase
+git clone https://github.com/ethanteng/homebase.git uncloud
+cd uncloud
 ./scripts/run.sh
 ```
 
-Open **http://127.0.0.1:5210**. The first visit asks you to make an account; that first account looks after this Uncloud. Then choose an existing folder in Finder, or enter its absolute path (`~/Uncloud` also works), and select **Use this folder**. Create a new folder in Finder first if needed. Stop the app with Ctrl+C.
+The run script installs the interface's dependencies when needed, builds it, and starts the server.
+Leave the terminal open; Ctrl+C stops Uncloud. There is no background service yet, so if the host
+restarts, run it again.
 
-Everyone you add under **People** gets a folder of their own underneath that one, and their own Dropbox connection. Nobody can reach anybody else's. [`docs/multi-user.md`](docs/multi-user.md) is the design; the short version is below.
+On a Mac you can instead build a self-contained executable, which needs neither the SDK nor Node
+on the host; see [Desktop packaging](#desktop-packaging).
 
-The run script installs frontend dependencies when needed, builds the UI, and starts the backend serving both the app and API. First-time dependency restore requires internet; the app itself works offline. `scripts/dotnet.sh` finds an SDK matching the major version in `global.json`, checking PATH, `~/.dotnet`, then `~/.cache/homebase/dotnet`. An older `dotnet` on PATH is skipped rather than used.
+### 3. Make the first account and choose the folder
 
-For development, use two terminals:
+Open **http://127.0.0.1:5210** on the host itself.
+
+1. The first visit asks **Who are you?** The account it makes is the administrator — it looks after
+   this Uncloud. Use a password of at least 10 characters.
+2. **Where will everyone's files live?** Choose a folder (**Choose in Finder** on a Mac, or type an
+   absolute path; `~/Uncloud` works) and **Use this folder**. Make an empty folder first if you
+   need one; an external drive is fine. Everyone draws on that drive's free space.
+
+Uncloud never moves, changes or deletes existing files, except in a folder someone chooses to sync
+with their own computer. Your own files go under `users/<your id>/` inside the host folder.
+
+On macOS, if the folder can't be read, allow the terminal (or the app) under **System Settings →
+Privacy & Security → Files and Folders**. If the drive disconnects later, reconnect it and
+refresh, or choose another folder under **Storage settings**.
+
+### 4. Add everyone else
+
+**People → Add someone**: a username, their name, and a first password (at least 10 characters).
+Uncloud can't e-mail anybody, so give them the password in person and ask them to change it under
+**My account**. Tick **Let them look after this Uncloud too** only for people who should manage
+accounts and the host.
+
+### 5. Decide where files can come from (optional)
+
+- **Where files come from → Folders on this computer.** Add the folders people may import from.
+  Uncloud suggests what it finds (`~/Dropbox`, `~/Google Drive`, `~/Library/CloudStorage/*`,
+  `Documents`, `Pictures`…). **Every account can import from every folder added here**, so don't
+  add anything private to one person.
+- **Where files come from → Dropbox app for everyone here.** Create an app at
+  [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps) (Scoped access, Full
+  Dropbox), tick `account_info.read`, `files.metadata.read` and `files.content.read`, register the
+  redirect URI the screen shows, and paste the app key. Then connecting Dropbox is one click for
+  everyone. The app key isn't a secret, and there is no app secret. Skip this and people can set
+  their own under **My account**.
+
+The redirect URI is built from the address Uncloud is reached at, so set up remote access (next)
+first if people will connect Dropbox from outside the house.
+
+### 6. Let people reach it
+
+Out of the box only the host itself can open Uncloud. Pick one way in:
+
+**From anywhere, with the bundled tunnel (recommended).** It gives you HTTPS and a stable address
+that works at home and away, without opening any port on your router.
 
 ```sh
-./scripts/dotnet.sh run --project src/Homebase.Server
-# In another terminal:
-npm --prefix src/homebase-web ci
-npm --prefix src/homebase-web run dev
+./scripts/build-tunnel.sh                              # once, and after pulling changes to tools/
+Homebase__RemoteAccess__Provider=builtin ./scripts/run.sh
 ```
 
-Open **http://127.0.0.1:5173** for live frontend updates. Vite proxies `/api` to the backend; neither server listens on the network.
+Then, as the administrator, open **Storage settings → Reaching this host from anywhere** and
+**Allow this host**. Sign in to (or create) a free Tailscale account. In Tailscale's admin console,
+once: allow Funnel for the tailnet (Access controls → `nodeAttrs` → `funnel`) and turn on HTTPS
+certificates (DNS). The address appears in **Storage settings** without a restart — send it to
+everyone. The tunnel is bandwidth-limited: fine for browsing and ordinary files, not for moving a
+whole library. Details and alternatives in [Reaching it from anywhere](#reaching-it-from-anywhere).
 
-## This milestone
+**On the home network only.** Tell Uncloud which names it answers to; it refuses to start without
+them.
 
-- Accounts with passwords and sessions; the first one is the administrator.
-- One host folder, chosen once, holding a folder per account under `users/`.
-- Imports from folders on the host's computer and from per-account Dropbox connections, with a metadata index.
-- In-app Dropbox setup, per account or host-wide, and host-managed places to import from, so nothing needs a terminal.
-- Per-account syncing with your own computers through Syncthing, so changes made on a laptop — additions, edits and deletions — reach the host, with deleted and replaced files kept for 30 days.
-- Native macOS folder chooser, with a manual path fallback.
-- Nested folder navigation, breadcrumbs, browser back/forward, folder-local filtering and sorting, file details, and downloads.
-- Live filesystem reads on navigation/refresh; a transactional SQLite metadata cache at `<user folder>/.homebase/index.db`.
-- Empty, loading, missing-folder, permission, sign-in, and connection error states.
-
-Uncloud doesn’t move, modify, or delete your existing files — except in a folder you choose to sync with your own computers, where a change made on one of them, deletion included, is made here too. Hidden entries (including `.homebase`) stay out of the browser. Symbolic links are skipped; traversal and direct hidden-path requests are rejected. Arbitrary file content is downloaded as an attachment, never executed on the app’s origin. The API restricts host/origin, requires a custom header for mutations, and refuses everything but sign-in without a session.
-
-## Architecture
-
-```text
-src/Homebase.Core/       Filesystem boundaries, SQLite cache
-  Accounts/             Accounts, sessions, sealed connector tokens, per-user workspaces
-  Importing/            Contract for future importer adapters
-src/Homebase.Server/     ASP.NET Core API, macOS picker, built React assets
-src/homebase-web/        React + TypeScript + Vite
-tests/Homebase.Tests/    Integration tests against real temporary files and SQLite
+```sh
+Homebase__Bind=0.0.0.0 \
+Homebase__AllowedHosts=uncloud.local,192.168.1.10 \
+Homebase__Certificate__Path=/path/to/uncloud.pfx \
+./scripts/run.sh
 ```
 
-The filesystem is the source of truth. Browsing scans one directory and atomically replaces that directory’s cached entries. There is no recursive scan, file watcher, content index, or global search yet. Metadata for unvisited or removed nested folders may be stale until visited; the UI always reads disk. Filtering covers the current folder only. Keep v0 to reasonably sized individual directories; pagination is a later step.
+Without a certificate, passwords and files cross your network unencrypted, and Uncloud warns you
+so at startup. See [Reaching it from other computers](#reaching-it-from-other-computers) for a
+reverse proxy instead.
 
-Accounts, sessions, host settings and sealed provider tokens live in `~/Library/Application Support/Homebase/homebase.db`, beside a 32-byte `host.key`, outside the storage root and so outside the boundary they define. Each account's file metadata lives in its own `.homebase`. Stop Uncloud and remove a `.homebase` to reset that rebuildable cache; browse the folder again to recreate it. This cache is not a backup.
+The first account can only be made from the host or its network, never through the tunnel.
 
-`Homebase__Dropbox__AppKey` supplies the host's Dropbox app key for a host that would rather not use
-the settings screen; an account with its own key ignores it. `Homebase__Syncthing__*` configures the Syncthing process described under [Your own computers](#your-own-computers). `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite's proxy for development). Run a single Uncloud process per preference directory. Uncloud is not a sandbox: one process runs as one operating-system user and can read every account's folder, so isolation is enforced in Uncloud, not by the kernel, and anyone with a shell on the host can read everything.
+### 7. Set up a backup
+
+Uncloud keeps exactly one copy of everything on the host's drive. Before anybody relies on it,
+back up the host folder with something that keeps versions (Time Machine, restic, rclone), and the
+preference directory if you want the accounts to survive too. See
+[Keeping a copy](#keeping-a-copy).
+
+### Where the host keeps things
+
+| What | Where |
+| --- | --- |
+| Everyone's files | The host folder you chose: `users/<id>/…` |
+| Each account's metadata cache | `users/<id>/.homebase/index.db` (rebuildable) |
+| Accounts, sessions, settings, sealed tokens, `host.key` | macOS: `~/Library/Application Support/Homebase/` · Linux: `~/.local/share/Homebase/` |
+| Syncthing's configuration and the tunnel's identity | `syncthing/` and `tunnel/` in that same preference directory |
+
+Run one Uncloud per preference directory. Uncloud runs as one operating-system user and can read
+every account's folder, so isolation between accounts is enforced by Uncloud, not by the operating
+system: anyone with a shell on the host can read everything.
+
+## Using Uncloud
+
+### Sign in
+
+Whoever looks after your Uncloud gives you three things: its address, your username, and a first
+password. Open the address in any browser, on a computer or phone, and sign in. Then open **My
+account** and **Change my password**; this signs out every other browser signed in as you.
+There is no "forgot password" link. If you lose it, an administrator can give you a new one.
+
+### Your files
+
+**My files** is your folder, and only yours: nobody else signed in to this Uncloud can see it.
+Open folders, go back with the browser, filter and sort, select a file for its details, and download
+it. The sidebar shows how much you are using and how much room is left on the host's drive, which
+everyone shares.
+
+The web interface doesn't upload, rename or delete files yet. Files get into your folder in two
+ways: bring them in, or sync a computer.
+
+### Bring files in
+
+Open **Bring files in** and choose where from.
+
+- **A folder on the host.** Any folder your administrator has made available: typically the
+  household's Dropbox or Google Drive folder, or an old drive. Pick a file or folder and bring it
+  home. It is copied; the original stays where it was.
+- **Your Dropbox.** **Connect your Dropbox** and approve read-only access; Uncloud can't change
+  anything there. If nobody has set up a Dropbox app for this Uncloud, **My account → Your Dropbox
+  app** walks you through making your own in a couple of minutes.
+
+Use **Check size** on a folder first to see whether it fits. An import keeps going if you close the
+page, and **Stop** ends it, keeping whatever has already arrived. Importing the same folder again
+brings only what's new, and nothing already here is ever overwritten. Imported files land under
+`Files/` in your folder, for example `Files/Dropbox/`.
+
+### Sync your own computers
+
+To keep a folder on your laptop in step with your Uncloud folder, open **My computers**.
+
+1. Install [Syncthing](https://syncthing.net/downloads/) on your computer and open it.
+2. In Syncthing, **Add Remote Device** and paste this Uncloud's ID (copy it from **My computers**).
+3. In Uncloud, paste your computer's ID (Syncthing: **Actions → Show ID**) and **Add computer**.
+4. Either type a folder under **Sync folder** in Uncloud (for example `Documents`, or leave it
+   empty for all your files) and accept the folder when Syncthing on your computer offers it, or
+   share a folder from Syncthing on your computer and choose **Keep it here** when it appears under
+   **Offered by your computers**.
+
+From then on, adding, editing or **deleting** a file on either side does the same on the other,
+including when you're away from home. If you delete something by mistake, the host keeps deleted
+and replaced files for 30 days in a hidden `.stversions` folder; ask your administrator to copy it
+back out, as there is no restore button yet. If a file changes on both sides while they're apart,
+you'll find both copies, one with `.sync-conflict-` in its name.
+
+**Stop syncing** stops a folder from syncing and leaves its files on both sides.
+
+## Reaching the host
+
+Everything below is reference for the options in [step 6](#6-let-people-reach-it).
 
 ### Reaching it from other computers
 
@@ -199,29 +411,10 @@ Neither is a good way to move a whole library across the internet. Both are a go
 one from a phone. If large transfers from outside matter to you, put Uncloud behind your own
 reverse proxy on your own name, as above, and keep the tunnel for convenience.
 
+
 ### Upgrading a single-user library
 
 The folder a previous version used becomes the host folder, and nothing in it is moved. Files sitting at its top level are listed under **Storage settings**, and **Move them into my folder** renames each one into the administrator's folder — nothing is copied, and anything whose name is already taken is reported rather than overwritten.
-
-### Future importers and desktop packaging
-
-`IImportSource` is what the import engine sees: metadata, a listing, and a stream. A Dropbox account
-and a folder on this computer both implement it, so nothing in the engine, the panel, or the log
-knows which is which. A new service is that interface plus whatever it takes to authenticate, and it
-chooses the folder under `Files/` its imports land in. An implementation is responsible for refusing
-any path that reaches outside the place it stands for. `IHomebaseImporter` remains an unimplemented
-contract for adapters that want to write into the library directly, such as Evernote notes and
-attachments under `Notes/Evernote/`; these folders aren’t created until something needs them.
-
-Core logic has no web or desktop dependency. ASP.NET serves the compiled UI and can be started by a future desktop shell. To create a self-contained macOS build without adding a desktop framework:
-
-```sh
-./scripts/publish-macos.sh            # Apple Silicon
-./scripts/publish-macos.sh osx-x64    # Intel
-./artifacts/osx-arm64/Homebase.Server
-```
-
-Open http://127.0.0.1:5210. This produces a local executable and its assets, not a signed `.app` or `.dmg` yet. No billing, AI, or photo management is included, and there are no per-account storage quotas: everyone draws on the same drive, so one account can fill it for everyone.
 
 ## Bringing files in
 
@@ -413,11 +606,66 @@ themselves to survive, not just the files.
 The web interface is reachable from outside the house only through a tunnel, described above.
 Syncing with your own computers works from anywhere either way.
 
-## Landing page
+## Development
 
-The standalone **Uncloud** messaging page for **uncloud.life** is in [`landing/`](landing/README.md). Preview it with `npm --prefix src/homebase-web run dev:landing` at **http://127.0.0.1:5174**. Build it with `npm --prefix src/homebase-web run build:landing`; the static output goes to `artifacts/landing/` and contains no file-browser API. The application and its storage paths still use the internal name Homebase.
+For live interface updates, use two terminals:
 
-## Check
+```sh
+./scripts/dotnet.sh run --project src/Homebase.Server
+# In another terminal:
+npm --prefix src/homebase-web ci
+npm --prefix src/homebase-web run dev
+```
+
+Open **http://127.0.0.1:5173**. Vite proxies `/api` to the backend; neither server listens on the network.
+
+### Architecture
+
+```text
+src/Homebase.Core/       Filesystem boundaries, SQLite cache, the import engine
+  Accounts/             Accounts, sessions, sealed connector tokens, per-user workspaces
+  Providers/            Import sources (Dropbox, folders on the host), import jobs and log
+  Sync/                 Syncthing client, per-account ownership, pairing codes
+  Importing/            Contract for future importer adapters
+src/Homebase.Server/     ASP.NET Core API, host binding, tunnel and Syncthing supervision, macOS picker
+src/homebase-web/        React + TypeScript + Vite
+tools/uncloud-tunnel/    The bundled tunnel: a Tailscale node built from tsnet (Go)
+tests/Homebase.Tests/    Integration tests against real temporary files and SQLite
+landing/, api/           The uncloud.life landing page and its signup function
+```
+
+[`docs/multi-user.md`](docs/multi-user.md) is the design for accounts and isolation.
+
+The filesystem is the source of truth. Browsing scans one directory and atomically replaces that directory’s cached entries. There is no recursive scan, file watcher, content index, or global search yet. Metadata for unvisited or removed nested folders may be stale until visited; the UI always reads disk. Filtering covers the current folder only. Keep v0 to reasonably sized individual directories; pagination is a later step.
+
+Accounts, sessions, host settings and sealed provider tokens live in `homebase.db` in the preference directory ([where](#where-the-host-keeps-things)), beside a 32-byte `host.key`, outside the storage root and so outside the boundary they define. Each account's file metadata lives in its own `.homebase`. Stop Uncloud and remove a `.homebase` to reset that rebuildable cache; browse the folder again to recreate it. This cache is not a backup.
+
+`Homebase__Dropbox__AppKey` supplies the host's Dropbox app key for a host that would rather not use
+the settings screen; an account with its own key ignores it. `Homebase__Syncthing__*` configures the Syncthing process described under [Your own computers](#your-own-computers). `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite's proxy for development). Run a single Uncloud process per preference directory. Uncloud is not a sandbox: one process runs as one operating-system user and can read every account's folder, so isolation is enforced in Uncloud, not by the kernel, and anyone with a shell on the host can read everything.
+
+### Future importers
+
+`IImportSource` is what the import engine sees: metadata, a listing, and a stream. A Dropbox account
+and a folder on this computer both implement it, so nothing in the engine, the panel, or the log
+knows which is which. A new service is that interface plus whatever it takes to authenticate, and it
+chooses the folder under `Files/` its imports land in. An implementation is responsible for refusing
+any path that reaches outside the place it stands for. `IHomebaseImporter` remains an unimplemented
+contract for adapters that want to write into the library directly, such as Evernote notes and
+attachments under `Notes/Evernote/`; these folders aren’t created until something needs them.
+
+### Desktop packaging
+
+Core logic has no web or desktop dependency. ASP.NET serves the compiled UI and can be started by a future desktop shell. To create a self-contained macOS build without adding a desktop framework:
+
+```sh
+./scripts/publish-macos.sh            # Apple Silicon
+./scripts/publish-macos.sh osx-x64    # Intel
+./artifacts/osx-arm64/Homebase.Server
+```
+
+Open http://127.0.0.1:5210. The bundled tunnel is built beside it, so `Homebase__RemoteAccess__Provider=builtin` needs nothing else. This produces a local executable and its assets, not a signed `.app` or `.dmg` yet. No billing, AI, or photo management is included, and there are no per-account storage quotas: everyone draws on the same drive, so one account can fill it for everyone.
+
+### Check
 
 ```sh
 ./scripts/check.sh
@@ -427,4 +675,6 @@ Builds/type-checks the frontend and runs backend integration tests for accounts 
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 
-If macOS blocks a folder, check **System Settings → Privacy & Security → Files and Folders** for the app or terminal launching Uncloud. If a drive disconnects, reconnect it and refresh, or choose another root in Storage settings.
+## Landing page
+
+The standalone **Uncloud** messaging page for **uncloud.life** is in [`landing/`](landing/README.md). Preview it with `npm --prefix src/homebase-web run dev:landing` at **http://127.0.0.1:5174**. Build it with `npm --prefix src/homebase-web run build:landing`; the static output goes to `artifacts/landing/` and contains no file-browser API. The application and its storage paths still use the internal name Homebase.
