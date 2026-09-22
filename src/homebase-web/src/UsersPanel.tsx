@@ -151,7 +151,10 @@ export default function UsersPanel({ me }: Props) {
         <div className="import-section-head">
           <h2>Accounts</h2>
           <div className="empty-actions">
-            <button className="refresh-button" onClick={() => void load()}>
+            <button
+              className="button secondary refresh-button"
+              onClick={() => void load()}
+            >
               <RefreshCw size={15} />
               Refresh
             </button>
@@ -166,7 +169,7 @@ export default function UsersPanel({ me }: Props) {
         </div>
 
         {adding && (
-          <form className="setup-form compact" onSubmit={add}>
+          <form className="setup-form compact people-form" onSubmit={add}>
             <label htmlFor="new-username">Username</label>
             <input
               id="new-username"
@@ -232,36 +235,36 @@ export default function UsersPanel({ me }: Props) {
           </div>
         ) : (
           <div className="table-scroll">
-            <table>
+            <table className="people-table">
               <thead>
                 <tr>
                   <th>Account</th>
                   <th className="size-cell">Using</th>
-                  <th className="action-cell">Looks after this Uncloud</th>
-                  <th className="action-cell" />
+                  <th>Looks after it</th>
+                  <th>
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {users.map((user) => (
                   <tr key={user.id}>
-                    <td className="file-name">
+                    <td className="person-cell">
                       <strong>{user.displayName}</strong>
-                      <span className="muted"> @{user.username}</span>
-                      {user.id === me.id && (
-                        <span className="muted"> — that’s you</span>
-                      )}
-                      {user.disabledAt && (
-                        <span className="muted"> — signed out for good</span>
-                      )}
+                      <span className="muted">
+                        @{user.username}
+                        {user.id === me.id && " · that’s you"}
+                        {user.disabledAt && " · signed out for good"}
+                      </span>
                     </td>
                     <td className="size-cell">
                       {user.usedBytes === null
                         ? "—"
                         : formatSize(user.usedBytes)}
                     </td>
-                    <td className="action-cell">
+                    <td>
                       <button
-                        className="refresh-button"
+                        className="row-action"
                         disabled={busy === user.id}
                         onClick={() =>
                           void change(user.id, () =>
@@ -276,38 +279,42 @@ export default function UsersPanel({ me }: Props) {
                         {user.isAdmin ? "Yes" : "No"}
                       </button>
                     </td>
-                    <td className="action-cell">
-                      <button
-                        className="refresh-button"
-                        disabled={busy === user.id}
-                        onClick={() => void resetPassword(user)}
-                      >
-                        New password
-                      </button>
-                      <button
-                        className="refresh-button"
-                        disabled={busy === user.id}
-                        onClick={() =>
-                          void change(user.id, () =>
-                            api(`/users/${user.id}`, {
-                              method: "PATCH",
-                              body: JSON.stringify({
-                                disabled: user.disabledAt === null,
+                    <td>
+                      <div className="row-actions">
+                        <button
+                          className="row-action"
+                          disabled={busy === user.id}
+                          onClick={() => void resetPassword(user)}
+                        >
+                          New password
+                        </button>
+                        <button
+                          className="row-action"
+                          disabled={busy === user.id}
+                          onClick={() =>
+                            void change(user.id, () =>
+                              api(`/users/${user.id}`, {
+                                method: "PATCH",
+                                body: JSON.stringify({
+                                  disabled: user.disabledAt === null,
+                                }),
                               }),
-                            }),
-                          )
-                        }
-                      >
-                        {user.disabledAt ? "Let back in" : "Sign out for good"}
-                      </button>
-                      <button
-                        className="refresh-button"
-                        disabled={busy === user.id}
-                        onClick={() => void remove(user)}
-                      >
-                        <Trash2 size={15} />
-                        Delete
-                      </button>
+                            )
+                          }
+                        >
+                          {user.disabledAt
+                            ? "Let back in"
+                            : "Sign out for good"}
+                        </button>
+                        <button
+                          className="row-action"
+                          disabled={busy === user.id}
+                          onClick={() => void remove(user)}
+                        >
+                          <Trash2 size={15} />
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
