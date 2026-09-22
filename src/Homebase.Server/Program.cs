@@ -119,14 +119,16 @@ string[] administrative =
 // named in configuration are believed, and only about the scheme and host.
 if (binding.TrustedProxies.Count > 0)
 {
+    // A tunnel adds the client's own address to that. Everything it carries reaches Kestrel from
+    // loopback, so without this the sign-in throttle would count every person on the internet
+    // into one bucket, and ten wrong guesses from anywhere would lock out every account on the
+    // host, including whoever is sitting at it. Only a tunnel Uncloud opened itself is taken at
+    // its word about who the client is: a proxy somebody else configured is believed about the
+    // scheme and host it was named for, and nothing more.
+    var client = remote.IsEnabled ? ForwardedHeaders.XForwardedFor : ForwardedHeaders.None;
     var forwarded = new ForwardedHeadersOptions
     {
-        // The client's own address among them: everything arriving through a tunnel reaches
-        // Kestrel from loopback, and without this the sign-in throttle counts every person on
-        // the internet into one bucket — ten wrong guesses from anywhere would lock out every
-        // account on the host, including whoever is sitting at it.
-        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-            | ForwardedHeaders.XForwardedHost,
+        ForwardedHeaders = client | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
         ForwardLimit = 1
     };
     forwarded.KnownIPNetworks.Clear();
