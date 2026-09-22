@@ -39,6 +39,13 @@ jobs:
           cache: npm
           cache-dependency-path: src/homebase-web/package-lock.json
 
+      # The tunnel Uncloud ships is Go. tailscale.com pins a newer toolchain than this,
+      # which GOTOOLCHAIN=auto fetches rather than failing on.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: tools/uncloud-tunnel/go.sum
+
       # Builds and type-checks the frontend, then runs the backend integration
       # tests: the same script a contributor runs locally.
       - run: ./scripts/check.sh

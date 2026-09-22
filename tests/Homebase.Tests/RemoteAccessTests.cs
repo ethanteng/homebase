@@ -39,9 +39,16 @@ public sealed class RemoteAccessTests : IDisposable
     }
 
     /// <summary>Stands a tunnel up in place of the real one, announcing these addresses in turn.</summary>
-    private static Tunnels Open(string provider, params string[] addresses)
+    private Tunnels Open(string provider, params string[] addresses) =>
+        Standing(provider, null, addresses);
+
+    /// <summary>The same, for a tunnel that has to be allowed by a person before it opens.</summary>
+    private Tunnels OpenAwaitingSignIn(string provider, string signIn, params string[] addresses) =>
+        Standing(provider, signIn, addresses);
+
+    private Tunnels Standing(string provider, string? signIn, string[] addresses)
     {
-        var tunnels = new Tunnels(addresses);
+        var tunnels = new Tunnels(signIn, addresses);
         var options = Read(new() { ["Homebase:RemoteAccess:Provider"] = provider });
         RemoteAccess.Override = _ => new RemoteAccess(options, NullLogger.Instance, tunnels.Next);
         return tunnels;
@@ -256,6 +263,88 @@ public sealed class RemoteAccessTests : IDisposable
     }
 
     [Fact]
+    public async Task A_tunnel_waiting_to_be_allowed_does_not_hold_the_host_offline()
+    {
+        const string Link = "https://login.tailscale.com/a/10692893011e9b";
+        using var tunnels = OpenAwaitingSignIn("builtin", Link, "home.tail9f3a.ts.net");
+        using var app = new TestHost(_config);
+
+        // Everyone at home is waiting for their files while the administrator goes to find their
+        // phone. Startup that blocked on them would take the household offline to do it.
+        using var admin = await app.SignUpAsync("ada");
+        var state = await admin.GetFromJsonAsync<JsonElement>("/api/remote-access");
+
+        Assert.Equal("needs_sign_in", state.GetProperty("status").GetString());
+        Assert.Equal(Link, state.GetProperty("signInUrl").GetString());
+        Assert.Equal(JsonValueKind.Null, state.GetProperty("hostname").ValueKind);
+    }
+
+    [Fact]
+    public async Task Allowing_it_makes_the_host_answer_without_being_restarted()
+    {
+        const string Link = "https://login.tailscale.com/a/10692893011e9b";
+        const string Announced = "home.tail9f3a.ts.net";
+        using var tunnels = OpenAwaitingSignIn("builtin", Link, Announced);
+        using var app = new TestHost(_config);
+        using var admin = await app.SignUpAsync("ada");
+
+        // Nobody has allowed it yet, so the name belongs to nobody.
+        using (var early = Through(app, Announced))
+            Assert.Equal(HttpStatusCode.Forbidden, (await early.GetAsync("/api/health")).StatusCode);
+
+        tunnels.Latest!.Allow();
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        JsonElement state;
+        while ((state = await admin.GetFromJsonAsync<JsonElement>("/api/remote-access"))
+                   .GetProperty("status").GetString() != "on"
+               && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(50);
+
+        Assert.Equal("on", state.GetProperty("status").GetString());
+        Assert.Equal($"https://{Announced}", state.GetProperty("url").GetString());
+        Assert.Equal(JsonValueKind.Null, state.GetProperty("signInUrl").ValueKind);
+
+        // And signing in through it works now, not after a restart: loopback is trusted as a
+        // proxy because remote access is on, not because an address had already arrived.
+        using var arriving = Through(app, Announced);
+        var response = await arriving.PostAsJsonAsync("/api/session",
+            new { username = "ada", password = TestHost.Password });
+
+        response.EnsureSuccessStatusCode();
+        Assert.Contains("secure", Assert.Single(response.Headers.GetValues("Set-Cookie")),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void The_builtin_tunnel_is_the_one_uncloud_ships()
+    {
+        var options = Read(new() { ["Homebase:RemoteAccess:Provider"] = "builtin" });
+
+        // Beside the application, so there is nothing to install and nothing to find on a PATH.
+        Assert.Equal(Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows()
+            ? "uncloud-tunnel.exe" : "uncloud-tunnel"), options.Executable);
+        // And its identity is kept, so the allowing is asked for once rather than every start.
+        Assert.Equal($"-target http://127.0.0.1:5210 -state \"{Path.Combine(_config, "tunnel")}\" "
+            + "-hostname uncloud", options.ArgumentsFor(5210));
+    }
+
+    [Fact]
+    public void Only_uncloud_own_tunnel_has_anybody_to_ask()
+    {
+        var builtin = Read(new() { ["Homebase:RemoteAccess:Provider"] = "builtin" });
+        Assert.Equal("https://login.tailscale.com/a/abc",
+            builtin.SignInPrompt!.Match("uncloud-tunnel: signin=https://login.tailscale.com/a/abc")
+                .Groups[1].Value);
+        Assert.Equal("home.tail9f3a.ts.net",
+            builtin.Announcement.Match("uncloud-tunnel: url=home.tail9f3a.ts.net").Groups[1].Value);
+
+        // tailscale and cloudflared are signed in before Uncloud ever runs them.
+        Assert.Null(Read(new() { ["Homebase:RemoteAccess:Provider"] = "tailscale" }).SignInPrompt);
+        Assert.Null(Read(new() { ["Homebase:RemoteAccess:Provider"] = "cloudflare" }).SignInPrompt);
+    }
+
+    [Fact]
     public async Task A_tunnel_program_that_isnt_there_says_so_instead_of_starting()
     {
         var options = Read(new()
@@ -329,8 +418,9 @@ public sealed class RemoteAccessTests : IDisposable
         Assert.Throws<LibraryException>(() => Read(new() { ["Homebase:RemoteAccess:Provider"] = "ngrok" }));
     }
 
-    private static RemoteAccessOptions Read(Dictionary<string, string?> settings) =>
-        RemoteAccessOptions.From(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+    private RemoteAccessOptions Read(Dictionary<string, string?> settings) =>
+        RemoteAccessOptions.From(
+            new ConfigurationBuilder().AddInMemoryCollection(settings).Build(), _config);
 
     /// <summary>Signs in through the tunnel as an account that was set up at the host itself.</summary>
     private static async Task<HttpClient> SignInThroughAsync(
@@ -358,7 +448,7 @@ public sealed class RemoteAccessTests : IDisposable
     }
 
     /// <summary>Hands out one stand-in tunnel per opening, announcing the next address in turn.</summary>
-    private sealed class Tunnels(params string[] addresses) : IDisposable
+    private sealed class Tunnels(string? signIn, params string[] addresses) : IDisposable
     {
         private readonly ConcurrentQueue<string> _addresses = new(addresses);
         private readonly List<Tunnel> _opened = [];
@@ -369,9 +459,18 @@ public sealed class RemoteAccessTests : IDisposable
         {
             // The last address stands in for a tunnel service that keeps handing back the same
             // name, so a reconnect loop never runs out of them.
-            if (!_addresses.TryDequeue(out var address)) address = addresses[^1];
-            var tunnel = new Tunnel(address);
-            lock (_opened) _opened.Add(tunnel);
+            if (!_addresses.TryDequeue(out var address))
+                address = addresses.Length > 0
+                    ? addresses[^1]
+                    : throw new InvalidOperationException("This stand-in was given no address to announce.");
+            Tunnel tunnel;
+            lock (_opened)
+            {
+                // Only the first is asked to be allowed: a kept identity spares the rest, which
+                // is the whole reason it is kept.
+                tunnel = new Tunnel(address, _opened.Count == 0 ? signIn : null);
+                _opened.Add(tunnel);
+            }
             return tunnel;
         }
 
@@ -381,12 +480,25 @@ public sealed class RemoteAccessTests : IDisposable
         }
     }
 
-    private sealed class Tunnel(string address) : ITunnel
+    private sealed class Tunnel(string address, string? signIn = null) : ITunnel
     {
         private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<string> _opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<string> _asked = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task Closed => _closed.Task;
-        public Task<string> OpenAsync(int port, CancellationToken cancellationToken) => Task.FromResult(address);
+        public Task<string> SignInRequired => _asked.Task;
+
+        public Task<string> OpenAsync(int port, CancellationToken cancellationToken)
+        {
+            if (signIn is null) _opened.TrySetResult(address);
+            else _asked.TrySetResult(signIn);
+            return _opened.Task.WaitAsync(cancellationToken);
+        }
+
+        /// <summary>Stands in for the person following the link and allowing this host.</summary>
+        public void Allow() => _opened.TrySetResult(address);
+
         public void Drop() => _closed.TrySetResult();
         public ValueTask DisposeAsync() { Drop(); return ValueTask.CompletedTask; }
     }

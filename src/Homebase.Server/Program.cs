@@ -20,26 +20,42 @@ static string Join(string? existing, params string[] additions) => string.Join('
     (existing ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Concat(additions).Distinct(StringComparer.OrdinalIgnoreCase));
 
+var defaultConfig = OperatingSystem.IsMacOS()
+    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "Homebase")
+    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Homebase");
+
 // Read once before anything is started, so a missing certificate or an unreadable bind address
 // is refused while there is still nothing running to clean up.
 HostBinding.From(builder.Configuration);
 
 var remoteLog = LoggerFactory.Create(logging => logging.AddConsole());
-var remote = RemoteAccess.From(builder.Configuration, remoteLog.CreateLogger("Homebase.RemoteAccess"));
+var remote = RemoteAccess.From(
+    builder.Configuration,
+    builder.Configuration["Homebase:ConfigDirectory"] ?? defaultConfig,
+    remoteLog.CreateLogger("Homebase.RemoteAccess"));
+// A tunnel still waiting to be allowed by a person answers with no address. Uncloud comes up
+// anyway — everyone on the network is waiting for their files — and starts answering to the
+// address as soon as the watch below hears it.
 if (remote.IsEnabled)
 {
     var announced = remote.Open(builder.Configuration.GetValue("Homebase:Port", 5210));
-    builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+    var overlay = new Dictionary<string, string?>
     {
-        ["Homebase:AllowedHosts"] = Join(builder.Configuration["Homebase:AllowedHosts"], announced),
         // The tunnel client runs on this machine and reaches Uncloud over loopback: it is the
         // proxy, and naming it is what lets the https:// origin the browser sent be believed
-        // while Kestrel itself is serving plain HTTP.
-        ["Homebase:TrustedProxies"] = Join(builder.Configuration["Homebase:TrustedProxies"], "127.0.0.1", "::1"),
-        ["Homebase:PublicUrl"] = builder.Configuration["Homebase:PublicUrl"] is { Length: > 0 } configured
+        // while Kestrel itself is serving plain HTTP. This follows from remote access being
+        // turned on rather than from an address having arrived — a tunnel allowed a minute from
+        // now has to work without restarting the host everybody is already using.
+        ["Homebase:TrustedProxies"] = Join(builder.Configuration["Homebase:TrustedProxies"], "127.0.0.1", "::1")
+    };
+    if (announced is { } name)
+    {
+        overlay["Homebase:AllowedHosts"] = Join(builder.Configuration["Homebase:AllowedHosts"], name);
+        overlay["Homebase:PublicUrl"] = builder.Configuration["Homebase:PublicUrl"] is { Length: > 0 } configured
             ? configured
-            : $"https://{announced}"
-    });
+            : $"https://{name}";
+    }
+    builder.Configuration.AddInMemoryCollection(overlay);
 }
 
 void StopTunnel() => remote.DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -51,9 +67,6 @@ builder.WebHost.ConfigureKestrel(options => options.Listen(startup.Address, star
     if (startup.CertificatePath is not null)
         listen.UseHttps(startup.CertificatePath, startup.CertificatePassword);
 }));
-var defaultConfig = OperatingSystem.IsMacOS()
-    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "Homebase")
-    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Homebase");
 // Read through the container, not from the builder: a test host replaces this configuration
 // after the builder is made, and reading it eagerly would quietly ignore that.
 static string ConfigDirectory(IServiceProvider provider, string fallback) =>
@@ -413,7 +426,10 @@ app.MapGet("/api/imports/estimate", async (string remotePath, CurrentUser user, 
 app.MapGet("/api/remote-access", (RemoteAccess access, HostBinding self) =>
 {
     var state = access.State;
-    return Results.Ok(new { state.Provider, state.Hostname, state.Url, state.Status, state.Detail, self.PublicUrl });
+    return Results.Ok(new
+    {
+        state.Provider, state.Hostname, state.Url, state.Status, state.Detail, state.SignInUrl, self.PublicUrl
+    });
 });
 
 app.MapGet("/api/host", (HostService host, IFolderPicker picker) =>
