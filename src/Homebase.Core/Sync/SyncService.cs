@@ -248,6 +248,12 @@ public sealed partial class SyncService(
     /// always does, but nothing may carry on writing into it afterwards — so if Syncthing can't be
     /// reached to be told, the account isn't deleted.
     /// </summary>
+    /// <remarks>
+    /// Syncthing is cleaned up first and the account deleted last, because deleting the account
+    /// cascades away the records that say what to clean up. Each record goes only once its
+    /// computer or folder is gone from Syncthing, so a failure part-way leaves an account whose
+    /// remaining records are exactly what is left to do, and deleting it again finishes the job.
+    /// </remarks>
     public async Task ForgetAsync(string userId, Action deleteAccount, CancellationToken cancellationToken)
     {
         var devices = ownership.Devices(userId);
@@ -257,21 +263,32 @@ public sealed partial class SyncService(
                 "This account still syncs with its computers, and Uncloud can’t reach Syncthing to stop that. Try again once Syncthing is running.",
                 "sync_unavailable");
 
+        // An account that won't be deleted (the last administrator, say) keeps its computers.
+        users.RequireDeletable(userId);
+
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            // The account goes first: if it can't be deleted (the last administrator, say), its
-            // computers should keep syncing as they were.
+            // Once started, a closed browser tab is no reason to stop half-way.
+            var uncancelled = CancellationToken.None;
+            if (devices.Count > 0 || folders.Count > 0)
+            {
+                var liveFolders = (await syncthing.FoldersAsync(uncancelled)).Select(folder => folder.Id).ToHashSet();
+                foreach (var folder in folders)
+                {
+                    if (liveFolders.Contains(folder.FolderId))
+                        await syncthing.RemoveFolderAsync(folder.FolderId, uncancelled);
+                    ownership.ReleaseFolder(folder.FolderId);
+                }
+                var liveDevices = (await syncthing.DevicesAsync(uncancelled)).Select(device => device.DeviceId).ToHashSet();
+                foreach (var device in devices)
+                {
+                    if (liveDevices.Contains(device.DeviceId))
+                        await syncthing.RemoveDeviceAsync(device.DeviceId, uncancelled);
+                    ownership.ReleaseDevice(device.DeviceId);
+                }
+            }
             deleteAccount();
-            if (devices.Count == 0 && folders.Count == 0) return;
-            var liveFolders = (await syncthing.FoldersAsync(cancellationToken)).Select(folder => folder.Id).ToHashSet();
-            foreach (var folder in folders)
-                if (liveFolders.Contains(folder.FolderId))
-                    await syncthing.RemoveFolderAsync(folder.FolderId, cancellationToken);
-            var liveDevices = (await syncthing.DevicesAsync(cancellationToken)).Select(device => device.DeviceId).ToHashSet();
-            foreach (var device in devices)
-                if (liveDevices.Contains(device.DeviceId))
-                    await syncthing.RemoveDeviceAsync(device.DeviceId, cancellationToken);
         }
         finally
         {
@@ -300,7 +317,16 @@ public sealed partial class SyncService(
                 var relative = Path.GetRelativePath(usersDirectory, folder.Path);
                 if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative)) continue;
                 var parts = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length < 2 || users.Find(parts[0]) is null) continue;
+                if (parts.Length == 0) continue;
+                if (users.Find(parts[0]) is null)
+                {
+                    // Syncing into the folder of an account that no longer exists: whatever left
+                    // it there, nobody may keep writing into it.
+                    logger.LogWarning("Stopped synced folder {Folder}, which belonged to a deleted account", folder.Id);
+                    await syncthing.RemoveFolderAsync(folder.Id, cancellationToken);
+                    continue;
+                }
+                if (parts.Length < 2) continue;
                 var owner = parts[0];
                 if (!ownership.ClaimFolder(owner, folder.Id, string.Join('/', parts[1..]))) continue;
                 logger.LogInformation("Gave synced folder {Folder} to the account whose folder it is in", folder.Id);

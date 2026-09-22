@@ -282,6 +282,39 @@ public sealed class SyncTests : IDisposable
     }
 
     [Fact]
+    public async Task A_deletion_that_fails_part_way_keeps_the_account_and_what_is_left_to_undo()
+    {
+        await _sync.PairAsync(_bo.Id, Desktop, null, CancellationToken.None);
+        Directory.CreateDirectory(Path.Combine(_boRoot, "Notes"));
+        await _sync.ShareAsync(_bo.Id, _boRoot, "Notes", null, CancellationToken.None);
+        _syncthing.FailNextDeviceRemoval = true;
+
+        await Assert.ThrowsAsync<LibraryException>(
+            () => _sync.ForgetAsync(_bo.Id, () => _users.Delete(_bo.Id), CancellationToken.None));
+
+        // The folder went; the computer didn't, and the record of it is still there to finish with.
+        Assert.NotNull(_users.Find(_bo.Id));
+        Assert.Empty(_syncthing.Folders);
+        Assert.Equal(_bo.Id, _ownership.FindDevice(Desktop)!.UserId);
+
+        await _sync.ForgetAsync(_bo.Id, () => _users.Delete(_bo.Id), CancellationToken.None);
+
+        Assert.Null(_users.Find(_bo.Id));
+        Assert.Empty(_syncthing.Devices);
+    }
+
+    [Fact]
+    public async Task A_folder_left_syncing_into_a_deleted_accounts_space_is_stopped()
+    {
+        _syncthing.Folders["orphan"] = new SyncthingFolder("orphan", "Orphan",
+            Path.Combine(_host.RequireRoot(), UserPaths.UsersDirectory, "gone-account-id", "Notes"), [], "idle", null, 0, 0, true);
+
+        await _sync.ReconcileAsync(CancellationToken.None);
+
+        Assert.False(_syncthing.Folders.ContainsKey("orphan"));
+    }
+
+    [Fact]
     public async Task An_account_that_cannot_be_deleted_keeps_syncing()
     {
         await _sync.PairAsync(_ada.Id, Laptop, null, CancellationToken.None);

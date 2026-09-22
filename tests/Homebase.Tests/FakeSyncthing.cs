@@ -16,6 +16,8 @@ public sealed class FakeSyncthing : ISyncthingApi
     /// <summary>What the folder's ignore file said at the moment the folder was added.</summary>
     public Dictionary<string, string?> IgnoresWhenAdded { get; } = [];
     public string? Down { get; set; }
+    /// <summary>Makes the next device removal fail, as a Syncthing that stops answering would.</summary>
+    public bool FailNextDeviceRemoval { get; set; }
 
     public bool IsAvailable => Down is null;
     public string? Unavailable => Down;
@@ -34,6 +36,11 @@ public sealed class FakeSyncthing : ISyncthingApi
 
     public Task RemoveDeviceAsync(string deviceId, CancellationToken cancellationToken)
     {
+        if (FailNextDeviceRemoval)
+        {
+            FailNextDeviceRemoval = false;
+            throw new Homebase.Core.LibraryException("Uncloud couldn’t reach Syncthing.", "sync_unavailable");
+        }
         Devices.Remove(deviceId);
         foreach (var (id, folder) in Folders.ToArray())
             Folders[id] = folder with { DeviceIds = folder.DeviceIds.Where(device => device != deviceId).ToArray() };
