@@ -147,6 +147,10 @@ export interface SyncOffer {
   deviceId: string;
   deviceName: string;
 }
+export interface PairingCode {
+  code: string;
+  expiresAt: string;
+}
 export interface SyncStatus {
   available: boolean;
   detail: string | null;

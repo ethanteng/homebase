@@ -344,6 +344,94 @@ public sealed class SyncTests : IDisposable
             () => _sync.PairAsync(_ada.Id, Desktop, null, CancellationToken.None))).Code);
     }
 
+    private PairingCodes Codes(Func<DateTimeOffset>? now = null)
+    {
+        var database = new ControlDatabase(Path.Combine(_temporary, "Config"));
+        return new PairingCodes(database, _sync, _ownership, _users, _syncthing) { Now = now ?? (() => DateTimeOffset.UtcNow) };
+    }
+
+    [Fact]
+    public async Task A_pairing_code_pairs_the_computer_with_the_account_that_asked_for_it()
+    {
+        var codes = Codes();
+        var issued = codes.Issue(_bo.Id);
+        Assert.Matches("^[0-9A-Z]{5}-[0-9A-Z]{5}$", issued.Code);
+
+        // Typed in lower case, without the dash, with letters people read as digits.
+        var typed = issued.Code.Replace("-", "").ToLowerInvariant().Replace('0', 'o').Replace('1', 'l');
+        var result = await codes.RedeemAsync(typed, Laptop, "Bo’s laptop", "10.0.0.5", CancellationToken.None);
+
+        Assert.Equal(FakeSyncthing.Self, result.HostDeviceId);
+        Assert.Equal("Bo", result.AccountName);
+        Assert.Equal(_bo.Id, _ownership.FindDevice(Laptop)!.UserId);
+        Assert.Equal("Bo’s laptop", _syncthing.Devices[Laptop].Name);
+    }
+
+    [Fact]
+    public async Task A_code_works_once_and_a_new_one_replaces_the_last()
+    {
+        var codes = Codes();
+        var first = codes.Issue(_bo.Id);
+        var second = codes.Issue(_bo.Id);
+
+        Assert.Equal("invalid_code", (await Assert.ThrowsAsync<LibraryException>(
+            () => codes.RedeemAsync(first.Code, Laptop, null, null, CancellationToken.None))).Code);
+        await codes.RedeemAsync(second.Code, Laptop, null, null, CancellationToken.None);
+        Assert.Equal("invalid_code", (await Assert.ThrowsAsync<LibraryException>(
+            () => codes.RedeemAsync(second.Code, Desktop, null, null, CancellationToken.None))).Code);
+        Assert.Null(_ownership.FindDevice(Desktop));
+    }
+
+    [Fact]
+    public async Task An_expired_code_or_a_disabled_accounts_code_does_nothing()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var codes = Codes(() => now);
+        var stale = codes.Issue(_bo.Id);
+        now += PairingCodes.Lifetime + TimeSpan.FromSeconds(1);
+        Assert.Equal("invalid_code", (await Assert.ThrowsAsync<LibraryException>(
+            () => codes.RedeemAsync(stale.Code, Laptop, null, null, CancellationToken.None))).Code);
+
+        var fresh = codes.Issue(_bo.Id);
+        _users.SetDisabled(_bo.Id, true);
+        Assert.Equal("invalid_code", (await Assert.ThrowsAsync<LibraryException>(
+            () => codes.RedeemAsync(fresh.Code, Laptop, null, null, CancellationToken.None))).Code);
+        Assert.Empty(_syncthing.Devices);
+    }
+
+    [Fact]
+    public async Task A_mistake_that_isnt_the_codes_fault_does_not_use_it_up()
+    {
+        var codes = Codes();
+        await _sync.PairAsync(_ada.Id, Desktop, null, CancellationToken.None);
+        var issued = codes.Issue(_bo.Id);
+
+        Assert.Equal("invalid_device", (await Assert.ThrowsAsync<LibraryException>(
+            () => codes.RedeemAsync(issued.Code, "not-a-device", null, null, CancellationToken.None))).Code);
+        // Somebody else's computer can't be claimed with a code either.
+        Assert.Equal("conflict", (await Assert.ThrowsAsync<LibraryException>(
+            () => codes.RedeemAsync(issued.Code, Desktop, null, null, CancellationToken.None))).Code);
+        Assert.Equal(_ada.Id, _ownership.FindDevice(Desktop)!.UserId);
+
+        await codes.RedeemAsync(issued.Code, Laptop, null, null, CancellationToken.None);
+        Assert.Equal(_bo.Id, _ownership.FindDevice(Laptop)!.UserId);
+    }
+
+    [Fact]
+    public async Task Guessing_codes_is_throttled_by_address()
+    {
+        var codes = Codes();
+        var real = codes.Issue(_bo.Id);
+        for (var attempt = 0; attempt < 10; attempt++)
+            await Assert.ThrowsAsync<LibraryException>(
+                () => codes.RedeemAsync("AAAAA-AAAAA", Laptop, null, "10.0.0.9", CancellationToken.None));
+
+        Assert.Equal("too_many_attempts", (await Assert.ThrowsAsync<LibraryException>(
+            () => codes.RedeemAsync(real.Code, Laptop, null, "10.0.0.9", CancellationToken.None))).Code);
+        // Another address isn't held up by that one's guessing.
+        await codes.RedeemAsync(real.Code, Laptop, null, "10.0.0.10", CancellationToken.None);
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_temporary, true); } catch (IOException) { }

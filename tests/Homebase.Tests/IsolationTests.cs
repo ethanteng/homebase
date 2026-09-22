@@ -293,6 +293,34 @@ public sealed class IsolationTests : IDisposable
         Assert.Equal("Bo's taxes.", await File.ReadAllTextAsync(Path.Combine(memberRoot, "bo-taxes.txt")));
     }
 
+    [Fact]
+    public async Task A_computer_pairs_with_a_code_and_no_session_but_only_a_signed_in_person_gets_one()
+    {
+        const string Laptop = "ZZZZZZZ-YYYYYYY-XXXXXXX-WWWWWWW-VVVVVVV-UUUUUUU-TTTTTTT-SSSSSSS";
+        using var app = CreateApp();
+        var (admin, _, member, _) = await TwoAccountsAsync(app);
+        using var ___ = admin;
+        using var ____ = member;
+        using var computer = app.Anonymous();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await computer.PostAsync("/api/sync/pairing-codes", null)).StatusCode);
+        var code = (await (await member.PostAsync("/api/sync/pairing-codes", null)).Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("code").GetString();
+
+        var paired = await computer.PostAsJsonAsync("/api/sync/pair", new { code, deviceId = Laptop, name = "Bo’s laptop" });
+        paired.EnsureSuccessStatusCode();
+        var result = await paired.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(FakeSyncthing.Self, result.GetProperty("hostDeviceId").GetString());
+        Assert.Equal("bo", result.GetProperty("accountName").GetString());
+
+        // Paired with the member who asked, visible to them and nobody else, and no session issued.
+        Assert.Single((await member.GetFromJsonAsync<JsonElement>("/api/sync")).GetProperty("devices").EnumerateArray());
+        Assert.Empty((await admin.GetFromJsonAsync<JsonElement>("/api/sync")).GetProperty("devices").EnumerateArray());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await computer.GetAsync("/api/sync")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await computer.PostAsJsonAsync("/api/sync/pair", new { code, deviceId = Laptop })).StatusCode);
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_temporary, true); } catch (IOException) { }

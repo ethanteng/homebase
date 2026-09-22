@@ -4,12 +4,13 @@ import {
   Copy,
   FolderSync,
   Inbox,
+  KeyRound,
   Laptop,
   LoaderCircle,
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize } from "./api";
-import type { SyncFolder, SyncStatus } from "./api";
+import type { PairingCode, SyncFolder, SyncStatus } from "./api";
 
 function describe(folder: SyncFolder) {
   if (folder.error) return folder.error;
@@ -34,6 +35,7 @@ export default function SyncPanel() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState(false);
+  const [pairing, setPairing] = useState<PairingCode | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -78,6 +80,13 @@ export default function SyncPanel() {
       );
       setDeviceId("");
       setDeviceName("");
+    });
+
+  const getCode = () =>
+    run("code", async () => {
+      setPairing(
+        await api<PairingCode>("/sync/pairing-codes", { method: "POST" }),
+      );
     });
 
   const unpair = (id: string, name: string) =>
@@ -218,6 +227,32 @@ export default function SyncPanel() {
 
           <section className="import-section">
             <h2>Your computers</h2>
+            <div className="sync-form">
+              <button
+                className="button"
+                onClick={() => void getCode()}
+                disabled={busy === "code" || !status.available}
+              >
+                <KeyRound size={15} />
+                {pairing ? "New pairing code" : "Get a pairing code"}
+              </button>
+              {pairing && (
+                <span className="pairing-code">
+                  <code>{pairing.code}</code>
+                  <span className="muted">
+                    works once, until{" "}
+                    {new Date(pairing.expiresAt).toLocaleTimeString([], {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </span>
+              )}
+            </div>
+            <p className="field-help">
+              Using the Uncloud app on your computer? Type this code into it and
+              it pairs itself. Otherwise, add your computer by its Syncthing ID:
+            </p>
             <div className="sync-form">
               <input
                 className="path-input"

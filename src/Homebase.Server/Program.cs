@@ -60,6 +60,7 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<Syncth
 builder.Services.AddSingleton<ISyncthingApi, SyncthingApi>();
 builder.Services.AddSingleton<SyncOwnership>();
 builder.Services.AddSingleton<SyncService>();
+builder.Services.AddSingleton<PairingCodes>();
 // An import's stage travels as its name, not as whichever number the enum happens to sit at.
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
@@ -86,7 +87,9 @@ string[] anonymous =
     "/api/health",
     "/api/session",
     "/api/setup",
-    "/api/providers/dropbox/callback"
+    "/api/providers/dropbox/callback",
+    // The Uncloud app on somebody's computer has no session; the pairing code is its authority.
+    "/api/sync/pair"
 ];
 // Reached only by an administrator: the host's own folder, and the accounts on it.
 string[] administrative =
@@ -520,6 +523,11 @@ app.MapDelete("/api/sync/devices/{deviceId}", async (string deviceId, CurrentUse
     await sync.UnpairAsync(user.Id, deviceId, cancellationToken);
     return Results.Ok(await sync.StatusAsync(user.Id, cancellationToken));
 });
+// A code for the Uncloud app on this person's computer, and the app redeeming it.
+app.MapPost("/api/sync/pairing-codes", (CurrentUser user, PairingCodes codes) => Results.Ok(codes.Issue(user.Id)));
+app.MapPost("/api/sync/pair", async (RedeemPairing request, HttpContext context, PairingCodes codes, CancellationToken cancellationToken) =>
+    Results.Ok(await codes.RedeemAsync(request.Code, request.DeviceId, request.Name,
+        context.Connection.RemoteIpAddress?.ToString(), cancellationToken)));
 app.MapPost("/api/sync/folders", async (SyncFolderRequest request, CurrentUser user, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>
     Results.Ok(await sync.ShareAsync(user.Id, workspaces.For(user.Account).Root, request.Path, request.DeviceIds, cancellationToken)));
 app.MapPost("/api/sync/folders/accept", async (AcceptFolder request, CurrentUser user, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>
@@ -545,4 +553,5 @@ public sealed record ImportRequest(string RemotePath, string? Label);
 public sealed record PairDevice(string DeviceId, string? Name);
 public sealed record SyncFolderRequest(string? Path, IReadOnlyList<string>? DeviceIds);
 public sealed record AcceptFolder(string FolderId, string? Path);
+public sealed record RedeemPairing(string? Code, string? DeviceId, string? Name);
 public partial class Program;

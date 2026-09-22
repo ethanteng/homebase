@@ -59,7 +59,13 @@ public sealed class ControlDatabase(string directory)
                     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                     path TEXT NOT NULL, added_at TEXT NOT NULL
                 );
-                PRAGMA user_version = 2;
+                -- Short-lived codes that pair a computer without a session. Only hashes are kept.
+                CREATE TABLE IF NOT EXISTS pairing_codes (
+                    code_hash TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    expires_at TEXT NOT NULL
+                );
+                PRAGMA user_version = 3;
                 """;
             command.ExecuteNonQuery();
             // Password hashes and sealed tokens live here; nobody else on the host needs to read it.
