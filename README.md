@@ -98,15 +98,37 @@ that already owns a name and a certificate. Nothing is forwarded at the router, 
 to the internet, and no certificate has to be obtained here or renewed.
 
 ```sh
-Homebase__RemoteAccess__Provider=tailscale \
-./scripts/run.sh
+Homebase__RemoteAccess__Provider=builtin ./scripts/run.sh
+```
+
+That is the whole of it. Uncloud ships its own tunnel — a Tailscale node built from
+[`tsnet`](https://tailscale.com/kb/1244/tsnet), the library rather than the daemon — so there is
+nothing to install, no command line to meet, and no configuration file to find. The host stays
+bound to `127.0.0.1`; the tunnel is the only way in from outside.
+
+The first time it runs, **Storage settings** shows one button: *Allow this host*. It goes to
+Tailscale, where a free account says this machine is yours. Everyone on the network carries on
+while you do, and the public address appears by itself when Tailscale lets it through — no restart.
+The node's identity is kept in `tunnel/` beside the accounts, so you are asked once and not again.
+
+Two things have to be true of the Tailscale account, both in its admin console and both one-time:
+Funnel allowed for the tailnet (Access controls → `nodeAttrs` → `funnel`), and HTTPS certificates
+turned on (DNS). If either is missing, Uncloud says so with what Tailscale told it.
+
+Anyone with an account signs in at that address exactly as they would at home, with the same
+username and password; remote access is another door, not another set of keys.
+
+### Bringing your own tunnel
+
+If you already run Tailscale or Cloudflare on this host, Uncloud will drive those instead of its
+own — `tailscale` and `cloudflared` are expected to be installed and signed in already.
+
+```sh
+Homebase__RemoteAccess__Provider=tailscale ./scripts/run.sh
 ```
 
 Uncloud runs [`tailscale funnel`](https://tailscale.com/kb/1223/funnel), reads the address out of
-what it prints, and answers to it — so the host stays bound to `127.0.0.1` and the tunnel is the
-only way in from outside. The address is on **Storage settings**, for an administrator to pass on.
-Anyone with an account signs in there exactly as they would at home, with the same username and
-password; remote access is another door, not another set of keys.
+what it prints, and answers to it.
 
 [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
 works the same way. Without a Cloudflare account it hands out a throwaway `trycloudflare.com`
@@ -128,14 +150,16 @@ Homebase__RemoteAccess__Hostname=files.example.com \
 
 | Setting | What it does |
 | --- | --- |
-| `Homebase__RemoteAccess__Provider` | `none` (the default), `tailscale`, or `cloudflare`. |
-| `Homebase__RemoteAccess__Hostname` | The address to answer to. Required for a named Cloudflare tunnel; otherwise read from what the tunnel announces. |
+| `Homebase__RemoteAccess__Provider` | `none` (the default), `builtin`, `tailscale`, or `cloudflare`. |
+| `Homebase__RemoteAccess__Hostname` | The address to answer to. Required for a named Cloudflare tunnel; the name to ask the tailnet for under `builtin`; otherwise read from what the tunnel announces. |
 | `Homebase__RemoteAccess__Tunnel` | The name of a Cloudflare tunnel to run, instead of a throwaway one. |
 | `Homebase__RemoteAccess__Command` | Where the tunnel program lives, if it isn't on the `PATH`. |
 | `Homebase__RemoteAccess__Arguments` | The whole command line, replacing what Uncloud would have run. `{port}` is substituted. |
 | `Homebase__RemoteAccess__TimeoutSeconds` | How long to wait for an address before giving up. 60 by default. |
 
-Install the tunnel program yourself — `tailscale` or `cloudflared` — and sign it in first. Uncloud
+Under `builtin` there is nothing to install: `./scripts/build-tunnel.sh` builds the tunnel (it needs
+[Go](https://go.dev/dl/)) and `./scripts/publish-macos.sh` puts it beside the published application.
+Under `tailscale` or `cloudflare`, install and sign in to that program yourself. Either way Uncloud
 runs it, and stops it on the way out, so a funnel never outlives the host it was opened for.
 
 Four things follow from turning this on, and are worth knowing before you do:
@@ -161,6 +185,19 @@ Four things follow from turning this on, and are worth knowing before you do:
 
 Uncloud is not a sandbox and this does not change that — see the note above. Opening it to the
 internet means the passwords on this host are the whole defence, so pick good ones.
+
+### Which tunnel, and what it costs you
+
+|  | `builtin` / `tailscale` | `cloudflare` |
+| --- | --- | --- |
+| Who can read your files in transit | Nobody. TLS ends on this machine; Tailscale's relays carry bytes they can't decrypt. | Cloudflare. TLS ends at their edge, so your files pass through their servers in the clear. |
+| Account needed | A free Tailscale account, once. | None for a throwaway tunnel; one for a named tunnel. |
+| Address | Stable, and yours. | Changes every restart unless the tunnel is named. |
+| Bulk transfer | [Funnel is meant for low-traffic services](https://tailscale.com/kb/1223/funnel) and is bandwidth-limited. Browsing and small files are fine; pulling a 4 GB video over it will not be. | Better suited to it. |
+
+Neither is a good way to move a whole library across the internet. Both are a good way to reach
+one from a phone. If large transfers from outside matter to you, put Uncloud behind your own
+reverse proxy on your own name, as above, and keep the tunnel for convenience.
 
 ### Upgrading a single-user library
 

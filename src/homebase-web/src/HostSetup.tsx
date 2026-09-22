@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Check,
   Copy,
+  ExternalLink,
   FolderOpen,
   Globe,
   HardDrive,
@@ -303,9 +304,42 @@ export default function HostSetup({ onSaved, compact = false }: Props) {
               <p>
                 Uncloud is only reachable on this network. Set{" "}
                 <code>Homebase__RemoteAccess__Provider</code> to{" "}
-                <code>tailscale</code> or <code>cloudflare</code> on the host to
-                open a tunnel, and everyone here can sign in from anywhere.
+                <code>builtin</code> on the host and everyone here can sign in
+                from anywhere — there is nothing else to install.
               </p>
+            )}
+            {remote.status === "needs_sign_in" && remote.signInUrl && (
+              <>
+                <p>
+                  One thing left, and only this once. Uncloud needs a Tailscale
+                  account to carry it onto the internet, and Tailscale needs you
+                  to say this host is yours.
+                </p>
+                <div className="remote-address">
+                  <a
+                    className="button primary"
+                    href={remote.signInUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <ExternalLink size={15} />
+                    Allow this host
+                  </a>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    onClick={() => void copyAddress(remote.signInUrl!)}
+                  >
+                    {copied ? <Check size={15} /> : <Copy size={15} />}
+                    {copied ? "Copied" : "Copy link"}
+                  </button>
+                </div>
+                <p className="field-help">
+                  Everyone on this network carries on while you do. The address
+                  appears here by itself once Tailscale has let it through — no
+                  need to restart anything.
+                </p>
+              </>
             )}
             {remote.status === "on" && remote.url && (
               <>

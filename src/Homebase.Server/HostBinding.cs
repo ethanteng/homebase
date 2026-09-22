@@ -15,7 +15,11 @@ public sealed record HostBinding(
     IReadOnlyList<IPAddress> TrustedProxies,
     string? CertificatePath,
     string? CertificatePassword,
-    string PublicUrl)
+    string PublicUrl,
+    // Whether the address above was chosen or merely defaulted to. A tunnel allowed after
+    // startup has an address this host had no way of knowing, and nothing that was only a
+    // fallback should stand in its way.
+    bool PublicUrlConfigured)
 {
     public bool IsLoopback => IPAddress.IsLoopback(Address);
     public bool IsSecure => CertificatePath is not null;
@@ -63,10 +67,11 @@ public sealed record HostBinding(
         if (certificate is { Length: 0 }) certificate = null;
 
         var scheme = certificate is null ? "http" : "https";
-        var publicUrl = (configuration["Homebase:PublicUrl"] ?? $"{scheme}://localhost:{port}").TrimEnd('/');
+        var chosen = configuration["Homebase:PublicUrl"];
+        var publicUrl = (chosen is { Length: > 0 } ? chosen : $"{scheme}://localhost:{port}").TrimEnd('/');
 
         return new HostBinding(address, port, allowed, proxies, certificate,
-            configuration["Homebase:Certificate:Password"], publicUrl);
+            configuration["Homebase:Certificate:Password"], publicUrl, chosen is { Length: > 0 });
     }
 
     /// <summary>

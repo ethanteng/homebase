@@ -5,7 +5,7 @@ using Homebase.Core;
 namespace Homebase.Server;
 
 /// <summary>Which service carries traffic from the public internet to this host.</summary>
-public enum RemoteAccessProvider { None, Tailscale, Cloudflare }
+public enum RemoteAccessProvider { None, Builtin, Tailscale, Cloudflare }
 
 /// <summary>
 /// How this host is reached from outside the house. A tunnel is an outbound connection to a
@@ -20,19 +20,41 @@ public sealed record RemoteAccessOptions(
     string? Tunnel,
     string? Command,
     string? Arguments,
+    string StateDirectory,
     TimeSpan Timeout)
 {
     public bool IsEnabled => Provider is not RemoteAccessProvider.None;
+
+    /// <summary>
+    /// Whether this tunnel will say nothing about where it ended up. Only a Cloudflare tunnel
+    /// named beforehand: its address lives in Cloudflare's configuration rather than in anything
+    /// it prints.
+    /// </summary>
+    public bool AnnouncesNothing =>
+        Provider is RemoteAccessProvider.Cloudflare && Tunnel is { Length: > 0 };
 
     /// <summary>The address the tunnel is expected to announce, so another URL in the same
     /// output — a documentation link in a banner — is never mistaken for this host's.</summary>
     public Regex Announcement => Provider switch
     {
+        RemoteAccessProvider.Builtin => BuiltinAddress,
         RemoteAccessProvider.Tailscale => TailscaleAddress,
         RemoteAccessProvider.Cloudflare => CloudflareAddress,
         _ => throw new InvalidOperationException("Remote access is off.")
     };
 
+    /// <summary>
+    /// A link somebody has to follow before this tunnel can carry anything, when the program
+    /// says so. Only Uncloud's own tunnel does: the others are signed in before Uncloud ever
+    /// runs them, and have nobody to ask.
+    /// </summary>
+    public Regex? SignInPrompt => Provider is RemoteAccessProvider.Builtin ? BuiltinSignIn : null;
+
+    // Uncloud's own tunnel says what it means rather than being read between the lines.
+    private static readonly Regex BuiltinAddress =
+        new(@"^uncloud-tunnel: url=https://([^\s/]+)/?$", RegexOptions.Multiline);
+    private static readonly Regex BuiltinSignIn =
+        new(@"^uncloud-tunnel: signin=(\S+)$", RegexOptions.Multiline);
     private static readonly Regex TailscaleAddress =
         new(@"https://([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.ts\.net)", RegexOptions.IgnoreCase);
     private static readonly Regex CloudflareAddress =
@@ -40,6 +62,10 @@ public sealed record RemoteAccessOptions(
 
     public string Executable => Command is { Length: > 0 } ? Command : Provider switch
     {
+        // Beside the application, because Uncloud ships it: there is nothing for anybody to
+        // install and nothing to find on the PATH.
+        RemoteAccessProvider.Builtin => Path.Combine(AppContext.BaseDirectory,
+            OperatingSystem.IsWindows() ? "uncloud-tunnel.exe" : "uncloud-tunnel"),
         RemoteAccessProvider.Tailscale => "tailscale",
         RemoteAccessProvider.Cloudflare => "cloudflared",
         _ => throw new InvalidOperationException("Remote access is off.")
@@ -54,6 +80,8 @@ public sealed record RemoteAccessOptions(
         if (Arguments is { Length: > 0 } custom) return custom.Replace("{port}", port.ToString());
         return Provider switch
         {
+            RemoteAccessProvider.Builtin =>
+                $"-target http://127.0.0.1:{port} -state \"{StateDirectory}\" -hostname {Hostname ?? "uncloud"}",
             RemoteAccessProvider.Tailscale => $"funnel {port}",
             RemoteAccessProvider.Cloudflare when Tunnel is { Length: > 0 } tunnel =>
                 $"tunnel --url http://127.0.0.1:{port} run {tunnel}",
@@ -62,13 +90,14 @@ public sealed record RemoteAccessOptions(
         };
     }
 
-    public static RemoteAccessOptions From(IConfiguration configuration)
+    public static RemoteAccessOptions From(IConfiguration configuration, string stateDirectory)
     {
         var name = (configuration["Homebase:RemoteAccess:Provider"] ?? "none").Trim();
         if (name.Length == 0) name = "none";
         if (!Enum.TryParse<RemoteAccessProvider>(name, ignoreCase: true, out var provider))
             throw new LibraryException(
-                $"Homebase__RemoteAccess__Provider must be none, tailscale or cloudflare, not “{name}”.");
+                "Homebase__RemoteAccess__Provider must be none, builtin, tailscale or cloudflare, "
+                + $"not “{name}”.");
 
         // People paste the whole address; only the name in it is a host header.
         var hostname = configuration["Homebase:RemoteAccess:Hostname"]?.Trim().TrimEnd('/');
@@ -100,6 +129,9 @@ public sealed record RemoteAccessOptions(
         return new RemoteAccessOptions(provider, hostname, tunnel,
             configuration["Homebase:RemoteAccess:Command"]?.Trim(),
             configuration["Homebase:RemoteAccess:Arguments"],
+            // Beside the accounts and the host key, because it is the same kind of thing: what
+            // this installation is, rather than anything belonging to the files.
+            Path.Combine(stateDirectory, "tunnel"),
             TimeSpan.FromSeconds(seconds));
     }
 }
@@ -112,10 +144,23 @@ public interface ITunnel : IAsyncDisposable
 {
     Task<string> OpenAsync(int port, CancellationToken cancellationToken);
     Task Closed { get; }
+
+    /// <summary>
+    /// Completes with a link somebody has to follow before this tunnel can carry anything. A
+    /// tunnel with nobody to ask leaves this alone, and it never completes.
+    /// </summary>
+    Task<string> SignInRequired => Tunnels.NobodyToAsk;
+}
+
+public static class Tunnels
+{
+    /// <summary>A sign-in that is never asked for, shared because it never happens.</summary>
+    public static readonly Task<string> NobodyToAsk = new TaskCompletionSource<string>().Task;
 }
 
 /// <summary>What the administrator is shown, and what the host check consults.</summary>
-public sealed record RemoteAccessState(string Provider, string? Hostname, string? Url, string Status, string? Detail);
+public sealed record RemoteAccessState(
+    string Provider, string? Hostname, string? Url, string Status, string? Detail, string? SignInUrl);
 
 /// <summary>
 /// Keeps a tunnel open for as long as Uncloud is running. The hostname is settled before the
@@ -136,8 +181,9 @@ public sealed class RemoteAccess(
     /// </summary>
     internal static Func<IConfiguration, RemoteAccess>? Override { get; set; }
 
-    public static RemoteAccess From(IConfiguration configuration, ILogger logger) =>
-        Override?.Invoke(configuration) ?? new RemoteAccess(RemoteAccessOptions.From(configuration), logger);
+    public static RemoteAccess From(IConfiguration configuration, string stateDirectory, ILogger logger) =>
+        Override?.Invoke(configuration)
+        ?? new RemoteAccess(RemoteAccessOptions.From(configuration, stateDirectory), logger);
 
     private readonly Func<RemoteAccessOptions, ITunnel> _tunnels = tunnels ?? (each => new ProcessTunnel(each, logger));
     private readonly CancellationTokenSource _stopping = new();
@@ -146,6 +192,10 @@ public sealed class RemoteAccess(
     private string? _hostname;
     private string _status = "off";
     private string? _detail;
+    private string? _signIn;
+    // An opening that is waiting on a person rather than on a program. Startup does not hold
+    // the host offline for it, so it is kept here for the watch to finish.
+    private Task<string>? _pending;
     // Read on every request, written when a tunnel settles: a field rather than the lock below,
     // so the host check costs nothing on a host nobody is reaching from outside.
     private volatile string? _answering;
@@ -163,7 +213,8 @@ public sealed class RemoteAccess(
                     _hostname,
                     _hostname is null ? null : $"https://{_hostname}",
                     _status,
-                    _detail);
+                    _detail,
+                    _signIn);
         }
     }
 
@@ -176,35 +227,66 @@ public sealed class RemoteAccess(
     /// downstream — which names this host answers to, where Dropbox returns the browser — is
     /// decided from the address, and deciding it after requests had started would mean serving
     /// some of them under rules that were about to change.
+    ///
+    /// Answers null when the tunnel is waiting to be allowed by a person instead. That is not a
+    /// failure and must not hold the host offline: everyone on the network is still waiting for
+    /// their files while somebody goes to find their phone. The address arrives later, through
+    /// <see cref="Watch"/>, and is answered to from the moment it does.
     /// </summary>
-    public string Open(int port)
+    public string? Open(int port)
     {
         var tunnel = _tunnels(options);
         lock (_gate) { _tunnel = tunnel; _status = "opening"; }
+        var opening = tunnel.OpenAsync(port, _stopping.Token);
+        var signIn = tunnel.SignInRequired;
         try
         {
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
-            deadline.CancelAfter(options.Timeout);
             // Startup is single-threaded and has no synchronisation context, so waiting here
             // cannot deadlock, and there is nothing else for this thread to be doing yet.
-            var hostname = tunnel.OpenAsync(port, deadline.Token).GetAwaiter().GetResult();
-            Settle(hostname, "on", null);
-            logger.LogInformation("Uncloud is reachable from anywhere at https://{Hostname}", hostname);
-            return hostname;
+            var settled = Task.WhenAny(opening, signIn, Task.Delay(options.Timeout, _stopping.Token))
+                .GetAwaiter().GetResult();
+
+            if (ReferenceEquals(settled, opening))
+            {
+                var hostname = opening.GetAwaiter().GetResult();
+                Settle(hostname, "on", null);
+                logger.LogInformation("Uncloud is reachable from anywhere at https://{Hostname}", hostname);
+                return hostname;
+            }
+
+            if (ReferenceEquals(settled, signIn))
+            {
+                var link = signIn.GetAwaiter().GetResult();
+                lock (_gate)
+                {
+                    _pending = opening;
+                    _signIn = link;
+                    _status = "needs_sign_in";
+                    _detail = "Uncloud is waiting to be allowed onto the internet.";
+                }
+                logger.LogInformation(
+                    "Uncloud is waiting to be allowed onto the internet. Open {Link} to allow it, "
+                    + "or find the same link under Storage settings.", link);
+                return null;
+            }
+
+            throw new LibraryException(
+                $"{options.Executable} didn’t report an address within {options.Timeout.TotalSeconds:0} "
+                + "seconds, so Uncloud doesn’t know what name to answer to. Check that it is signed "
+                + "in and can reach the internet, or set Homebase__RemoteAccess__Provider=none to "
+                + "start without remote access.", "not_configured");
         }
         catch (Exception failure)
         {
             // Uncloud is about to stop, and nothing else will come back for this: a tunnel
             // program left running would outlive the host it was started for and keep a name
             // pointed at a port with nothing behind it.
-            lock (_gate) { _tunnel = null; _status = "off"; }
+            lock (_gate) { _tunnel = null; _pending = null; _signIn = null; _status = "off"; }
             tunnel.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            if (failure is LibraryException) throw;
             if (failure is OperationCanceledException && !_stopping.IsCancellationRequested)
                 throw new LibraryException(
-                    $"{options.Executable} didn’t report an address within {options.Timeout.TotalSeconds:0} "
-                    + "seconds, so Uncloud doesn’t know what name to answer to. Check that it is signed "
-                    + "in and can reach the internet, or set Homebase__RemoteAccess__Provider=none to "
-                    + "start without remote access.", "not_configured");
+                    $"{options.Executable} stopped before it opened a tunnel.", "unavailable");
             throw;
         }
     }
@@ -223,17 +305,45 @@ public sealed class RemoteAccess(
             while (!_stopping.IsCancellationRequested)
             {
                 ITunnel? current;
-                lock (_gate) current = _tunnel;
-                if (current is not null)
+                Task<string>? pending;
+                lock (_gate) { current = _tunnel; pending = _pending; }
+
+                if (pending is not null)
+                {
+                    // No deadline on a person. A startup timeout is for a program that has gone
+                    // wrong; somebody walking off to find their phone has not gone wrong.
+                    try
+                    {
+                        var allowed = await pending.WaitAsync(_stopping.Token);
+                        lock (_gate) { _pending = null; _signIn = null; }
+                        Settle(allowed, "on", null);
+                        backoff = TimeSpan.FromSeconds(2);
+                        logger.LogInformation(
+                            "Uncloud was allowed onto the internet and is reachable at https://{Hostname}", allowed);
+                        continue;
+                    }
+                    catch (OperationCanceledException) when (_stopping.IsCancellationRequested) { return; }
+                    catch (Exception failure)
+                    {
+                        logger.LogWarning(failure, "The tunnel Uncloud was waiting to be allowed never opened");
+                        lock (_gate) { _pending = null; _signIn = null; }
+                    }
+                }
+                else if (current is not null)
                 {
                     try { await current.Closed.WaitAsync(_stopping.Token); }
                     catch (OperationCanceledException) { return; }
                     catch (Exception failure) { logger.LogWarning(failure, "The tunnel to this Uncloud stopped"); }
                     if (_stopping.IsCancellationRequested) return;
                     Settle(null, "reconnecting", "The tunnel stopped and Uncloud is opening another.");
-                    lock (_gate) { if (ReferenceEquals(_tunnel, current)) _tunnel = null; }
-                    await Retire(current);
                 }
+
+                // Whatever it was, it is not the current tunnel any more. Waiting on a tunnel
+                // that failed to open would be waiting on a program that timed out but is still
+                // running, or one that never started, and neither will ever say so — which would
+                // end the retries for good on the first failure.
+                lock (_gate) { if (ReferenceEquals(_tunnel, current)) _tunnel = null; }
+                if (current is not null) await Retire(current);
 
                 try { await Task.Delay(backoff, _stopping.Token); }
                 catch (OperationCanceledException) { return; }
@@ -243,10 +353,32 @@ public sealed class RemoteAccess(
                 try
                 {
                     next = _tunnels(options);
+                    var opening = next.OpenAsync(port, _stopping.Token);
+                    var signIn = next.SignInRequired;
                     lock (_gate) _tunnel = next;
-                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
-                    deadline.CancelAfter(options.Timeout);
-                    var hostname = await next.OpenAsync(port, deadline.Token);
+
+                    var settled = await Task.WhenAny(
+                        opening, signIn, Task.Delay(options.Timeout, _stopping.Token));
+
+                    if (ReferenceEquals(settled, signIn))
+                    {
+                        // Asked to be allowed again, which a kept identity usually spares us.
+                        var link = await signIn;
+                        lock (_gate)
+                        {
+                            _pending = opening;
+                            _signIn = link;
+                            _status = "needs_sign_in";
+                            _detail = "Uncloud is waiting to be allowed onto the internet.";
+                        }
+                        logger.LogInformation("Uncloud is waiting to be allowed again. Open {Link}.", link);
+                        continue;
+                    }
+                    if (!ReferenceEquals(settled, opening))
+                        throw new LibraryException(
+                            $"{options.Executable} didn’t report an address in time.", "unavailable");
+
+                    var hostname = await opening;
                     Settle(hostname, "on", null);
                     backoff = TimeSpan.FromSeconds(2);
                     logger.LogInformation("Uncloud is reachable from anywhere again at https://{Hostname}", hostname);
@@ -255,10 +387,6 @@ public sealed class RemoteAccess(
                 catch (Exception failure)
                 {
                     logger.LogWarning(failure, "Couldn’t open a tunnel to this Uncloud; trying again");
-                    // A tunnel that failed to open is never left as the current one. Waiting on it
-                    // to close would be waiting on a program that timed out but is still running,
-                    // or one that never started, and neither will ever say so — which would end
-                    // the retries for good on the first failure.
                     lock (_gate) { if (ReferenceEquals(_tunnel, next)) _tunnel = null; }
                     if (next is not null) await Retire(next);
                     Settle(null, "reconnecting", "Uncloud couldn’t open a tunnel and is trying again.");
@@ -283,7 +411,11 @@ public sealed class RemoteAccess(
     {
         if (!_stopping.IsCancellationRequested) await _stopping.CancelAsync();
         ITunnel? tunnel;
-        lock (_gate) { tunnel = _tunnel; _tunnel = null; _status = "off"; _hostname = null; }
+        lock (_gate)
+        {
+            tunnel = _tunnel;
+            _tunnel = null; _pending = null; _signIn = null; _status = "off"; _hostname = null;
+        }
         if (tunnel is not null) await tunnel.DisposeAsync();
         _stopping.Dispose();
     }
@@ -299,12 +431,14 @@ public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) :
 
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<string> _address = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource<string> _signIn = new(TaskCreationOptions.RunContinuationsAsynchronously);
     // The last thing the program said. An address is one line out of dozens, and everything a
     // failure to sign in or to reach the service would have explained is in the rest of them.
     private readonly Queue<string> _recent = new();
     private Process? _process;
 
     public Task Closed => _closed.Task;
+    public Task<string> SignInRequired => _signIn.Task;
 
     public async Task<string> OpenAsync(int port, CancellationToken cancellationToken)
     {
@@ -323,6 +457,7 @@ public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) :
             _address.TrySetException(new LibraryException(
                 $"{options.Executable} stopped with code {process.ExitCode} instead of opening a tunnel, "
                 + $"saying:{Environment.NewLine}{Said()}", "unavailable"));
+            _signIn.TrySetCanceled();
             _closed.TrySetResult();
         };
         _process = process;
@@ -337,9 +472,12 @@ public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) :
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        // A configured hostname is the answer already: a named Cloudflare tunnel announces no
-        // address of its own, so there would be nothing to wait for but the first failure.
-        if (options.Hostname is { Length: > 0 } configured) return configured;
+        // A named Cloudflare tunnel announces no address of its own, so its configured hostname
+        // is the answer already and there would be nothing to wait for but the first failure.
+        // Nothing else: under the builtin provider a hostname is the name to ask the tailnet
+        // for, and taking it as an answer would report a tunnel nobody had allowed as open.
+        if (options.AnnouncesNothing && options.Hostname is { Length: > 0 } configured)
+            return configured;
         return await _address.Task.WaitAsync(cancellationToken);
     }
 
@@ -352,6 +490,10 @@ public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) :
             while (_recent.Count > Remembered) _recent.Dequeue();
         }
         logger.LogDebug("{Executable}: {Line}", options.Executable, line);
+        // Asked for once and only once: the program repeats itself while it waits, and the
+        // person is already looking at the link.
+        if (options.SignInPrompt?.Match(line) is { Success: true } asked)
+            _signIn.TrySetResult(asked.Groups[1].Value);
         if (_address.Task.IsCompleted) return;
         if (options.Announcement.Match(line) is { Success: true } found)
             _address.TrySetResult(found.Groups[1].Value);
@@ -389,6 +531,7 @@ public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) :
         {
             _closed.TrySetResult();
             _address.TrySetCanceled();
+            _signIn.TrySetCanceled();
             process.Dispose();
         }
     }
