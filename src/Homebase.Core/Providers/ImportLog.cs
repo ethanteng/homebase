@@ -32,6 +32,24 @@ public sealed class ImportLog
         return Convert.ToInt64(command.ExecuteScalar()) > 0;
     }
 
+    /// <summary>
+    /// Where in the library imports have already landed, whichever place they came from. Two
+    /// sources can share a destination on purpose — a Dropbox folder synced onto this computer and
+    /// the same account online both belong in Files/Dropbox — and a file the other one already
+    /// brought home is not a conflict to report, it is the file being here, which is the point.
+    /// </summary>
+    public HashSet<string> LocalPaths(string root)
+    {
+        using var connection = MetadataIndex.Open(root);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT local_path FROM imported_files";
+        using var reader = command.ExecuteReader();
+        // The log's own comparison, which SQLite makes case-sensitive.
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        while (reader.Read()) paths.Add(reader.GetString(0));
+        return paths;
+    }
+
     public void Record(string root, ImportedFile file)
     {
         using var connection = MetadataIndex.Open(root);

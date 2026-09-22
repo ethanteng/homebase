@@ -61,6 +61,9 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
 
             var collected = await CollectAsync(source, entry, skipped, cancellationToken);
             RequireRoomFor(source, root, collected);
+            // Read once for the whole import rather than per file: what another place already
+            // brought home cannot change while this holds the gate.
+            var alreadyHome = log.LocalPaths(root);
             var done = 0;
             progress?.Report(new ImportProgress(collected.Count, done, bytes, null));
 
@@ -70,7 +73,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
                 progress?.Report(new ImportProgress(collected.Count, done, bytes, file.DisplayPath));
                 try
                 {
-                    var item = await ImportOneAsync(source, root, file, cancellationToken);
+                    var item = await ImportOneAsync(source, root, alreadyHome, file, cancellationToken);
                     if (item is null) skipped.Add(new SkippedItem(file.DisplayPath, "Already imported.", Expected: true));
                     else
                     {
@@ -246,15 +249,22 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         failure is OperationCanceledException ? "Getting this file took too long." : failure.Message;
 
     private async Task<ImportedItem?> ImportOneAsync(
-        IImportSource source, string root, SourceEntry entry, CancellationToken cancellationToken)
+        IImportSource source, string root, IReadOnlySet<string> alreadyHome, SourceEntry entry,
+        CancellationToken cancellationToken)
     {
         if (log.Contains(root, source.ProviderId, entry.Path)) return null;
 
         var localPath = DestinationFor(source, entry);
         var fullPath = PathPolicy.Resolve(root, localPath);
         if (File.Exists(fullPath) || Directory.Exists(fullPath))
-            throw new LibraryException(
-                $"A file already exists at {localPath}. Uncloud won’t overwrite files it didn’t put there.", "conflict");
+            // Something Uncloud brought home from somewhere else is not a problem to report. Two
+            // places are allowed to share a destination, and often should: a Dropbox folder synced
+            // onto this computer and the same account online are the same files, and a person who
+            // uses both wants one copy, not a page of warnings about the second.
+            return alreadyHome.Contains(localPath)
+                ? null
+                : throw new LibraryException(
+                    $"A file already exists at {localPath}. Uncloud won’t overwrite files it didn’t put there.", "conflict");
 
         var metadata = Path.GetDirectoryName(PathPolicy.PrepareMetadata(root))!;
         var temporary = Path.Combine(metadata, $"import.{Guid.NewGuid():N}.tmp");

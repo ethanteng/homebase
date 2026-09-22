@@ -558,13 +558,40 @@ public sealed class ImportTests : IDisposable
         Assert.Equal(1, estimate.NewFileCount);
     }
 
+    [Fact]
+    public async Task A_file_another_place_already_brought_home_is_not_a_problem_to_report()
+    {
+        // Two places are allowed to share a destination, and often should: a Dropbox folder synced
+        // onto this computer and the same account online are the same files, and somebody who uses
+        // both wants one copy — not a page of warnings claiming Uncloud won't overwrite files it
+        // didn't put there, about files it did put there.
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/one.txt", "rev1", "One.");
+        await _imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
+
+        // The same file offered again by something that writes to the same place.
+        var alongside = new CaseKeepingSource { Destination = "Files/Dropbox" };
+        alongside.Add("/notes/one.txt", "One.");
+
+        var result = await _imports.ImportAsync(alongside, "/", CancellationToken.None);
+
+        Assert.Empty(result.Imported);
+        var skip = Assert.Single(result.Skipped);
+        // Expected, so it never reaches the "Not brought home" list a person is meant to act on.
+        Assert.True(skip.Expected);
+        // And the estimate agrees rather than counting room for a file that is already here.
+        var estimate = await _imports.MeasureAsync(alongside, "/", CancellationToken.None);
+        Assert.Equal(0, estimate.NewFileCount);
+    }
+
     /// <summary>A source that names its files exactly as they are, the way a folder on disk does.</summary>
     private sealed class CaseKeepingSource : IImportSource
     {
         private readonly Dictionary<string, (SourceEntry Entry, byte[] Content)> _files = new(StringComparer.Ordinal);
 
         public string ProviderId => "folder:test";
-        public string DestinationPrefix => "Files/Camera";
+        public string Destination { get; init; } = "Files/Camera";
+        public string DestinationPrefix => Destination;
 
         public void Add(string path, string contents) => _files[path] = (
             new SourceEntry(path, Path.GetFileName(path), path, path, false,

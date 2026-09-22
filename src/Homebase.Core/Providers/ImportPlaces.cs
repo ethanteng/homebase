@@ -17,6 +17,15 @@ public sealed record SuggestedPlace(string Name, string Path);
 /// </summary>
 public sealed class ImportPlaces(ControlDatabase database, HostService host, string configDirectory)
 {
+    /// <summary>
+    /// How many times resolving a path may rewrite it before Uncloud decides it doesn't know where
+    /// the folder really is. A pass follows every link in the path to its final target, so another
+    /// pass is only wanted when doing that uncovered a link in an *ancestor* — /var on macOS, say.
+    /// Real arrangements settle in two; the margin is for ones nobody has thought of. Replaced in
+    /// tests, because contriving a path that outlasts the real bound proves less than choosing it.
+    /// </summary>
+    public int Rewrites { get; init; } = 8;
+
     public IReadOnlyList<ImportPlace> List()
     {
         using var connection = database.Open();
@@ -30,7 +39,7 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
         return places;
     }
 
-    private ImportPlace Find(string id) =>
+    public ImportPlace Find(string id) =>
         List().FirstOrDefault(place => place.Id == id)
         ?? throw new LibraryException("That place isn’t on this Uncloud any more.", "not_found");
 
@@ -175,21 +184,40 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
     /// and that target can itself run through a link — /var/… on macOS, where every temporary
     /// folder and many a home directory lives. So it is resolved until it stops moving.
     ///
-    /// A path that can't be resolved at all is returned as it came. Every caller is asking in
-    /// order to refuse a match, so the worst an unresolvable path can do is fail to match itself.
+    /// Used where an unsettled answer is no worse than a settled one, such as offering
+    /// suggestions. Anything that refuses on a comparison uses <see cref="Settle"/> instead.
     /// </summary>
-    private static string Safe(string path)
+    private string Safe(string path) => Settle(path, out _);
+
+    /// <summary>
+    /// As above, saying whether it got there. <paramref name="settled"/> is false only when the
+    /// path was still moving after <see cref="Rewrites"/> passes, which is the one case where the
+    /// answer is not the real folder and must not be compared against anything: a chain of links
+    /// long enough to outlast the bound would otherwise let a folder be matched under a name that
+    /// hides where it really is. A path that cannot be resolved at all is a different matter and
+    /// comes back as it went in — it has no real folder to hide.
+    /// </summary>
+    private string Settle(string path, out bool settled)
     {
         var current = path;
         // Bounded: a cycle of links would otherwise be an infinite loop rather than a refusal.
-        for (var attempt = 0; attempt < 8; attempt++)
+        for (var attempt = 0; attempt < Rewrites; attempt++)
         {
             string resolved;
             try { resolved = PathPolicy.NormalizeRoot(current); }
-            catch (Exception failure) when (failure is LibraryException or IOException) { return current; }
-            if (resolved == current) break;
+            catch (Exception failure) when (failure is LibraryException or IOException)
+            {
+                settled = true;
+                return current;
+            }
+            if (resolved == current)
+            {
+                settled = true;
+                return current;
+            }
             current = resolved;
         }
+        settled = false;
         return current;
     }
 
@@ -200,11 +228,22 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
         // paths, so a folder reached one way and named another — /var against /private/var on
         // macOS, or any symbolic link above it — would be two strings that don't match and a
         // check that quietly passes on a spelling.
-        var folder = Safe(path);
-        if (Nested(folder, Safe(configDirectory)))
+        var folder = Settle(path, out var folderSettled);
+        var settings = Settle(configDirectory, out var settingsSettled);
+        // A path that never stops moving is one Uncloud cannot say the real folder of, and every
+        // check below is a comparison against that folder. Refusing is the only safe answer:
+        // letting it through would be deciding it is not the host's folder on the strength of a
+        // name that doesn't say where it goes.
+        if (!folderSettled || !settingsSettled)
+            return "Uncloud can’t work out which folder that really is — it’s reached through too many linked folders. Choose it by its own path instead.";
+        if (Nested(folder, settings))
             return "That folder holds Uncloud’s own settings, which includes everybody’s passwords. Choose another one.";
-        if (host.RootPath is { } root && Nested(folder, Safe(root)))
-            return "That folder holds everybody’s Uncloud files. Bringing files in from it would let anyone here read everybody else’s, so choose a folder outside it.";
+        if (host.RootPath is { } root)
+        {
+            var library = Settle(root, out var librarySettled);
+            if (!librarySettled || Nested(folder, library))
+                return "That folder holds everybody’s Uncloud files. Bringing files in from it would let anyone here read everybody else’s, so choose a folder outside it.";
+        }
         return null;
     }
 

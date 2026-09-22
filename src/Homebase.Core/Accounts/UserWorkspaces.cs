@@ -97,6 +97,27 @@ public sealed class UserWorkspaces(
     }
 
     /// <summary>
+    /// Stops every import running from one place, after it is taken off the list. Deleting the row
+    /// is not enough on its own: a running import holds the source it started with, which carries
+    /// the folder it resolved to and never asks again, so it would carry on reading a folder that
+    /// is no longer shared — the very case an administrator removing a folder shared by mistake is
+    /// trying to stop. Whatever already arrived stays, as it does for any stopped import.
+    /// </summary>
+    public int CancelImportsFrom(string sourceId)
+    {
+        UserWorkspace[] workspaces;
+        lock (_lock) workspaces = _workspaces.Values.ToArray();
+        var stopped = 0;
+        foreach (var workspace in workspaces)
+            if (workspace.Jobs.Current is { Running: true } job && job.SourceId == sourceId)
+            {
+                workspace.Jobs.Cancel();
+                stopped++;
+            }
+        return stopped;
+    }
+
+    /// <summary>
     /// The same, for one account, after that account changes the Dropbox app key it connects
     /// through. Their connection was authorised against the old app and cannot be refreshed against
     /// the new one, so it has to go — and only theirs, because nobody else's key moved.

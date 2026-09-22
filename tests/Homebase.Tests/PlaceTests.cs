@@ -4,6 +4,7 @@ using System.Text.Json;
 using Homebase.Core;
 using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Homebase.Tests;
 
@@ -184,6 +185,82 @@ public sealed class PlaceTests : IDisposable
     }
 
     [Fact]
+    public void A_folder_reached_through_too_many_links_is_refused_rather_than_guessed_at()
+    {
+        // Resolving is bounded, because a cycle of links would otherwise loop forever. That bound
+        // has to end in a refusal and not in a half-resolved answer: a path still moving when the
+        // passes run out is one Uncloud cannot say the real folder of, and every check here is a
+        // comparison against that folder — letting it through decides it isn't the host's folder
+        // on the strength of a name that doesn't say where it goes.
+        //
+        // The arrangement is the one that needs a second look: a link whose target runs through
+        // another link, which is the only shape that needs one at all, since a single pass already
+        // follows a chain of links to its end. It takes two rewrites and a third pass to see that
+        // it has stopped moving. Rather than contriving one that outlasts the real bound, the bound
+        // is brought down — the behaviour under test is what happens when the passes run out.
+        var settings = Directory.CreateDirectory(Path.Combine(_temporary, "Settings")).FullName;
+        var real = Directory.CreateDirectory(Path.Combine(settings, "private", "Preferences")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(settings, "var"), Path.Combine(settings, "private"));
+        var reachedBy = Path.Combine(settings, "private", "PreferencesLink");
+        Directory.CreateSymbolicLink(reachedBy, Path.Combine(settings, "var", "Preferences"));
+
+        var database = new ControlDatabase(reachedBy);
+        var host = new HostService(database);
+
+        // Three passes is enough to see through it, and the folder is refused for what it holds.
+        var seeing = new ImportPlaces(database, host, reachedBy) { Rewrites = 3 };
+        Assert.Contains("passwords", Assert.Throws<LibraryException>(() => seeing.Add(real, "Sneaky")).Message);
+
+        // Two is not, and the answer is a refusal rather than the half-resolved path it got to.
+        var blinkered = new ImportPlaces(database, host, reachedBy) { Rewrites = 2 };
+        var refusal = Assert.Throws<LibraryException>(() => blinkered.Add(real, "Sneaky"));
+        Assert.Equal("forbidden", refusal.Code);
+        Assert.Contains("too many linked folders", refusal.Message);
+    }
+
+    [Fact]
+    public async Task Removing_a_place_stops_an_import_already_running_from_it()
+    {
+        // Deleting the row does not reach an import already going: it holds the source it started
+        // with, which carries the folder it resolved to and never asks again. An administrator
+        // removing a folder shared by mistake is trying to stop the reading, not just the starting.
+        //
+        // Held open at its first file rather than raced against a real one, because whether a copy
+        // of some number of small files is still going a moment later is not a thing to assert.
+        var source = new StubDropbox { Gated = true };
+        source.AddFolder("/notes");
+        source.Add("/notes/one.txt", "rev1", "One.");
+        source.Add("/notes/two.txt", "rev1", "Two.");
+        var database = new ControlDatabase(_config);
+        var host = new HostService(database);
+        host.SelectRoot(_host);
+        var workspaces = new UserWorkspaces(host, new MetadataIndex(), new ImportLog(),
+            new OneStub(source), new ImportPlaces(database, host, _config), NullLoggerFactory.Instance);
+
+        var workspace = workspaces.For("someone");
+        workspace.Jobs.Start(source, "folder:abc", "/notes", "notes");
+        await source.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        // A place nobody is importing from is nobody's import to stop.
+        Assert.Equal(0, workspaces.CancelImportsFrom("folder:something-else"));
+        Assert.Equal(1, workspaces.CancelImportsFrom("folder:abc"));
+
+        source.Gate.SetResult();
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (workspace.Jobs.Current is { Running: true } && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(15);
+        Assert.Equal(ImportStage.Stopped, workspace.Jobs.Current!.Stage);
+    }
+
+    /// <summary>One stub for whoever asks, so a workspace can be built around a held-open import.</summary>
+    private sealed class OneStub(StubDropbox stub) : IDropboxApiFactory
+    {
+        public IDropboxConnection For(string userId) => stub;
+        public void Forget(string userId) { }
+        public void ForgetAll() { }
+    }
+
+    [Fact]
     public void A_place_that_comes_to_hold_the_host_folder_is_refused_when_it_is_used()
     {
         // Defence in depth for the pair above. Both ways in are refused, but a place is checked
@@ -329,6 +406,12 @@ public sealed class PlaceTests : IDisposable
     {
         var started = await client.PostAsJsonAsync("/api/imports", new { remotePath, source });
         started.EnsureSuccessStatusCode();
+        return await SettledAsync(client);
+    }
+
+    /// <summary>Waits for whatever import is running to stop, however it stops.</summary>
+    private static async Task<JsonElement> SettledAsync(HttpClient client)
+    {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
         while (DateTimeOffset.UtcNow < deadline)
         {

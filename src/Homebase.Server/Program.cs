@@ -579,10 +579,14 @@ app.MapGet("/api/host/places", (ImportPlaces places, IFolderPicker picker) =>
 app.MapPost("/api/host/places", (AddPlace request, ImportPlaces places) =>
     Results.Ok(places.Add(request.Path, request.Name)));
 
-app.MapDelete("/api/host/places/{id}", (string id, ImportPlaces places) =>
+app.MapDelete("/api/host/places/{id}", (string id, ImportPlaces places, UserWorkspaces workspaces) =>
 {
+    var place = places.Find(id);
     places.Remove(id);
-    return Results.Ok(new { removed = true });
+    // Taking the row away does not reach an import already running from it, which holds the folder
+    // it started on. Removing a place has to actually stop the reading, not just the starting.
+    var stopped = workspaces.CancelImportsFrom(place.ProviderId);
+    return Results.Ok(new { removed = true, stopped });
 });
 
 // The Dropbox app this Uncloud offers everybody by default. Administrative because it is the
