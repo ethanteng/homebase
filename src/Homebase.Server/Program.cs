@@ -12,6 +12,32 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args,
     ContentRootPath = Directory.Exists(publishedAssets) ? AppContext.BaseDirectory : null
 });
+
+// Remote access is settled before anything is served. The tunnel's address is the name this
+// host answers to and the address Dropbox returns the browser to, so the binding below is built
+// from it rather than corrected once requests are already arriving under it.
+static string Join(string? existing, params string[] additions) => string.Join(',',
+    (existing ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Concat(additions).Distinct(StringComparer.OrdinalIgnoreCase));
+
+var remoteLog = LoggerFactory.Create(logging => logging.AddConsole());
+var remote = RemoteAccess.From(builder.Configuration, remoteLog.CreateLogger("Homebase.RemoteAccess"));
+if (remote.IsEnabled)
+{
+    var announced = remote.Open(builder.Configuration.GetValue("Homebase:Port", 5210));
+    builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["Homebase:AllowedHosts"] = Join(builder.Configuration["Homebase:AllowedHosts"], announced),
+        // The tunnel client runs on this machine and reaches Uncloud over loopback: it is the
+        // proxy, and naming it is what lets the https:// origin the browser sent be believed
+        // while Kestrel itself is serving plain HTTP.
+        ["Homebase:TrustedProxies"] = Join(builder.Configuration["Homebase:TrustedProxies"], "127.0.0.1", "::1"),
+        ["Homebase:PublicUrl"] = builder.Configuration["Homebase:PublicUrl"] is { Length: > 0 } configured
+            ? configured
+            : $"https://{announced}"
+    });
+}
+
 var startup = HostBinding.From(builder.Configuration);
 // Explicit binding: environment URLs must never decide who can reach the host's files.
 builder.WebHost.ConfigureKestrel(options => options.Listen(startup.Address, startup.Port, listen =>
@@ -27,6 +53,7 @@ var defaultConfig = OperatingSystem.IsMacOS()
 static string ConfigDirectory(IServiceProvider provider, string fallback) =>
     provider.GetRequiredService<IConfiguration>()["Homebase:ConfigDirectory"] ?? fallback;
 
+builder.Services.AddSingleton(remote);
 builder.Services.AddSingleton(provider => HostBinding.From(provider.GetRequiredService<IConfiguration>()));
 builder.Services.AddSingleton(provider => new ControlDatabase(ConfigDirectory(provider, defaultConfig)));
 builder.Services.AddSingleton(provider => new SecretProtector(ConfigDirectory(provider, defaultConfig)));
@@ -56,6 +83,11 @@ var app = builder.Build();
 var binding = app.Services.GetRequiredService<HostBinding>();
 var redirectUri = $"{binding.PublicUrl}/api/providers/dropbox/callback";
 if (binding.Warning is { } warning) app.Logger.LogWarning("{Warning}", warning);
+// A tunnel that drops is an outage of reaching this host from outside, never of the host, so
+// this reopens in the background while everyone on the network carries on.
+remote.Watch(binding.Port);
+app.Lifetime.ApplicationStopping.Register(() => remote.DisposeAsync().AsTask().GetAwaiter().GetResult());
+app.Lifetime.ApplicationStopped.Register(remoteLog.Dispose);
 app.Services.GetRequiredService<SessionStore>().PruneExpired();
 
 const string SessionCookie = "uncloud_session";
@@ -72,7 +104,8 @@ string[] administrative =
 [
     "/api/host",
     "/api/users",
-    "/api/folder-picker"
+    "/api/folder-picker",
+    "/api/remote-access"
 ];
 
 // Behind a proxy that terminates TLS, Kestrel sees plain HTTP on a loopback address while the
@@ -97,8 +130,10 @@ if (binding.TrustedProxies.Count > 0)
 app.Use(async (context, next) =>
 {
     var request = context.Request;
-    // Host validation also prevents DNS rebinding from turning a browser into a way in.
-    if (!binding.AllowedHosts.Contains(request.Host.Host))
+    // Host validation also prevents DNS rebinding from turning a browser into a way in. An
+    // unnamed tunnel comes back under a different address after a reconnect, so what it carries
+    // now is asked as well as what was configured at startup.
+    if (!binding.AllowedHosts.Contains(request.Host.Host) && !remote.Answers(request.Host.Host))
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
         return;
@@ -352,6 +387,13 @@ app.MapPost("/api/imports/job/cancel", (CurrentUser user, UserWorkspaces workspa
     Results.Ok(new { job = workspaces.For(user.Account).Jobs.Cancel() }));
 app.MapGet("/api/imports/estimate", async (string remotePath, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
     Results.Ok(await workspaces.For(user.Account).Imports.MeasureAsync(remotePath, cancellationToken)));
+
+// Where this host can be reached from outside the house, for the administrator to pass on.
+app.MapGet("/api/remote-access", (RemoteAccess access, HostBinding self) =>
+{
+    var state = access.State;
+    return Results.Ok(new { state.Provider, state.Hostname, state.Url, state.Status, state.Detail, self.PublicUrl });
+});
 
 app.MapGet("/api/host", (HostService host, IFolderPicker picker) =>
     Results.Ok(new { rootPath = host.RootPath, canPickFolder = picker.IsSupported }));
