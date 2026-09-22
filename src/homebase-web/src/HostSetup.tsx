@@ -2,14 +2,17 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import {
   ArrowRight,
+  Check,
+  Copy,
   FolderOpen,
+  Globe,
   HardDrive,
   LoaderCircle,
   PackageOpen,
   ShieldCheck,
 } from "lucide-react";
 import { api } from "./api";
-import type { ClaimResult, HostState } from "./api";
+import type { ClaimResult, HostState, RemoteAccessState } from "./api";
 
 interface Props {
   onSaved: () => void;
@@ -29,6 +32,8 @@ export default function HostSetup({ onSaved, compact = false }: Props) {
   );
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [remote, setRemote] = useState<RemoteAccessState | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -42,6 +47,37 @@ export default function HostSetup({ onSaved, compact = false }: Props) {
       });
     return () => controller.abort();
   }, []);
+
+  // Only worth asking about where the settings live: during first-run setup there is nothing
+  // to reach yet, and the address is the host's, not this form's.
+  useEffect(() => {
+    if (!compact) return;
+    const controller = new AbortController();
+    const read = () =>
+      api<RemoteAccessState>("/remote-access", { signal: controller.signal })
+        .then(setRemote)
+        .catch(() => {
+          // An older host, or one that couldn't answer. The rest of the form still works.
+        });
+    void read();
+    // A tunnel that is still opening, or opening again, settles on its own; this is how the
+    // administrator sees it settle without reloading.
+    const timer = window.setInterval(() => void read(), 4000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [compact]);
+
+  async function copyAddress(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can be refused; the address is on screen to be read either way.
+    }
+  }
 
   useEffect(() => {
     if (!host?.rootPath) return;
@@ -256,6 +292,51 @@ export default function HostSetup({ onSaved, compact = false }: Props) {
             Moving the host’s folder moves where everybody’s files are looked
             for. The files themselves stay where they are.
           </p>
+        )}
+        {compact && remote && (
+          <div className="notice-card remote-access">
+            <p className="remote-heading">
+              <Globe size={16} />
+              <strong>Reaching this host from anywhere</strong>
+            </p>
+            {remote.status === "off" && (
+              <p>
+                Uncloud is only reachable on this network. Set{" "}
+                <code>Homebase__RemoteAccess__Provider</code> to{" "}
+                <code>tailscale</code> or <code>cloudflare</code> on the host to
+                open a tunnel, and everyone here can sign in from anywhere.
+              </p>
+            )}
+            {remote.status === "on" && remote.url && (
+              <>
+                <p>
+                  Everyone with an account here can sign in at this address, from
+                  any network. It is the same accounts and the same passwords.
+                </p>
+                <div className="remote-address">
+                  <a href={remote.url} target="_blank" rel="noreferrer">
+                    {remote.url}
+                  </a>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    onClick={() => void copyAddress(remote.url!)}
+                  >
+                    {copied ? <Check size={15} /> : <Copy size={15} />}
+                    {copied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </>
+            )}
+            {(remote.status === "opening" ||
+              remote.status === "reconnecting") && (
+              <p>
+                <LoaderCircle size={15} className="spin" />{" "}
+                {remote.detail ??
+                  "Uncloud is opening a tunnel. Everyone on this network can carry on in the meantime."}
+              </p>
+            )}
+          </div>
         )}
       </form>
     </section>

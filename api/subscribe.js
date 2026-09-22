@@ -2,20 +2,24 @@
 
 // Early-access signups from the landing page.
 //
-// This exists because the page is static: a Mailtrap token in browser JavaScript
-// is a published token. The form posts here instead, and only this function
-// talks to Mailtrap.
+// This exists because the page is static: an API token in browser JavaScript is
+// a published token. The form posts here instead, and only this function talks
+// to anything that holds one.
 //
-// Mailtrap sends mail; it is not a subscriber list. A signup becomes an email in
-// the inbox named by SIGNUP_NOTIFY_TO, and that inbox is the list for now.
+// A signup is a row in an Airtable table, and that table is the list. The
+// notification email is how a signup gets noticed, not where it is kept, so it
+// is sent after the row exists and a failed one is logged rather than surfaced.
 
 const MAX_BODY_BYTES = 4096;
 const MAX_EMAIL_LENGTH = 254; // RFC 5321
 const MAX_DOMAIN_LENGTH = 253;
+const MAX_CONTEXT_LENGTH = 200;
 const SEND_TIMEOUT_MS = 8000;
+const STORE_TIMEOUT_MS = 8000;
 
-// Sending is rate limited because this endpoint spends someone else’s quota:
-// every accepted request becomes an email. The window is per warm instance, so
+// Requests are rate limited because this endpoint spends someone else’s quota:
+// every accepted one writes an Airtable record and sends an email, and the free
+// Airtable plan counts calls by the month. The window is per warm instance, so
 // it blunts a naive flood rather than stopping a distributed one; Vercel’s
 // firewall rate limiting is the durable control and this is the floor.
 const RATE_WINDOW_MS = 60 * 1000;
@@ -71,6 +75,15 @@ function normalizeEmail(email) {
   return `${email.slice(0, at)}@${email.slice(at + 1).toLowerCase()}`;
 }
 
+/**
+ * Cleans a referrer or campaign string on its way into a record. These come
+ * from the page, so they are trimmed of the control characters that would let
+ * a value carry a line break, and capped so a long one cannot pad the request.
+ */
+function contextValue(value) {
+  return text(value).replace(/[\u0000-\u001F\u007F]/g, "").slice(0, MAX_CONTEXT_LENGTH);
+}
+
 // key -> timestamps, kept only for the window each key is checked against.
 const hits = new Map();
 
@@ -111,43 +124,94 @@ function noteAttempt(request, now) {
   note(`ip:${callerAddress(request)}`, now);
 }
 
-/** Counted only once mail is away, so a retry after a failure is not refused. */
+/** Counted only once the row exists, so a retry after a failure is not refused. */
 function noteDelivered(email, now) {
   note(`addr:${email}`, now);
 }
 
-/** Reads the settings this function needs, and says plainly which are missing. */
+/**
+ * Reads the settings this function needs, and says plainly which are missing.
+ *
+ * Only the store is required. Mailtrap is a notification, so a deployment with
+ * no mail settings still takes signups; it just does so quietly.
+ */
 function readConfig(env) {
-  const token = text(env.MAILTRAP_TOKEN);
-  const notify = text(env.SIGNUP_NOTIFY_TO);
+  const storeToken = text(env.AIRTABLE_TOKEN);
+  const baseId = text(env.AIRTABLE_BASE_ID);
   const missing = [];
-  if (!token) missing.push("MAILTRAP_TOKEN");
-  if (!notify) missing.push("SIGNUP_NOTIFY_TO");
+  if (!storeToken) missing.push("AIRTABLE_TOKEN");
+  if (!baseId) missing.push("AIRTABLE_BASE_ID");
+
+  // A table per environment is how a preview deployment stays out of the real
+  // list while pointing at the same base.
+  const table = text(env.AIRTABLE_TABLE) || "Signups";
+
+  const mailToken = text(env.MAILTRAP_TOKEN);
+  const notifyTo = text(env.SIGNUP_NOTIFY_TO);
   const inbox = text(env.MAILTRAP_INBOX_ID);
+
   return {
     missing,
-    token,
-    notify,
-    from: text(env.MAILTRAP_FROM) || "early-access@uncloud.life",
-    // An inbox id routes to Mailtrap's sandbox, which captures mail instead of
-    // delivering it — useful before a sending domain is verified.
-    url: inbox
-      ? `https://sandbox.api.mailtrap.io/api/send/${encodeURIComponent(inbox)}`
-      : "https://send.api.mailtrap.io/api/send",
-    sandbox: Boolean(inbox)
+    store: {
+      token: storeToken,
+      url: `https://api.airtable.com/v0/${encodeURIComponent(baseId)}/${encodeURIComponent(table)}`
+    },
+    notify: mailToken && notifyTo
+      ? {
+          token: mailToken,
+          to: notifyTo,
+          from: text(env.MAILTRAP_FROM) || "early-access@uncloud.life",
+          // An inbox id routes to Mailtrap's sandbox, which captures mail
+          // instead of delivering it — useful before a sending domain is
+          // verified. It says nothing about whether the signup was recorded.
+          url: inbox
+            ? `https://sandbox.api.mailtrap.io/api/send/${encodeURIComponent(inbox)}`
+            : "https://send.api.mailtrap.io/api/send"
+        }
+      : null
   };
 }
 
-async function sendToMailtrap(email, config, fetchImpl) {
-  const response = await fetchImpl(config.url, {
-    method: "POST",
+/**
+ * Writes the signup to Airtable, upserting on the address.
+ *
+ * Upserting is what makes the table a list rather than a log: a second signup
+ * updates the row that already exists instead of adding a twin, and it costs
+ * one request where a search followed by a create would cost two. That matters
+ * on a plan that counts API calls by the month.
+ */
+async function storeSignup(fields, config, fetchImpl) {
+  const response = await fetchImpl(config.store.url, {
+    method: "PATCH",
     headers: {
-      "Api-Token": config.token,
+      Authorization: `Bearer ${config.store.token}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      from: { email: config.from, name: "Uncloud" },
-      to: [{ email: config.notify }],
+      performUpsert: { fieldsToMergeOn: ["Email"] },
+      records: [{ fields }]
+    }),
+    signal: AbortSignal.timeout(STORE_TIMEOUT_MS)
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    const error = new Error(`Airtable responded ${response.status}: ${detail.slice(0, 300)}`);
+    error.status = response.status;
+    throw error;
+  }
+  return true;
+}
+
+async function sendToMailtrap(email, notify, fetchImpl) {
+  const response = await fetchImpl(notify.url, {
+    method: "POST",
+    headers: {
+      "Api-Token": notify.token,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: { email: notify.from, name: "Uncloud" },
+      to: [{ email: notify.to }],
       subject: "Uncloud early access request",
       text: `${email}\n\nRequested early access from uncloud.life.\n${new Date().toISOString()}\n`,
       category: "early-access"
@@ -169,11 +233,15 @@ function body(request) {
   const asText = typeof raw === "string" ? raw : "";
   if (!asText) return {};
   if (Buffer.byteLength(asText, "utf8") > MAX_BODY_BYTES) throw new Error("too large");
+  let parsed;
   try {
-    return JSON.parse(asText);
+    parsed = JSON.parse(asText);
   } catch {
     throw new Error("not json");
   }
+  // "null", "7" and "[]" are all valid JSON and none of them has fields to read.
+  // Treated as an empty body, they fail validation instead of the function.
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
 }
 
 async function handler(request, response, env = process.env, fetchImpl = fetch) {
@@ -222,23 +290,43 @@ async function handler(request, response, env = process.env, fetchImpl = fetch) 
 
   noteAttempt(request, now);
 
+  const fields = { Email: email, "Signed Up": new Date(now).toISOString() };
+  const source = contextValue(payload.source);
+  const referrer = contextValue(payload.referrer);
+  // Left out rather than sent empty: a repeat signup upserts the same row, and
+  // a blank value would erase what the first visit recorded.
+  if (source) fields.Source = source;
+  if (referrer) fields.Referrer = referrer;
+
   try {
-    await sendToMailtrap(email, config, fetchImpl);
+    await storeSignup(fields, config, fetchImpl);
   } catch (failure) {
     // The visitor gets nothing actionable; the detail belongs in the log.
-    console.error("Signup send failed:", failure.message);
+    console.error("Signup not stored:", failure.message);
     return response.status(502).json({
       error: "That didn’t go through. Try again in a moment."
     });
   }
 
+  // The record is the list; this email is only how it gets noticed. Failing the
+  // request here would ask someone already on the list to sign up again, so the
+  // failure is logged and the visitor is told what is true: they are on it.
+  if (config.notify) {
+    try {
+      await sendToMailtrap(email, config.notify, fetchImpl);
+    } catch (failure) {
+      console.error("Signup stored but notification failed:", failure.message);
+    }
+  }
+
   noteDelivered(email, now);
-  return response.status(200).json({ ok: true, accepted: true, sandbox: config.sandbox });
+  return response.status(200).json({ ok: true, accepted: true });
 }
 
 module.exports = handler;
 module.exports.validateEmail = validateEmail;
 module.exports.normalizeEmail = normalizeEmail;
+module.exports.contextValue = contextValue;
 module.exports.readConfig = readConfig;
 // Tests share one module instance, so each needs a table nobody else filled.
 module.exports.resetLimits = () => hits.clear();

@@ -35,24 +35,48 @@ Commit and push the configuration to trigger a new Git deployment. Redeploying a
 
 ## Early-access signups
 
-`api/subscribe.js` is a Vercel serverless function at `/api/subscribe`. It validates the address and asks Mailtrap to email each signup to the notification address. Nothing is stored: the inbox is the list.
+`api/subscribe.js` is a Vercel serverless function at `/api/subscribe`. It validates the address, writes it to an Airtable table, and then emails a notification. **The table is the list.** The email is only how a signup gets noticed, which is why the order matters: a signup that cannot be stored is a failure the visitor is asked to retry, and a notification that cannot be sent is a line in the log.
 
-The Mailtrap token is only ever read on the server. Never put it in `landing/main.js` or any other file the browser downloads — anything shipped to a browser is public.
+Every API token is only ever read on the server. Never put one in `landing/main.js` or any other file the browser downloads — anything shipped to a browser is public.
+
+### The Airtable table
+
+Create a base, then a table (named `Signups` unless you set `AIRTABLE_TABLE`) with these fields. The names have to match exactly; Airtable rejects a write that names a field the table does not have.
+
+| Field | Type | Written when |
+| --- | --- | --- |
+| `Email` | Single line text, and the table's primary field | Always. The row is upserted on this field, so one person is one row however many times they sign up. |
+| `Signed Up` | Date, with time enabled | Always. The most recent request — Airtable's own **Created time** field holds the first, if you add one. |
+| `Source` | Single line text | Only when the visit carried a `utm_source`. |
+| `Referrer` | Single line text | Only when the browser reported one. |
+
+`Source` and `Referrer` are left out of the write when empty rather than sent blank: the upsert sets every field it is given, so a later visit with no campaign would otherwise erase what the first one recorded.
+
+Create a **personal access token** at [airtable.com/create/tokens](https://airtable.com/create/tokens) with the `data.records:read` and `data.records:write` scopes, granted to this base only. The old API keys stopped working in February 2024.
+
+The free Airtable plan allows 1,000 records per base and 1,000 API calls per month per workspace. One signup is one call. That is comfortable for early access and the ceiling is a signal to move the list somewhere else, not a surprise.
+
+### Environment variables
 
 Set these in the Vercel project under **Settings → Environment Variables**, for every environment the page is deployed to:
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `MAILTRAP_TOKEN` | yes | Mailtrap API token. Sending tokens and sandbox tokens are different; use one that matches the mode below. |
-| `SIGNUP_NOTIFY_TO` | yes | Address that receives the signup notifications. |
+| `AIRTABLE_TOKEN` | yes | Personal access token, scoped to the signup base. |
+| `AIRTABLE_BASE_ID` | yes | The base id, starting `app…`. It is in the base's API documentation URL. |
+| `AIRTABLE_TABLE` | no | Table name. Defaults to `Signups`. Point a preview deployment at a different table to keep test signups out of the real list. |
+| `MAILTRAP_TOKEN` | no | Mailtrap API token. Sending tokens and sandbox tokens are different; use one that matches the mode below. |
+| `SIGNUP_NOTIFY_TO` | no | Address that receives the signup notifications. |
 | `MAILTRAP_FROM` | no | Sender address. Defaults to `early-access@uncloud.life`. |
 | `MAILTRAP_INBOX_ID` | no | Set it to route through the Mailtrap sandbox (`sandbox.api.mailtrap.io`) instead of live sending. Useful for a preview deployment. |
 
-Live sending needs a **verified sending domain** in Mailtrap, and `MAILTRAP_FROM` has to be on that domain. Until the domain is verified, set `MAILTRAP_INBOX_ID` and read the signups in the sandbox inbox.
+Only the Airtable settings are required. With the Mailtrap pair unset the function still records every signup; it just does so without telling anyone. Setting one of that pair without the other is the same as setting neither.
+
+Live sending needs a **verified sending domain** in Mailtrap, and `MAILTRAP_FROM` has to be on that domain. Until the domain is verified, set `MAILTRAP_INBOX_ID` and read the notifications in the sandbox inbox. Sandbox mode affects only the notification — the Airtable row is real either way.
 
 Changing an environment variable does not change a deployment that already exists. Redeploy after setting them.
 
-The function answers with a generic message when Mailtrap fails or a variable is missing; the reason goes to the function log, not to the visitor. A missing variable never names itself in a response.
+The function answers with a generic message when Airtable fails or a required variable is missing; the reason goes to the function log, not to the visitor. A missing variable never names itself in a response.
 
 Run the function's tests from the repository root:
 
@@ -64,7 +88,7 @@ node --test "api/*.test.js"
 
 ## Refine the message
 
-Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.svg` is the shared brand mark and favicon. The landing page uses a light, product-led visual system with charcoal type, muted blue-gray interface details, and the existing orange Uncloud accent for actions and brand moments. The product diagram is built in semantic HTML and CSS so it scales cleanly without shipping a large raster illustration. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). No signup database is included.
+Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.svg` is the shared brand mark and favicon. The landing page uses a light, product-led visual system with charcoal type, muted blue-gray interface details, and the existing orange Uncloud accent for actions and brand moments. The product diagram is built in semantic HTML and CSS so it scales cleanly without shipping a large raster illustration. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). Signups are stored in Airtable; see below.
 
 Canonical, Open Graph, structured-data, and sitemap URLs use `https://www.uncloud.life/`, matching the production host that the bare domain redirects to. Keep these URLs and the robots.txt sitemap reference aligned. These metadata tags do not configure DNS, hosting, or deployment.
 

@@ -86,6 +86,80 @@ Homebase__PublicUrl=https://uncloud.local \
 
 Uncloud otherwise sees plain HTTP on a loopback address while the browser sent an `https://` origin, and refuses every sign-in as cross-site. Only the addresses listed here are believed, and only about the scheme and host — trusting those headers from anyone would let any client claim HTTPS or any hostname it liked. A forwarded host must still be one of `Homebase__AllowedHosts`.
 
+A proxy named here is not believed about *who its client is*, because a client that could name itself could invent a new name per attempt and never meet the sign-in throttle. The cost is that everyone arriving through the proxy shares one throttle bucket, so put the rate limiting in the proxy if that matters. A tunnel Uncloud opened itself is the exception, below: it is not somebody else's proxy, so what it says about the client is Uncloud's own to trust.
+
+### Reaching it from anywhere
+
+Everything above puts Uncloud on the network the host sits on. To let everyone with an account
+sign in from outside the house, Uncloud can open a **tunnel**: an outbound connection to a service
+that already owns a name and a certificate. Nothing is forwarded at the router, no port is opened
+to the internet, and no certificate has to be obtained here or renewed.
+
+```sh
+Homebase__RemoteAccess__Provider=tailscale \
+./scripts/run.sh
+```
+
+Uncloud runs [`tailscale funnel`](https://tailscale.com/kb/1223/funnel), reads the address out of
+what it prints, and answers to it — so the host stays bound to `127.0.0.1` and the tunnel is the
+only way in from outside. The address is on **Storage settings**, for an administrator to pass on.
+Anyone with an account signs in there exactly as they would at home, with the same username and
+password; remote access is another door, not another set of keys.
+
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+works the same way. Without a Cloudflare account it hands out a throwaway `trycloudflare.com`
+address that changes every time the tunnel opens:
+
+```sh
+Homebase__RemoteAccess__Provider=cloudflare ./scripts/run.sh
+```
+
+A tunnel you have named and pointed at your own domain keeps its address, and Uncloud has to be
+told it, because a named tunnel announces nothing on startup:
+
+```sh
+Homebase__RemoteAccess__Provider=cloudflare \
+Homebase__RemoteAccess__Tunnel=household \
+Homebase__RemoteAccess__Hostname=files.example.com \
+./scripts/run.sh
+```
+
+| Setting | What it does |
+| --- | --- |
+| `Homebase__RemoteAccess__Provider` | `none` (the default), `tailscale`, or `cloudflare`. |
+| `Homebase__RemoteAccess__Hostname` | The address to answer to. Required for a named Cloudflare tunnel; otherwise read from what the tunnel announces. |
+| `Homebase__RemoteAccess__Tunnel` | The name of a Cloudflare tunnel to run, instead of a throwaway one. |
+| `Homebase__RemoteAccess__Command` | Where the tunnel program lives, if it isn't on the `PATH`. |
+| `Homebase__RemoteAccess__Arguments` | The whole command line, replacing what Uncloud would have run. `{port}` is substituted. |
+| `Homebase__RemoteAccess__TimeoutSeconds` | How long to wait for an address before giving up. 60 by default. |
+
+Install the tunnel program yourself — `tailscale` or `cloudflared` — and sign it in first. Uncloud
+runs it, and stops it on the way out, so a funnel never outlives the host it was opened for.
+
+Four things follow from turning this on, and are worth knowing before you do:
+
+- **The first account is still made at the host.** Until one exists there is nobody on this
+  Uncloud to refuse anybody, so whoever asks first becomes its administrator. Setting up is
+  therefore refused through the tunnel, and has to be done at the computer or from its own
+  network. Everything else is reachable through the tunnel as usual.
+- **The address is settled before the first request is served, and startup fails if it can't be.**
+  Remote access was asked for, and a host that came up without it would be quietly unreachable for
+  everyone not on the network. A tunnel that drops *later* is only an outage of reaching the host
+  from outside: Uncloud opens another in the background while everyone at home carries on.
+- **Loopback becomes a trusted proxy.** The tunnel client runs on this machine and reaches Uncloud
+  over `127.0.0.1`, and it is where TLS ends, so the `https://` origin the browser sent has to be
+  believed for sign-in to work at all. Unlike a reverse proxy you configured yourself, a tunnel
+  Uncloud opened is also believed about the client's address, without which the sign-in throttle
+  would count everybody arriving through it into one bucket and ten wrong guesses from anywhere
+  would lock out the whole household. Anything else with a shell on the host could claim the same
+  — which it could already, since it can read every account's files directly.
+- **`Homebase__PublicUrl` follows the tunnel unless you set it.** That address must be registered
+  as the redirect URI of your Dropbox app. A throwaway `trycloudflare.com` name changes on every
+  restart, so Dropbox can't be connected through one; use Tailscale or a named tunnel for that.
+
+Uncloud is not a sandbox and this does not change that — see the note above. Opening it to the
+internet means the passwords on this host are the whole defence, so pick good ones.
+
 ### Upgrading a single-user library
 
 The folder a previous version used becomes the host folder, and nothing in it is moved. Files sitting at its top level are listed under **Storage settings**, and **Move them into my folder** renames each one into the administrator's folder — nothing is copied, and anything whose name is already taken is reported rather than overwritten.
@@ -202,8 +276,9 @@ host keeps what it deletes or replaces for 30 days under a hidden `.stversions` 
 restore button yet, so that means copying it back out of `.stversions`.
 
 Syncthing connects through its global discovery and relays by default, so your computers keep
-syncing when they're away from home, even though Uncloud's web interface is still only reachable
-where the host is.
+syncing when they're away from home, whether or not the host has a tunnel open for the web
+interface. A pairing code can be redeemed through that tunnel too; guesses are counted per
+client, the same as sign-in.
 
 `Homebase__Syncthing__Path` points at the binary if it isn't on `PATH`,
 `Homebase__Syncthing__GuiPort` moves its local API off 8390, and
@@ -233,8 +308,8 @@ if it comes along, and fine if it doesn't. The control database that holds accou
 tokens lives in the preference directory, so back that up separately if you want the accounts
 themselves to survive, not just the files.
 
-Reaching Uncloud's web interface while away from the host is not solved yet; see the [design
-notes](docs/multi-user.md). Syncing with your own computers works from anywhere.
+The web interface is reachable from outside the house only through a tunnel, described above.
+Syncing with your own computers works from anywhere either way.
 
 ## Landing page
 
@@ -246,7 +321,7 @@ The standalone **Uncloud** messaging page for **uncloud.life** is in [`landing/`
 ./scripts/check.sh
 ```
 
-Builds/type-checks the frontend and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, persistence, indexing, file integrity/downloads, host folder switching, unavailable folders, symlinks, traversal, request boundaries, Dropbox imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked), and syncing with your own computers (device-ID checks, one account per computer, each account seeing and using only its own computers, folders and offers, folders confined to the account's space and never nested, Uncloud's index ignored before Syncthing first scans, offered names held to the same rules, pausing a disabled account's computers and removing a deleted one's, adopting folders from the administrator-only version, following a moved host folder, and pairing codes that are single-use, expiring, throttled and bound to the account that asked). Tests use disposable fixtures and isolated settings, never your real library or accounts.
+Builds/type-checks the frontend and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, remote access over a tunnel (the announced address becoming the one this host answers to and where Dropbox returns the browser, a configured public URL not being overruled, an address only administrators are shown, refusing to let the first account be claimed over the internet, counting a stranger's guessing against the stranger rather than the whole household, refusing to take a client's word for its own address through a proxy that isn't a tunnel, following a tunnel that reconnects under a new name without opening the door to one it never carried, and refusing to start when the tunnel program isn't there), persistence, indexing, file integrity/downloads, host folder switching, unavailable folders, symlinks, traversal, request boundaries, Dropbox imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked), and syncing with your own computers (device-ID checks, one account per computer, each account seeing and using only its own computers, folders and offers, folders confined to the account's space and never nested, Uncloud's index ignored before Syncthing first scans, offered names held to the same rules, pausing a disabled account's computers and removing a deleted one's, adopting folders from the administrator-only version, following a moved host folder, and pairing codes that are single-use, expiring, throttled and bound to the account that asked). Tests use disposable fixtures and isolated settings, never your real library or accounts.
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 

@@ -5,7 +5,10 @@ const { beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const handler = require("./subscribe.js");
 
-const CONFIGURED = { MAILTRAP_TOKEN: "token", SIGNUP_NOTIFY_TO: "ethan@example.com" };
+const STORE_ONLY = { AIRTABLE_TOKEN: "pat-token", AIRTABLE_BASE_ID: "appBase" };
+const CONFIGURED = { ...STORE_ONLY, MAILTRAP_TOKEN: "token", SIGNUP_NOTIFY_TO: "ethan@example.com" };
+
+const AIRTABLE_URL = "https://api.airtable.com/v0/appBase/Signups";
 
 function mockResponse() {
   return {
@@ -18,17 +21,26 @@ function mockResponse() {
   };
 }
 
-function recorder(result = { ok: true, status: 200 }) {
+/**
+ * A stand-in for fetch that records every call. `outcomes` can answer the two
+ * services differently, which is the only way to tell "the record failed" from
+ * "the notification failed" — and those two now have opposite consequences.
+ */
+function recorder(outcomes = {}) {
+  const ok = { ok: true, status: 200 };
   const calls = [];
   const fetchImpl = async (url, options) => {
     calls.push({ url, options });
-    return {
-      ok: result.ok,
-      status: result.status,
-      text: async () => result.text ?? ""
-    };
+    const which = url.includes("airtable.com") ? "airtable" : "mailtrap";
+    const result = outcomes[which] || outcomes.both || ok;
+    return { ok: result.ok, status: result.status, text: async () => result.text ?? "" };
   };
   fetchImpl.calls = calls;
+  fetchImpl.to = (host) => calls.filter((call) => call.url.includes(host));
+  fetchImpl.stored = () => {
+    const call = fetchImpl.to("airtable.com")[0];
+    return call ? JSON.parse(call.options.body).records[0].fields : null;
+  };
   return fetchImpl;
 }
 
@@ -65,22 +77,65 @@ test("only POST is answered", quiet(async () => {
   assert.equal(res.headers.Allow, "POST");
 }));
 
-test("a signup reaches Mailtrap with the address and nothing else", async () => {
+test("a signup becomes a row before it becomes an email", async () => {
   const fetchImpl = recorder();
   const res = mockResponse();
   await handler({ method: "POST", body: { email: "  Someone@Uncloud.Life " } }, res, CONFIGURED, fetchImpl);
 
   assert.equal(res.code, 200);
-  assert.deepEqual(res.body, { ok: true, accepted: true, sandbox: false });
-  assert.equal(fetchImpl.calls.length, 1);
-  const [call] = fetchImpl.calls;
-  assert.equal(call.url, "https://send.api.mailtrap.io/api/send");
-  assert.equal(call.options.headers["Api-Token"], "token");
-  const sent = JSON.parse(call.options.body);
-  // Trimmed, domain folded, and delivered to the configured inbox rather than
-  // the visitor.
+  assert.deepEqual(res.body, { ok: true, accepted: true });
+
+  // The record first: everything after it is a courtesy.
+  const [record, mail] = fetchImpl.calls;
+  assert.equal(record.url, AIRTABLE_URL);
+  assert.equal(record.options.method, "PATCH");
+  assert.equal(record.options.headers.Authorization, "Bearer pat-token");
+  // Trimmed and domain folded, the same address the notification carries.
+  assert.equal(fetchImpl.stored().Email, "Someone@uncloud.life");
+  assert.match(fetchImpl.stored()["Signed Up"], /^\d{4}-\d\d-\d\dT/);
+
+  assert.equal(mail.url, "https://send.api.mailtrap.io/api/send");
+  const sent = JSON.parse(mail.options.body);
   assert.match(sent.text, /Someone@uncloud\.life/);
   assert.deepEqual(sent.to, [{ email: "ethan@example.com" }]);
+});
+
+test("the row is upserted on the address, so a returning visitor has one row", async () => {
+  const fetchImpl = recorder();
+  await handler({ method: "POST", body: { email: "someone@uncloud.life" } },
+    mockResponse(), CONFIGURED, fetchImpl);
+
+  const body = JSON.parse(fetchImpl.to("airtable.com")[0].options.body);
+  assert.deepEqual(body.performUpsert, { fieldsToMergeOn: ["Email"] });
+});
+
+test("where a visitor came from is recorded with them", async () => {
+  const fetchImpl = recorder();
+  await handler({ method: "POST", body: {
+    email: "someone@uncloud.life",
+    source: "newsletter",
+    referrer: "https://news.ycombinator.com/"
+  } }, mockResponse(), CONFIGURED, fetchImpl);
+
+  assert.equal(fetchImpl.stored().Source, "newsletter");
+  assert.equal(fetchImpl.stored().Referrer, "https://news.ycombinator.com/");
+});
+
+test("an empty origin is left out rather than written over the first one", async () => {
+  const fetchImpl = recorder();
+  await handler({ method: "POST", body: { email: "someone@uncloud.life", source: "", referrer: "  " } },
+    mockResponse(), CONFIGURED, fetchImpl);
+
+  // The upsert writes every field it is given, so sending blanks on a second
+  // visit would erase what the first one learned.
+  assert.deepEqual(Object.keys(fetchImpl.stored()).sort(), ["Email", "Signed Up"]);
+});
+
+test("origin strings are trimmed of control characters and capped", () => {
+  assert.equal(handler.contextValue("news\r\nletter"), "newsletter");
+  assert.equal(handler.contextValue("  spaced  "), "spaced");
+  assert.equal(handler.contextValue("x".repeat(500)).length, 200);
+  assert.equal(handler.contextValue(undefined), "");
 });
 
 test("the honeypot is answered warmly and silently", async () => {
@@ -90,12 +145,12 @@ test("the honeypot is answered warmly and silently", async () => {
     res, CONFIGURED, fetchImpl);
 
   assert.equal(res.code, 200);
-  // Nothing was sent: a bot that gets an error learns how to avoid the trap.
+  // Nothing was stored or sent: a bot that gets an error learns to avoid the trap.
   assert.equal(res.body.accepted, false);
   assert.equal(fetchImpl.calls.length, 0);
 });
 
-test("a bad address never reaches Mailtrap", quiet(async () => {
+test("a bad address never reaches either service", quiet(async () => {
   const fetchImpl = recorder();
   const res = mockResponse();
   await handler({ method: "POST", body: { email: "not-an-address" } }, res, CONFIGURED, fetchImpl);
@@ -111,32 +166,77 @@ test("missing settings are a server problem, not the visitor's fault", quiet(asy
   assert.equal(res.code, 503);
   assert.equal(fetchImpl.calls.length, 0);
   // The visitor is told to come back, not which variable is unset.
-  assert.doesNotMatch(JSON.stringify(res.body), /MAILTRAP|SIGNUP_NOTIFY/);
+  assert.doesNotMatch(JSON.stringify(res.body), /AIRTABLE|MAILTRAP|SIGNUP_NOTIFY/);
 }));
 
-test("a Mailtrap failure says nothing about Mailtrap", quiet(async () => {
-  const fetchImpl = recorder({ ok: false, status: 401, text: "unauthorized: bad api token" });
+test("only the store is required; mail settings are optional", async () => {
+  const fetchImpl = recorder();
+  const res = mockResponse();
+  await handler({ method: "POST", body: { email: "someone@uncloud.life" } }, res, STORE_ONLY, fetchImpl);
+
+  // The signup is kept even where nobody is being told about it.
+  assert.equal(res.code, 200);
+  assert.equal(res.body.accepted, true);
+  assert.equal(fetchImpl.to("airtable.com").length, 1);
+  assert.equal(fetchImpl.to("mailtrap.io").length, 0);
+});
+
+test("a table name can be set per environment so previews stay out of the list", () => {
+  const config = handler.readConfig({ ...STORE_ONLY, AIRTABLE_TABLE: "Preview Signups" });
+  assert.equal(config.url, undefined);
+  assert.equal(config.store.url, "https://api.airtable.com/v0/appBase/Preview%20Signups");
+  assert.deepEqual(config.missing, []);
+});
+
+test("a store failure is the visitor's problem, and says nothing about the store", quiet(async () => {
+  const fetchImpl = recorder({ airtable: { ok: false, status: 401, text: "invalid personal access token" } });
   const res = mockResponse();
   await handler({ method: "POST", body: { email: "someone@uncloud.life" } }, res, CONFIGURED, fetchImpl);
 
   assert.equal(res.code, 502);
-  assert.doesNotMatch(JSON.stringify(res.body), /token|unauthorized|401/i);
+  assert.doesNotMatch(JSON.stringify(res.body), /token|airtable|401/i);
+  // Telling them they are on a list nobody kept would be the worse failure, so
+  // no notification goes out either.
+  assert.equal(fetchImpl.to("mailtrap.io").length, 0);
 }));
 
-test("an inbox id routes to the sandbox instead of delivering", async () => {
+test("a notification failure does not lose a signup that was already kept", quiet(async () => {
+  const fetchImpl = recorder({ mailtrap: { ok: false, status: 500, text: "mail is down" } });
+  const res = mockResponse();
+  await handler({ method: "POST", body: { email: "someone@uncloud.life" } }, res, CONFIGURED, fetchImpl);
+
+  // The row exists, so the visitor is on the list and is told so; the failure
+  // belongs in the log, where it can be noticed without costing them anything.
+  assert.equal(res.code, 200);
+  assert.deepEqual(res.body, { ok: true, accepted: true });
+  assert.equal(fetchImpl.to("airtable.com").length, 1);
+}));
+
+test("an inbox id routes the notification to the sandbox, and the row is real either way", async () => {
   const fetchImpl = recorder();
   const res = mockResponse();
   await handler({ method: "POST", body: { email: "someone@uncloud.life" } }, res,
     { ...CONFIGURED, MAILTRAP_INBOX_ID: "12345" }, fetchImpl);
 
-  assert.equal(fetchImpl.calls[0].url, "https://sandbox.api.mailtrap.io/api/send/12345");
-  assert.deepEqual(res.body, { ok: true, accepted: true, sandbox: true });
+  assert.equal(fetchImpl.to("mailtrap.io")[0].url, "https://sandbox.api.mailtrap.io/api/send/12345");
+  assert.equal(fetchImpl.to("airtable.com").length, 1);
+  assert.deepEqual(res.body, { ok: true, accepted: true });
 });
 
 test("a body that isn't JSON is refused rather than guessed at", quiet(async () => {
   const res = mockResponse();
   await handler({ method: "POST", body: "this is not json" }, res, CONFIGURED, recorder());
   assert.equal(res.code, 400);
+}));
+
+test("valid JSON that isn't an object fails validation, not the function", quiet(async () => {
+  for (const body of ["null", "7", "[]", '"someone@uncloud.life"']) {
+    const fetchImpl = recorder();
+    const res = mockResponse();
+    await handler({ method: "POST", body }, res, CONFIGURED, fetchImpl);
+    assert.equal(res.code, 400, `should reject ${body}`);
+    assert.equal(fetchImpl.calls.length, 0);
+  }
 }));
 
 test("a domain has to be made of real labels", () => {
@@ -157,7 +257,7 @@ test("the local part keeps its case and the domain loses its own", () => {
   assert.equal(handler.normalizeEmail("UPPER@EXAMPLE.COM"), "UPPER@example.com");
 });
 
-test("one caller cannot spend the whole sending quota", quiet(async () => {
+test("one caller cannot spend the whole month's quota", quiet(async () => {
   const fetchImpl = recorder();
   const from = { "x-forwarded-for": "203.0.113.7, 10.0.0.1" };
   let last;
@@ -167,8 +267,8 @@ test("one caller cannot spend the whole sending quota", quiet(async () => {
       last, CONFIGURED, fetchImpl);
   }
 
-  // Three go through; the rest are refused before Mailtrap is asked for anything.
-  assert.equal(fetchImpl.calls.length, 3);
+  // Three go through; the rest are refused before anything is written.
+  assert.equal(fetchImpl.to("airtable.com").length, 3);
   assert.equal(last.code, 429);
   assert.equal(last.headers["Retry-After"], "60");
 
@@ -177,10 +277,10 @@ test("one caller cannot spend the whole sending quota", quiet(async () => {
   await handler({ method: "POST", headers: { "x-forwarded-for": "198.51.100.4" },
     body: { email: "someone@uncloud.life" } }, other, CONFIGURED, fetchImpl);
   assert.equal(other.code, 200);
-  assert.equal(fetchImpl.calls.length, 4);
+  assert.equal(fetchImpl.to("airtable.com").length, 4);
 }));
 
-test("the same address twice is answered, not sent twice", async () => {
+test("the same address twice is answered, not written twice", async () => {
   const fetchImpl = recorder();
   const request = { method: "POST", headers: { "x-forwarded-for": "203.0.113.9" },
     body: { email: "someone@uncloud.life" } };
@@ -190,15 +290,15 @@ test("the same address twice is answered, not sent twice", async () => {
   const second = mockResponse();
   await handler(request, second, CONFIGURED, fetchImpl);
 
-  // The visitor is already on the list; a second identical email only spends quota.
+  // The upsert would collapse them anyway; refusing here spends no quota at all.
   assert.equal(second.code, 200);
   assert.equal(first.body.accepted, true);
   assert.equal(second.body.accepted, false);
-  assert.equal(fetchImpl.calls.length, 1);
+  assert.equal(fetchImpl.to("airtable.com").length, 1);
 });
 
-test("a failed send leaves the address free to try again", quiet(async () => {
-  const failing = recorder({ ok: false, status: 500, text: "upstream is down" });
+test("a failed store leaves the address free to try again", quiet(async () => {
+  const failing = recorder({ airtable: { ok: false, status: 500, text: "upstream is down" } });
   const request = { method: "POST", headers: { "x-forwarded-for": "203.0.113.11" },
     body: { email: "someone@uncloud.life" } };
 
@@ -211,5 +311,5 @@ test("a failed send leaves the address free to try again", quiet(async () => {
   const second = mockResponse();
   await handler(request, second, CONFIGURED, working);
   assert.equal(second.code, 200);
-  assert.equal(working.calls.length, 1);
+  assert.equal(working.to("airtable.com").length, 1);
 }));

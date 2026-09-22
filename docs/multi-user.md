@@ -168,11 +168,10 @@ without a certificate.
 - **Not an OS sandbox.** One process runs as one operating-system user and can read every
   user's directory. Isolation is enforced in Uncloud, not by the kernel. Anyone with a shell
   on the host, or any other program running as that OS user, can read everything.
-- **Not a backup, and no remote web access.** Syncing with your own computers (below) copies
+- **Not a backup.** Syncing with your own computers (below) copies
   files to them, but it mirrors: a deletion on a laptop deletes the host's copy too, and the 30
   days of versions the host keeps are for undoing that, not for surviving a dead drive. Backup
-  belongs to a tool built for it; the README says which. Uncloud's web interface is only
-  reachable where the host is.
+  belongs to a tool built for it; the README says which.
 - **No invitations, e-mail, or password reset by mail.** An admin sets a password and hands it
   over. Self-service recovery needs a mail path Uncloud doesn't have.
 - **No audit log** of who read what.
@@ -245,8 +244,7 @@ Users panel, per-account syncing with each person's own computers, and tests tha
 reach another member's files — or computers, or synced folders — by any route.
 
 **Phase 2.** Per-user quotas. Sharing a folder between accounts on the same host. An audit
-log. Session listing and revocation from the account page. Reaching the host from outside its
-network, which nothing covers today. Restoring a file from `.stversions` in the browser.
+log. Session listing and revocation from the account page. Restoring a file from `.stversions` in the browser.
 
 **Phase 3.** Google Drive and iCloud connectors. The per-user connector model already
 generalises: `connectors` is keyed by `(user_id, provider)` and `IProviderTokens` is the only
