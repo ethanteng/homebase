@@ -68,7 +68,7 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
         PathPolicy.RejectLink(resolved);
         if (Refusal(resolved) is { } refusal) throw new LibraryException(refusal, "forbidden");
         var existing = List();
-        if (existing.FirstOrDefault(place => Same(place.Path, resolved)) is { } already)
+        if (existing.FirstOrDefault(place => Same(Safe(place.Path), Safe(resolved))) is { } already)
             throw new LibraryException($"That folder is already here, as “{already.Name}”.", "conflict");
 
         var label = string.IsNullOrWhiteSpace(name) ? Path.GetFileName(resolved) : name.Trim();
@@ -169,22 +169,41 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
         };
     }
 
-    /// <summary>Resolved the way a real add would resolve it, or left alone if it can't be.</summary>
+    /// <summary>
+    /// The real folder behind a path, whatever it is spelled as, so two names for one folder
+    /// compare equal. Resolving once is not enough: a link is resolved to the target it stores,
+    /// and that target can itself run through a link — /var/… on macOS, where every temporary
+    /// folder and many a home directory lives. So it is resolved until it stops moving.
+    ///
+    /// A path that can't be resolved at all is returned as it came. Every caller is asking in
+    /// order to refuse a match, so the worst an unresolvable path can do is fail to match itself.
+    /// </summary>
     private static string Safe(string path)
     {
-        try { return PathPolicy.NormalizeRoot(path); }
-        catch (LibraryException) { return path; }
+        var current = path;
+        // Bounded: a cycle of links would otherwise be an infinite loop rather than a refusal.
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            string resolved;
+            try { resolved = PathPolicy.NormalizeRoot(current); }
+            catch (Exception failure) when (failure is LibraryException or IOException) { return current; }
+            if (resolved == current) break;
+            current = resolved;
+        }
+        return current;
     }
 
     /// <summary>Why this folder can't be a place, or null when it can.</summary>
     private string? Refusal(string path)
     {
-        // Both sides resolved before they are compared. A path is only ever refused for matching,
-        // so a folder reached one way and named another — /var against /private/var on macOS, or any
-        // symbolic link above it — would be two strings that don't match and a check that passes.
-        if (Nested(path, Safe(configDirectory)))
+        // Every side resolved before anything is compared. These refusals work by matching two
+        // paths, so a folder reached one way and named another — /var against /private/var on
+        // macOS, or any symbolic link above it — would be two strings that don't match and a
+        // check that quietly passes on a spelling.
+        var folder = Safe(path);
+        if (Nested(folder, Safe(configDirectory)))
             return "That folder holds Uncloud’s own settings, which includes everybody’s passwords. Choose another one.";
-        if (host.RootPath is { } root && Nested(path, Safe(root)))
+        if (host.RootPath is { } root && Nested(folder, Safe(root)))
             return "That folder holds everybody’s Uncloud files. Bringing files in from it would let anyone here read everybody else’s, so choose a folder outside it.";
         return null;
     }

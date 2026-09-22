@@ -159,15 +159,23 @@ public sealed class PlaceTests : IDisposable
     [Fact]
     public void A_folder_named_one_way_and_reached_another_is_still_the_folder_it_is()
     {
-        // Every refusal here works by comparing two paths, so both sides have to be resolved first
-        // or the check passes on a spelling. macOS reaches temporary folders through /var, which is
-        // a link into /private/var, and the preference directory can sit behind a link anywhere.
-        var real = Directory.CreateDirectory(Path.Combine(_temporary, "Preferences")).FullName;
-        var reachedBy = Path.Combine(_temporary, "PreferencesLink");
-        Directory.CreateSymbolicLink(reachedBy, real);
+        // Every refusal here works by comparing two paths, so both sides have to be resolved to
+        // the real folder first or the check passes on a spelling. Resolving once is not enough:
+        // a link resolves to the target it stores, and that target can run through another link.
+        //
+        // This is macOS's arrangement, built by hand so it is tested everywhere: /var is a link
+        // into /private/var, and every temporary folder — and Uncloud's preference directory on a
+        // host whose home directory sits behind a link — is reached through it.
+        var settings = Directory.CreateDirectory(Path.Combine(_temporary, "Settings")).FullName;
+        var real = Directory.CreateDirectory(Path.Combine(settings, "private", "Preferences")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(settings, "var"), Path.Combine(settings, "private"));
+        // Its stored target runs through that link, so one pass leaves the link in the answer.
+        var reachedBy = Path.Combine(settings, "private", "PreferencesLink");
+        Directory.CreateSymbolicLink(reachedBy, Path.Combine(settings, "var", "Preferences"));
 
-        // Uncloud was told where its settings are by the name with the link in it.
-        var places = new ImportPlaces(new ControlDatabase(reachedBy), new HostService(new ControlDatabase(reachedBy)), reachedBy);
+        // Uncloud was told where its settings are by the name with the links in it.
+        var database = new ControlDatabase(reachedBy);
+        var places = new ImportPlaces(database, new HostService(database), reachedBy);
 
         // Offering the same folder under its real name must not get past the refusal.
         var refusal = Assert.Throws<LibraryException>(() => places.Add(real, "Sneaky"));
