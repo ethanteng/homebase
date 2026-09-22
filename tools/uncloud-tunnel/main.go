@@ -133,9 +133,17 @@ func main() {
 	}
 }
 
+// line composes one of the two things Uncloud reads. Its shape is a contract with
+// RemoteAccessOptions.BuiltinAddress and SignInPrompt on the other side, which read the address
+// and the link out of it; main_test.go holds both to the same patterns, because a disagreement
+// here is a host answering to a name no browser ever sends.
+func line(format string, args ...any) string {
+	return "uncloud-tunnel: " + fmt.Sprintf(format, args...)
+}
+
 // say is for the two lines Uncloud reads. Everything else is note.
 func say(format string, args ...any) {
-	fmt.Fprintf(os.Stdout, "uncloud-tunnel: "+format+"\n", args...)
+	fmt.Fprintln(os.Stdout, line(format, args...))
 }
 
 func note(format string, args ...any) {

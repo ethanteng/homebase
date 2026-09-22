@@ -12,7 +12,7 @@ node --test "landing/*.test.cjs"
 # The bundled tunnel, when there is a Go to build it with. Without one, Uncloud still builds
 # and runs; only Homebase__RemoteAccess__Provider=builtin is unavailable.
 if command -v go >/dev/null 2>&1; then
-  ( cd tools/uncloud-tunnel && GOTOOLCHAIN="${GOTOOLCHAIN:-auto}" go vet ./... )
+  ( cd tools/uncloud-tunnel && GOTOOLCHAIN="${GOTOOLCHAIN:-auto}" go vet ./... && go test ./... )
   ./scripts/build-tunnel.sh >/dev/null
 else
   echo "No Go on PATH; skipping the bundled tunnel." >&2

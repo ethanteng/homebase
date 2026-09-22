@@ -304,6 +304,10 @@ public sealed class RemoteAccessTests : IDisposable
         Assert.Equal("on", state.GetProperty("status").GetString());
         Assert.Equal($"https://{Announced}", state.GetProperty("url").GetString());
         Assert.Equal(JsonValueKind.Null, state.GetProperty("signInUrl").ValueKind);
+        // Including where Dropbox returns the browser. Startup had no address to build that
+        // from, and sending somebody back to a localhost they aren't sitting at is worse than
+        // refusing them.
+        Assert.Equal($"https://{Announced}", state.GetProperty("publicUrl").GetString());
 
         // And signing in through it works now, not after a restart: loopback is trusted as a
         // proxy because remote access is on, not because an address had already arrived.
@@ -330,14 +334,40 @@ public sealed class RemoteAccessTests : IDisposable
     }
 
     [Fact]
+    public void A_name_asked_of_the_tailnet_is_not_an_answer_already()
+    {
+        // Under the builtin provider a hostname is what to call this node, not somewhere it can
+        // already be reached. Taking it as an answer would report a tunnel nobody had allowed as
+        // open, and bury the one link the administrator needs.
+        Assert.False(Read(new()
+        {
+            ["Homebase:RemoteAccess:Provider"] = "builtin",
+            ["Homebase:RemoteAccess:Hostname"] = "attic"
+        }).AnnouncesNothing);
+
+        // A Cloudflare tunnel named beforehand really does say nothing, and is the one exception.
+        Assert.True(Read(new()
+        {
+            ["Homebase:RemoteAccess:Provider"] = "cloudflare",
+            ["Homebase:RemoteAccess:Tunnel"] = "household",
+            ["Homebase:RemoteAccess:Hostname"] = "files.example.com"
+        }).AnnouncesNothing);
+        Assert.False(Read(new() { ["Homebase:RemoteAccess:Provider"] = "cloudflare" }).AnnouncesNothing);
+    }
+
+    [Fact]
     public void Only_uncloud_own_tunnel_has_anybody_to_ask()
     {
         var builtin = Read(new() { ["Homebase:RemoteAccess:Provider"] = "builtin" });
         Assert.Equal("https://login.tailscale.com/a/abc",
             builtin.SignInPrompt!.Match("uncloud-tunnel: signin=https://login.tailscale.com/a/abc")
                 .Groups[1].Value);
+        // Exactly as tools/uncloud-tunnel prints it. Reading the scheme into the name would
+        // leave Uncloud answering to something no browser ever sends as a Host.
         Assert.Equal("home.tail9f3a.ts.net",
-            builtin.Announcement.Match("uncloud-tunnel: url=home.tail9f3a.ts.net").Groups[1].Value);
+            builtin.Announcement.Match("uncloud-tunnel: url=https://home.tail9f3a.ts.net").Groups[1].Value);
+        Assert.Equal("home.tail9f3a.ts.net",
+            builtin.Announcement.Match("uncloud-tunnel: url=https://home.tail9f3a.ts.net/").Groups[1].Value);
 
         // tailscale and cloudflared are signed in before Uncloud ever runs them.
         Assert.Null(Read(new() { ["Homebase:RemoteAccess:Provider"] = "tailscale" }).SignInPrompt);

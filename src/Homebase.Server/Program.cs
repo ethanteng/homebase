@@ -102,7 +102,13 @@ WebApplication app;
 try { app = builder.Build(); }
 catch { StopTunnel(); throw; }
 var binding = app.Services.GetRequiredService<HostBinding>();
-var redirectUri = $"{binding.PublicUrl}/api/providers/dropbox/callback";
+// Where Dropbox returns the browser. Read per request rather than once, because a tunnel
+// allowed a minute after startup has an address this host could not have known then — and
+// sending somebody back to a localhost they aren't sitting at is worse than nothing. A name
+// this host was actually given always wins: the tunnel is another way in, not a new identity.
+string PublicAddress() =>
+    binding.PublicUrlConfigured ? binding.PublicUrl : remote.State.Url ?? binding.PublicUrl;
+string RedirectUri() => $"{PublicAddress()}/api/providers/dropbox/callback";
 if (binding.Warning is { } warning) app.Logger.LogWarning("{Warning}", warning);
 // A tunnel that drops is an outage of reaching this host from outside, never of the host, so
 // this reopens in the background while everyone on the network carries on.
@@ -379,7 +385,7 @@ app.MapGet("/api/providers/dropbox", (CurrentUser user, UserWorkspaces workspace
 });
 
 app.MapPost("/api/providers/dropbox/connect", (CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
-    Results.Ok(new { authorizeUrl = flow.Begin(user.Id, workspaces.For(user.Account).Dropbox.AppKey, redirectUri) }));
+    Results.Ok(new { authorizeUrl = flow.Begin(user.Id, workspaces.For(user.Account).Dropbox.AppKey, RedirectUri()) }));
 
 app.MapPost("/api/providers/dropbox/disconnect", (CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
 {
@@ -397,7 +403,7 @@ app.MapGet("/api/providers/dropbox/callback", async (string? code, string? state
     try
     {
         var (userId, verifier) = flow.Consume(state);
-        await workspaces.For(userId).Dropbox.ConnectAsync(code, verifier, redirectUri, cancellationToken);
+        await workspaces.For(userId).Dropbox.ConnectAsync(code, verifier, RedirectUri(), cancellationToken);
         return Results.Redirect("/?dropbox=connected");
     }
     catch (Exception failure) when (failure is LibraryException or HttpRequestException)
@@ -423,12 +429,14 @@ app.MapGet("/api/imports/estimate", async (string remotePath, CurrentUser user, 
     Results.Ok(await workspaces.For(user.Account).Imports.MeasureAsync(remotePath, cancellationToken)));
 
 // Where this host can be reached from outside the house, for the administrator to pass on.
-app.MapGet("/api/remote-access", (RemoteAccess access, HostBinding self) =>
+app.MapGet("/api/remote-access", (RemoteAccess access) =>
 {
     var state = access.State;
     return Results.Ok(new
     {
-        state.Provider, state.Hostname, state.Url, state.Status, state.Detail, state.SignInUrl, self.PublicUrl
+        state.Provider, state.Hostname, state.Url, state.Status, state.Detail, state.SignInUrl,
+        // The same address Dropbox is told, so this never says one thing and does another.
+        PublicUrl = PublicAddress()
     });
 });
 

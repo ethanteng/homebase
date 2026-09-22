@@ -25,6 +25,14 @@ public sealed record RemoteAccessOptions(
 {
     public bool IsEnabled => Provider is not RemoteAccessProvider.None;
 
+    /// <summary>
+    /// Whether this tunnel will say nothing about where it ended up. Only a Cloudflare tunnel
+    /// named beforehand: its address lives in Cloudflare's configuration rather than in anything
+    /// it prints.
+    /// </summary>
+    public bool AnnouncesNothing =>
+        Provider is RemoteAccessProvider.Cloudflare && Tunnel is { Length: > 0 };
+
     /// <summary>The address the tunnel is expected to announce, so another URL in the same
     /// output — a documentation link in a banner — is never mistaken for this host's.</summary>
     public Regex Announcement => Provider switch
@@ -44,7 +52,7 @@ public sealed record RemoteAccessOptions(
 
     // Uncloud's own tunnel says what it means rather than being read between the lines.
     private static readonly Regex BuiltinAddress =
-        new(@"^uncloud-tunnel: url=(\S+)$", RegexOptions.Multiline);
+        new(@"^uncloud-tunnel: url=https://([^\s/]+)/?$", RegexOptions.Multiline);
     private static readonly Regex BuiltinSignIn =
         new(@"^uncloud-tunnel: signin=(\S+)$", RegexOptions.Multiline);
     private static readonly Regex TailscaleAddress =
@@ -464,9 +472,12 @@ public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) :
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        // A configured hostname is the answer already: a named Cloudflare tunnel announces no
-        // address of its own, so there would be nothing to wait for but the first failure.
-        if (options.Hostname is { Length: > 0 } configured) return configured;
+        // A named Cloudflare tunnel announces no address of its own, so its configured hostname
+        // is the answer already and there would be nothing to wait for but the first failure.
+        // Nothing else: under the builtin provider a hostname is the name to ask the tailnet
+        // for, and taking it as an answer would report a tunnel nobody had allowed as open.
+        if (options.AnnouncesNothing && options.Hostname is { Length: > 0 } configured)
+            return configured;
         return await _address.Task.WaitAsync(cancellationToken);
     }
 
