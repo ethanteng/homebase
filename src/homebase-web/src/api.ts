@@ -127,6 +127,20 @@ export interface DropboxAppSettings {
   scopes: string[];
 }
 
+/// Where the app key an account connects through came from.
+export type DropboxKeySource = "None" | "Own" | "Host" | "Environment";
+
+export interface MyDropboxApp {
+  // This account's own key, as opposed to whatever it falls back to.
+  appKey: string | null;
+  configured: boolean;
+  source: DropboxKeySource;
+  // Whether leaving the box empty still leaves this account able to connect.
+  hostProvides: boolean;
+  redirectUri: string;
+  scopes: string[];
+}
+
 /// Dropbox is always reachable by this name; a folder on this computer is named by its id.
 export const DROPBOX = "dropbox";
 export interface ImportedFile {

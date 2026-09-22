@@ -394,18 +394,16 @@ export default function ImportPanel({
 
       {blocked === "unconfigured" ? (
         <div className="notice-card">
-          <h2>Dropbox isn’t set up on this Uncloud yet</h2>
+          <h2>Dropbox isn’t set up yet</h2>
           <p className="field-help">
-            {canConfigure
-              ? "Connecting to Dropbox needs a Dropbox app key for this Uncloud. It takes a couple of minutes and Uncloud walks you through it."
-              : "Ask whoever looks after this Uncloud to add a Dropbox app key. Until then, bring files in from a folder on this computer instead."}
+            Connecting to Dropbox needs a Dropbox app key. It takes a couple of
+            minutes, Uncloud walks you through it, and it’s yours to do — you
+            don’t need anyone else on this Uncloud to set it up for you.
           </p>
-          {canConfigure && (
-            <button className="button primary" onClick={onConfigure}>
-              Set up Dropbox
-              <ArrowUpRight size={15} />
-            </button>
-          )}
+          <button className="button primary" onClick={onConfigure}>
+            Set up Dropbox
+            <ArrowUpRight size={15} />
+          </button>
         </div>
       ) : blocked === "disconnected" ? (
         <div className="notice-card">

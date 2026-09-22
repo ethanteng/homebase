@@ -310,7 +310,9 @@ export default function App() {
           ) : hasFolder && view === "import" ? (
             <ImportPanel
               onImported={() => setRevision((value) => value + 1)}
-              onConfigure={() => setDialog("imports")}
+              // An administrator setting the host's key helps everybody, so that is where
+              // they land; anybody else sets their own, which needs nothing from them.
+              onConfigure={() => setDialog(me.isAdmin ? "imports" : "account")}
               canConfigure={me.isAdmin}
               settingsRevision={importSettings}
             />
@@ -390,7 +392,12 @@ export default function App() {
             <X size={20} />
           </button>
         </div>
-        {dialog === "account" && <AccountPanel me={me} />}
+        {dialog === "account" && (
+          <AccountPanel
+            me={me}
+            onDropboxChanged={() => setImportSettings((value) => value + 1)}
+          />
+        )}
         {dialog === "host" && me.isAdmin && (
           <HostSetup
             compact

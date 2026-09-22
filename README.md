@@ -35,7 +35,7 @@ Open **http://127.0.0.1:5173** for live frontend updates. Vite proxies `/api` to
 - Accounts with passwords and sessions; the first one is the administrator.
 - One host folder, chosen once, holding a folder per account under `users/`.
 - Imports from folders on the host's computer and from per-account Dropbox connections, with a metadata index.
-- In-app Dropbox setup and host-managed places to import from, so nothing needs a terminal.
+- In-app Dropbox setup, per account or host-wide, and host-managed places to import from, so nothing needs a terminal.
 - Native macOS folder chooser, with a manual path fallback.
 - Nested folder navigation, breadcrumbs, browser back/forward, folder-local filtering and sorting, file details, and downloads.
 - Live filesystem reads on navigation/refresh; a transactional SQLite metadata cache at `<user folder>/.homebase/index.db`.
@@ -58,8 +58,8 @@ The filesystem is the source of truth. Browsing scans one directory and atomical
 
 Accounts, sessions, host settings and sealed provider tokens live in `~/Library/Application Support/Homebase/homebase.db`, beside a 32-byte `host.key`, outside the storage root and so outside the boundary they define. Each account's file metadata lives in its own `.homebase`. Stop Uncloud and remove a `.homebase` to reset that rebuildable cache; browse the folder again to recreate it. This cache is not a backup.
 
-`Homebase__Dropbox__AppKey` supplies a fallback Dropbox app key for a host that would rather not use
-the settings screen. `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite's proxy for development). Run a single Uncloud process per preference directory. Uncloud is not a sandbox: one process runs as one operating-system user and can read every account's folder, so isolation is enforced in Uncloud, not by the kernel, and anyone with a shell on the host can read everything.
+`Homebase__Dropbox__AppKey` supplies the host's Dropbox app key for a host that would rather not use
+the settings screen; an account with its own key ignores it. `Homebase__ConfigDirectory` overrides the preference directory for isolated testing. `Homebase__Port` overrides port 5210 (also update Vite's proxy for development). Run a single Uncloud process per preference directory. Uncloud is not a sandbox: one process runs as one operating-system user and can read every account's folder, so isolation is enforced in Uncloud, not by the kernel, and anyone with a shell on the host can read everything.
 
 ### Reaching it from other computers
 
@@ -147,24 +147,36 @@ touched: those are ordinary files in somebody's folder now.
 
 ### A Dropbox account online
 
-For Dropbox files that aren't synced to this computer. Each account connects its own Dropbox; the
-app key is the host's, and the connection it authorises is the signing-in person's alone. Uncloud
-asks only for read-only permissions, so it cannot change anything in anybody's Dropbox.
+For Dropbox files that aren't synced to this computer. Each account connects its own Dropbox, and
+the connection it authorises is the signing-in person's alone. Uncloud asks only for read-only
+permissions, so it cannot change anything in anybody's Dropbox.
 
-An administrator sets this up under **Where files come from**, which shows the exact redirect URI to
-register and the three permissions to tick, then takes the app key — no terminal, and no restart.
-`Homebase__Dropbox__AppKey` still works and is used when nothing has been set in the app, so a host
-started that way keeps working untouched; setting a key in the app replaces it.
+Connecting goes through a Dropbox *app*, and there are two places one can come from:
+
+- **Your own**, under **My account**. Anybody signed in can set this up for themselves, and it wins
+  over the host's. Nobody's Dropbox waits on anybody else.
+- **The host's**, under **Where files come from**. An administrator who sets one here saves everyone
+  else the trouble: with a host key in place, connecting Dropbox is one click for every account.
+
+Both screens show the same four steps, the exact redirect URI to register, and the three permissions
+to tick. An app key is not a secret — Uncloud signs in with PKCE precisely because a program on
+somebody's own computer cannot keep one, and there is no Dropbox app secret anywhere in Uncloud.
+That is what makes it safe for a member to set their own rather than reserving it to an
+administrator.
+
+`Homebase__Dropbox__AppKey` still works as the host's key when nothing has been set in the app, so a
+host started that way keeps working untouched.
 
 ```sh
 # Still supported, no longer necessary.
 Homebase__Dropbox__AppKey=your-app-key ./scripts/run.sh
 ```
 
-Changing the app key signs out every Dropbox connection on the host, because each was authorised
-through the old app and its refresh token cannot be used against a new one. Uncloud says how many
-and clears them, rather than leaving connections that fail on a later refresh with nothing on screen
-to explain why.
+Changing an app key signs out the connections that were made through it, because each was authorised
+against the old app and its refresh token cannot be used against a new one — Uncloud clears them
+rather than leaving connections that fail on a later refresh with nothing on screen to explain why.
+Changing the host's key leaves anybody connecting through their own alone, which is the whole point
+of having one.
 
 ### Either way
 
@@ -238,7 +250,7 @@ The standalone **Uncloud** messaging page for **uncloud.life** is in [`landing/`
 ./scripts/check.sh
 ```
 
-Builds/type-checks the frontend and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, persistence, indexing, file integrity/downloads, host folder switching, unavailable folders, symlinks, traversal, request boundaries, imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked), places on the host's computer (bringing a folder home, the refusals that keep a place from reaching the host's folder or the preference directory — including after the host's folder moves — only an administrator adding one, paths that try to walk out of one, links left unfollowed, and two places kept from sharing a folder in the library), and in-app Dropbox setup (setting the app key, the environment variable as a fallback, signing out the connections a changed key would have broken, the redirect address to register, and a sign-in returning to the address it started from). Tests use disposable fixtures and isolated settings, never your real library or accounts.
+Builds/type-checks the frontend and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, persistence, indexing, file integrity/downloads, host folder switching, unavailable folders, symlinks, traversal, request boundaries, imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked), places on the host's computer (bringing a folder home, the refusals that keep a place from reaching the host's folder or the preference directory — including after the host's folder moves — only an administrator adding one, paths that try to walk out of one, links left unfollowed, and two places kept from sharing a folder in the library), and in-app Dropbox setup (setting the host's app key and an account's own, an account's key winning over the host's and falling back to it when cleared, the environment variable behind both, signing out only the connections a changed key would have broken, the redirect address to register, and a sign-in returning to the address it started from). Tests use disposable fixtures and isolated settings, never your real library or accounts.
 
 GitHub Actions runs this same script on every pull request and push to `main`, on both macOS and Linux. The tests cover filesystem, indexing, and request-boundary behavior; the native macOS folder chooser isn't automatable and still needs a manual pass.
 

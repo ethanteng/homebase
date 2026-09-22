@@ -50,7 +50,7 @@ builder.Services.AddSingleton<IDropboxApiFactory>(provider => new DropboxApiFact
     provider.GetRequiredService<HttpClient>(),
     provider.GetRequiredService<ConnectorStore>(),
     // A function, not a value: an administrator can set the app key while Uncloud is running.
-    () => provider.GetRequiredService<DropboxAppKey>().Current));
+    userId => provider.GetRequiredService<DropboxAppKey>().For(userId)));
 builder.Services.AddSingleton(provider => new ImportPlaces(
     provider.GetRequiredService<ControlDatabase>(),
     provider.GetRequiredService<HostService>(),
@@ -63,6 +63,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 var app = builder.Build();
 var binding = app.Services.GetRequiredService<HostBinding>();
 var redirectUri = $"{binding.PublicUrl}/api/providers/dropbox/callback";
+// Read-only, and the same three whoever's app is being set up.
+string[] DropboxScopes = ["account_info.read", "files.metadata.read", "files.content.read"];
 if (binding.Warning is { } warning) app.Logger.LogWarning("{Warning}", warning);
 app.Services.GetRequiredService<SessionStore>().PruneExpired();
 
@@ -319,9 +321,8 @@ app.MapGet("/api/providers/dropbox", (CurrentUser user, UserWorkspaces workspace
         configured = dropbox.IsConfigured,
         connected = dropbox.IsConnected,
         accountName = dropbox.AccountName,
-        // Only an administrator can do anything about a host with no app key, so only they are
-        // shown how; everyone else is told who to ask.
-        canConfigure = user.IsAdmin
+        // Everybody can set up their own Dropbox app; nobody waits on an administrator for it.
+        canConfigure = true
     });
 });
 
@@ -521,28 +522,63 @@ app.MapDelete("/api/host/places/{id}", (string id, ImportPlaces places) =>
     return Results.Ok(new { removed = true });
 });
 
-// Which Dropbox app this household's connections are made through. The key is not a secret — see
-// DropboxAppKey — but only an administrator sets it, because it is the host's.
+// The Dropbox app this Uncloud offers everybody by default. Administrative because it is the
+// host's, and because setting it saves every other account the trouble — but never a thing anyone
+// has to wait for: each account can set its own below.
 app.MapGet("/api/host/dropbox", (DropboxAppKey appKey) => Results.Ok(new
 {
-    appKey = appKey.Stored,
-    configured = appKey.Current is not null,
-    appKey.FromEnvironment,
+    appKey = appKey.HostStored,
+    configured = appKey.Host is not null,
+    fromEnvironment = appKey.HostFromEnvironment,
     redirectUri,
-    scopes = new[] { "account_info.read", "files.metadata.read", "files.content.read" }
+    scopes = DropboxScopes
 }));
 
 app.MapPut("/api/host/dropbox", (SetDropboxAppKey request, DropboxAppKey appKey, ConnectorStore connectors, UserWorkspaces workspaces) =>
 {
-    if (!appKey.Set(request.AppKey))
-        return Results.Ok(new { configured = appKey.Current is not null, disconnected = 0 });
-    // Every connection was authorised through the app that key named, so none of them can be
-    // refreshed any more. Clearing them makes the panel say "connect" instead of failing later.
-    var disconnected = connectors.ClearAll(DropboxApi.ProviderName);
+    if (!appKey.SetHost(request.AppKey))
+        return Results.Ok(new { configured = appKey.Host is not null, disconnected = 0 });
+    // Every connection made through the app that key named can no longer be refreshed. Clearing
+    // them makes the panel say "connect" instead of failing later. An account connecting through
+    // its own key is unaffected, so only the ones that fell back to the host's are cleared.
+    var disconnected = connectors.ClearAll(DropboxApi.ProviderName, appKey.UsesHostKey);
     // Deleting the stored tokens is only half of it: a client already in use holds a live access
     // token of its own. Dropping the workspaces stops those, and whatever they were importing.
-    workspaces.ForgetAll();
-    return Results.Ok(new { configured = appKey.Current is not null, disconnected });
+    workspaces.ForgetAll(appKey.UsesHostKey);
+    return Results.Ok(new { configured = appKey.Host is not null, disconnected });
+});
+
+// One account's own Dropbox app. Anybody signed in can set this for themselves: an app key is not
+// a secret, it only ever authorises that account's own Dropbox, and the alternative is everybody
+// waiting on whoever looks after the host.
+app.MapGet("/api/account/dropbox", (CurrentUser user, DropboxAppKey appKey) => Results.Ok(new
+{
+    appKey = appKey.OwnedBy(user.Id),
+    configured = appKey.For(user.Id) is not null,
+    source = appKey.SourceFor(user.Id).ToString(),
+    // Whether leaving the box empty would still leave them able to connect.
+    hostProvides = appKey.Host is not null,
+    redirectUri,
+    scopes = DropboxScopes
+}));
+
+app.MapPut("/api/account/dropbox", (SetDropboxAppKey request, CurrentUser user, DropboxAppKey appKey, ConnectorStore connectors, UserWorkspaces workspaces) =>
+{
+    var changed = appKey.SetOwn(user.Id, request.AppKey);
+    var disconnected = false;
+    if (changed)
+    {
+        // Their own connection only. Nobody else's key moved, so nobody else is signed out.
+        disconnected = connectors.LoadSecret(user.Id, DropboxApi.ProviderName) is not null;
+        connectors.Clear(user.Id, DropboxApi.ProviderName);
+        workspaces.ForgetDropbox(user.Id);
+    }
+    return Results.Ok(new
+    {
+        configured = appKey.For(user.Id) is not null,
+        source = appKey.SourceFor(user.Id).ToString(),
+        disconnected
+    });
 });
 
 app.MapGet("/api/users", (UserStore users, HostService host, UsageService usage) =>
@@ -604,13 +640,15 @@ app.MapPatch("/api/users/{id}", (string id, UpdateUser request, CurrentUser acto
     return Results.Ok(Describe(users.Find(id)!));
 });
 
-app.MapDelete("/api/users/{id}", (string id, UserStore users, SessionStore sessions, UserWorkspaces workspaces, DropboxAuthFlow flow, HostService host) =>
+app.MapDelete("/api/users/{id}", (string id, UserStore users, SessionStore sessions, UserWorkspaces workspaces, DropboxAuthFlow flow, HostService host, DropboxAppKey appKey) =>
 {
     if (users.Find(id) is null) throw new LibraryException("There’s no such account.", "not_found");
     users.Delete(id);
     sessions.DeleteAllFor(id);
     workspaces.Forget(id);
     flow.Forget(id);
+    // Their row went with the account; this drops what was held for it in memory.
+    appKey.Forget(id);
     // Their files are not Uncloud's to throw away. Say where they are instead.
     var folder = host.RootPath is { } root
         ? Path.Combine(root, UserPaths.UsersDirectory, id)

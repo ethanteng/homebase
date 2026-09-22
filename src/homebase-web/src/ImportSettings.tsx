@@ -2,20 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import {
   Check,
-  Copy,
-  ExternalLink,
   FolderOpen,
   FolderPlus,
   LoaderCircle,
   Plus,
-  ShieldCheck,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { api } from "./api";
 import type { DropboxAppSettings, HostPlaces } from "./api";
-
-const APP_CONSOLE = "https://www.dropbox.com/developers/apps";
+import DropboxAppSteps, { AppKeyReassurance } from "./DropboxAppForm";
 
 interface Props {
   /** Called whenever what a person can bring files in from changes, so the panel keeps up. */
@@ -37,7 +33,6 @@ export default function ImportSettings({ onChanged }: Props) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [copied, setCopied] = useState(false);
 
   const loadPlaces = useCallback(async () => {
     try {
@@ -128,25 +123,14 @@ export default function ImportSettings({ onChanged }: Props) {
       );
       setNotice(
         !result.configured
-          ? "Dropbox app key removed. Nobody here can connect Dropbox until a new one is added."
+          ? "Dropbox app key removed. Anyone here who wasn’t using their own app key will need to add one under My account before they can connect Dropbox."
           : result.disconnected > 0
-            ? `Dropbox app key saved. ${result.disconnected} existing Dropbox connection${result.disconnected === 1 ? " was" : "s were"} signed out, because they were authorised through the old app — connect again from Bringing files in.`
-            : "Dropbox app key saved. Everyone here can now connect their own Dropbox.",
+            ? `Dropbox app key saved. ${result.disconnected} Dropbox connection${result.disconnected === 1 ? " that used this key was" : "s that used this key were"} signed out, because they were authorised through the old app — those people can connect again from Bring files in. Anyone using their own app key was left alone.`
+            : "Dropbox app key saved. Everyone here can now connect their own Dropbox in one click.",
       );
       await loadDropbox();
       onChanged();
     });
-
-  async function copyRedirect() {
-    if (!dropbox) return;
-    try {
-      await navigator.clipboard.writeText(dropbox.redirectUri);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard access can be refused; the address is on screen to select by hand.
-    }
-  }
 
   return (
     <div className="import-settings">
@@ -284,12 +268,15 @@ export default function ImportSettings({ onChanged }: Props) {
 
       <section className="import-section">
         <div className="import-section-head">
-          <h3>Dropbox app</h3>
+          <h3>Dropbox app for everyone here</h3>
         </div>
         <p className="field-help">
-          Only needed to connect Dropbox accounts online. Uncloud signs in with
-          your own Dropbox app, so nothing about your files passes through
-          anybody else — which does mean making that app once, here.
+          Only needed to connect Dropbox accounts online, and only a convenience:
+          set a key here and everybody on this Uncloud can connect their own
+          Dropbox in one click. Anybody who would rather not wait for you, or
+          would rather use their own Dropbox app, sets one under{" "}
+          <strong>My account</strong> instead — theirs wins over this one, and
+          changing this never touches them.
         </p>
 
         {dropbox?.fromEnvironment && (
@@ -300,48 +287,13 @@ export default function ImportSettings({ onChanged }: Props) {
           </p>
         )}
 
-        <ol className="setup-steps">
-          <li>
-            <a href={APP_CONSOLE} target="_blank" rel="noreferrer noopener">
-              Create an app on dropbox.com
-              <ExternalLink size={13} />
-            </a>{" "}
-            — choose <strong>Scoped access</strong> and{" "}
-            <strong>Full Dropbox</strong>.
-          </li>
-          <li>
-            On its <strong>Permissions</strong> tab, tick{" "}
-            {dropbox?.scopes.map((scope, index) => (
-              <span key={scope}>
-                {index > 0 ? ", " : ""}
-                <code>{scope}</code>
-              </span>
-            ))}
-            , then <strong>Submit</strong>. These are read-only: Uncloud cannot
-            change anything in anybody’s Dropbox.
-          </li>
-          <li>
-            On its <strong>Settings</strong> tab, add this exact{" "}
-            <strong>Redirect URI</strong>:
-            {dropbox && (
-              <span className="copy-row">
-                <code>{dropbox.redirectUri}</code>
-                <button
-                  type="button"
-                  className="icon-button"
-                  onClick={() => void copyRedirect()}
-                  aria-label="Copy the redirect address"
-                  title="Copy"
-                >
-                  {copied ? <Check size={15} /> : <Copy size={15} />}
-                </button>
-              </span>
-            )}
-          </li>
-          <li>
-            Copy that app’s <strong>App key</strong> into the box below.
-          </li>
-        </ol>
+        {dropbox && (
+          <DropboxAppSteps
+            redirectUri={dropbox.redirectUri}
+            scopes={dropbox.scopes}
+            idPrefix="host-dropbox"
+          />
+        )}
 
         <label htmlFor="dropbox-app-key">App key</label>
         <input
@@ -356,11 +308,9 @@ export default function ImportSettings({ onChanged }: Props) {
           aria-describedby="app-key-help"
         />
         <p id="app-key-help" className="field-help">
-          <ShieldCheck size={14} /> An app key isn’t a secret. Uncloud signs in
-          with PKCE, which is the flow for a program that can’t keep one, so
-          there is no Dropbox app secret anywhere in Uncloud. Changing this key
-          signs out every Dropbox connection here, because each was authorised
-          through the old app.
+          <AppKeyReassurance /> Changing this key signs out the Dropbox
+          connections that were made through it, because each was authorised
+          through the old app — anybody using their own key is left alone.
         </p>
         <button
           className="button primary"

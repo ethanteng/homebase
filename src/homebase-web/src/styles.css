@@ -1663,10 +1663,32 @@ tbody tr.selected {
   padding-top: 26px;
   border-top: 1px solid var(--line);
 }
-.import-settings h3 {
+.import-settings h3,
+.account-dropbox h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   font-size: 15px;
   font-weight: 600;
+}
+.import-settings h3 svg,
+.account-dropbox h3 svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+/* The four setup steps and a redirect address to copy need the same room here as they get on
+   the administrator's side of the same job. */
+.settings-dialog:has(.account-dropbox) {
+  width: 620px;
+}
+.account-dropbox {
+  margin-top: 30px;
+  padding-top: 26px;
+  border-top: 1px solid var(--line);
+}
+.account-dropbox .button {
+  align-self: flex-start;
 }
 .import-settings .import-list {
   margin-top: 16px;

@@ -75,20 +75,41 @@ public sealed class UserWorkspaces(
     ///
     /// So each held client is disconnected, which is what clears its cached token, and any import
     /// running on it is stopped — the same treatment an account gets when it is disabled.
+    ///
+    /// Only the accounts <paramref name="affected"/> picks out: somebody connecting through their
+    /// own app key is untouched by the host's changing, and stopping their import would be exactly
+    /// the dependence on an administrator that having their own key is meant to remove.
     /// </summary>
-    public void ForgetAll()
+    public void ForgetAll(Func<string, bool> affected)
     {
         UserWorkspace[] workspaces;
         lock (_lock)
         {
-            workspaces = _workspaces.Values.ToArray();
-            _workspaces.Clear();
+            workspaces = _workspaces.Where(entry => affected(entry.Key)).Select(entry => entry.Value).ToArray();
+            foreach (var workspace in workspaces) _workspaces.Remove(workspace.UserId);
         }
         foreach (var workspace in workspaces)
         {
             workspace.Jobs.Cancel();
             workspace.Dropbox.Disconnect();
+            dropbox.Forget(workspace.UserId);
         }
-        dropbox.ForgetAll();
+    }
+
+    /// <summary>
+    /// The same, for one account, after that account changes the Dropbox app key it connects
+    /// through. Their connection was authorised against the old app and cannot be refreshed against
+    /// the new one, so it has to go — and only theirs, because nobody else's key moved.
+    /// </summary>
+    public void ForgetDropbox(string userId)
+    {
+        UserWorkspace? workspace;
+        lock (_lock)
+        {
+            _workspaces.Remove(userId, out workspace);
+        }
+        workspace?.Jobs.Cancel();
+        workspace?.Dropbox.Disconnect();
+        dropbox.Forget(userId);
     }
 }

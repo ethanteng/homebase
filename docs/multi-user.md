@@ -159,6 +159,13 @@ request came from — but only if it is one `Homebase__AllowedHosts` already per
 address can never become a way to send somebody off this host. A state Uncloud never issued has no
 return address to offer and falls back to a relative hop.
 
+Which Dropbox *app* an account connects through is its own choice: its own key first, then the
+host's, then `Homebase__Dropbox__AppKey`. An app key is not a secret — PKCE is the flow for a
+program that cannot keep one — so there is nothing in letting a member set theirs that an
+administrator needs to gate, and reserving it would make everybody's Dropbox wait on one person.
+The consequences are scoped the same way: changing the host's key clears only the connections that
+were made through it, and changing an account's own clears only that account's.
+
 Refresh tokens are sealed with AES-256-GCM under the host key, with the user id and provider
 name as additional authenticated data. A sealed token therefore cannot be decrypted after
 being moved to another user's row — the tampering fails the tag check rather than yielding

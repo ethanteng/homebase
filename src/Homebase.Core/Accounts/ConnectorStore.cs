@@ -59,17 +59,36 @@ public sealed class ConnectorStore(ControlDatabase database, SecretProtector pro
     }
 
     /// <summary>
-    /// Drops every account's connection to one provider. Used when the host's app key changes:
-    /// those tokens were issued to the old app and cannot be refreshed against the new one, so
-    /// keeping them would only fail later, somewhere nobody is looking.
+    /// Drops the connections to one provider held by the accounts <paramref name="affected"/> picks
+    /// out. Used when the host's app key changes: tokens issued to the old app cannot be refreshed
+    /// against the new one, so keeping them would only fail later, somewhere nobody is looking.
+    ///
+    /// Not every account is affected, which is why this takes a predicate rather than clearing the
+    /// table: somebody connecting through their own app key is untouched by the host's changing,
+    /// and signing them out would be exactly the dependence on an administrator that having their
+    /// own key is meant to remove.
     /// </summary>
-    public int ClearAll(string provider)
+    public int ClearAll(string provider, Func<string, bool> affected)
     {
+        var holders = new List<string>();
         using var connection = database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM connectors WHERE provider = $provider";
-        command.Parameters.AddWithValue("$provider", provider);
-        return command.ExecuteNonQuery();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT user_id FROM connectors WHERE provider = $provider";
+            command.Parameters.AddWithValue("$provider", provider);
+            using var reader = command.ExecuteReader();
+            while (reader.Read()) holders.Add(reader.GetString(0));
+        }
+        var cleared = 0;
+        foreach (var userId in holders.Where(affected))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM connectors WHERE user_id = $user AND provider = $provider";
+            command.Parameters.AddWithValue("$user", userId);
+            command.Parameters.AddWithValue("$provider", provider);
+            cleared += command.ExecuteNonQuery();
+        }
+        return cleared;
     }
 
     /// <summary>

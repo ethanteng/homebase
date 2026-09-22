@@ -220,20 +220,166 @@ public sealed class DropboxSetupTests : IDisposable
     }
 
     [Fact]
-    public async Task Only_an_administrator_sets_up_the_hosts_Dropbox_app()
+    public async Task A_member_sets_up_their_own_Dropbox_app_without_asking_anybody()
     {
         using var app = CreateApp();
         using var admin = await StartAsync(app);
         using var member = await app.AddUserAsync(admin, "bo");
 
+        // The host's key is still the host's: a member can neither read nor change it.
         Assert.Equal(HttpStatusCode.Forbidden, (await member.GetAsync("/api/host/dropbox")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
-            (await member.PutAsJsonAsync("/api/host/dropbox", new { appKey = "mine" })).StatusCode);
+            (await member.PutAsJsonAsync("/api/host/dropbox", new { appKey = "theirs" })).StatusCode);
 
-        // What a member is told is that it isn't set up and that it isn't theirs to set up.
-        var status = await member.GetFromJsonAsync<JsonElement>("/api/providers/dropbox");
-        Assert.False(status.GetProperty("configured").GetBoolean());
-        Assert.False(status.GetProperty("canConfigure").GetBoolean());
+        // Nobody has set one up anywhere, so there is nothing to connect through yet — but the
+        // panel tells them it is theirs to fix rather than telling them who to go and ask.
+        var before = await member.GetFromJsonAsync<JsonElement>("/api/providers/dropbox");
+        Assert.False(before.GetProperty("configured").GetBoolean());
+        Assert.True(before.GetProperty("canConfigure").GetBoolean());
+        var mineBefore = await member.GetFromJsonAsync<JsonElement>("/api/account/dropbox");
+        Assert.Equal("None", mineBefore.GetProperty("source").GetString());
+        Assert.False(mineBefore.GetProperty("hostProvides").GetBoolean());
+
+        (await member.PutAsJsonAsync("/api/account/dropbox", new { appKey = " bos-own-key " }))
+            .EnsureSuccessStatusCode();
+
+        var mine = await member.GetFromJsonAsync<JsonElement>("/api/account/dropbox");
+        Assert.Equal("bos-own-key", mine.GetProperty("appKey").GetString());
+        Assert.Equal("Own", mine.GetProperty("source").GetString());
+        Assert.True((await member.GetFromJsonAsync<JsonElement>("/api/providers/dropbox"))
+            .GetProperty("configured").GetBoolean());
+
+        // And connecting really goes through their app, not somebody else's.
+        var connect = await member.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
+        connect.EnsureSuccessStatusCode();
+        var url = (await connect.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("authorizeUrl").GetString()!;
+        Assert.Contains("client_id=bos-own-key", url);
+
+        // The administrator's own Dropbox is untouched by any of it.
+        Assert.Equal("None", (await admin.GetFromJsonAsync<JsonElement>("/api/account/dropbox"))
+            .GetProperty("source").GetString());
+    }
+
+    [Fact]
+    public async Task An_account_of_its_own_beats_the_hosts_and_falls_back_to_it_when_cleared()
+    {
+        using var app = CreateApp();
+        using var admin = await StartAsync(app);
+        using var member = await app.AddUserAsync(admin, "bo");
+        (await admin.PutAsJsonAsync("/api/host/dropbox", new { appKey = "the-house-key" }))
+            .EnsureSuccessStatusCode();
+
+        // With nothing of their own, a member connects through the host's — one click, no console.
+        var offered = await member.GetFromJsonAsync<JsonElement>("/api/account/dropbox");
+        Assert.Equal("Host", offered.GetProperty("source").GetString());
+        Assert.True(offered.GetProperty("hostProvides").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, offered.GetProperty("appKey").ValueKind);
+
+        (await member.PutAsJsonAsync("/api/account/dropbox", new { appKey = "bos-own-key" }))
+            .EnsureSuccessStatusCode();
+        var connect = await member.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
+        Assert.Contains("client_id=bos-own-key",
+            (await connect.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("authorizeUrl").GetString()!);
+
+        // Emptying the box hands them back to the host's rather than leaving them stranded.
+        (await member.PutAsJsonAsync("/api/account/dropbox", new { appKey = "" })).EnsureSuccessStatusCode();
+        var after = await member.GetFromJsonAsync<JsonElement>("/api/account/dropbox");
+        Assert.Equal("Host", after.GetProperty("source").GetString());
+        Assert.True(after.GetProperty("configured").GetBoolean());
+        var again = await member.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
+        Assert.Contains("client_id=the-house-key",
+            (await again.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("authorizeUrl").GetString()!);
+    }
+
+    [Fact]
+    public async Task Changing_the_hosts_key_leaves_alone_anyone_using_their_own()
+    {
+        // The whole point of an account having its own key is not depending on the host's. Signing
+        // somebody out because an administrator changed a key they were not using would put that
+        // dependence straight back.
+        using var app = CreateApp();
+        using var admin = await StartAsync(app);
+        using var member = await app.AddUserAsync(admin, "bo");
+        (await admin.PutAsJsonAsync("/api/host/dropbox", new { appKey = "the-house-key" }))
+            .EnsureSuccessStatusCode();
+        (await member.PutAsJsonAsync("/api/account/dropbox", new { appKey = "bos-own-key" }))
+            .EnsureSuccessStatusCode();
+
+        // Both connected: the administrator through the house key, the member through their own.
+        var connectors = app.Services.GetRequiredService<ConnectorStore>();
+        var accounts = app.Services.GetRequiredService<UserStore>().List();
+        foreach (var account in accounts)
+            connectors.Save(account.Id, DropboxApi.ProviderName, "refresh-token", "Their Dropbox");
+
+        var response = await admin.PutAsJsonAsync("/api/host/dropbox", new { appKey = "a-new-house-key" });
+        response.EnsureSuccessStatusCode();
+
+        // Exactly one connection was made through the key that moved.
+        Assert.Equal(1, (await response.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("disconnected").GetInt32());
+        Assert.False((await admin.GetFromJsonAsync<JsonElement>("/api/providers/dropbox"))
+            .GetProperty("connected").GetBoolean());
+        Assert.True((await member.GetFromJsonAsync<JsonElement>("/api/providers/dropbox"))
+            .GetProperty("connected").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Changing_your_own_key_signs_out_your_connection_and_nobody_elses()
+    {
+        using var app = CreateApp();
+        using var admin = await StartAsync(app);
+        using var member = await app.AddUserAsync(admin, "bo");
+        (await admin.PutAsJsonAsync("/api/host/dropbox", new { appKey = "the-house-key" }))
+            .EnsureSuccessStatusCode();
+        var connectors = app.Services.GetRequiredService<ConnectorStore>();
+        foreach (var account in app.Services.GetRequiredService<UserStore>().List())
+            connectors.Save(account.Id, DropboxApi.ProviderName, "refresh-token", "Their Dropbox");
+
+        var response = await member.PutAsJsonAsync("/api/account/dropbox", new { appKey = "bos-own-key" });
+        response.EnsureSuccessStatusCode();
+
+        Assert.True((await response.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("disconnected").GetBoolean());
+        Assert.False((await member.GetFromJsonAsync<JsonElement>("/api/providers/dropbox"))
+            .GetProperty("connected").GetBoolean());
+        // The administrator never touched their key, so their connection stands.
+        Assert.True((await admin.GetFromJsonAsync<JsonElement>("/api/providers/dropbox"))
+            .GetProperty("connected").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Saving_the_key_you_already_had_signs_nobody_out()
+    {
+        using var app = CreateApp();
+        using var admin = await StartAsync(app);
+        (await admin.PutAsJsonAsync("/api/account/dropbox", new { appKey = "mine" })).EnsureSuccessStatusCode();
+        var connectors = app.Services.GetRequiredService<ConnectorStore>();
+        var account = app.Services.GetRequiredService<UserStore>().List().Single();
+        connectors.Save(account.Id, DropboxApi.ProviderName, "refresh-token", "Their Dropbox");
+
+        var response = await admin.PutAsJsonAsync("/api/account/dropbox", new { appKey = "mine" });
+
+        Assert.False((await response.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("disconnected").GetBoolean());
+        Assert.True((await admin.GetFromJsonAsync<JsonElement>("/api/providers/dropbox"))
+            .GetProperty("connected").GetBoolean());
+    }
+
+    [Fact]
+    public async Task An_accounts_key_goes_when_the_account_does()
+    {
+        using var app = CreateApp();
+        using var admin = await StartAsync(app);
+        using var member = await app.AddUserAsync(admin, "bo");
+        (await member.PutAsJsonAsync("/api/account/dropbox", new { appKey = "bos-own-key" }))
+            .EnsureSuccessStatusCode();
+        var bo = app.Services.GetRequiredService<UserStore>().List().Single(one => one.Username == "bo");
+
+        (await admin.DeleteAsync($"/api/users/{bo.Id}")).EnsureSuccessStatusCode();
+
+        // Nothing of theirs is left behind for whoever gets that id next — and there is no id to
+        // get, but the row is gone rather than orphaned, and nothing is held in memory either.
+        Assert.Null(app.Services.GetRequiredService<DropboxAppKey>().OwnedBy(bo.Id));
     }
 
     [Fact]
