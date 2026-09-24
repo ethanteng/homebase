@@ -561,20 +561,24 @@ Build it with:
 ./scripts/package-macos-app.sh osx-x64    # Intel
 ```
 
-On a Mac this produces `artifacts/Uncloud-osx-arm64.zip`. Signed ad hoc, it runs on the Mac that
-built it and needs right-click → **Open** on any other. For distribution, set
+On a Mac this produces `artifacts/Uncloud-osx-arm64.dmg`: the app beside a shortcut to
+Applications, compressed with LZMA (`ULMO`), about a third smaller than a zip of the same app. The
+script mounts it and checks the app's signature as it is inside, since the managed `.dll` files
+carry theirs in extended attributes that a careless copy drops. Signed ad hoc, it runs on the Mac that
+built it and has to be confirmed the first time on any other, as the README describes. For distribution, set
 `UNCLOUD_SIGN_IDENTITY` to a "Developer ID Application" identity, and `UNCLOUD_NOTARY_PROFILE` to a
-`notarytool` keychain profile to notarize and staple it too. CI builds the app for Apple silicon and
+`notarytool` keychain profile to notarize and staple the disk image too. CI builds the app for Apple silicon and
 Intel on every run and keeps both as the run's **Artifacts**. Every push to `main` that passes also
 updates the `mac-latest` release with them (never deleting it, and without being cancelled part way), so
-`https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.zip` (and
-`…-osx-x64.zip`) always serve the latest build; the README links there. Before the zip is kept,
+`https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.dmg` (and
+`…-osx-x64.dmg`) always serve the latest build; the README links there. The zips the app was first
+published as are removed from the release. Before the disk image is kept,
 `scripts/smoke-macos-app.sh` opens the built app on the runner, once as a Mac nobody has set up and
 once as the host, and fails the build if it doesn't stay open, logs an error, or its server doesn't
 answer.
 
 The app and the server it carries sit side by side in `Contents/MacOS` and share one copy of .NET
-(around 190 MB unpacked, 75 MB zipped, instead of 275 and 105 with a copy each). The desktop project
+(around 190 MB unpacked instead of 275 with a copy each). The desktop project
 references the ASP.NET Core framework for that reason alone, so both publish identical framework
 files; the packaging script stops if any file the two share differs. Trimming would shrink each
 further, but trimmed copies differ, so they couldn't share. The app logs to

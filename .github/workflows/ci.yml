@@ -95,7 +95,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Uncloud-${{ matrix.runtime }}
-          path: artifacts/Uncloud-${{ matrix.runtime }}.zip
+          path: artifacts/Uncloud-${{ matrix.runtime }}.dmg
           retention-days: 14
 
   # What the README links to: every build of main, published as the "mac-latest" release so the
@@ -122,17 +122,21 @@ jobs:
         run: |
           notes="The Uncloud app for Mac, built from ${GITHUB_SHA::7} on main.
 
-          - **Uncloud-osx-arm64.zip**: Macs with Apple silicon (M1 and later).
-          - **Uncloud-osx-x64.zip**: Macs with an Intel processor.
+          - **Uncloud-osx-arm64.dmg**: Macs with Apple silicon (M1 and later).
+          - **Uncloud-osx-x64.dmg**: Macs with an Intel processor.
 
-          It isn't signed by Apple yet, so macOS asks you to confirm it the first time you open it. See the README for how."
+          Open it and drag Uncloud onto Applications. It isn't signed by Apple yet, so macOS asks you to confirm it the first time you open it. See the README for how."
           if ! gh release view mac-latest >/dev/null 2>&1; then
-            gh release create mac-latest dist/Uncloud-osx-arm64.zip dist/Uncloud-osx-x64.zip \
+            gh release create mac-latest dist/Uncloud-osx-arm64.dmg dist/Uncloud-osx-x64.dmg \
               --target "$GITHUB_SHA" --title "Uncloud for Mac (latest)" --notes "$notes"
             exit 0
           fi
           # Never deleted and made again: the release stays up throughout, and if anything below
           # fails part way, the previous build is still what people download.
-          gh release upload mac-latest dist/Uncloud-osx-arm64.zip dist/Uncloud-osx-x64.zip --clobber
+          gh release upload mac-latest dist/Uncloud-osx-arm64.dmg dist/Uncloud-osx-x64.dmg --clobber
+          # The app was first published as zips. Once the disk images are up, those go, so an old
+          # link fails rather than handing somebody an old build.
+          gh release view mac-latest --json assets --jq '.assets[].name | select(endswith(".zip"))' |
+            while read -r old; do gh release delete-asset mac-latest "$old" --yes; done
           gh api -X PATCH "repos/$GH_REPO/git/refs/tags/mac-latest" -f sha="$GITHUB_SHA" -F force=true
           gh release edit mac-latest --notes "$notes"

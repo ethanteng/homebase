@@ -5,10 +5,11 @@
 #
 #   scripts/package-macos-app.sh [osx-arm64|osx-x64]
 #
-# On a Mac it also signs and zips the app. With UNCLOUD_SIGN_IDENTITY set to a "Developer ID
-# Application: …" identity it signs for distribution, and with UNCLOUD_NOTARY_PROFILE set to a
-# notarytool keychain profile it notarizes and staples too. Without them it signs ad hoc, which
-# runs on the Mac that built it and needs right-click → Open anywhere else.
+# On a Mac it also signs the app and puts it in a disk image, artifacts/Uncloud-<runtime>.dmg.
+# With UNCLOUD_SIGN_IDENTITY set to a "Developer ID Application: …" identity it signs for
+# distribution, and with UNCLOUD_NOTARY_PROFILE set to a notarytool keychain profile it notarizes
+# and staples the disk image too. Without them it signs ad hoc, which runs on the Mac that built it
+# and needs confirming in System Settings anywhere else.
 set -euo pipefail
 cd -- "$(dirname -- "$0")/.."
 runtime="${1:-osx-arm64}"
@@ -76,7 +77,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 PLIST
 
 if [[ "$(uname -s)" != Darwin ]]; then
-  echo "Built $app. Signing, the icon and the zip need a Mac; run this there to finish." >&2
+  echo "Built $app. Signing, the icon and the disk image need a Mac; run this there to finish." >&2
   exit 0
 fi
 
@@ -102,14 +103,37 @@ done
 sign "$app"
 codesign --verify --deep --strict "$app"
 
-zip="artifacts/Uncloud-$runtime.zip"
-rm -f -- "$zip"
-ditto -c -k --keepParent "$app" "$zip"
+# What people download: the app beside a shortcut to Applications, to drag it onto. Compressed
+# with LZMA (ULMO), the smallest format macOS opens with nothing extra, about a third smaller than
+# a zip of the same app.
+dmg="artifacts/Uncloud-$runtime.dmg"
+contents="$(mktemp -d)/Uncloud"
+mkdir -p "$contents"
+ditto "$app" "$contents/Uncloud.app"
+ln -s /Applications "$contents/Applications"
+rm -f -- "$dmg"
+# hdiutil sometimes answers "Resource busy" on a busy Mac, CI's included; a moment later it works.
+for attempt in 1 2 3; do
+  hdiutil create -volname Uncloud -srcfolder "$contents" -format ULMO -ov "$dmg" >/dev/null && break
+  if ((attempt == 3)); then exit 1; fi
+  sleep 5
+done
+if [[ "$identity" != "-" ]]; then codesign --force --timestamp -s "$identity" "$dmg"; fi
+
+# The copy inside is the one people run. .NET's .dll files carry their signatures in extended
+# attributes, which a copy that dropped them would break, so the app is checked as it is there.
+mounted="$(mktemp -d)"
+hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mounted" >/dev/null
+verified=true
+codesign --verify --deep --strict "$mounted/Uncloud.app" || verified=false
+hdiutil detach "$mounted" >/dev/null
+if [[ "$verified" != true ]]; then
+  echo "The app in $dmg doesn't pass codesign --verify." >&2
+  exit 1
+fi
 
 if [[ -n "${UNCLOUD_NOTARY_PROFILE:-}" && "$identity" != "-" ]]; then
-  xcrun notarytool submit "$zip" --keychain-profile "$UNCLOUD_NOTARY_PROFILE" --wait
-  xcrun stapler staple "$app"
-  rm -f -- "$zip"
-  ditto -c -k --keepParent "$app" "$zip"
+  xcrun notarytool submit "$dmg" --keychain-profile "$UNCLOUD_NOTARY_PROFILE" --wait
+  xcrun stapler staple "$dmg"
 fi
-echo "Built $zip"
+echo "Built $dmg ($(du -h "$dmg" | cut -f1))"
