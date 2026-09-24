@@ -282,14 +282,16 @@ h1 span {
 .access-status[data-tone="problem"] { color: #c2413b; }
 
 .trust-note {
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: .94rem;
+  margin-top: 14px;
+  color: var(--ink);
+  font-size: clamp(1.02rem, 1.2vw, 1.12rem);
+  font-weight: 500;
+  line-height: 1.55;
 }
 
 .trust-note span {
   color: var(--ink);
-  font-weight: 650;
+  font-weight: 750;
 }
 
 .product-visual {

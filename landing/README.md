@@ -1,6 +1,6 @@
 # Uncloud landing page
 
-A landing page for **Uncloud**, with the public address **https://www.uncloud.life/**. The hero leads with **“Your private cloud. In 5 minutes or less.”** and highlights $407.40/year in avoided bills, conditional on canceling the 5 plans linked below. The subhero explains that people can use a computer they already own and cancel cloud storage plans they no longer need. The existing device illustration, blue accents, pale panels, and typography remain the visual foundation.
+A landing page for **Uncloud**, with the public address **https://www.uncloud.life/**. The hero leads with **“Your private cloud. In 5 minutes or less.”** and highlights “Save up to $500 a year in subscription costs,” followed by a link to an example of how the savings add up. The subhero explains that people can use a computer they already own and cancel cloud storage plans they no longer need. The existing device illustration, blue accents, pale panels, and typography remain the visual foundation.
 
 The primary message is intentionally about **reusing hardware people already own** — no NAS, proprietary box, or special equipment required. “Turn a computer you already own into private cloud storage” has its own highlighted line. The page keeps the early-access email signup above the main visual, with labeled Mac, PC, and Linux icons in the computer illustration. “Your private cloud, in 5 minutes or less” introduces three steps: pick a computer, make it your cloud, and bring files home. Early-access links return to the signup form.
 
