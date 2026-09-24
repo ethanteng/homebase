@@ -10,10 +10,11 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same branch supersedes an in-flight run.
+# A newer push to a pull request supersedes an in-flight run. On main, runs queue instead: a
+# cancelled run could stop the publish job half way through replacing the download.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -110,19 +111,24 @@ jobs:
           merge-multiple: true
           path: dist
 
-      - name: Replace the mac-latest release
+      - name: Update the mac-latest release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          # Deleted and made again, so the tag moves to this commit and nothing stale is left.
-          gh release delete mac-latest --cleanup-tag --yes || true
-          gh release create mac-latest dist/Uncloud-osx-arm64.zip dist/Uncloud-osx-x64.zip \
-            --target "$GITHUB_SHA" \
-            --title "Uncloud for Mac (latest)" \
-            --notes "The Uncloud app for Mac, built from ${GITHUB_SHA::7} on main.
+          notes="The Uncloud app for Mac, built from ${GITHUB_SHA::7} on main.
 
           - **Uncloud-osx-arm64.zip**: Macs with Apple silicon (M1 and later).
           - **Uncloud-osx-x64.zip**: Macs with an Intel processor.
 
           It isn't signed by Apple yet, so macOS asks you to confirm it the first time you open it. See the README for how."
+          if ! gh release view mac-latest >/dev/null 2>&1; then
+            gh release create mac-latest dist/Uncloud-osx-arm64.zip dist/Uncloud-osx-x64.zip \
+              --target "$GITHUB_SHA" --title "Uncloud for Mac (latest)" --notes "$notes"
+            exit 0
+          fi
+          # Never deleted and made again: the release stays up throughout, and if anything below
+          # fails part way, the previous build is still what people download.
+          gh release upload mac-latest dist/Uncloud-osx-arm64.zip dist/Uncloud-osx-x64.zip --clobber
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/mac-latest" -f sha="$GITHUB_SHA" -F force=true
+          gh release edit mac-latest --notes "$notes"
