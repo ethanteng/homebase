@@ -7,6 +7,7 @@ import {
   ExternalLink,
   FolderOpen,
   Globe,
+  GlobeLock,
   HardDrive,
   LoaderCircle,
   PackageOpen,
@@ -35,6 +36,7 @@ export default function HostSetup({ onSaved, compact = false }: Props) {
   const [notice, setNotice] = useState("");
   const [remote, setRemote] = useState<RemoteAccessState | null>(null);
   const [copied, setCopied] = useState(false);
+  const [reaching, setReaching] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -69,6 +71,29 @@ export default function HostSetup({ onSaved, compact = false }: Props) {
       window.clearInterval(timer);
     };
   }, [compact]);
+
+  async function reachFromAnywhere(enabled: boolean) {
+    setReaching(true);
+    setError("");
+    try {
+      // The answer is where things got to, not where they end up: a tunnel waiting to be
+      // allowed is still waiting, and the poll above carries it the rest of the way.
+      setRemote(
+        await api<RemoteAccessState>("/remote-access", {
+          method: "PUT",
+          body: JSON.stringify({ enabled }),
+        }),
+      );
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "Uncloud couldn’t change that just now.",
+      );
+    } finally {
+      setReaching(false);
+    }
+  }
 
   async function copyAddress(url: string) {
     try {
@@ -301,12 +326,34 @@ export default function HostSetup({ onSaved, compact = false }: Props) {
               <strong>Reaching this host from anywhere</strong>
             </p>
             {remote.status === "off" && (
-              <p>
-                Uncloud is only reachable on this network. Set{" "}
-                <code>Homebase__RemoteAccess__Provider</code> to{" "}
-                <code>builtin</code> on the host and everyone here can sign in
-                from anywhere — there is nothing else to install.
-              </p>
+              <>
+                <p>
+                  Uncloud is only reachable on this network. Turn this on and
+                  everyone with an account here can sign in from anywhere —
+                  there is nothing to install, and nothing to set up at your
+                  router.
+                </p>
+                {remote.canChange ? (
+                  <button
+                    type="button"
+                    className="button primary"
+                    onClick={() => void reachFromAnywhere(true)}
+                    disabled={reaching}
+                  >
+                    {reaching ? (
+                      <LoaderCircle size={16} className="spin" />
+                    ) : (
+                      <Globe size={16} />
+                    )}
+                    Reach this host from anywhere
+                  </button>
+                ) : (
+                  <p className="field-help">
+                    <code>Homebase__RemoteAccess__Provider</code> was set before
+                    this host started, so it decides this rather than the panel.
+                  </p>
+                )}
+              </>
             )}
             {remote.status === "needs_sign_in" && remote.signInUrl && (
               <>
@@ -369,6 +416,21 @@ export default function HostSetup({ onSaved, compact = false }: Props) {
                 {remote.detail ??
                   "Uncloud is opening a tunnel. Everyone on this network can carry on in the meantime."}
               </p>
+            )}
+            {remote.canChange && remote.status !== "off" && (
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => void reachFromAnywhere(false)}
+                disabled={reaching}
+              >
+                {reaching ? (
+                  <LoaderCircle size={15} className="spin" />
+                ) : (
+                  <GlobeLock size={15} />
+                )}
+                Stop reaching it from anywhere
+              </button>
             )}
           </div>
         )}

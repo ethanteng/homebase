@@ -1,3 +1,4 @@
+using System.Net;
 using Homebase.Core;
 using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
@@ -21,9 +22,7 @@ static string Join(string? existing, params string[] additions) => string.Join('
     (existing ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Concat(additions).Distinct(StringComparer.OrdinalIgnoreCase));
 
-var defaultConfig = OperatingSystem.IsMacOS()
-    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "Homebase")
-    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Homebase");
+var defaultConfig = HostPaths.DefaultConfigDirectory;
 
 // Read once before anything is started, so a missing certificate or an unreadable bind address
 // is refused while there is still nothing running to clean up.
@@ -134,7 +133,23 @@ string[] DropboxScopes = ["account_info.read", "files.metadata.read", "files.con
 if (binding.Warning is { } warning) app.Logger.LogWarning("{Warning}", warning);
 // A tunnel that drops is an outage of reaching this host from outside, never of the host, so
 // this reopens in the background while everyone on the network carries on.
-remote.Watch(binding.Port);
+// What somebody turned on from the interface last time. Read here rather than before the
+// application was built, because only the container knows which directory this host keeps its
+// own things in — a test host's is not the one a person's would be. Nothing waits on it: the
+// address arrives through the watch, as it does for a tunnel still to be allowed.
+// A provider named before launch settles it, including when it named none: somebody who turned
+// this off where a web page cannot answer back must not find it on again because of something
+// they set months ago and can no longer reach.
+if (!remote.Options.FromEnvironment
+    && app.Services.GetRequiredService<ControlDatabase>().Setting(HostPaths.RemoteAccessSetting) is { } kept
+    && Enum.TryParse<RemoteAccessProvider>(kept, ignoreCase: true, out var remembered)
+    && remembered is not RemoteAccessProvider.None)
+    // Start keeps its own tunnel open for as long as its run lasts. Watching it from here as
+    // well would leave two loops waiting on one tunnel, each opening a replacement when it
+    // closed, and only one of those replacements held on to.
+    remote.Start(binding.Port, remembered);
+else
+    remote.Watch(binding.Port);
 // Once Syncthing answers, bring its configuration in line with who owns what. Until then nothing
 // syncs, so there is nothing to be out of line.
 _ = app.Services.GetRequiredService<SyncthingHost>().Ready.ContinueWith(async _ =>
@@ -170,27 +185,47 @@ string[] administrative =
 // browser sent an https:// Origin. Without this the origin comparison below rejects every
 // mutation — sign-in included — and the session cookie goes out without Secure. Only the proxies
 // named in configuration are believed, and only about the scheme and host.
-if (binding.TrustedProxies.Count > 0)
+// Which proxies are believed, and about what. A tunnel Uncloud opened itself may be turned on
+// long after this point, so the decision cannot be made once here: it is made per request, from
+// whether the request arrived under the name a tunnel is carrying right now.
+ForwardedHeadersOptions Forwarded(bool aboutTheClient)
 {
-    // A tunnel adds the client's own address to that. Everything it carries reaches Kestrel from
-    // loopback, so without this the sign-in throttle would count every person on the internet
-    // into one bucket, and ten wrong guesses from anywhere would lock out every account on the
-    // host, including whoever is sitting at it. Only a tunnel Uncloud opened itself is taken at
-    // its word about who the client is: a proxy somebody else configured is believed about the
-    // scheme and host it was named for, and nothing more.
-    var client = remote.IsEnabled ? ForwardedHeaders.XForwardedFor : ForwardedHeaders.None;
     var forwarded = new ForwardedHeadersOptions
     {
-        ForwardedHeaders = client | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
+        // The client's own address only for our own tunnel. Everything it carries reaches Kestrel
+        // from loopback, so without this the sign-in throttle would count every person on the
+        // internet into one bucket, and ten wrong guesses from anywhere would lock out every
+        // account on the host, including whoever is sitting at it. A proxy somebody else
+        // configured is believed about the scheme and host it was named for and nothing more:
+        // anyone behind it can send that header themselves, and a fresh address per attempt would
+        // dodge the throttle altogether.
+        ForwardedHeaders = (aboutTheClient ? ForwardedHeaders.XForwardedFor : ForwardedHeaders.None)
+            | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
         ForwardLimit = 1
     };
     forwarded.KnownIPNetworks.Clear();
     forwarded.KnownProxies.Clear();
     foreach (var proxy in binding.TrustedProxies) forwarded.KnownProxies.Add(proxy);
+    // The tunnel client runs on this machine and reaches Uncloud over loopback, so loopback is
+    // the proxy whenever one could be carrying — whether or not an address had arrived by the
+    // time this host started listening.
+    if (!binding.TrustedProxies.Any(IPAddress.IsLoopback))
+    {
+        forwarded.KnownProxies.Add(IPAddress.Loopback);
+        forwarded.KnownProxies.Add(IPAddress.IPv6Loopback);
+    }
     // A forwarded host still has to be one this Uncloud answers to.
     foreach (var host in binding.AllowedHosts) forwarded.AllowedHosts.Add(host);
-    app.UseForwardedHeaders(forwarded);
+    return forwarded;
 }
+
+var throughTheTunnel = Forwarded(aboutTheClient: true);
+var throughAProxy = Forwarded(aboutTheClient: false);
+app.UseWhen(context => remote.Answers(context.Request.Host.Host),
+    branch => branch.UseForwardedHeaders(throughTheTunnel));
+if (binding.TrustedProxies.Count > 0)
+    app.UseWhen(context => !remote.Answers(context.Request.Host.Host),
+        branch => branch.UseForwardedHeaders(throughAProxy));
 
 app.Use(async (context, next) =>
 {
@@ -538,16 +573,39 @@ app.MapGet("/api/imports/estimate", async (string remotePath, string? source, Cu
 });
 
 // Where this host can be reached from outside the house, for the administrator to pass on.
-app.MapGet("/api/remote-access", (RemoteAccess access) =>
+app.MapGet("/api/remote-access", (RemoteAccess access) => Results.Ok(Reachability(access)));
+
+// Turning it on and off, from the interface, on a host everybody is already using. Nothing is
+// restarted: the tunnel opens or closes where it stands, and the answer says where things got to
+// rather than where they will end up — a tunnel waiting to be allowed is still waiting when this
+// returns, and Storage settings shows the link as soon as there is one.
+app.MapPut("/api/remote-access", async (ReachFromAnywhere request, RemoteAccess access, ControlDatabase control) =>
+{
+    if (access.Options.FromEnvironment)
+        throw new LibraryException(
+            "Remote access was set before this host started, with "
+            + "Homebase__RemoteAccess__Provider, so it isn’t this panel’s to change. Remove that "
+            + "setting to decide it here instead.", "conflict");
+
+    var wanted = request.Enabled ? RemoteAccessProvider.Builtin : RemoteAccessProvider.None;
+    control.SetSetting(HostPaths.RemoteAccessSetting, wanted.ToString().ToLowerInvariant());
+    if (request.Enabled) access.Start(binding.Port, wanted);
+    else await access.StopAsync();
+    return Results.Ok(Reachability(access));
+});
+
+object Reachability(RemoteAccess access)
 {
     var state = access.State;
-    return Results.Ok(new
+    return new
     {
         state.Provider, state.Hostname, state.Url, state.Status, state.Detail, state.SignInUrl,
         // The same address Dropbox is told, so this never says one thing and does another.
-        PublicUrl = PublicAddress()
-    });
-});
+        PublicUrl = PublicAddress(),
+        // Whether this panel may change it at all, or something before launch already decided.
+        CanChange = !access.Options.FromEnvironment
+    };
+}
 
 app.MapGet("/api/host", (HostService host, IFolderPicker picker) =>
     Results.Ok(new { rootPath = host.RootPath, canPickFolder = picker.IsSupported }));
@@ -826,6 +884,7 @@ finally
 }
 
 public sealed record SelectRoot(string Path);
+public sealed record ReachFromAnywhere(bool Enabled);
 public sealed record SignIn(string? Username, string? Password);
 public sealed record CreateUser(string? Username, string? DisplayName, string? Password, bool IsAdmin = false);
 public sealed record UpdateUser(string? DisplayName, string? Password, bool? IsAdmin, bool? Disabled);

@@ -14,6 +14,29 @@ public sealed class ControlDatabase(string directory)
 {
     private readonly string _path = Path.Combine(directory, "homebase.db");
 
+    /// <summary>
+    /// One of the host's own settings — not an account's, and not a file's. The folder everybody's
+    /// files live under is kept this way, and so is whether this host can be reached from outside.
+    /// </summary>
+    public string? Setting(string key)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT value FROM host_settings WHERE key = $key";
+        command.Parameters.AddWithValue("$key", key);
+        return command.ExecuteScalar() as string;
+    }
+
+    public void SetSetting(string key, string value)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT OR REPLACE INTO host_settings(key, value) VALUES ($key, $value)";
+        command.Parameters.AddWithValue("$key", key);
+        command.Parameters.AddWithValue("$value", value);
+        command.ExecuteNonQuery();
+    }
+
     public SqliteConnection Open()
     {
         System.IO.Directory.CreateDirectory(directory);

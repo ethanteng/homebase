@@ -19,7 +19,7 @@ public sealed class HostServer(string serverDirectory, ILogger logger, HttpClien
     /// <summary>What the server said last, for when it stops and somebody asks why.</summary>
     public string? LastError { get; private set; }
 
-    public async Task StartAsync(bool reachFromAnywhere, CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         if (IsRunning) return;
         LastError = null;
@@ -31,8 +31,9 @@ public sealed class HostServer(string serverDirectory, ILogger logger, HttpClien
             UseShellExecute = false
         };
         start.Environment["Homebase__Port"] = Port.ToString();
-        // The tunnel Uncloud ships: people reach this host from anywhere without a router setting.
-        if (reachFromAnywhere) start.Environment["Homebase__RemoteAccess__Provider"] = "builtin";
+        // Whether this host can be reached from outside is the server's own setting, kept beside
+        // its accounts and changeable from Storage settings while it runs. Naming a provider here
+        // would take that switch away from everybody who is not sitting at this Mac.
         _process = Process.Start(start) ?? throw new IOException("Uncloud didn’t start.");
         // Drained, or a server that fills an unread pipe stops answering while looking alive.
         _process.OutputDataReceived += (_, line) => { if (line.Data is { Length: > 0 }) logger.LogInformation("server: {Line}", line.Data); };
