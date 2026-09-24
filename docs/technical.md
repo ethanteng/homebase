@@ -562,7 +562,8 @@ Build it with:
 ```
 
 On a Mac this produces `artifacts/Uncloud-osx-arm64.dmg`: the app beside a shortcut to
-Applications, compressed with LZMA (`ULMO`), about a third smaller than a zip of the same app. The
+Applications, compressed with LZMA (`ULMO`): 59 MB for Apple silicon and 67 MB for Intel, against 76 and 81 MB
+zipped. The
 script mounts it and checks the app's signature as it is inside, since the managed `.dll` files
 carry theirs in extended attributes that a careless copy drops. Signed ad hoc, it runs on the Mac that
 built it and has to be confirmed the first time on any other, as the README describes. For distribution, set

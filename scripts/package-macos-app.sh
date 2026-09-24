@@ -104,8 +104,8 @@ sign "$app"
 codesign --verify --deep --strict "$app"
 
 # What people download: the app beside a shortcut to Applications, to drag it onto. Compressed
-# with LZMA (ULMO), the smallest format macOS opens with nothing extra, about a third smaller than
-# a zip of the same app.
+# with LZMA (ULMO), the smallest format macOS opens with nothing extra: 59 MB for Apple silicon,
+# against 76 MB zipped.
 dmg="artifacts/Uncloud-$runtime.dmg"
 contents="$(mktemp -d)/Uncloud"
 mkdir -p "$contents"

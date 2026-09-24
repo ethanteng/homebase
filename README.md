@@ -80,7 +80,7 @@ Macs in sync with it.
    After that it opens normally. Uncloud lives in the menu bar at the top of the screen, as a
    **U**, not in the Dock.
 
-The app is about 55 MB to download because everything it needs is inside it: there is nothing
+The app is about 60 MB to download because everything it needs is inside it: there is nothing
 else to install. These links always give you the latest build. If it ever won't open, what went
 wrong is in `~/Library/Application Support/Uncloud/uncloud.log`.
 
