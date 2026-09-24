@@ -24,17 +24,24 @@ public sealed class TestHost : WebApplicationFactory<Program>
     private readonly Dictionary<string, string?> _settings;
     private readonly Func<string, IDropboxConnection>? _dropbox;
     private readonly ISyncthingApi? _syncthing;
+    private readonly IPAddress _caller;
 
     static TestHost() =>
         // A real host hashes once a month; this suite signs in hundreds of times a run.
         PasswordHasher.Override = 1_000;
 
+    /// <param name="caller">
+    /// Where the browser is, as far as this host can tell. Loopback unless a test is about somebody
+    /// reaching Uncloud from another machine.
+    /// </param>
     public TestHost(
         string configDirectory,
         Func<string, IDropboxConnection>? dropbox = null,
         IDictionary<string, string?>? settings = null,
-        ISyncthingApi? syncthing = null)
+        ISyncthingApi? syncthing = null,
+        IPAddress? caller = null)
     {
+        _caller = caller ?? IPAddress.Loopback;
         _settings = new Dictionary<string, string?>
         {
             ["Homebase:ConfigDirectory"] = configDirectory,
@@ -53,7 +60,7 @@ public sealed class TestHost : WebApplicationFactory<Program>
         // TestServer leaves the connection's remote address unset, and forwarded headers are only
         // believed when they come from a known proxy, so without this there is no proxy to be.
         builder.ConfigureTestServices(services =>
-            services.AddSingleton<IStartupFilter>(new CallerAddress(IPAddress.Loopback)));
+            services.AddSingleton<IStartupFilter>(new CallerAddress(_caller)));
         if (_dropbox is not null)
             builder.ConfigureTestServices(services =>
                 services.AddSingleton<IDropboxApiFactory>(new StubDropboxFactory(_dropbox)));

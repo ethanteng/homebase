@@ -97,6 +97,72 @@ export default function AccountPanel({ me, dropboxExpanded = false }: Props) {
     }
   }
 
+  // Uncloud's own app finishes a sign-in by handing it to Uncloud at its plain local address, and
+  // there is more than one way that can fail to arrive: a browser on another computer, a proxy in
+  // between, a host answering on its own secure address. Whoever this is true for has just been
+  // turned away from Connect, and this is the screen they were sent to.
+  const relayIsNoUseHere =
+    dropbox !== null && dropbox.source === "Relay" && !dropbox.relayReachable;
+
+  // Nothing is connecting this account to Dropbox yet, it is their own key doing it, or what would
+  // have can't reach them: either way the app-key form is the thing they came here for, so it is
+  // not tucked away.
+  const settleForOwn =
+    dropbox !== null &&
+    (dropbox.source === "Own" || dropbox.source === "None" || relayIsNoUseHere);
+
+  const form = dropbox && (
+    <>
+      <DropboxAppSteps
+        redirectUri={dropbox.redirectUri}
+        scopes={dropbox.scopes}
+        idPrefix="my-dropbox"
+      />
+      <label htmlFor="my-dropbox-app-key">Your app key</label>
+      <input
+        id="my-dropbox-app-key"
+        className="path-input"
+        value={appKey}
+        onChange={(event) => setAppKey(event.target.value)}
+        placeholder={
+          dropbox.hostProvides
+            ? "leave empty to use this Uncloud’s app"
+            : dropbox.relayProvides
+              ? "leave empty to use Uncloud’s own app"
+              : "the app key from that page"
+        }
+        autoComplete="off"
+        spellCheck={false}
+        disabled={savingKey}
+        aria-describedby="my-dropbox-help"
+      />
+      <p id="my-dropbox-help" className="field-help">
+        <AppKeyReassurance />
+      </p>
+      {keyError && (
+        <p className="error-message" role="alert">
+          {keyError}
+        </p>
+      )}
+      {keyNotice && <p className="library-note">{keyNotice}</p>}
+      <button
+        type="button"
+        className="button primary"
+        onClick={() => void saveAppKey()}
+        disabled={savingKey || appKey.trim() === (dropbox.appKey ?? "")}
+      >
+        {savingKey ? (
+          <LoaderCircle size={16} className="spin" />
+        ) : (
+          <Check size={16} />
+        )}
+        {appKey.trim() === "" && dropbox.appKey
+          ? "Remove my app key"
+          : "Save my app key"}
+      </button>
+    </>
+  );
+
   return (
     <form className="setup-form compact" onSubmit={submit}>
       <p className="muted">
@@ -156,38 +222,28 @@ export default function AccountPanel({ me, dropboxExpanded = false }: Props) {
           <p className="field-help">
             {dropbox.source === "Own"
               ? "You connect Dropbox through a setup of your own. Nobody else here can see or change it."
-              : dropbox.source === "None"
-                ? "To connect your Dropbox, it needs setting up once on Dropbox’s website. Nobody has done that on this Uncloud yet, so you can do it yourself — it takes about five minutes."
-                : "Dropbox is ready to connect from Add files. There’s nothing you need to do here."}
+              : relayIsNoUseHere
+                ? "Dropbox can only be connected from the computer Uncloud runs on, the way things are set up now. To connect it from here, set it up yourself below — it takes about five minutes on Dropbox’s website, and needs nobody else."
+                : dropbox.source === "None"
+                  ? "To connect your Dropbox, it needs setting up once on Dropbox’s website. Nobody has done that on this Uncloud yet, so you can do it yourself — it takes about five minutes."
+                  : "Dropbox is ready to connect from Add files. There’s nothing you need to do here."}
           </p>
-          {dropbox.source === "None" ? (
-            <DropboxSetup
-              dropbox={dropbox}
-              appKey={appKey}
-              setAppKey={setAppKey}
-              saving={savingKey}
-              error={keyError}
-              notice={keyNotice}
-              onSave={() => void saveAppKey()}
-            />
+
+          {settleForOwn ? (
+            form
           ) : (
-            <>
-              {keyNotice && <p className="library-note">{keyNotice}</p>}
-              <details className="advanced" open={dropboxExpanded || dropbox.source === "Own"}>
-                <summary>
-                  {dropbox.source === "Own" ? "Change your Dropbox setup" : "Use your own Dropbox setup instead"}
-                </summary>
-                <DropboxSetup
-                  dropbox={dropbox}
-                  appKey={appKey}
-                  setAppKey={setAppKey}
-                  saving={savingKey}
-                  error={keyError}
-                  notice=""
-                  onSave={() => void saveAppKey()}
-                />
-              </details>
-            </>
+            // Somebody already has a Dropbox app working for this account, so the steps for making
+            // one are an answer to a question they haven’t asked. Folded away rather than dropped:
+            // wanting your own is a legitimate thing to want, and this is where it is.
+            <details className="own-app-details" open={dropboxExpanded}>
+              <summary>Use my own Dropbox setup instead</summary>
+              <p className="field-help">
+                {dropbox.source === "Relay"
+                  ? "Worth doing if you’d rather your Dropbox sign-in didn’t go through an app somebody else registered, or to connect Dropbox from a computer other than the one Uncloud runs on."
+                  : "Worth doing if you’d rather not depend on whoever looks after this Uncloud keeping their setup working."}
+              </p>
+              {form}
+            </details>
           )}
         </section>
       )}
@@ -195,56 +251,3 @@ export default function AccountPanel({ me, dropboxExpanded = false }: Props) {
   );
 }
 
-function DropboxSetup({
-  dropbox,
-  appKey,
-  setAppKey,
-  saving,
-  error,
-  notice,
-  onSave,
-}: {
-  dropbox: MyDropboxApp;
-  appKey: string;
-  setAppKey: (value: string) => void;
-  saving: boolean;
-  error: string;
-  notice: string;
-  onSave: () => void;
-}) {
-  return (
-    <>
-      <DropboxAppSteps redirectUri={dropbox.redirectUri} scopes={dropbox.scopes} idPrefix="my-dropbox" />
-      <label htmlFor="my-dropbox-app-key">Your app key</label>
-      <input
-        id="my-dropbox-app-key"
-        className="path-input"
-        value={appKey}
-        onChange={(event) => setAppKey(event.target.value)}
-        placeholder={dropbox.hostProvides ? "Leave empty to use this Uncloud’s setup" : "Paste the app key here"}
-        autoComplete="off"
-        spellCheck={false}
-        disabled={saving}
-        aria-describedby="my-dropbox-help"
-      />
-      <p id="my-dropbox-help" className="field-help">
-        <AppKeyReassurance />
-      </p>
-      {error && (
-        <p className="error-message" role="alert">
-          {error}
-        </p>
-      )}
-      {notice && <p className="library-note">{notice}</p>}
-      <button
-        type="button"
-        className="button primary"
-        onClick={onSave}
-        disabled={saving || appKey.trim() === (dropbox.appKey ?? "")}
-      >
-        {saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}
-        {appKey.trim() === "" && dropbox.appKey ? "Remove my app key" : "Save my app key"}
-      </button>
-    </>
-  );
-}

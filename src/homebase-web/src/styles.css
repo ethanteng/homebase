@@ -1720,20 +1720,6 @@ tbody tr.selected {
 .account-dropbox .button.primary {
   margin-top: 21px;
 }
-/* Something most people never need, kept out of the way until asked for. */
-details.advanced {
-  margin-top: 14px;
-}
-details.advanced > summary {
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--accent);
-  width: fit-content;
-}
-details.advanced[open] > summary {
-  margin-bottom: 10px;
-}
-
 /* A quiet action that shouldn't compete with the buttons beside it. */
 .link-button {
   display: inline-flex;
@@ -2166,4 +2152,62 @@ details.advanced[open] > summary {
   .topbar-status .private-label {
     display: none;
   }
+}
+
+/* Registering a Dropbox app is folded away wherever one is already working, because the four
+   steps for making one are then an answer to a question nobody asked. A disclosure rather than
+   a removal: wanting your own app is legitimate, and this stays the place to say so. */
+.own-app-details {
+  margin: 4px 0 8px;
+  max-width: 62ch;
+}
+.own-app-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--accent);
+  padding: 4px 0;
+  width: fit-content;
+}
+.own-app-details > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.own-app-details[open] > summary {
+  margin-bottom: 8px;
+}
+
+/* An advanced setting: present, findable, and not competing with the things somebody actually came
+   to this screen to do. Reads as one quiet line until it is opened. */
+.advanced-section > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 0;
+  width: fit-content;
+}
+.advanced-section > summary:hover {
+  color: var(--text);
+}
+.advanced-section > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.advanced-lead {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.advanced-section[open] > summary {
+  margin-bottom: 14px;
+  color: var(--text);
 }

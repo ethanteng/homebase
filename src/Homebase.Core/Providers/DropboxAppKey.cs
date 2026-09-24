@@ -13,23 +13,29 @@ public enum DropboxKeySource
     /// <summary>The host's, offered to everybody here by an administrator.</summary>
     Host,
     /// <summary>The host's, from <c>Homebase__Dropbox__AppKey</c> in the environment.</summary>
-    Environment
+    Environment,
+    /// <summary>Uncloud's own, which is there without anybody setting anything up.</summary>
+    Relay
 }
 
 /// <summary>
 /// Which Dropbox app each account connects through.
 ///
-/// An account's own key comes first, then the host's, then the environment. That order is the
-/// whole point: an administrator who sets a key makes connecting one click for everybody, and
-/// anybody who would rather use their own Dropbox app — or whose administrator hasn't set one, or
-/// isn't going to — sets it themselves and needs nothing from anyone. Nobody's Dropbox waits on
-/// somebody else.
+/// An account's own key comes first, then the host's, then the environment, and under all of them
+/// Uncloud's own. That order is the whole point: connecting Dropbox works out of the box because
+/// of the last one, an administrator who sets a key makes everybody here use theirs instead, and
+/// anybody who would rather use their own Dropbox app sets it themselves and needs nothing from
+/// anyone. Nobody's Dropbox waits on somebody else.
+///
+/// Uncloud's own comes last rather than first because every other entry in that list is somebody
+/// having deliberately chosen a Dropbox app, and a default that quietly won over a choice would
+/// be a bug. It is the floor, not the preference.
 ///
 /// A key is not a secret. Uncloud signs in with PKCE precisely because a program on somebody's own
 /// computer cannot keep one, and there is no client secret anywhere in Uncloud to leak. That is
 /// what makes it safe to let a member set their own rather than reserving it to an administrator.
 /// </summary>
-public sealed class DropboxAppKey(ControlDatabase database, string? fromEnvironment)
+public sealed class DropboxAppKey(ControlDatabase database, string? fromEnvironment, DropboxRelay relay)
 {
     private const string SettingKey = "dropbox_app_key";
     private readonly string? _environment = Blank(fromEnvironment) ? null : fromEnvironment!.Trim();
@@ -69,14 +75,22 @@ public sealed class DropboxAppKey(ControlDatabase database, string? fromEnvironm
         _mine.GetOrAdd(userId, id => ReadOwn(id));
 
     /// <summary>The key this account actually connects through.</summary>
-    public string? For(string userId) => OwnedBy(userId) ?? Host;
+    public string? For(string userId) => OwnedBy(userId) ?? Host ?? relay.AppKey;
 
     /// <summary>Where that key came from, so the screen can say whose it is.</summary>
     public DropboxKeySource SourceFor(string userId) =>
         OwnedBy(userId) is not null ? DropboxKeySource.Own
         : HostStored is not null ? DropboxKeySource.Host
         : _environment is not null ? DropboxKeySource.Environment
+        : relay.Available ? DropboxKeySource.Relay
         : DropboxKeySource.None;
+
+    /// <summary>
+    /// Whether this account is connecting through Uncloud's own app rather than one somebody here
+    /// chose — which decides where Dropbox sends the sign-in back to, and so has to be asked before
+    /// a sign-in starts as well as when it comes back.
+    /// </summary>
+    public bool UsesRelay(string userId) => SourceFor(userId) == DropboxKeySource.Relay;
 
     /// <summary>
     /// Records the host's key, or clears it when given nothing. Returns whether the key in force

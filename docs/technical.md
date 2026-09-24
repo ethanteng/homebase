@@ -118,12 +118,12 @@ restarts, run it again.
 On a Mac you can instead build a self-contained executable, which needs neither the SDK nor Node
 on the host; see [Desktop packaging](#desktop-packaging).
 
-With remote access through the bundled tunnel, build the tunnel first (it needs Go), then start
-with the provider set:
+For remote access through the bundled tunnel, build the tunnel first (it needs Go). Turning it on
+is done from **Settings** afterwards, not here:
 
 ```sh
 ./scripts/build-tunnel.sh
-Homebase__RemoteAccess__Provider=builtin ./scripts/run.sh
+./scripts/run.sh
 ```
 
 ## Where the host keeps things
@@ -179,19 +179,24 @@ sign in from outside the house, Uncloud can open a **tunnel**: an outbound conne
 that already owns a name and a certificate. Nothing is forwarded at the router, no port is opened
 to the internet, and no certificate has to be obtained here or renewed.
 
-```sh
-Homebase__RemoteAccess__Provider=builtin ./scripts/run.sh
-```
+It is turned on in **Settings**, under *Reaching this host from anywhere*, and turned off
+in the same place. Nothing is restarted either way: the tunnel opens or closes where it stands,
+and everyone on the network carries on throughout. The choice is kept in `host_settings` beside
+the storage root, so a host that was reachable comes back reachable.
 
-That is the whole of it. Uncloud ships its own tunnel — a Tailscale node built from
+Uncloud ships its own tunnel — a Tailscale node built from
 [`tsnet`](https://tailscale.com/kb/1244/tsnet), the library rather than the daemon — so there is
 nothing to install, no command line to meet, and no configuration file to find. The host stays
 bound to `127.0.0.1`; the tunnel is the only way in from outside.
 
-The first time it runs, **Settings** shows one button: *Allow this host*. It goes to
-Tailscale, where a free account says this machine is yours. Everyone on the network carries on
-while you do, and the public address appears by itself when Tailscale lets it through — no restart.
-The node's identity is kept in `tunnel/` beside the accounts, so you are asked once and not again.
+The first time it is turned on, the same panel shows one button: *Allow this host*. It goes to
+Tailscale, where a free account says this machine is yours. The public address appears by itself
+when Tailscale lets it through. The node's identity is kept in `tunnel/` beside the accounts, so
+you are asked once and not again.
+
+The menu-bar app's **Reach From Anywhere** tick is the same switch, writing the same setting; it
+restarts the server rather than opening the tunnel in place, because from outside there is no
+signed-in way to ask it to do that. Neither one overrules the other.
 
 Two things have to be true of the Tailscale account, both in its admin console and both one-time:
 Funnel allowed for the tailnet (Access controls → `nodeAttrs` → `funnel`), and HTTPS certificates
@@ -232,7 +237,7 @@ Homebase__RemoteAccess__Hostname=files.example.com \
 
 | Setting | What it does |
 | --- | --- |
-| `Homebase__RemoteAccess__Provider` | `none` (the default), `builtin`, `tailscale`, or `cloudflare`. |
+| `Homebase__RemoteAccess__Provider` | `none`, `builtin`, `tailscale`, or `cloudflare`. Setting this at all decides the matter before launch, so **Settings** then reports remote access rather than changing it. Leave it unset to decide it there. |
 | `Homebase__RemoteAccess__Hostname` | The address to answer to. Required for a named Cloudflare tunnel; the name to ask the tailnet for under `builtin`; otherwise read from what the tunnel announces. |
 | `Homebase__RemoteAccess__Tunnel` | The name of a Cloudflare tunnel to run, instead of a throwaway one. |
 | `Homebase__RemoteAccess__Command` | Where the tunnel program lives, if it isn't on the `PATH`. |
@@ -347,13 +352,18 @@ For Dropbox files that aren't synced to this computer. Each account connects its
 the connection it authorises is the signing-in person's alone. Uncloud asks only for read-only
 permissions, so it cannot change anything in anybody's Dropbox.
 
-Connecting goes through a Dropbox *app*, and there are two places one can come from:
+Connecting goes through a Dropbox *app*, and there are three places one can come from, first
+match wins:
 
 - **Your own**, under **My account**. Anybody signed in can set this up for themselves, and it wins
-  over the host's. Nobody's Dropbox waits on anybody else.
-- **The host's**, under **Settings**. An administrator who sets one here saves everyone else the
-  trouble: with a host key in place, connecting Dropbox is one click for every account. It shares
-  nobody's files: each person still signs in to their own Dropbox.
+  over the others. Nobody's Dropbox waits on anybody else.
+- **The host's**, under **Settings** (*Advanced*, while Uncloud's own is in use). An administrator
+  who sets one here saves everyone else the trouble: connecting Dropbox is one click for every
+  account, from any computer. It shares nobody's files: each person still signs in to their own
+  Dropbox.
+- **Uncloud's own**, which needs nobody to set anything up. It finishes a sign-in only on the
+  computer Uncloud runs on; from anywhere else **Add files** says so and offers the setup above
+  instead. See [the Dropbox relay](dropbox-relay.md).
 
 Both screens show the same four steps, the exact redirect URI to register, and the three permissions
 to tick. An app key is not a secret — Uncloud signs in with PKCE precisely because a program on
@@ -619,7 +629,7 @@ To build only the server as a self-contained macOS executable, without the app:
 ./artifacts/osx-arm64/Homebase.Server
 ```
 
-Open http://127.0.0.1:5210. The bundled tunnel is built beside it, so `Homebase__RemoteAccess__Provider=builtin` needs nothing else. For the menu-bar app, see [The Uncloud app](#the-uncloud-app). No billing, AI, or photo management is included, and there are no per-account storage quotas: everyone draws on the same drive, so one account can fill it for everyone.
+Open http://127.0.0.1:5210. The bundled tunnel is built beside it, so turning on remote access in **Settings** needs nothing else. For the menu-bar app, see [The Uncloud app](#the-uncloud-app). No billing, AI, or photo management is included, and there are no per-account storage quotas: everyone draws on the same drive, so one account can fill it for everyone.
 
 ### Check
 

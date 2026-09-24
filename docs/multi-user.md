@@ -168,11 +168,33 @@ address can never become a way to send somebody off this host. A state Uncloud n
 return address to offer and falls back to a relative hop.
 
 Which Dropbox *app* an account connects through is its own choice: its own key first, then the
-host's, then `Homebase__Dropbox__AppKey`. An app key is not a secret — PKCE is the flow for a
-program that cannot keep one — so there is nothing in letting a member set theirs that an
-administrator needs to gate, and reserving it would make everybody's Dropbox wait on one person.
-The consequences are scoped the same way: changing the host's key clears only the connections that
-were made through it, and changing an account's own clears only that account's.
+host's, then `Homebase__Dropbox__AppKey`, and under all of them Uncloud's own. An app key is not a
+secret — PKCE is the flow for a program that cannot keep one — so there is nothing in letting a
+member set theirs that an administrator needs to gate, and reserving it would make everybody's
+Dropbox wait on one person. The consequences are scoped the same way: changing the host's key clears
+only the connections that were made through it, and changing an account's own clears only that
+account's. Uncloud's own comes last because every other entry is somebody having deliberately chosen
+an app, and a default that quietly won over a choice would be a bug.
+
+**The redirect URI follows from which app is in use**, and is therefore recorded in the pending
+exchange rather than worked out again on the way back. An account on Uncloud's own app returns by way
+of the relay, which is the one address registered with that app; anybody on a key chosen here returns
+straight to this host. Dropbox requires the exchange to present the same URI the sign-in was started
+with, and what this host would name is not stable while a browser is away at dropbox.com — a tunnel
+coming up changes it, and so does an administrator setting a host key, which moves every account that
+had none off the relay. Recomputing it would lose sign-ins that the person completed correctly.
+
+A sign-in through the relay carries **the way back on the end of its state**: the scheme this host
+answers on and the port it listens on, and nothing else. Deliberately not an address. The relay
+builds one around the loopback host, so the most a crafted state can ask for is a different port on
+the person's own machine — whereas a relay that accepted a hostname would be an open redirect
+wearing Uncloud's consent screen, and would hand an attacker who held the verifier a code they could
+spend. `docs/dropbox-relay.md` has the whole argument; the short version is that PKCE is what makes
+the hop safe and loopback-only forwarding is what keeps PKCE's promise true.
+
+It follows that the relay only works for a browser on the computer Uncloud is running on. Starting a
+relay sign-in from anywhere else is refused, with the one thing to do about it: set your own key,
+which returns straight here and so works from anywhere.
 
 Refresh tokens are sealed with AES-256-GCM under the host key, with the user id and provider
 name as additional authenticated data. A sealed token therefore cannot be decrypted after

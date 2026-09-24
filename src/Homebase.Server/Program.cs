@@ -1,3 +1,4 @@
+using System.Net;
 using Homebase.Core;
 using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
@@ -21,9 +22,7 @@ static string Join(string? existing, params string[] additions) => string.Join('
     (existing ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Concat(additions).Distinct(StringComparer.OrdinalIgnoreCase));
 
-var defaultConfig = OperatingSystem.IsMacOS()
-    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "Homebase")
-    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Homebase");
+var defaultConfig = HostPaths.DefaultConfigDirectory;
 
 // Read once before anything is started, so a missing certificate or an unreadable bind address
 // is refused while there is still nothing running to clean up.
@@ -90,9 +89,15 @@ builder.Services.AddSingleton<ImportLog>();
 builder.Services.AddSingleton<IFolderPicker, NativeFolderPicker>();
 // One shared client; downloads of large files need a generous timeout.
 builder.Services.AddSingleton(_ => new HttpClient { Timeout = TimeSpan.FromMinutes(30) });
+// Uncloud's own Dropbox app, under everybody else's. Overridable so that somebody running their
+// own build against their own app and relay isn't forced to edit source to do it.
+builder.Services.AddSingleton(provider => new DropboxRelay(
+    provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:RelayAppKey"],
+    provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:RelayCallback"]));
 builder.Services.AddSingleton(provider => new DropboxAppKey(
     provider.GetRequiredService<ControlDatabase>(),
-    provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:AppKey"]));
+    provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:AppKey"],
+    provider.GetRequiredService<DropboxRelay>()));
 builder.Services.AddSingleton<IDropboxApiFactory>(provider => new DropboxApiFactory(
     provider.GetRequiredService<HttpClient>(),
     provider.GetRequiredService<ConnectorStore>(),
@@ -129,12 +134,69 @@ var binding = app.Services.GetRequiredService<HostBinding>();
 string PublicAddress() =>
     binding.PublicUrlConfigured ? binding.PublicUrl : remote.State.Url ?? binding.PublicUrl;
 string RedirectUri() => $"{PublicAddress()}/api/providers/dropbox/callback";
+var relay = app.Services.GetRequiredService<DropboxRelay>();
+var appKeys = app.Services.GetRequiredService<DropboxAppKey>();
+// Where Dropbox sends an account's sign-in back to, which follows from whose Dropbox app it is
+// signing in through. An account on Uncloud's own app goes by way of the relay — that is the one
+// address registered with it — and is told to come home by the port on the end of its state.
+// Anybody on a key somebody here chose comes straight back, as they always did.
+// Why Uncloud's own Dropbox app can't finish a sign-in for the browser asking, or null when it
+// can. It ends by handing the sign-in to this host at its plain loopback address, so every way
+// that hop can fail to arrive is a reason not to start down it: better to say so than to send
+// somebody somewhere that cannot work. Each of these leaves them their own app key, which comes
+// straight back here and so has none of these problems.
+string? RelayCannotFinish(HttpContext context)
+{
+    // A host serving its own https is reached by a name its certificate was issued for, and the
+    // loopback address is not usually one of them — the browser would stop at a certificate
+    // warning rather than arrive. A certificate that does cover it can't be told apart from here.
+    if (binding.IsSecure)
+        return "This Uncloud answers on its own secure address, which Uncloud's own Dropbox app "
+             + "can't finish a sign-in on. Set up your own Dropbox app under My account — it takes "
+             + "a couple of minutes and works either way.";
+    // X-Forwarded-For is believed only from a tunnel Uncloud opened itself, so behind a proxy
+    // somebody else configured the address below is the proxy's — often loopback, which would read
+    // as "sitting at the machine" for somebody who is nowhere near it.
+    if (binding.TrustedProxies.Count > 0 && !remote.IsEnabled)
+        return "This Uncloud is behind a proxy, so it can't tell whether you're at the computer it "
+             + "runs on — and Uncloud's own Dropbox app only works there. Set up your own Dropbox "
+             + "app under My account — it takes a couple of minutes and works either way.";
+    // A dual-stack socket reports a local browser as ::ffff:127.0.0.1, which has to be read as
+    // loopback or everybody at the machine gets turned away.
+    var from = context.Connection.RemoteIpAddress;
+    if (from is { IsIPv4MappedToIPv6: true }) from = from.MapToIPv4();
+    if (from is null || !IPAddress.IsLoopback(from))
+        return "Uncloud's own Dropbox app can only finish a sign-in on the computer Uncloud is "
+             + "running on. You're reaching it from somewhere else, so set up your own Dropbox app "
+             + "under My account — it takes a couple of minutes and works from anywhere.";
+    return null;
+}
+(string RedirectUri, Func<string, string>? WayBack) DropboxReturn(string userId) =>
+    appKeys.UsesRelay(userId)
+        ? (relay.Callback, state => DropboxRelay.StateWithWayBack(state, binding.IsSecure, binding.Port))
+        : (RedirectUri(), (Func<string, string>?)null);
 // Read-only, and the same three whoever's app is being set up.
 string[] DropboxScopes = ["account_info.read", "files.metadata.read", "files.content.read"];
 if (binding.Warning is { } warning) app.Logger.LogWarning("{Warning}", warning);
 // A tunnel that drops is an outage of reaching this host from outside, never of the host, so
 // this reopens in the background while everyone on the network carries on.
-remote.Watch(binding.Port);
+// What somebody turned on from the interface last time. Read here rather than before the
+// application was built, because only the container knows which directory this host keeps its
+// own things in — a test host's is not the one a person's would be. Nothing waits on it: the
+// address arrives through the watch, as it does for a tunnel still to be allowed.
+// A provider named before launch settles it, including when it named none: somebody who turned
+// this off where a web page cannot answer back must not find it on again because of something
+// they set months ago and can no longer reach.
+if (!remote.Options.FromEnvironment
+    && app.Services.GetRequiredService<ControlDatabase>().Setting(HostPaths.RemoteAccessSetting) is { } kept
+    && Enum.TryParse<RemoteAccessProvider>(kept, ignoreCase: true, out var remembered)
+    && remembered is not RemoteAccessProvider.None)
+    // Start keeps its own tunnel open for as long as its run lasts. Watching it from here as
+    // well would leave two loops waiting on one tunnel, each opening a replacement when it
+    // closed, and only one of those replacements held on to.
+    remote.Start(binding.Port, remembered);
+else
+    remote.Watch(binding.Port);
 // Once Syncthing answers, bring its configuration in line with who owns what. Until then nothing
 // syncs, so there is nothing to be out of line.
 _ = app.Services.GetRequiredService<SyncthingHost>().Ready.ContinueWith(async _ =>
@@ -170,27 +232,47 @@ string[] administrative =
 // browser sent an https:// Origin. Without this the origin comparison below rejects every
 // mutation — sign-in included — and the session cookie goes out without Secure. Only the proxies
 // named in configuration are believed, and only about the scheme and host.
-if (binding.TrustedProxies.Count > 0)
+// Which proxies are believed, and about what. A tunnel Uncloud opened itself may be turned on
+// long after this point, so the decision cannot be made once here: it is made per request, from
+// whether the request arrived under the name a tunnel is carrying right now.
+ForwardedHeadersOptions Forwarded(bool aboutTheClient)
 {
-    // A tunnel adds the client's own address to that. Everything it carries reaches Kestrel from
-    // loopback, so without this the sign-in throttle would count every person on the internet
-    // into one bucket, and ten wrong guesses from anywhere would lock out every account on the
-    // host, including whoever is sitting at it. Only a tunnel Uncloud opened itself is taken at
-    // its word about who the client is: a proxy somebody else configured is believed about the
-    // scheme and host it was named for, and nothing more.
-    var client = remote.IsEnabled ? ForwardedHeaders.XForwardedFor : ForwardedHeaders.None;
     var forwarded = new ForwardedHeadersOptions
     {
-        ForwardedHeaders = client | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
+        // The client's own address only for our own tunnel. Everything it carries reaches Kestrel
+        // from loopback, so without this the sign-in throttle would count every person on the
+        // internet into one bucket, and ten wrong guesses from anywhere would lock out every
+        // account on the host, including whoever is sitting at it. A proxy somebody else
+        // configured is believed about the scheme and host it was named for and nothing more:
+        // anyone behind it can send that header themselves, and a fresh address per attempt would
+        // dodge the throttle altogether.
+        ForwardedHeaders = (aboutTheClient ? ForwardedHeaders.XForwardedFor : ForwardedHeaders.None)
+            | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
         ForwardLimit = 1
     };
     forwarded.KnownIPNetworks.Clear();
     forwarded.KnownProxies.Clear();
     foreach (var proxy in binding.TrustedProxies) forwarded.KnownProxies.Add(proxy);
+    // The tunnel client runs on this machine and reaches Uncloud over loopback, so loopback is
+    // the proxy whenever one could be carrying — whether or not an address had arrived by the
+    // time this host started listening.
+    if (!binding.TrustedProxies.Any(IPAddress.IsLoopback))
+    {
+        forwarded.KnownProxies.Add(IPAddress.Loopback);
+        forwarded.KnownProxies.Add(IPAddress.IPv6Loopback);
+    }
     // A forwarded host still has to be one this Uncloud answers to.
     foreach (var host in binding.AllowedHosts) forwarded.AllowedHosts.Add(host);
-    app.UseForwardedHeaders(forwarded);
+    return forwarded;
 }
+
+var throughTheTunnel = Forwarded(aboutTheClient: true);
+var throughAProxy = Forwarded(aboutTheClient: false);
+app.UseWhen(context => remote.Answers(context.Request.Host.Host),
+    branch => branch.UseForwardedHeaders(throughTheTunnel));
+if (binding.TrustedProxies.Count > 0)
+    app.UseWhen(context => !remote.Answers(context.Request.Host.Host),
+        branch => branch.UseForwardedHeaders(throughAProxy));
 
 app.Use(async (context, next) =>
 {
@@ -447,13 +529,20 @@ app.MapGet("/api/providers/dropbox", (CurrentUser user, UserWorkspaces workspace
 });
 
 app.MapPost("/api/providers/dropbox/connect", (HttpContext context, CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
-    Results.Ok(new
+{
+    var (redirectUri, wayBack) = DropboxReturn(user.Id);
+    // Refused rather than quietly sent back here instead: the key in force is Uncloud's own, and
+    // Dropbox would turn away a sign-in to it from an address that app doesn't hold.
+    if (wayBack is not null && RelayCannotFinish(context) is { } why)
+        throw new LibraryException(why, "not_configured");
+    return Results.Ok(new
     {
-        authorizeUrl = flow.Begin(user.Id, workspaces.For(user.Account).Dropbox.AppKey, RedirectUri(),
+        authorizeUrl = flow.Begin(user.Id, workspaces.For(user.Account).Dropbox.AppKey, redirectUri,
             // Where to put them back afterwards. Dropbox returns the browser to the one registered
             // address, which may not be the one they are using.
-            $"{context.Request.Scheme}://{context.Request.Host}")
-    }));
+            $"{context.Request.Scheme}://{context.Request.Host}", wayBack)
+    });
+});
 
 app.MapPost("/api/providers/dropbox/disconnect", (CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
 {
@@ -483,19 +572,23 @@ app.MapGet("/api/providers/dropbox/callback", async (string? code, string? state
     string? returnTo = null;
     string? verifier = null;
     string? userId = null;
+    string? startedUnder = null;
+    string? startedWith = null;
     try
     {
-        (userId, verifier, returnTo) = flow.Consume(state);
+        (userId, verifier, returnTo, startedUnder, startedWith) = flow.Consume(state);
     }
     catch (LibraryException expired)
     {
         app.Logger.LogWarning(expired, "A Dropbox sign-in came back with a state Uncloud didn’t recognise");
     }
     if (error is not null || code is null) return Results.Redirect(Back(returnTo, "denied"));
-    if (verifier is null || userId is null) return Results.Redirect(Back(returnTo, "failed"));
+    if (verifier is null || userId is null || startedUnder is null || startedWith is null)
+        return Results.Redirect(Back(returnTo, "failed"));
     try
     {
-        await workspaces.For(userId).Dropbox.ConnectAsync(code, verifier, RedirectUri(), cancellationToken);
+        await workspaces.For(userId).Dropbox
+            .ConnectAsync(code, verifier, startedUnder, startedWith, cancellationToken);
         return Results.Redirect(Back(returnTo, "connected"));
     }
     catch (Exception failure) when (failure is LibraryException or HttpRequestException)
@@ -508,7 +601,7 @@ app.MapGet("/api/providers/dropbox/callback", async (string? code, string? state
 // Everywhere this account can bring files in from: its online accounts, the folders on this
 // computer it added or somebody shared with everyone, and — for somebody who looks after this host —
 // the folders worth offering that it hasn't added yet.
-app.MapGet("/api/imports/sources", (CurrentUser user, UserWorkspaces workspaces, ImportPlaces places, IFolderPicker picker) =>
+app.MapGet("/api/imports/sources", (HttpContext context, CurrentUser user, UserWorkspaces workspaces, ImportPlaces places, IFolderPicker picker) =>
 {
     var workspace = workspaces.For(user.Account);
     var dropbox = workspace.Dropbox;
@@ -527,6 +620,10 @@ app.MapGet("/api/imports/sources", (CurrentUser user, UserWorkspaces workspaces,
                 configured = dropbox.IsConfigured,
                 connected = dropbox.IsConnected,
                 accountName = dropbox.AccountName,
+                // Whether Connect can work from this browser. Uncloud's own Dropbox app only
+                // finishes a sign-in on the computer it runs on; saying so before somebody presses
+                // Connect is kinder than refusing them after.
+                connectableHere = !appKeys.UsesRelay(user.Id) || RelayCannotFinish(context) is null,
                 // Where in this account's folder its files arrive, so the page can say so.
                 destination = workspace.Source(DropboxApi.ProviderName).DestinationPrefix
             }
@@ -569,16 +666,39 @@ app.MapGet("/api/imports/estimate", async (string remotePath, string? source, Cu
 });
 
 // Where this host can be reached from outside the house, for the administrator to pass on.
-app.MapGet("/api/remote-access", (RemoteAccess access) =>
+app.MapGet("/api/remote-access", (RemoteAccess access) => Results.Ok(Reachability(access)));
+
+// Turning it on and off, from the interface, on a host everybody is already using. Nothing is
+// restarted: the tunnel opens or closes where it stands, and the answer says where things got to
+// rather than where they will end up — a tunnel waiting to be allowed is still waiting when this
+// returns, and Settings shows the link as soon as there is one.
+app.MapPut("/api/remote-access", async (ReachFromAnywhere request, RemoteAccess access, ControlDatabase control) =>
+{
+    if (access.Options.FromEnvironment)
+        throw new LibraryException(
+            "Remote access was set before this host started, with "
+            + "Homebase__RemoteAccess__Provider, so it isn’t this panel’s to change. Remove that "
+            + "setting to decide it here instead.", "conflict");
+
+    var wanted = request.Enabled ? RemoteAccessProvider.Builtin : RemoteAccessProvider.None;
+    control.SetSetting(HostPaths.RemoteAccessSetting, wanted.ToString().ToLowerInvariant());
+    if (request.Enabled) access.Start(binding.Port, wanted);
+    else await access.StopAsync();
+    return Results.Ok(Reachability(access));
+});
+
+object Reachability(RemoteAccess access)
 {
     var state = access.State;
-    return Results.Ok(new
+    return new
     {
         state.Provider, state.Hostname, state.Url, state.Status, state.Detail, state.SignInUrl,
         // The same address Dropbox is told, so this never says one thing and does another.
-        PublicUrl = PublicAddress()
-    });
-});
+        PublicUrl = PublicAddress(),
+        // Whether this panel may change it at all, or something before launch already decided.
+        CanChange = !access.Options.FromEnvironment
+    };
+}
 
 app.MapGet("/api/host", (HostService host, IFolderPicker picker) =>
     Results.Ok(new { rootPath = host.RootPath, canPickFolder = picker.IsSupported }));
@@ -675,6 +795,8 @@ app.MapGet("/api/host/dropbox", (DropboxAppKey appKey) => Results.Ok(new
     appKey = appKey.HostStored,
     configured = appKey.Host is not null,
     fromEnvironment = appKey.HostFromEnvironment,
+    // Setting one here is a convenience, not a requirement, when Uncloud brings its own.
+    relayProvides = relay.Available,
     redirectUri = RedirectUri(),
     scopes = DropboxScopes
 }));
@@ -696,13 +818,19 @@ app.MapPut("/api/host/dropbox", (SetDropboxAppKey request, DropboxAppKey appKey,
 // One account's own Dropbox app. Anybody signed in can set this for themselves: an app key is not
 // a secret, it only ever authorises that account's own Dropbox, and the alternative is everybody
 // waiting on whoever looks after the host.
-app.MapGet("/api/account/dropbox", (CurrentUser user, DropboxAppKey appKey) => Results.Ok(new
+app.MapGet("/api/account/dropbox", (HttpContext context, CurrentUser user, DropboxAppKey appKey) => Results.Ok(new
 {
     appKey = appKey.OwnedBy(user.Id),
     configured = appKey.For(user.Id) is not null,
     source = appKey.SourceFor(user.Id).ToString(),
-    // Whether leaving the box empty would still leave them able to connect.
+    // What leaving the box empty would fall back to. Two separate facts because they read
+    // differently on screen: an administrator here chose that key, and nobody chose the relay.
     hostProvides = appKey.Host is not null,
+    relayProvides = relay.Available,
+    // Whether Uncloud's own app could actually finish a sign-in for the browser asking. Somebody
+    // reading this from another computer needs a key of their own, and telling them there is
+    // nothing to set up — right after refusing them — would be worse than saying nothing.
+    relayReachable = RelayCannotFinish(context) is null,
     redirectUri = RedirectUri(),
     scopes = DropboxScopes
 }));
@@ -865,6 +993,7 @@ finally
 }
 
 public sealed record SelectRoot(string Path);
+public sealed record ReachFromAnywhere(bool Enabled);
 public sealed record SignIn(string? Username, string? Password);
 public sealed record CreateUser(string? Username, string? DisplayName, string? Password, bool IsAdmin = false);
 public sealed record UpdateUser(string? DisplayName, string? Password, bool? IsAdmin, bool? Disabled);

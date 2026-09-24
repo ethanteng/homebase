@@ -113,7 +113,7 @@ brew install node go git
 git clone https://github.com/ethanteng/homebase.git ~/uncloud-app
 cd ~/uncloud-app
 ./scripts/build-tunnel.sh
-Homebase__RemoteAccess__Provider=builtin ./scripts/run.sh
+./scripts/run.sh
 ```
 
 The first start takes a few minutes. It's ready when the messages stop scrolling. **Leave this
@@ -121,11 +121,12 @@ Terminal window open.** Closing it, or pressing Ctrl+C, stops Uncloud. To start 
 
 ```sh
 cd ~/uncloud-app
-Homebase__RemoteAccess__Provider=builtin ./scripts/run.sh
+./scripts/run.sh
 ```
 
-The `Homebase__RemoteAccess__Provider=builtin` part is what lets people reach Uncloud from other
-devices (step 6). Leave it off if only this computer will ever use Uncloud.
+`./scripts/build-tunnel.sh` only has to be run once. It builds the tunnel that lets people reach
+Uncloud from other devices, which you turn on in step 6 — there is nothing to type at Terminal
+for that.
 
 ### 3. Make your account
 
@@ -156,10 +157,12 @@ accounts.
 
 ### 6. Let everyone in
 
-With the app, first click the **U** in the menu bar and tick **Reach From Anywhere**. Then open
-**Settings**. Under **Reaching this host from anywhere**, click **Allow this host**.
-You'll be taken to Tailscale, a free service Uncloud uses for its secure connection. Sign in or
-make an account.
+Open **Settings**. Under **Reaching this host from anywhere**, click **Reach this host from
+anywhere**, then **Allow this host**. You'll be taken to Tailscale, a free service Uncloud uses for
+its secure connection. Sign in or make an account.
+
+(With the app, ticking **Reach From Anywhere** under the **U** in the menu bar does the same
+thing. Either one is enough; they are the same switch.)
 
 Then, once, in Tailscale's admin console:
 
@@ -170,16 +173,27 @@ Then, once, in Tailscale's admin console:
 After a minute Uncloud shows your address, something like `https://uncloud.tail1234.ts.net`. Send
 that to everyone. It works at home and away, on any device.
 
+To close it again later, use the same panel: **Stop reaching it from anywhere** takes the address
+out of service at once, without stopping Uncloud for anybody at home.
+
 This connection is fine for browsing and downloading everyday files. It's slow for very large
 ones, like hours of video.
 
-### 7. Set up Dropbox for everyone (optional)
+### 7. Dropbox (optional)
 
-Everyone can add files from their own Dropbox. Dropbox needs Uncloud to be registered with them
-first; do it once here and connecting is one click for everybody. It shares nobody's files: each
-person still signs in to their own Dropbox.
+Nothing to do. Uncloud comes with its own Dropbox app, so anybody with an account here can connect
+their own Dropbox from **Add files** by pressing **Connect** — no developer console, no app key,
+nothing to paste. It shares nobody's files: each person signs in to their own Dropbox.
 
-Open **Settings** and scroll to **Dropbox for everyone here**, then:
+You might still register your own Dropbox app if you would rather your household's sign-ins didn't
+go through an app somebody else registered — or if Uncloud tells you its own app can't be used here.
+It says so when it can't finish a sign-in the way this Uncloud is being reached: from another
+computer, through a proxy you set up, or on an `https://` address with your own certificate. In all
+of those, a key of your own works instead, and anybody can set theirs under **My account** without
+waiting for you.
+
+If you want your own, open **Settings**, scroll to **Dropbox for everyone here**, and click
+**Advanced — Use a Dropbox app you registered**. It is four steps:
 
 1. Go to [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps) and click
    **Create app**. Choose **Scoped access** and **Full Dropbox**, and give it any name.
@@ -189,8 +203,9 @@ Open **Settings** and scroll to **Dropbox for everyone here**, then:
    **App key**.
 4. Paste the app key into Uncloud.
 
-Do this after step 6, because the redirect URI is based on your Uncloud's address. If you skip it,
-anyone can still do the same steps for themselves under **My account**.
+Do this after step 6, because the redirect URI is based on your Uncloud's address. A key you set
+here replaces Uncloud's own for everybody who hasn't set one of their own — and anyone can always
+set their own under **My account**, which beats both.
 
 ### 8. Set up a backup
 
@@ -219,9 +234,12 @@ On **My files**, click **Add files** and choose where they are:
 - **This computer** (for whoever looks after Uncloud): the folders and drives on the host, such as
   Documents, Pictures, an old backup drive, or the folder your Dropbox or Google Drive app keeps.
   Open one to look inside, or add the whole thing. **Choose another folder…** finds anything else.
-- **Dropbox.** Click **Connect Dropbox** and sign in. Uncloud can only read your Dropbox, never
-  change it. If it says Dropbox needs setting up first, follow the steps it shows. They take about
-  five minutes.
+- **Dropbox.** Click **Connect Dropbox** and sign in — there is nothing to set up first. Uncloud can
+  only read your Dropbox, never change it.
+
+  If Uncloud says Dropbox needs setting up, it says why: its own Dropbox app only works when you're
+  using Uncloud on the computer it runs on. Click **Set it up myself** and follow the steps. They
+  take a few minutes and need nobody else.
 - **Shared with you**, if someone has shared a folder with everyone.
 
 Google Drive and Evernote are coming. Until then, the folder the Google Drive app keeps on the host
@@ -317,9 +335,16 @@ the laptop can open Uncloud's address in a browser.
 **macOS says Uncloud can't be opened.** It isn't signed by Apple yet. See
 [Get the app](#get-the-app) for how to open it the first time.
 
-**Dropbox sign-in fails.** The redirect URI registered with Dropbox has to match the one Uncloud
-shows now. It changes if you turn on remote access after setting up Dropbox. Add the new one on
-the app's **Settings** tab at dropbox.com.
+**Dropbox sign-in fails.** If you are using your own Dropbox app, the redirect URI registered with
+Dropbox has to match the one Uncloud shows now. It changes if you turn on remote access after
+setting up Dropbox. Add the new one on the app's **Settings** tab at dropbox.com.
+
+**Uncloud says its own Dropbox app can't finish a sign-in here.** Its own app hands the finished
+sign-in back to Uncloud at the plain local address on the computer it runs on, so it can't be used
+when you're on another computer, when Uncloud is behind a proxy you set up, or when Uncloud answers
+on an `https://` address with your own certificate. Open **My account**, click **Use my own Dropbox
+app instead**, and follow the steps there; an app you registered sends the sign-in straight back to
+Uncloud, so it works in all of those.
 
 **The external drive was unplugged.** Plug it back in and refresh. If it comes back under a new
 name, choose the folder again under **Settings**.

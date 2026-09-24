@@ -338,7 +338,7 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
     const connected = (candidate: ImportAccount) =>
       candidate.connected
         ? `Signed in as ${candidate.accountName ?? "you"}`
-        : candidate.configured
+        : candidate.configured && candidate.connectableHere
           ? "Sign in to connect"
           : isAdmin
             ? "Needs a few minutes to set up"
@@ -565,7 +565,7 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
       <div className="add-files">
         {header}
         {messages}
-        {account.configured ? (
+        {account.configured && account.connectableHere ? (
           <div className="notice-card">
             <h2>Connect your {account.name}</h2>
             <p className="field-help">
@@ -574,6 +574,21 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
             </p>
             <button className="button primary" onClick={() => void connect(account)} disabled={busy !== ""}>
               {busy === "connect" ? `Opening ${account.name}…` : `Connect ${account.name}`}
+              <ArrowUpRight size={15} />
+            </button>
+          </div>
+        ) : account.configured ? (
+          // Uncloud's own app is there, but it can only finish a sign-in on the computer Uncloud
+          // runs on, and this browser isn't there.
+          <div className="notice-card">
+            <h2>Connect {account.name} from the Uncloud computer</h2>
+            <p className="field-help">
+              {isAdmin
+                ? `Right now ${account.name} can only be connected from the computer Uncloud runs on. Do it there, or set ${account.name} up once for everyone — about five minutes on ${account.name}’s website — and it connects from anywhere.`
+                : `Right now ${account.name} can only be connected from the computer Uncloud runs on. Do it there, or set it up yourself — about five minutes on ${account.name}’s website — and it connects from anywhere.`}
+            </p>
+            <button className="button primary" onClick={onSetUpDropbox}>
+              {isAdmin ? `Set up ${account.name} for everyone` : "Set it up myself"}
               <ArrowUpRight size={15} />
             </button>
           </div>

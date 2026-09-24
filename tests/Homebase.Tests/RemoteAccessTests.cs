@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Homebase.Core;
+using Homebase.Core.Accounts;
 using Homebase.Server;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -320,6 +321,224 @@ public sealed class RemoteAccessTests : IDisposable
             StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// A host that was told nothing before launch, with a tunnel standing by for whoever asks.
+    /// </summary>
+    private Tunnels Available(params string[] addresses)
+    {
+        var tunnels = new Tunnels(null, addresses);
+        var options = Read(new());
+        RemoteAccess.Override = _ => new RemoteAccess(options, NullLogger.Instance, tunnels.Next);
+        return tunnels;
+    }
+
+    [Fact]
+    public async Task Remote_access_is_turned_on_from_the_panel_and_takes_effect_at_once()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        using var tunnels = Available(Announced);
+        using var app = new TestHost(_config);
+        using var admin = await app.SignUpAsync("ada");
+
+        var before = await admin.GetFromJsonAsync<JsonElement>("/api/remote-access");
+        Assert.Equal("off", before.GetProperty("status").GetString());
+        Assert.True(before.GetProperty("canChange").GetBoolean());
+
+        (await admin.PutAsJsonAsync("/api/remote-access", new { enabled = true })).EnsureSuccessStatusCode();
+        var state = await Reachable(admin);
+
+        Assert.Equal($"https://{Announced}", state.GetProperty("url").GetString());
+        // Nothing was restarted, and the host answers to the new name straight away.
+        using var arriving = Through(app, Announced);
+        (await arriving.GetAsync("/api/health")).EnsureSuccessStatusCode();
+    }
+
+    [Fact]
+    public async Task Turning_it_off_takes_the_way_in_with_it()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        using var tunnels = Available(Announced);
+        using var app = new TestHost(_config);
+        using var admin = await app.SignUpAsync("ada");
+        (await admin.PutAsJsonAsync("/api/remote-access", new { enabled = true })).EnsureSuccessStatusCode();
+        await Reachable(admin);
+
+        var off = await admin.PutAsJsonAsync("/api/remote-access", new { enabled = false });
+        off.EnsureSuccessStatusCode();
+
+        Assert.Equal("off", (await off.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("status").GetString());
+        using var arriving = Through(app, Announced);
+        Assert.Equal(HttpStatusCode.Forbidden, (await arriving.GetAsync("/api/health")).StatusCode);
+    }
+
+    [Fact]
+    public async Task What_was_turned_on_is_still_on_after_a_restart()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        using (var tunnels = Available(Announced))
+        using (var app = new TestHost(_config))
+        using (var admin = await app.SignUpAsync("ada"))
+        {
+            (await admin.PutAsJsonAsync("/api/remote-access", new { enabled = true })).EnsureSuccessStatusCode();
+            await Reachable(admin);
+        }
+
+        // The same host, started again. Nobody should have to say so twice.
+        using var again = Available(Announced);
+        using var restarted = new TestHost(_config);
+        using var owner = await restarted.SignInAsync("ada");
+
+        Assert.Equal($"https://{Announced}", (await Reachable(owner)).GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task Saying_none_before_launch_keeps_it_off_whatever_was_remembered()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        // Turned on from the panel at some point, and remembered ever since.
+        new ControlDatabase(_config).SetSetting(HostPaths.RemoteAccessSetting, "builtin");
+
+        // Then somebody said none before launch, where the panel cannot answer back — and cannot
+        // turn it off again either, so coming up reachable would be a door nobody could shut.
+        using var tunnels = Open("none", Announced);
+        using var app = new TestHost(_config);
+        using var admin = await app.SignUpAsync("ada");
+
+        await Task.Delay(250);
+        var state = await admin.GetFromJsonAsync<JsonElement>("/api/remote-access");
+
+        Assert.Equal("off", state.GetProperty("status").GetString());
+        using var arriving = Through(app, Announced);
+        Assert.Equal(HttpStatusCode.Forbidden, (await arriving.GetAsync("/api/health")).StatusCode);
+    }
+
+    [Fact]
+    public async Task One_tunnel_is_watched_once_when_it_is_restored()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        new ControlDatabase(_config).SetSetting(HostPaths.RemoteAccessSetting, "builtin");
+        using var tunnels = Available(Announced, Announced, Announced);
+        using var app = new TestHost(_config);
+        using var admin = await app.SignUpAsync("ada");
+        await Reachable(admin);
+
+        // The tunnel drops. One watcher opens one replacement; two would each open their own,
+        // and whichever lost the race would carry traffic with nothing holding on to it.
+        tunnels.Latest!.Drop();
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        while (tunnels.Opened < 2 && DateTimeOffset.UtcNow < deadline) await Task.Delay(25);
+        await Task.Delay(500);
+
+        Assert.Equal(2, tunnels.Opened);
+    }
+
+    [Fact]
+    public async Task Turning_it_off_while_it_waits_to_be_allowed_leaves_it_off()
+    {
+        const string Link = "https://login.tailscale.com/a/10692893011e9b";
+        using var tunnels = new Tunnels(Link, "home.tail9f3a.ts.net");
+        var options = Read(new());
+        await using var remote = new RemoteAccess(options, NullLogger.Instance, tunnels.Next);
+
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        while (remote.State.Status != "needs_sign_in" && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(25);
+        Assert.Equal("needs_sign_in", remote.State.Status);
+
+        await remote.StopAsync();
+        // The run that was cancelled mid-opening must not report "reconnecting" over this, or the
+        // panel would show a tunnel forever trying and never offer the switch again.
+        await Task.Delay(500);
+
+        Assert.Equal("off", remote.State.Status);
+        Assert.False(remote.IsEnabled);
+        Assert.Null(remote.State.SignInUrl);
+    }
+
+    [Fact]
+    public async Task A_provider_named_before_launch_is_not_the_panel_to_change()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        using var tunnels = Open("builtin", Announced);
+        using var app = new TestHost(_config);
+        using var admin = await app.SignUpAsync("ada");
+
+        var state = await admin.GetFromJsonAsync<JsonElement>("/api/remote-access");
+        Assert.False(state.GetProperty("canChange").GetBoolean());
+
+        // Somebody said so before launch and meant it; a switch on a web page doesn't overrule it.
+        var refused = await admin.PutAsJsonAsync("/api/remote-access", new { enabled = false });
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+    }
+
+    /// <summary>Waits for the panel to say a tunnel is carrying, as somebody watching it does.</summary>
+    private static async Task<JsonElement> Reachable(HttpClient client)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        JsonElement state;
+        while ((state = await client.GetFromJsonAsync<JsonElement>("/api/remote-access"))
+                   .GetProperty("status").GetString() != "on"
+               && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(25);
+        Assert.Equal("on", state.GetProperty("status").GetString());
+        return state;
+    }
+
+    [Fact]
+    public async Task A_tunnel_can_be_turned_on_after_the_host_is_already_serving()
+    {
+        using var tunnels = new Tunnels(null, "first.tail9f3a.ts.net", "second.tail9f3a.ts.net");
+        var options = Read(new() { ["Homebase:RemoteAccess:Provider"] = "none" });
+        await using var remote = new RemoteAccess(options, NullLogger.Instance, tunnels.Next);
+
+        // Nothing was asked for before launch, which is the ordinary case: somebody turns it on
+        // later, from the interface, on a host everybody is already using.
+        Assert.False(remote.IsEnabled);
+        Assert.False(remote.IsCarrying);
+
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        Assert.Equal("first.tail9f3a.ts.net", await Settled(remote));
+        Assert.True(remote.Answers("first.tail9f3a.ts.net"));
+
+        // Turning it off takes the way in with it, at once rather than at the next restart.
+        await remote.StopAsync();
+        Assert.False(remote.IsEnabled);
+        Assert.False(remote.Answers("first.tail9f3a.ts.net"));
+        Assert.Equal("off", remote.State.Status);
+
+        // And it can be turned on again, which the tunnel could not survive when a run's
+        // cancellation belonged to the whole object rather than to the run.
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        Assert.Equal("second.tail9f3a.ts.net", await Settled(remote));
+        Assert.True(remote.Answers("second.tail9f3a.ts.net"));
+        Assert.False(remote.Answers("first.tail9f3a.ts.net"));
+    }
+
+    [Fact]
+    public async Task Turning_it_on_twice_leaves_one_tunnel_running()
+    {
+        using var tunnels = new Tunnels(null, "first.tail9f3a.ts.net", "second.tail9f3a.ts.net");
+        var options = Read(new() { ["Homebase:RemoteAccess:Provider"] = "none" });
+        await using var remote = new RemoteAccess(options, NullLogger.Instance, tunnels.Next);
+
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        Assert.Equal("first.tail9f3a.ts.net", await Settled(remote));
+
+        // The second press found a run already going and left it alone. A tunnel nothing is
+        // holding on to would go on carrying traffic after this one was stopped.
+        Assert.Equal(1, tunnels.Opened);
+    }
+
+    /// <summary>Waits for a tunnel to settle on an address, as a person watching the panel does.</summary>
+    private static async Task<string?> Settled(RemoteAccess remote)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        while (remote.State.Status != "on" && DateTimeOffset.UtcNow < deadline) await Task.Delay(25);
+        return remote.State.Hostname;
+    }
+
     [Fact]
     public void The_builtin_tunnel_is_the_one_uncloud_ships()
     {
@@ -484,6 +703,8 @@ public sealed class RemoteAccessTests : IDisposable
         private readonly List<Tunnel> _opened = [];
 
         public Tunnel? Latest { get { lock (_opened) return _opened.LastOrDefault(); } }
+
+        public int Opened { get { lock (_opened) return _opened.Count; } }
 
         public ITunnel Next(RemoteAccessOptions options)
         {
