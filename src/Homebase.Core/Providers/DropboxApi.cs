@@ -52,7 +52,7 @@ public sealed class DropboxApi(HttpClient client, IProviderTokens tokens, Func<s
         }
     }
 
-    public async Task ConnectAsync(string code, string verifier, string appKey, string redirectUri, CancellationToken cancellationToken)
+    public async Task ConnectAsync(string code, string verifier, string appKey, string? redirectUri, CancellationToken cancellationToken)
     {
         // Deliberately not this client's AppKey, which is read afresh and so answers with whatever
         // is in force now. A sign-in that began under another app has to be finished under it.

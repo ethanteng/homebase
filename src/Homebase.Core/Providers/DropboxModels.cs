@@ -36,7 +36,7 @@ public interface IDropboxConnection : IDropboxApi
     /// Dropbox checks the code against the app it was issued to, so the exchange has to present
     /// that one or lose a sign-in the person completed correctly.
     /// </param>
-    Task ConnectAsync(string code, string verifier, string appKey, string redirectUri, CancellationToken cancellationToken);
+    Task ConnectAsync(string code, string verifier, string appKey, string? redirectUri, CancellationToken cancellationToken);
     void Disconnect();
 }
 

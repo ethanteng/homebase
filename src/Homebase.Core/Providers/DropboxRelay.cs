@@ -35,7 +35,7 @@ public sealed class DropboxRelay
     /// nobody has set one for, and then everything here is simply unavailable: an account connects
     /// through its own key or the host's, exactly as it did before any of this existed.
     /// </summary>
-    private const string BuiltIn = "";
+    private const string BuiltIn = "hsfwtd0lqlnivnc";
 
     /// <summary>
     /// Where Dropbox sends every sign-in that went through Uncloud's own app. Registered with that
@@ -44,9 +44,14 @@ public sealed class DropboxRelay
     /// </summary>
     public const string CallbackUrl = "https://www.uncloud.life/api/dropbox-callback";
 
+    /// <param name="appKeyOverride">
+    /// A key to use instead of the built-in one. Null means there was none given, and the build's
+    /// own is used; an empty one is a deliberate "none", which is how a build that carries a key can
+    /// still be run without offering it.
+    /// </param>
     public DropboxRelay(string? appKeyOverride = null, string? callbackOverride = null)
     {
-        AppKey = Trimmed(appKeyOverride) ?? Trimmed(BuiltIn);
+        AppKey = appKeyOverride is null ? Trimmed(BuiltIn) : Trimmed(appKeyOverride);
         Callback = Trimmed(callbackOverride) ?? CallbackUrl;
     }
 

@@ -2233,3 +2233,15 @@ tbody tr.selected {
   margin-bottom: 14px;
   color: var(--text);
 }
+
+/* A card that asks for something back rather than just saying something: the code from a sign-in
+   Dropbox had nowhere to return. The box wants the room, so it takes the card's full width. */
+.notice-card .path-input {
+  width: 100%;
+}
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}

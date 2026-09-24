@@ -180,15 +180,17 @@ ones, like hours of video.
 ### 7. Dropbox (optional)
 
 Nothing to do. Uncloud comes with its own Dropbox app, so anybody with an account here can connect
-their own Dropbox from **Add files** by pressing **Connect** — no developer console, no app key,
-nothing to paste. It shares nobody's files: each person signs in to their own Dropbox.
+their own Dropbox from **Add files** by pressing **Connect** — no developer console and no app key.
+It shares nobody's files: each person signs in to their own Dropbox.
+
+From the computer Uncloud runs on that's one click. From anywhere else — another computer, through a
+proxy you set up, or on an `https://` address with your own certificate — Uncloud can't be handed
+the sign-in directly, so Dropbox shows a code at the end and you copy it across. Uncloud says so
+before you start, and mistyping the code costs nothing.
 
 You might still register your own Dropbox app if you would rather your household's sign-ins didn't
-go through an app somebody else registered — or if Uncloud tells you its own app can't be used here.
-It says so when it can't finish a sign-in the way this Uncloud is being reached: from another
-computer, through a proxy you set up, or on an `https://` address with your own certificate. In all
-of those, a key of your own works instead, and anybody can set theirs under **My account** without
-waiting for you.
+go through an app somebody else registered, or you'd rather nobody ever copied a code. Anybody can
+set theirs under **My account** without waiting for you.
 
 If you want your own, open **Settings**, scroll to **Dropbox for everyone here**, and click
 **Advanced — Use a Dropbox app you registered**. It is four steps:
@@ -235,9 +237,10 @@ On **My files**, click **Add files** and choose where they are:
 - **Dropbox.** Click **Connect Dropbox** and sign in — there is nothing to set up first. Uncloud can
   only read your Dropbox, never change it.
 
-  If Uncloud says Dropbox needs setting up, it says why: its own Dropbox app only works when you're
-  using Uncloud on the computer it runs on. Click **Set it up myself** and follow the steps. They
-  take a few minutes and need nobody else.
+  If you're using Uncloud from a different computer than the one it runs on, there's one extra step
+  and Uncloud says so before you start: Dropbox shows you a code at the end instead of sending you
+  back, and you copy it into the box Uncloud is waiting with. Mistyping it costs nothing — paste it
+  again.
 - **Shared with you**, if someone has shared a folder with everyone.
 
 Google Drive and Evernote are coming. Until then, the folder the Google Drive app keeps on the host
@@ -338,12 +341,12 @@ the laptop can open Uncloud's address in a browser.
 Dropbox has to match the one Uncloud shows now. It changes if you turn on remote access after
 setting up Dropbox. Add the new one on the app's **Settings** tab at dropbox.com.
 
-**Uncloud says its own Dropbox app can't finish a sign-in here.** Its own app hands the finished
-sign-in back to Uncloud at the plain local address on the computer it runs on, so it can't be used
-when you're on another computer, when Uncloud is behind a proxy you set up, or when Uncloud answers
-on an `https://` address with your own certificate. Open **My account**, click **Use my own Dropbox
-app instead**, and follow the steps there; an app you registered sends the sign-in straight back to
-Uncloud, so it works in all of those.
+**Dropbox showed me a code instead of sending me back.** That's expected when you aren't using
+Uncloud on the computer it runs on — also when Uncloud is behind a proxy you set up, or answers on
+an `https://` address with your own certificate. Uncloud can't be handed the sign-in directly in any
+of those, so it asks Dropbox for a code instead. Copy it into the box Uncloud is showing and you're
+connected; if you mistype it, paste it again. To never see that step, register a Dropbox app of your
+own under **My account** — a sign-in through your own app comes straight back from anywhere.
 
 **The external drive was unplugged.** Plug it back in and refresh. If it comes back under a new
 name, choose the folder again under **Settings**.

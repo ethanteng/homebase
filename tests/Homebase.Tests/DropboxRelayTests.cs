@@ -61,8 +61,8 @@ public sealed class DropboxRelayTests : IDisposable
             .GetProperty("authorizeUrl").GetString()!);
     }
 
-    private static string Parameter(Uri authorize, string name) =>
-        HttpUtility.ParseQueryString(authorize.Query)[name]!;
+    private static string? Parameter(Uri authorize, string name) =>
+        HttpUtility.ParseQueryString(authorize.Query)[name];
 
     [Fact]
     public async Task Dropbox_can_be_connected_by_somebody_who_has_set_nothing_up()
@@ -148,7 +148,7 @@ public sealed class DropboxRelayTests : IDisposable
         using var app = CreateApp(dropbox: dropboxes.For);
         using var client = await StartAsync(app);
 
-        var state = Parameter(await AuthorizeUrlAsync(client), "state");
+        var state = Assert.IsType<string>(Parameter(await AuthorizeUrlAsync(client), "state"));
         Assert.EndsWith(".h5210", state);
         var mine = Assert.Single(dropboxes.All);
         var began = mine.Key;
@@ -175,7 +175,7 @@ public sealed class DropboxRelayTests : IDisposable
     }
 
     [Fact]
-    public async Task A_host_serving_its_own_secure_address_is_not_offered_the_relay()
+    public async Task A_host_serving_its_own_secure_address_signs_in_without_a_return_trip()
     {
         // The relay's last hop is a plain navigation to the loopback address. A certificate is
         // issued for the name people use, not usually for 127.0.0.1, so that hop would stop at a
@@ -186,17 +186,11 @@ public sealed class DropboxRelayTests : IDisposable
         using var app = CreateApp(extra: [("Homebase:Certificate:Path", certificate)]);
         using var client = await StartAsync(app);
 
-        Assert.False((await client.GetFromJsonAsync<JsonElement>("/api/account/dropbox"))
-            .GetProperty("relayReachable").GetBoolean());
-
-        var refused = await client.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
-        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
-        Assert.Contains("secure address", (await refused.Content.ReadFromJsonAsync<JsonElement>())
-            .GetProperty("detail").GetString());
+        await AssertSignsInByHandAsync(client);
     }
 
     [Fact]
-    public async Task A_host_behind_somebody_else_s_proxy_is_not_offered_the_relay()
+    public async Task A_host_behind_somebody_else_s_proxy_signs_in_without_a_return_trip()
     {
         // X-Forwarded-For is believed only from a tunnel Uncloud opened itself — a proxy somebody
         // else configured is taken at its word about scheme and host and nothing more. So the
@@ -206,13 +200,7 @@ public sealed class DropboxRelayTests : IDisposable
             extra: [("Homebase:TrustedProxies", "127.0.0.1")]);
         using var client = await StartAsync(app);
 
-        Assert.False((await client.GetFromJsonAsync<JsonElement>("/api/account/dropbox"))
-            .GetProperty("relayReachable").GetBoolean());
-
-        var refused = await client.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
-        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
-        Assert.Contains("behind a proxy", (await refused.Content.ReadFromJsonAsync<JsonElement>())
-            .GetProperty("detail").GetString());
+        await AssertSignsInByHandAsync(client);
     }
 
     /// <summary>A certificate to point <c>Homebase:Certificate:Path</c> at; never used to serve.</summary>
@@ -229,29 +217,42 @@ public sealed class DropboxRelayTests : IDisposable
     }
 
     [Fact]
-    public async Task Uncloud_s_own_app_is_not_offered_to_a_browser_on_another_computer()
+    public async Task A_browser_on_another_computer_signs_in_without_a_return_trip()
     {
         // The relay finishes by sending the browser to the loopback address, which is this host only
         // when the browser is on this computer. Somebody reaching Uncloud over a tunnel would be
-        // sent to their own machine — nothing there, or worse, a different Uncloud. Saying so beats
-        // sending them somewhere that cannot work.
+        // sent to their own machine — nothing there, or worse, a different Uncloud. So they are not
+        // sent anywhere: Dropbox is asked for no return trip and shows them the code instead.
         using var app = CreateApp(caller: IPAddress.Parse("192.168.1.50"),
             extra: [("Homebase:Bind", "0.0.0.0"), ("Homebase:AllowedHosts", "uncloud.local")]);
         using var client = await StartAsync(app);
 
-        var refused = await client.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
+        await AssertSignsInByHandAsync(client);
 
-        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
-        var detail = (await refused.Content.ReadFromJsonAsync<JsonElement>())
-            .GetProperty("detail").GetString()!;
-        // And told the way round it, which is a thing they can do without anyone's help.
-        Assert.Contains("your own Dropbox app", detail);
-
-        // That key is theirs to set, and once set the sign-in comes straight back to this host, so
-        // where they are sitting stops mattering.
+        // Somebody who would rather not paste anything sets a key of their own, and the sign-in
+        // comes straight back to this host again — where they are sitting stops mattering.
         (await client.PutAsJsonAsync("/api/account/dropbox", new { appKey = "my-own-key" }))
             .EnsureSuccessStatusCode();
-        Assert.Equal("my-own-key", Parameter(await AuthorizeUrlAsync(client), "client_id"));
+        var authorize = await AuthorizeUrlAsync(client);
+        Assert.Equal("my-own-key", Parameter(authorize, "client_id"));
+        Assert.NotNull(Parameter(authorize, "redirect_uri"));
+    }
+
+    /// <summary>
+    /// Pressing Connect offers a sign-in with nowhere to come back to, which is what every reason
+    /// the relay can't finish now leads to rather than a dead end.
+    /// </summary>
+    private static async Task AssertSignsInByHandAsync(HttpClient client)
+    {
+        Assert.False((await client.GetFromJsonAsync<JsonElement>("/api/account/dropbox"))
+            .GetProperty("relayReachable").GetBoolean());
+
+        var started = await client.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
+        started.EnsureSuccessStatusCode();
+        var body = await started.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.True(body.GetProperty("paste").GetBoolean());
+        Assert.Null(Parameter(new Uri(body.GetProperty("authorizeUrl").GetString()!), "redirect_uri"));
     }
 
     [Fact]
@@ -283,12 +284,125 @@ public sealed class DropboxRelayTests : IDisposable
     }
 
     [Fact]
+    public async Task A_browser_the_relay_cannot_reach_is_given_a_sign_in_to_bring_back_by_hand()
+    {
+        // The relay can only hand a finished sign-in back at the loopback address, and every other
+        // address Dropbox could return to has to be registered with the app in advance — which is
+        // the step Uncloud's own app exists to remove. So ask Dropbox for no return trip at all: it
+        // shows the code, and the person carries it. One paste, and it works from any computer.
+        var dropboxes = new StubDropboxes();
+        using var app = CreateApp(dropbox: dropboxes.For, caller: IPAddress.Parse("192.168.1.50"),
+            extra: [("Homebase:Bind", "0.0.0.0"), ("Homebase:AllowedHosts", "uncloud.local")]);
+        using var client = await StartAsync(app);
+
+        var started = await client.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
+        started.EnsureSuccessStatusCode();
+        var body = await started.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(body.GetProperty("paste").GetBoolean());
+
+        var authorize = new Uri(body.GetProperty("authorizeUrl").GetString()!);
+        // No address to come back to, and so no state either: state guards a callback, and there
+        // is no callback to guard.
+        Assert.Null(Parameter(authorize, "redirect_uri"));
+        Assert.Null(Parameter(authorize, "state"));
+        // Still PKCE, which is what keeps a code useless to anyone who did not start this sign-in.
+        Assert.Equal("S256", Parameter(authorize, "code_challenge_method"));
+
+        var finished = await client.PostAsJsonAsync(
+            "/api/providers/dropbox/paste", new { code = "the-code-dropbox-showed" });
+        finished.EnsureSuccessStatusCode();
+
+        var connected = Assert.Single(dropboxes.All, stub => stub.ExchangedUnder is not null);
+        Assert.Equal(connected.Key, connected.ExchangedUnder);
+        // Exchanged for nothing, because it was issued for nothing: Dropbox checks the code against
+        // the address it was given, and sending one now would lose the sign-in.
+        Assert.Null(connected.ExchangedWith);
+    }
+
+    [Fact]
+    public async Task A_pasted_code_is_refused_when_no_sign_in_is_waiting_for_one()
+    {
+        var dropboxes = new StubDropboxes();
+        using var app = CreateApp(dropbox: dropboxes.For, caller: IPAddress.Parse("192.168.1.50"),
+            extra: [("Homebase:Bind", "0.0.0.0"), ("Homebase:AllowedHosts", "uncloud.local")]);
+        using var client = await StartAsync(app);
+
+        // Nothing started, so there is no verifier to check a code against and nothing to connect.
+        var cold = await client.PostAsJsonAsync("/api/providers/dropbox/paste", new { code = "abc" });
+        Assert.Equal(HttpStatusCode.Conflict, cold.StatusCode);
+
+        Assert.DoesNotContain(dropboxes.All, stub => stub.ExchangedUnder is not null);
+    }
+
+    [Fact]
+    public async Task A_pasted_code_cannot_finish_a_sign_in_that_expected_to_come_back_on_its_own()
+    {
+        // That sign-in's code belongs to a redirect. Accepting one here would mean somebody could be
+        // talked into carrying a code across from a sign-in they did not start.
+        var dropboxes = new StubDropboxes();
+        using var app = CreateApp(dropbox: dropboxes.For);
+        using var client = await StartAsync(app);
+
+        var redirecting = await client.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
+        redirecting.EnsureSuccessStatusCode();
+        Assert.False((await redirecting.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("paste").GetBoolean());
+
+        var refused = await client.PostAsJsonAsync("/api/providers/dropbox/paste", new { code = "abc" });
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.DoesNotContain(dropboxes.All, stub => stub.ExchangedUnder is not null);
+    }
+
+    [Fact]
+    public async Task A_mistyped_code_can_be_typed_again_without_starting_over()
+    {
+        // A code copied across by hand gets mistyped. Losing the sign-in over one wrong character
+        // would send somebody back to Dropbox for nothing.
+        var dropboxes = new StubDropboxes();
+        using var app = CreateApp(dropbox: dropboxes.For, caller: IPAddress.Parse("192.168.1.50"),
+            extra: [("Homebase:Bind", "0.0.0.0"), ("Homebase:AllowedHosts", "uncloud.local")]);
+        using var client = await StartAsync(app);
+        (await client.PostAsJsonAsync("/api/providers/dropbox/connect", new { })).EnsureSuccessStatusCode();
+
+        // Dropbox refuses the first one, as it would a code with a character missing.
+        Assert.Single(dropboxes.All).RefuseNext = true;
+        var mistyped = await client.PostAsJsonAsync("/api/providers/dropbox/paste", new { code = "wrong" });
+        Assert.Equal(HttpStatusCode.Conflict, mistyped.StatusCode);
+
+        // The same sign-in is still standing, and the right code finishes it.
+        (await client.PostAsJsonAsync("/api/providers/dropbox/paste", new { code = "right" }))
+            .EnsureSuccessStatusCode();
+        Assert.Contains(dropboxes.All, stub => stub.ExchangedUnder is not null);
+    }
+
+    [Fact]
+    public async Task A_pasted_code_is_good_once()
+    {
+        var dropboxes = new StubDropboxes();
+        using var app = CreateApp(dropbox: dropboxes.For, caller: IPAddress.Parse("192.168.1.50"),
+            extra: [("Homebase:Bind", "0.0.0.0"), ("Homebase:AllowedHosts", "uncloud.local")]);
+        using var client = await StartAsync(app);
+
+        (await client.PostAsJsonAsync("/api/providers/dropbox/connect", new { })).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync("/api/providers/dropbox/paste", new { code = "abc" }))
+            .EnsureSuccessStatusCode();
+
+        // The verifier is gone with it, so the same code cannot be spent again.
+        var again = await client.PostAsJsonAsync("/api/providers/dropbox/paste", new { code = "abc" });
+        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+    }
+
+    [Fact]
     public async Task A_build_with_no_key_of_its_own_behaves_as_though_none_of_this_existed()
     {
         // The key is empty in a build nobody has set one for, and that has to be the old behaviour
         // exactly rather than a half-configured relay: no source, no offer, and the same refusal
         // with the same thing to do about it.
-        using var app = new TestHost(_config);
+        using var app = new TestHost(_config, settings: new Dictionary<string, string?>
+        {
+            ["Homebase:Dropbox:RelayAppKey"] = ""
+        });
         using var client = await StartAsync(app);
 
         var mine = await client.GetFromJsonAsync<JsonElement>("/api/account/dropbox");

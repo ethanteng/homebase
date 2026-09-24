@@ -536,17 +536,47 @@ app.MapGet("/api/providers/dropbox", (CurrentUser user, UserWorkspaces workspace
 app.MapPost("/api/providers/dropbox/connect", (HttpContext context, CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
 {
     var (redirectUri, wayBack) = DropboxReturn(user.Id);
-    // Refused rather than quietly sent back here instead: the key in force is Uncloud's own, and
-    // Dropbox would turn away a sign-in to it from an address that app doesn't hold.
-    if (wayBack is not null && RelayCannotFinish(context) is { } why)
-        throw new LibraryException(why, "not_configured");
+    var appKey = workspaces.For(user.Account).Dropbox.AppKey;
+    // Uncloud's own app can only hand a finished sign-in back at the loopback address, so where
+    // that cannot arrive there is nowhere for Dropbox to return to at all — every address it would
+    // return to has to be registered with the app beforehand, and the whole point of Uncloud's own
+    // app is that nobody had to register anything. So ask Dropbox for no return trip: it shows the
+    // code, and the person brings it back themselves. One paste, and it works from any computer.
+    if (wayBack is not null && RelayCannotFinish(context) is not null)
+        return Results.Ok(new
+        {
+            authorizeUrl = flow.BeginWithoutReturn(user.Id, appKey),
+            // The page has to know to ask for the code rather than wait for a browser that is
+            // never coming back.
+            paste = true
+        });
     return Results.Ok(new
     {
-        authorizeUrl = flow.Begin(user.Id, workspaces.For(user.Account).Dropbox.AppKey, redirectUri,
+        authorizeUrl = flow.Begin(user.Id, appKey, redirectUri,
             // Where to put them back afterwards. Dropbox returns the browser to the one registered
             // address, which may not be the one they are using.
-            $"{context.Request.Scheme}://{context.Request.Host}", wayBack)
+            $"{context.Request.Scheme}://{context.Request.Host}", wayBack),
+        paste = false
     });
+});
+
+// The other half of a sign-in that had nowhere to return to: the code, by hand. It arrives on a
+// signed-in request, which is what says whose connection it becomes — there is no state to carry
+// that, because there was no callback for a state to guard.
+app.MapPost("/api/providers/dropbox/paste", async (PasteDropboxCode request, CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow, CancellationToken cancellationToken) =>
+{
+    var code = request.Code?.Trim();
+    if (string.IsNullOrEmpty(code))
+        throw new LibraryException("Paste the code Dropbox showed you.", "provider_auth");
+    var (verifier, appKey) = flow.ClaimedBy(user.Id);
+    // No redirect URI, because the sign-in was started without one. Dropbox checks the code against
+    // what it was issued for, and it was issued for nothing.
+    await workspaces.For(user.Account).Dropbox
+        .ConnectAsync(code, verifier, appKey, null, cancellationToken);
+    // Only now: a code that Dropbox refused leaves the sign-in standing, so a mistyped one can be
+    // typed again instead of costing a trip back to Dropbox.
+    flow.Forget(user.Id);
+    return Results.Ok(new { connected = true });
 });
 
 app.MapPost("/api/providers/dropbox/disconnect", (CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
@@ -628,7 +658,10 @@ app.MapGet("/api/imports/sources", (HttpContext context, CurrentUser user, UserW
                 // Whether Connect can work from this browser. Uncloud's own Dropbox app only
                 // finishes a sign-in on the computer it runs on; saying so before somebody presses
                 // Connect is kinder than refusing them after.
-                connectableHere = !appKeys.UsesRelay(user.Id) || RelayCannotFinish(context) is null,
+                // Whether signing in finishes by itself here. Where it can't, connecting still
+                // works — Dropbox shows a code to bring back by hand — so this decides what the
+                // page promises, not whether it offers anything.
+                oneClickHere = !appKeys.UsesRelay(user.Id) || RelayCannotFinish(context) is null,
                 // Where in this account's folder its files arrive, so the page can say so.
                 destination = workspace.Source(DropboxApi.ProviderName).DestinationPrefix
             }
@@ -1017,6 +1050,7 @@ public sealed record ImportRequest(string RemotePath, string? Label, string? Sou
 public sealed record AddPlace(string? Path, string? Name);
 public sealed record SharePlace(bool Shared);
 public sealed record SetDropboxAppKey(string? AppKey);
+public sealed record PasteDropboxCode(string? Code);
 public sealed record PairDevice(string DeviceId, string? Name);
 public sealed record SyncFolderRequest(string? Path, IReadOnlyList<string>? DeviceIds);
 public sealed record AcceptFolder(string FolderId, string? Path);

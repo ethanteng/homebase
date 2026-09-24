@@ -41,11 +41,10 @@ tunnel address means accepting a hostname from the request, and there is no shar
 the relay and each Uncloud to sign one with. People reaching Uncloud from another computer set their
 own app key instead; Uncloud tells them so when they press Connect.
 
-## Where it is not offered
+## Where the one-click hop is not offered
 
 Forwarding only to loopback is what keeps the argument above true, and it is also the whole of what
-limits where this works. `RelayCannotFinish` in `Program.cs` refuses to start a sign-in it cannot
-finish, rather than sending somebody on a hop that ends nowhere. Three cases:
+limits where it works. `RelayCannotFinish` in `Program.cs` names the three cases:
 
 - **The browser is on another computer.** The last hop reaches this host only from this host.
 - **Uncloud is behind a proxy somebody else configured.** `X-Forwarded-For` is believed only from a
@@ -56,12 +55,24 @@ finish, rather than sending somebody on a hop that ends nowhere. Three cases:
   the loopback address is not usually one of them, so the hop would stop at a certificate warning
   instead of arriving. A certificate that *does* cover the loopback address would work, but cannot be
   told apart from one that does not without inspecting it, so this refuses either way. That is why
-  the state's scheme letter can still say `s` and nothing currently emits one: the format can express
-  it if that check is ever worth adding, and the relay is deployed once for every build there will
-  ever be.
+  the state's scheme letter can still say `s` and nothing currently emits one.
 
-Each of these leaves the person their own app key, which returns straight to their Uncloud and so
-has none of these problems. Uncloud says exactly that when they press Connect.
+None of these is a dead end any more. Where the hop cannot arrive, Uncloud asks Dropbox for **no
+return trip at all** — `redirect_uri` is optional on the authorization-code flow, and omitting it
+makes Dropbox show the code on its own page for the person to bring back by hand. One paste, from
+any computer, still with no app for them to register. `DropboxAuthFlow.BeginWithoutReturn` starts
+it and `/api/providers/dropbox/paste` finishes it.
+
+That flow has no state, because state guards a callback and there is no callback to guard. What
+takes its place is the session: the code arrives on a signed-in request and only ever becomes that
+account's connection. A sign-in that *did* expect to come back on its own will not accept a pasted
+code, so nobody can be talked into carrying a code across from a sign-in they did not start. PKCE
+still binds the code to the verifier held here, so a code from somewhere else cannot be spent here
+either.
+
+The pending sign-in is taken only once a code is actually spent. A code copied by hand gets
+mistyped, and losing the sign-in over one wrong character would mean going back to Dropbox for
+nothing.
 
 ## Setting it up
 
