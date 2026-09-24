@@ -15,9 +15,19 @@ function mockResponse() {
   };
 }
 
+/**
+ * A request as the runtime actually delivers one: a method and a raw URL. Built by hand rather
+ * than from an object of parameters, so that what these tests exercise is the parsing too.
+ */
 async function get(query, method = "GET") {
+  const search = new URLSearchParams();
+  for (const [name, value] of Object.entries(query)) {
+    if (value === undefined) continue;
+    for (const one of Array.isArray(value) ? value : [value]) search.append(name, one);
+  }
+  const url = `/api/dropbox-callback${search.toString() ? `?${search}` : ""}`;
   const response = mockResponse();
-  await handler({ method, query }, response);
+  await handler({ method, url }, response);
   return response;
 }
 
@@ -94,8 +104,8 @@ test("a sign-in is never sent anywhere but the person's own computer", async () 
 });
 
 test("a repeated state cannot smuggle a second destination past the first", async () => {
-  // Vercel gives an array when a parameter appears twice. Reading either end of it
-  // would let `?state=<mine>&state=<theirs>` decide where the code goes.
+  // `?state=<mine>&state=<theirs>`. Taking either end of that would let whoever added the second
+  // copy decide where the code goes, which is the one thing this function must never allow.
   const response = await get({ code: "c", state: [STATE, `${"a".repeat(86)}.h9999`] });
   assert.equal(response.code, 400);
   assert.equal(response.headers.Location, undefined);
@@ -125,6 +135,16 @@ test("only a navigation is answered", async () => {
     assert.equal(response.code, 405);
     assert.equal(response.headers.Location, undefined);
   }
+});
+
+test("a request with no query at all is answered rather than thrown on", async () => {
+  const response = mockResponse();
+  await handler({ method: "GET", url: "/api/dropbox-callback" }, response);
+  assert.equal(response.code, 400);
+  // And the same when the runtime gives no url to speak of.
+  const bare = mockResponse();
+  await handler({ method: "GET" }, bare);
+  assert.equal(bare.code, 400);
 });
 
 test("someone who opens the address by hand is told what it is for", async () => {

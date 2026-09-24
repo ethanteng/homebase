@@ -47,10 +47,28 @@ function destination(state) {
   return `${scheme === "s" ? "https" : "http"}://${LOOPBACK}:${port}`;
 }
 
-function single(value) {
-  // Vercel hands back an array when a parameter is repeated, and a smuggled second
-  // copy should not become the one that counts.
-  return Array.isArray(value) ? undefined : typeof value === "string" ? value : undefined;
+/**
+ * The query, read from the raw URL rather than from a parsed copy a platform may or may not
+ * attach. `request.url` is the Node primitive and is always there, which keeps this function
+ * working the same whoever ends up running it.
+ */
+function parameters(request) {
+  // The base is only to satisfy the parser; `request.url` on a serverless request is a path.
+  try {
+    return new URL(request.url || "/", "http://relay.invalid").searchParams;
+  } catch {
+    return new URLSearchParams();
+  }
+}
+
+/**
+ * The one value given for a parameter, or nothing when it was repeated. A second copy must never
+ * become the one that counts: `?state=mine&state=theirs` would otherwise be a way to choose where
+ * somebody else's code is sent.
+ */
+function single(query, name) {
+  const all = query.getAll(name);
+  return all.length === 1 ? all[0] : undefined;
 }
 
 /**
@@ -101,8 +119,8 @@ module.exports = async function handler(request, response) {
   response.setHeader("Cache-Control", "no-store");
   response.setHeader("Referrer-Policy", "no-referrer");
 
-  const query = request.query || {};
-  const state = single(query.state);
+  const query = parameters(request);
+  const state = single(query, "state");
   const where = destination(state);
   if (!where) return response.status(400).setHeader("Content-Type", "text/html; charset=utf-8").send(STRANDED);
 
@@ -110,8 +128,8 @@ module.exports = async function handler(request, response) {
   // it sent, and the refusal so someone who pressed Cancel is told that, rather than
   // being shown a failure.
   const onward = new URLSearchParams({ state });
-  const code = single(query.code);
-  const error = single(query.error);
+  const code = single(query, "code");
+  const error = single(query, "error");
   if (typeof code === "string" && code.length > 0) onward.set("code", code);
   if (typeof error === "string" && error.length > 0) onward.set("error", error);
   if (!onward.has("code") && !onward.has("error")) onward.set("error", "invalid_request");
