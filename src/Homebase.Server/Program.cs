@@ -137,13 +137,19 @@ if (binding.Warning is { } warning) app.Logger.LogWarning("{Warning}", warning);
 // application was built, because only the container knows which directory this host keeps its
 // own things in — a test host's is not the one a person's would be. Nothing waits on it: the
 // address arrives through the watch, as it does for a tunnel still to be allowed.
-if (!remote.IsEnabled
+// A provider named before launch settles it, including when it named none: somebody who turned
+// this off where a web page cannot answer back must not find it on again because of something
+// they set months ago and can no longer reach.
+if (!remote.Options.FromEnvironment
     && app.Services.GetRequiredService<ControlDatabase>().Setting(HostPaths.RemoteAccessSetting) is { } kept
     && Enum.TryParse<RemoteAccessProvider>(kept, ignoreCase: true, out var remembered)
     && remembered is not RemoteAccessProvider.None)
+    // Start keeps its own tunnel open for as long as its run lasts. Watching it from here as
+    // well would leave two loops waiting on one tunnel, each opening a replacement when it
+    // closed, and only one of those replacements held on to.
     remote.Start(binding.Port, remembered);
-
-remote.Watch(binding.Port);
+else
+    remote.Watch(binding.Port);
 // Once Syncthing answers, bring its configuration in line with who owns what. Until then nothing
 // syncs, so there is nothing to be out of line.
 _ = app.Services.GetRequiredService<SyncthingHost>().Ready.ContinueWith(async _ =>

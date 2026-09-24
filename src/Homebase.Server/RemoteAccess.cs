@@ -282,9 +282,14 @@ public sealed class RemoteAccess(
             try { await OpenOnceAsync(port, run, settings); }
             catch (Exception failure)
             {
+                // Turned off while it was still opening. Whatever stopped it has already said so,
+                // and a run that is over has nothing left to say about the state: reporting
+                // "reconnecting" over that would leave a switch nobody could turn back on.
+                if (run.IsCancellationRequested) return;
                 logger.LogWarning(failure, "Couldn’t open a tunnel to this Uncloud");
                 Settle(null, "reconnecting", "Uncloud couldn’t open a tunnel and is trying again.");
             }
+            if (run.IsCancellationRequested) return;
             Watch(port, run, settings);
         });
     }

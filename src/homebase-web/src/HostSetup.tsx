@@ -407,21 +407,6 @@ export default function HostSetup({ onSaved, compact = false }: Props) {
                     {copied ? "Copied" : "Copy"}
                   </button>
                 </div>
-                {remote.canChange && (
-                  <button
-                    type="button"
-                    className="button secondary"
-                    onClick={() => void reachFromAnywhere(false)}
-                    disabled={reaching}
-                  >
-                    {reaching ? (
-                      <LoaderCircle size={15} className="spin" />
-                    ) : (
-                      <GlobeLock size={15} />
-                    )}
-                    Stop reaching it from anywhere
-                  </button>
-                )}
               </>
             )}
             {(remote.status === "opening" ||
@@ -431,6 +416,21 @@ export default function HostSetup({ onSaved, compact = false }: Props) {
                 {remote.detail ??
                   "Uncloud is opening a tunnel. Everyone on this network can carry on in the meantime."}
               </p>
+            )}
+            {remote.canChange && remote.status !== "off" && (
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => void reachFromAnywhere(false)}
+                disabled={reaching}
+              >
+                {reaching ? (
+                  <LoaderCircle size={15} className="spin" />
+                ) : (
+                  <GlobeLock size={15} />
+                )}
+                Stop reaching it from anywhere
+              </button>
             )}
           </div>
         )}

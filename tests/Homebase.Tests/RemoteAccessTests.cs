@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Homebase.Core;
+using Homebase.Core.Accounts;
 using Homebase.Server;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -388,6 +389,71 @@ public sealed class RemoteAccessTests : IDisposable
         using var owner = await restarted.SignInAsync("ada");
 
         Assert.Equal($"https://{Announced}", (await Reachable(owner)).GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task Saying_none_before_launch_keeps_it_off_whatever_was_remembered()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        // Turned on from the panel at some point, and remembered ever since.
+        new ControlDatabase(_config).SetSetting(HostPaths.RemoteAccessSetting, "builtin");
+
+        // Then somebody said none before launch, where the panel cannot answer back — and cannot
+        // turn it off again either, so coming up reachable would be a door nobody could shut.
+        using var tunnels = Open("none", Announced);
+        using var app = new TestHost(_config);
+        using var admin = await app.SignUpAsync("ada");
+
+        await Task.Delay(250);
+        var state = await admin.GetFromJsonAsync<JsonElement>("/api/remote-access");
+
+        Assert.Equal("off", state.GetProperty("status").GetString());
+        using var arriving = Through(app, Announced);
+        Assert.Equal(HttpStatusCode.Forbidden, (await arriving.GetAsync("/api/health")).StatusCode);
+    }
+
+    [Fact]
+    public async Task One_tunnel_is_watched_once_when_it_is_restored()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        new ControlDatabase(_config).SetSetting(HostPaths.RemoteAccessSetting, "builtin");
+        using var tunnels = Available(Announced, Announced, Announced);
+        using var app = new TestHost(_config);
+        using var admin = await app.SignUpAsync("ada");
+        await Reachable(admin);
+
+        // The tunnel drops. One watcher opens one replacement; two would each open their own,
+        // and whichever lost the race would carry traffic with nothing holding on to it.
+        tunnels.Latest!.Drop();
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        while (tunnels.Opened < 2 && DateTimeOffset.UtcNow < deadline) await Task.Delay(25);
+        await Task.Delay(500);
+
+        Assert.Equal(2, tunnels.Opened);
+    }
+
+    [Fact]
+    public async Task Turning_it_off_while_it_waits_to_be_allowed_leaves_it_off()
+    {
+        const string Link = "https://login.tailscale.com/a/10692893011e9b";
+        using var tunnels = new Tunnels(Link, "home.tail9f3a.ts.net");
+        var options = Read(new());
+        await using var remote = new RemoteAccess(options, NullLogger.Instance, tunnels.Next);
+
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        while (remote.State.Status != "needs_sign_in" && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(25);
+        Assert.Equal("needs_sign_in", remote.State.Status);
+
+        await remote.StopAsync();
+        // The run that was cancelled mid-opening must not report "reconnecting" over this, or the
+        // panel would show a tunnel forever trying and never offer the switch again.
+        await Task.Delay(500);
+
+        Assert.Equal("off", remote.State.Status);
+        Assert.False(remote.IsEnabled);
+        Assert.Null(remote.State.SignInUrl);
     }
 
     [Fact]
