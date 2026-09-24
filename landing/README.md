@@ -2,9 +2,9 @@
 
 A landing page for **Uncloud Home**, at **https://www.uncloud.life/**. The hero leads with **“Your computer. Your family’s private cloud.”** and **“$99 once. No monthly storage fees.”** Signing up for early access locks in the $79 founding price when the product is ready. Setup in minutes and a 30-day free trial with no credit card are visible beside the signup.
 
-The page has three sections: the value proposition and existing device illustration, three short setup steps, and one pricing card. Uncloud Home includes up to 6 household members, unlimited devices, remote access, migrations, software updates, and 1 primary host computer. Capacity comes from the computer and connected drives; there are no storage tiers. See [pricing.md](pricing.md) for the offer and copy rules.
+The page has four sections: the value proposition and existing device illustration, three short setup steps, a household subscription comparison, and one pricing card. Uncloud Home includes up to 6 household members, unlimited devices, remote access, migrations, software updates, and 1 primary host computer. Capacity comes from the computer and connected drives; there are no storage tiers. See [pricing.md](pricing.md) for the offer and copy rules.
 
-The blue accents, pale panels, typography, logo, and Mac/PC/Linux illustration remain the visual foundation. The former subscription comparison, savings claim, repeated benefits, and closing pitch have been removed. The app, source folders, and storage paths still use the internal name Homebase.
+The blue accents, pale panels, typography, logo, and Mac/PC/Linux illustration remain the visual foundation. The subscription example uses Dropbox Family, Evernote Starter, Google One Basic, iCloud+ 200 GB, and Microsoft 365 Basic. Canceling all five would avoid $503.40 in annual subscription bills, with $424.40 left after the $79 founding purchase in the first year ($404.40 at $99), before running costs. The comparison links to official prices and states its cancellation and feature assumptions. Repeated benefits and the closing pitch remain removed. The app, source folders, and storage paths still use the internal name Homebase.
 
 ## Preview and build
 

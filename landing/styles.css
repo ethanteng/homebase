@@ -697,6 +697,52 @@ h1 span {
   line-height: 1.6;
 }
 
+.savings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 28px clamp(28px, 5vw, 64px);
+  margin-bottom: clamp(64px, 8vw, 110px);
+  padding: clamp(28px, 4.5vw, 56px);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: var(--panel);
+  scroll-margin-top: 28px;
+}
+
+.savings h2 {
+  margin-top: 17px;
+  font-size: clamp(2rem, 3.7vw, 3.6rem);
+  line-height: 1.08;
+  letter-spacing: -.05em;
+  text-wrap: balance;
+}
+
+.savings-copy > p:not(.eyebrow) { margin-top: 20px; color: var(--muted); line-height: 1.6; }
+.first-year-savings { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
+.first-year-savings h3 { font-size: 1rem; }
+.first-year-savings p { margin-top: 10px; line-height: 1.5; }
+.first-year-savings strong { color: var(--blue-strong); font-size: 1.35rem; }
+.first-year-savings .regular-savings { margin-top: 5px; color: var(--muted); font-size: .9rem; }
+
+.savings-example { min-width: 0; }
+.subscription-prices { width: 100%; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; }
+.subscription-prices caption { padding-bottom: 20px; text-align: left; font-weight: 700; line-height: 1.4; }
+.subscription-prices caption span { display: block; margin-top: 6px; color: var(--muted); font-size: .8rem; font-weight: 400; }
+.subscription-prices th, .subscription-prices td { padding: 12px 0; border-bottom: 1px solid var(--soft-line); }
+.subscription-prices th { font-size: .95rem; font-weight: 650; }
+.subscription-prices thead th { color: var(--muted); font-size: .75rem; font-weight: 500; }
+.subscription-prices th:first-child { padding-right: 16px; }
+.subscription-prices th:last-child, .subscription-prices td { text-align: right; white-space: nowrap; }
+.subscription-prices a { text-decoration: underline; text-decoration-color: #c7d5e6; text-underline-offset: 3px; }
+.subscription-prices a:hover { color: var(--blue-strong); }
+.subscription-prices small { display: block; margin-top: 4px; color: var(--muted); font-size: .75rem; font-weight: 400; line-height: 1.4; }
+.subscription-prices tfoot th, .subscription-prices tfoot td { border-bottom: 0; font-weight: 750; }
+.annual-total { margin-top: 16px; padding: 18px 20px; border-radius: 14px; background: #edf4fc; }
+.annual-total strong { display: block; color: var(--blue-strong); font-size: clamp(2.2rem, 3.5vw, 3.25rem); letter-spacing: -.05em; line-height: 1.15; }
+.annual-total span { display: block; margin-top: 6px; font-size: .85rem; line-height: 1.5; }
+.savings-note { grid-column: 1 / -1; color: var(--muted); font-size: .8rem; line-height: 1.6; }
+
 .pricing {
   padding-bottom: clamp(64px, 8vw, 110px);
   scroll-margin-top: 32px;
@@ -834,6 +880,8 @@ h1 span {
     justify-content: center;
   }
 
+  .savings { grid-template-columns: 1fr; }
+
   .setup-steps { gap: 12px; }
   .setup-steps li { padding: 24px 20px; }
 
@@ -907,6 +955,7 @@ h1 span {
   .setup-steps { grid-template-columns: 1fr; gap: 16px; }
   .setup-steps li { padding: 24px; }
   .step-number { margin-bottom: 18px; }
+  .savings { padding: 28px 24px; border-radius: 22px; }
   .pricing-card { grid-template-columns: 1fr; padding: 28px 24px; border-radius: 22px; }
   .pricing-includes { padding: 28px 0 0; border-left: 0; border-top: 1px solid #d1e1f3; }
   .pricing .section-heading { text-align: left; }

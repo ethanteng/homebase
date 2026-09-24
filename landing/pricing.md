@@ -19,4 +19,32 @@ There are no monthly storage fees, capacity tiers, or per-member charges in this
 
 The website currently collects early-access email signups. Joining the list locks in the $79 one-time price when the product is ready; it does not activate a trial or take payment. The calls to action, trial note, pricing card, and signup confirmation make that distinction explicit. When trial delivery or checkout becomes available, update the action and confirmation together.
 
-Keep the hero, pricing card, metadata, and JSON-LD description aligned when changing the offer. The former competitor subscription table and annual-savings claim are retired; they are not part of this pricing model. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
+Keep the hero, pricing card, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
+
+## Household savings example
+
+Checked September 24, 2026. All prices are USD for U.S. consumer plans on monthly billing, before tax. Annual billing discounts, trials and promotions are not used.
+
+| Subscription | Monthly price | Official source |
+| --- | ---: | --- |
+| Dropbox Family (2 TB, up to 6 people) | $19.99 | [Dropbox plans](https://www.dropbox.com/buy), with **Billed monthly** selected |
+| Evernote Starter | $14.99 | [Official migration and pricing FAQ](https://help.evernote.com/hc/en-us/articles/46317642175763-Discontinuing-Evernote-Personal-Professional-Introducing-Starter-Advanced-FAQ), USD monthly column |
+| Google One Basic (100 GB) | $1.99 | [Google One plans](https://one.google.com/about/plans), U.S. monthly pricing |
+| iCloud+ (200 GB) | $2.99 | [Apple iCloud+](https://www.apple.com/icloud/) |
+| Microsoft 365 Basic / OneDrive (100 GB) | $1.99 | [Microsoft Store](https://www.microsoft.com/en-us/microsoft-365/p/microsoft-365-basic/cfq7ttc0ktxs), monthly billing |
+
+The household example uses one subscription to each plan. Dropbox Family replaces the old example's individual Dropbox Plus plan because this offer is for a household. Its $19.99 monthly price was verified in the rendered Dropbox pricing page after selecting monthly billing; $16.99 is the annual-billing monthly equivalent and must not be substituted.
+
+Calculation in cents:
+
+- Monthly bills: 1,999 + 1,499 + 199 + 299 + 199 = 4,195 ($41.95).
+- Twelve monthly bills: 4,195 × 12 = 50,340 ($503.40).
+- First year after the founding purchase: 50,340 − 7,900 = 42,440 ($424.40).
+- First year after the regular purchase: 50,340 − 9,900 = 40,440 ($404.40).
+- Subsequent years: $503.40 in avoided subscription bills, assuming unchanged prices and no renewals of those subscriptions.
+
+“Cut up to $500 a year in subscription bills” rounds down this conditional example. It is not a claim of $500 in first-year net savings or of typical household savings. All five plans must be canceled for twelve months; retaining any reduces the result. Electricity, additional drives, backup and tax are excluded and disclosed beside the comparison.
+
+This is a spending comparison, not feature equivalence. Moving files does not replace Evernote note editing, Gmail/Outlook storage, iCloud device backups, or other bundled benefits. Cancel only plans whose other features are no longer needed. The on-page note makes this limitation explicit.
+
+When changing the example, verify the same country and billing period for every row, then update the monthly total, annual total, both first-year calculations, headline, source date and this record together.
