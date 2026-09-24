@@ -17,7 +17,7 @@ public interface IDropboxApi : IImportSource
     Task<DropboxAccount> GetAccountAsync(CancellationToken cancellationToken);
 
     string IImportSource.ProviderId => DropboxApi.ProviderName;
-    string IImportSource.DestinationPrefix => "Files/Dropbox";
+    string IImportSource.DestinationPrefix => "Dropbox";
 }
 
 /// <summary>

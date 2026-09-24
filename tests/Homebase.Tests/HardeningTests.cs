@@ -139,7 +139,7 @@ public sealed class HardeningTests : IDisposable
         await Task.Delay(250);
         // Whatever arrived stays, as with any stopped import; nothing new is fetched afterwards.
         Assert.DoesNotContain("/work/second.txt", dropbox.Downloaded);
-        Assert.False(File.Exists(Path.Combine(root, "Files", "Dropbox", "work", "second.txt")),
+        Assert.False(File.Exists(Path.Combine(root, "Dropbox", "work", "second.txt")),
             "The import kept writing into a folder whose owner had just been signed out for good.");
     }
 

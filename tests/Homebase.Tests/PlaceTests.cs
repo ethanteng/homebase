@@ -84,6 +84,7 @@ public sealed class PlaceTests : IDisposable
         Assert.Equal("Dropbox", listed.GetProperty("name").GetString());
         Assert.True(listed.GetProperty("available").GetBoolean());
         Assert.True(listed.GetProperty("mine").GetBoolean());
+        Assert.Equal("Dropbox", listed.GetProperty("destination").GetString());
         Assert.False(listed.GetProperty("shared").GetBoolean());
         Assert.Equal("dropbox", Assert.Single(sources.GetProperty("accounts").EnumerateArray().ToArray())
             .GetProperty("id").GetString());
@@ -98,11 +99,13 @@ public sealed class PlaceTests : IDisposable
         Assert.Equal("Done", job.GetProperty("stage").GetString());
         Assert.Equal(2, job.GetProperty("result").GetProperty("importedCount").GetInt32());
 
-        // Named after the place, so two folders brought in never land on top of each other.
+        // At the top of My files, in a folder named after the place, so it is where somebody would
+        // look for it — and two folders brought in never land on top of each other.
         Assert.Equal("a photograph",
-            await File.ReadAllTextAsync(Path.Combine(root, "Files", "Dropbox", "Photos", "2024", "beach.jpg")));
+            await File.ReadAllTextAsync(Path.Combine(root, "Dropbox", "Photos", "2024", "beach.jpg")));
         Assert.Equal("where we went",
-            await File.ReadAllTextAsync(Path.Combine(root, "Files", "Dropbox", "Photos", "notes.txt")));
+            await File.ReadAllTextAsync(Path.Combine(root, "Dropbox", "Photos", "notes.txt")));
+        Assert.False(Directory.Exists(Path.Combine(root, "Files")));
         // The originals are a copy source and nothing else: they stay exactly where they were.
         Assert.True(File.Exists(Path.Combine(_source, "Photos", "2024", "beach.jpg")));
     }
@@ -121,7 +124,7 @@ public sealed class PlaceTests : IDisposable
         var again = await BringHomeAsync(client, place, "/");
 
         Assert.Equal(1, again.GetProperty("result").GetProperty("importedCount").GetInt32());
-        Assert.True(File.Exists(Path.Combine(root, "Files", "Backup drive", "two.txt")));
+        Assert.True(File.Exists(Path.Combine(root, "Backup drive", "two.txt")));
     }
 
     [Fact]
@@ -562,7 +565,7 @@ public sealed class PlaceTests : IDisposable
         Assert.False((await client.GetAsync($"/api/imports/sources/{place}/files?path=%2Fshortcut")).IsSuccessStatusCode);
 
         await BringHomeAsync(client, place, "/");
-        Assert.False(File.Exists(Path.Combine(root, "Files", "Theirs", "shortcut", "secrets.txt")));
+        Assert.False(File.Exists(Path.Combine(root, "Theirs", "shortcut", "secrets.txt")));
     }
 
     [Fact]
@@ -577,7 +580,7 @@ public sealed class PlaceTests : IDisposable
         // Choosing it again, from a suggestion or the folder chooser, is not a mistake to explain.
         Assert.Equal(first, await AddPlaceAsync(client, _source, "Dropbox again"));
 
-        // Two folders with one name would write into one folder under Files/, so the second is
+        // Two folders with one name would write into one folder in My files, so the second is
         // numbered rather than refused: having two folders called Photos is an ordinary thing.
         var response = await client.PostAsJsonAsync("/api/host/places", new { path = other, name = "Dropbox" });
         response.EnsureSuccessStatusCode();
@@ -597,7 +600,7 @@ public sealed class PlaceTests : IDisposable
 
         (await client.DeleteAsync($"/api/host/places/{place}")).EnsureSuccessStatusCode();
 
-        Assert.Equal("Mine now.", await File.ReadAllTextAsync(Path.Combine(root, "Files", "Old drive", "keep.txt")));
+        Assert.Equal("Mine now.", await File.ReadAllTextAsync(Path.Combine(root, "Old drive", "keep.txt")));
         // The record of where it came from is theirs too, and stays.
         Assert.Single(await client.GetFromJsonAsync<JsonElement[]>("/api/imports") ?? []);
         Assert.Empty((await client.GetFromJsonAsync<JsonElement>("/api/imports/sources"))

@@ -35,7 +35,7 @@ public sealed class ImportLog
     /// <summary>
     /// Where in the library imports have already landed, whichever place they came from. Two
     /// sources can share a destination on purpose — a Dropbox folder synced onto this computer and
-    /// the same account online both belong in Files/Dropbox — and a file the other one already
+    /// the same account online both belong in Dropbox/ — and a file the other one already
     /// brought home is not a conflict to report, it is the file being here, which is the point.
     /// </summary>
     public HashSet<string> LocalPaths(string root)

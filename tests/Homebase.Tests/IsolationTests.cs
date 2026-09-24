@@ -162,8 +162,8 @@ public sealed class IsolationTests : IDisposable
         await Settled(admin);
 
         Assert.Equal("Ada's report.",
-            await File.ReadAllTextAsync(Path.Combine(adminRoot, "Files", "Dropbox", "work", "report.txt")));
-        Assert.False(Directory.Exists(Path.Combine(memberRoot, "Files")));
+            await File.ReadAllTextAsync(Path.Combine(adminRoot, "Dropbox", "work", "report.txt")));
+        Assert.False(Directory.Exists(Path.Combine(memberRoot, "Dropbox")));
         // The import log is the account's own too, kept in the account's own database.
         Assert.Single(await admin.GetFromJsonAsync<JsonElement[]>("/api/imports") ?? []);
         Assert.Empty(await member.GetFromJsonAsync<JsonElement[]>("/api/imports") ?? []);
@@ -185,8 +185,8 @@ public sealed class IsolationTests : IDisposable
         await Settled(admin);
         await Settled(member);
 
-        Assert.True(File.Exists(Path.Combine(adminRoot, "Files", "Dropbox", "a.txt")));
-        Assert.True(File.Exists(Path.Combine(memberRoot, "Files", "Dropbox", "b.txt")));
+        Assert.True(File.Exists(Path.Combine(adminRoot, "Dropbox", "a.txt")));
+        Assert.True(File.Exists(Path.Combine(memberRoot, "Dropbox", "b.txt")));
     }
 
     [Fact]

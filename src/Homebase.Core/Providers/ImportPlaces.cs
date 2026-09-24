@@ -116,9 +116,9 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
         var label = string.IsNullOrWhiteSpace(name) ? Path.GetFileName(resolved) : name.Trim();
         if (label.Length == 0) label = "Imported";
         if (label.Length > 60) label = label[..60].TrimEnd();
-        // Each place writes into its own folder under Files/, so the names that become folders stay
-        // distinct among everything this person can bring files in from. Two folders both called
-        // "Photos" is an ordinary thing to have, so the second is numbered rather than refused.
+        // Each place writes into a folder of its own at the top of My files, so the names that
+        // become folders stay distinct among everything this person can bring files in from. Two
+        // folders both called "Photos" is an ordinary thing to have, so the second is numbered.
         var taken = own.Concat(VisibleTo(ownerId))
             .Select(place => ImportPlace.FolderName(place.Name))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);

@@ -116,7 +116,7 @@ export interface ImportPlace {
   shared: boolean;
   // Who shared it, when it isn't this account's own.
   sharedBy: string | null;
-  // Where in My files its files arrive, such as Files/Documents.
+  // The folder at the top of My files its files arrive in, such as Documents.
   destination: string;
 }
 

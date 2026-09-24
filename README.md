@@ -250,8 +250,9 @@ at the top of every page. You can close the page while it runs; **My files** sho
 got, and **Stop** ends it early and keeps whatever has already arrived.
 
 Files are copied, never moved: the originals stay where they were. Adding the same folder again
-only brings what's new, and Uncloud never overwrites a file you already have. Added files appear in
-**My files** under **Files**, in a folder named after where they came from.
+only brings what's new, and Uncloud never overwrites a file you already have. Added files appear
+at the top of **My files**, in a folder named after where they came from, such as **Dropbox** or
+**Documents**.
 
 **What you add is yours alone.** A folder on this computer that you add can only be added from by
 you. To let everyone in the house add from it too — a folder of family photos, say — open it in

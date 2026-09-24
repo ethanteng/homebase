@@ -707,9 +707,9 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
             </ul>
           ) : null}
           <p className="field-help add-promise">
-            <HardDrive size={13} /> Copies go into your files, under{" "}
-            <strong>{source.destination.split("/").join(" › ")}</strong>. Nothing in{" "}
-            {sourceName} is moved or changed, and adding something twice only brings what’s new.
+            <HardDrive size={13} /> Copies go into My files, in a folder called{" "}
+            <strong>{source.destination}</strong>. Nothing in {sourceName} is moved or changed,
+            and adding something twice only brings what’s new.
           </p>
           {where.at === "account" && account && (
             <button className="link-button" onClick={() => void disconnect(account)} disabled={busy !== ""}>

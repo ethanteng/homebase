@@ -50,7 +50,7 @@ the same volume.
   users/
     2f6c…/                      one user, named by opaque id
       .homebase/index.db          that user's metadata cache
-      Files/Dropbox/…             that user's imports, one folder per source
+      Dropbox/…                   that user's imports, one folder per source, beside their own
     9ab1…/                      another user; nothing above can see into it
 ```
 

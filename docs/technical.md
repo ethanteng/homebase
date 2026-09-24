@@ -316,8 +316,8 @@ Dropbox, Google Drive, OneDrive, iCloud Drive — add from that folder. An old e
 `~/Dropbox`, `~/Google Drive`, `~/Library/CloudStorage/*`, and drives under `/Volumes`) alongside
 any already used, all alike: open one and browse it, or add the whole thing. **Choose another
 folder…** opens the folder chooser on the host, with a path box behind it for anyone not sitting at
-the host. Files from a folder called *Documents* land in `Files/Documents/`; a second folder with the
-same name is numbered rather than refused.
+the host. Files from a folder called *Documents* land in a `Documents/` folder at the top of My
+files; a second folder with the same name is numbered rather than refused.
 
 Only someone who looks after the host (an administrator) is offered this computer at all, because
 Uncloud runs as one operating-system user and can read whatever that user can — the administrator's
@@ -387,7 +387,10 @@ of having one.
 
 ### Either way
 
-Files land in `Files/` as ordinary files, and the normal browser shows them. Importing a folder again
+Files land at the top of My files, in a folder named after where they came from (`Dropbox/`,
+`Documents/`), as ordinary files the normal browser shows. They share the top level with anything
+else there, such as a folder synced from a laptop: a folder of the same name is added to, never
+overwritten, and a file already in the way is reported as skipped. Importing a folder again
 brings only what is new; anything already imported, hidden, or blocked by an existing file is listed
 as skipped rather than silently passed over, and one unreadable file doesn't abandon the rest. A
 folder Dropbox refuses to list is retried before Uncloud gives up on it, and giving up is reported
@@ -560,7 +563,7 @@ the settings screen; an account with its own key ignores it. `Homebase__Syncthin
 `IImportSource` is what the import engine sees: metadata, a listing, and a stream. A Dropbox account
 and a folder on this computer both implement it, so nothing in the engine, the panel, or the log
 knows which is which. A new service is that interface plus whatever it takes to authenticate, and it
-chooses the folder under `Files/` its imports land in. An implementation is responsible for refusing
+chooses the folder at the top of My files its imports land in. An implementation is responsible for refusing
 any path that reaches outside the place it stands for. `IHomebaseImporter` remains an unimplemented
 contract for adapters that want to write into the library directly, such as Evernote notes and
 attachments under `Notes/Evernote/`; these folders aren’t created until something needs them.

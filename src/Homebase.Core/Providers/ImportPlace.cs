@@ -25,8 +25,11 @@ public sealed record ImportPlace(
     /// <summary>What imports from this place are recorded under, so two places never collide.</summary>
     public string ProviderId => $"folder:{Id}";
 
-    /// <summary>The folder under the library that files from here land in.</summary>
-    public string DestinationPrefix => $"Files/{FolderName(Name)}";
+    /// <summary>
+    /// The folder at the top of the library that files from here land in, named after the place so
+    /// it is where somebody would look for it.
+    /// </summary>
+    public string DestinationPrefix => FolderName(Name);
 
     public static string NewId() => Convert.ToHexString(RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
 

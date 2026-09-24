@@ -28,7 +28,7 @@ public interface IImportSource
     /// <summary>What imports from here are recorded under, and so what "already home" means.</summary>
     string ProviderId { get; }
 
-    /// <summary>The folder under the library that files from here land in, such as Files/Dropbox.</summary>
+    /// <summary>The folder at the top of the library that files from here land in, such as Dropbox.</summary>
     string DestinationPrefix { get; }
 
     Task<SourceEntry> GetMetadataAsync(string path, CancellationToken cancellationToken);
