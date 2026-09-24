@@ -126,6 +126,11 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 WebApplication app;
 try { app = builder.Build(); }
 catch { StopTunnel(); throw; }
+// Run by the menu-bar app, which holds the other end of standard input and never writes to it.
+// When the app goes — quit, crash, force-quit — that end closes, and this stops with it instead of
+// holding the port against the next copy of the app, which would then fail to start beside it.
+if (app.Configuration.GetValue("Homebase:StopWhenInputCloses", false))
+    _ = ParentWatch.StopWhenClosed(Console.In, app.Lifetime.StopApplication);
 var binding = app.Services.GetRequiredService<HostBinding>();
 // Where Dropbox returns the browser. Read per request rather than once, because a tunnel
 // allowed a minute after startup has an address this host could not have known then — and

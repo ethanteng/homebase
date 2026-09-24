@@ -213,6 +213,104 @@ public sealed class DesktopTests : IDisposable
         Assert.False(item.IsEnabled);
     }
 
+    [Fact]
+    public async Task A_server_that_falls_over_is_explained_by_why_not_by_where()
+    {
+        // Windows has no shell to stand in for the server; CI runs this on Linux and macOS.
+        if (!File.Exists("/bin/sh")) return;
+        // What .NET prints when Kestrel can't have its port, down to the frame the menu used to show.
+        var server = FakeServer(Path.Combine(_temporary, "crashes"), """
+            #!/bin/sh
+            echo 'Unhandled exception. System.IO.IOException: Failed to bind to address http://127.0.0.1:5210: address already in use.' >&2
+            echo ' ---> Microsoft.AspNetCore.Connections.AddressInUseException: Address already in use' >&2
+            echo '   at Program.<Main>$(String[] args) in /Users/runner/work/homebase/src/Homebase.Server/Program.cs:line 986' >&2
+            exit 134
+            """);
+        await using var host = new HostServer(server, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            new HttpClient(), FreePort());
+
+        var failure = await Assert.ThrowsAsync<IOException>(() => host.StartAsync(CancellationToken.None));
+
+        Assert.Contains("address already in use", failure.Message);
+        Assert.Equal("Failed to bind to address http://127.0.0.1:5210: address already in use.", host.LastError);
+        Assert.DoesNotContain("Program.cs", host.LastError);
+    }
+
+    [Fact]
+    public async Task Something_already_answering_is_not_taken_for_the_server_starting()
+    {
+        if (!File.Exists("/bin/sh")) return;
+        // Something that isn't this app's server is already answering at its port — here, a
+        // listener standing in for an Uncloud run from somewhere else. It isn't this app's to stop.
+        var port = FreePort();
+        using var other = new System.Net.HttpListener { Prefixes = { $"http://127.0.0.1:{port}/" } };
+        other.Start();
+        _ = Task.Run(async () =>
+        {
+            while (other.IsListening)
+            {
+                try { var context = await other.GetContextAsync(); context.Response.StatusCode = 200; context.Response.Close(); }
+                catch (Exception) { return; }
+            }
+        });
+        var launched = Path.Combine(_temporary, "launched");
+        var server = FakeServer(Path.Combine(_temporary, "never-started"), $"""
+            #!/bin/sh
+            touch '{launched}'
+            sleep 30
+            """);
+        await using var host = new HostServer(server, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            new HttpClient(), port);
+
+        // Launching beside it would only fail to bind, while the answer from the other one said
+        // the new one was fine. It says what is wrong instead, before starting anything.
+        var failure = await Assert.ThrowsAsync<IOException>(() => host.StartAsync(CancellationToken.None));
+
+        Assert.Contains($"already answering at port {port}", failure.Message);
+        Assert.Equal(failure.Message, host.LastError);
+        Assert.False(host.IsRunning);
+        Assert.False(File.Exists(launched));
+        Assert.True(other.IsListening);
+    }
+
+    [Fact]
+    public async Task The_server_stops_when_whoever_started_it_goes()
+    {
+        // The app holds one end of a pipe and never writes to it; the server reads the other. The
+        // app going away, however it goes, is that end closing.
+        using var app = new System.IO.Pipes.AnonymousPipeServerStream(System.IO.Pipes.PipeDirection.Out);
+        using var server = new System.IO.Pipes.AnonymousPipeClientStream(System.IO.Pipes.PipeDirection.In, app.ClientSafePipeHandle);
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _ = Homebase.Server.ParentWatch.StopWhenClosed(new StreamReader(server), () => stopped.TrySetResult());
+
+        // Still there: nothing to do.
+        await Task.Delay(300);
+        Assert.False(stopped.Task.IsCompleted);
+
+        app.Dispose();
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    private static string FakeServer(string directory, string script)
+    {
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "Homebase.Server");
+        File.WriteAllText(path, script.Replace("\r\n", "\n") + "\n");
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return directory;
+    }
+
+    private static int FreePort()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_temporary, true); } catch (IOException) { }
