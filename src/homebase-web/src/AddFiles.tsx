@@ -17,7 +17,7 @@ import {
   Usb,
   Users,
 } from "lucide-react";
-import { api, formatSize } from "./api";
+import { api, formatSize, DROPBOX } from "./api";
 import { spaceLevel } from "./StorageMeter";
 import type {
   ImportAccount,
@@ -64,6 +64,12 @@ interface Props {
   onStarted: (job: ImportJob) => void;
   /** Dropbox needs an app set up before anybody can connect; this opens wherever that happens. */
   onSetUpDropbox: () => void;
+  /**
+   * How a sign-in that has just come back from Dropbox went: "connected", "denied" or "failed",
+   * and null when this wasn't opened by one. Landing on the list of places with no word either way
+   * reads as nothing having happened, which is the one thing a finished sign-in must not look like.
+   */
+  arrivedFromDropbox: string | null;
 }
 
 function PlaceIcon({ kind, size = 19 }: { kind: PlaceKind; size?: number }) {
@@ -93,14 +99,32 @@ function rememberSource(id: string) {
  * online account, a folder somebody shared — is browsed the same way and added the same way; the
  * only difference is that an online account has to be signed in to first.
  */
-export default function AddFiles({ importing, isAdmin, storage, onStarted, onSetUpDropbox }: Props) {
+export default function AddFiles({
+  importing,
+  isAdmin,
+  storage,
+  onStarted,
+  onSetUpDropbox,
+  arrivedFromDropbox,
+}: Props) {
   const [sources, setSources] = useState<ImportSources | null>(null);
-  const [where, setWhere] = useState<Where>({ at: "start" });
+  // Straight back to the account they signed in to, rather than the list of places they started
+  // from: coming back to the beginning reads as having got nowhere.
+  const [where, setWhere] = useState<Where>(() =>
+    arrivedFromDropbox ? { at: "account", id: DROPBOX } : { at: "start" },
+  );
   const [trail, setTrail] = useState<Step[]>([]);
   const [entries, setEntries] = useState<SourceEntry[] | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [arrivalError] = useState(() =>
+    arrivedFromDropbox === "denied"
+      ? "Dropbox wasn’t connected, because the sign-in was cancelled. Press Connect to try again."
+      : arrivedFromDropbox === "failed"
+        ? "Dropbox couldn’t be connected. Press Connect to try again."
+        : "",
+  );
   // A sign-in Dropbox has nowhere to return: waiting for the code to be brought back by hand. The
   // address is kept so the card can always offer it — a tab that was blocked, or closed by mistake,
   // must not leave somebody holding a form with nothing to fill it from.
@@ -146,6 +170,13 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
 
   const place = sources?.places.find((candidate) => candidate.id === (where.at === "place" ? where.id : ""));
   const account = sources?.accounts.find((candidate) => candidate.id === (where.at === "account" ? where.id : ""));
+  // Said only once the account agrees it is signed in. The callback's word and the account's own
+  // state should never differ, and saying "signed in" above a button asking them to sign in would
+  // be worse than saying nothing — the folders underneath are the real confirmation anyway.
+  const arrivalNotice =
+    arrivedFromDropbox === "connected" && account?.connected
+      ? "Uncloud is signed in to Dropbox."
+      : "";
   const shared = sources?.places.filter((candidate) => !candidate.mine) ?? [];
   const mine = sources?.places.filter((candidate) => candidate.mine) ?? [];
   // The id the server knows this source by, when it is somewhere with files to list.
@@ -364,14 +395,14 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
   const messages = (
     <>
       {room}
-      {notice && (
+      {(notice || arrivalNotice) && (
         <p className="library-note" role="status">
-          {notice}
+          {notice || arrivalNotice}
         </p>
       )}
-      {error && (
+      {(error || arrivalError) && (
         <p className="error-message" role="alert">
-          {error}
+          {error || arrivalError}
         </p>
       )}
       {waitNote}

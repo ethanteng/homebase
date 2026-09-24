@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ArrowUpRight,
   Files,
@@ -43,14 +43,23 @@ export default function App() {
   const [error, setError] = useState("");
   const [path, setPath] = useState(readPath);
   const [revision, setRevision] = useState(0);
-  // Coming back from signing in to Dropbox means picking up where they were: adding files.
-  const [dialog, setDialog] = useState<Dialog>(() =>
-    window.location.search.includes("dropbox=") ? "add" : null,
-  );
+  // Coming back from signing in to Dropbox means picking up where they were: adding files, at the
+  // account they just signed in to, and told how it went. Read once and taken off the address, so
+  // that reloading the page later isn't treated as arriving from Dropbox all over again.
+  const [arriving] = useState(() => {
+    const outcome = new URLSearchParams(window.location.search).get("dropbox");
+    if (outcome)
+      window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+    return outcome;
+  });
+  const [dialog, setDialog] = useState<Dialog>(() => (arriving ? "add" : null));
   // Somebody sent to set up Dropbox should land on that, not have to find it.
   const [dropboxFocus, setDropboxFocus] = useState(false);
   const [view, setView] = useState<View>("files");
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  // Held in state rather than a ref alone: the dialog is only rendered once there is a session to
+  // show, so an "open" decided before that — arriving back from Dropbox, say — would otherwise be
+  // made against an element that does not exist yet, and nothing would reopen it when it appeared.
+  const [dialogElement, setDialogElement] = useState<HTMLDialogElement | null>(null);
 
   const me = session?.user ?? null;
   const onImported = useCallback(() => setRevision((value) => value + 1), []);
@@ -121,12 +130,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const element = dialogRef.current;
     // Going from one dialog straight to another keeps the same one open; opening it twice throws.
     if (dialog) {
-      if (!element?.open) element?.showModal();
-    } else element?.close();
-  }, [dialog]);
+      if (!dialogElement?.open) dialogElement?.showModal();
+    } else dialogElement?.close();
+  }, [dialog, dialogElement]);
 
   useEffect(() => {
     if (dialog && dropboxFocus)
@@ -384,7 +392,7 @@ export default function App() {
         </div>
       </main>
       <dialog
-        ref={dialogRef}
+        ref={setDialogElement}
         className={`settings-dialog${dialog === "add" ? " add-dialog" : ""}`}
         onCancel={closeDialog}
         onClose={closeDialog}
@@ -420,6 +428,7 @@ export default function App() {
             importing={imports.running}
             isAdmin={me.isAdmin}
             storage={storage}
+            arrivedFromDropbox={arriving}
             onStarted={(job) => {
               imports.start(job);
               closeDialog();
