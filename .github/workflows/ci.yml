@@ -10,10 +10,11 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same branch supersedes an in-flight run.
+# A newer push to a pull request supersedes an in-flight run. On main, runs queue instead: a
+# cancelled run could stop the publish job half way through replacing the download.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -54,13 +55,17 @@ jobs:
       # it here means a pin that no longer matches fails a pull request, not somebody's install.
       - run: ./scripts/fetch-syncthing.sh "$RUNNER_TEMP/syncthing" && "$RUNNER_TEMP/syncthing/syncthing" --version
 
-  # The Mac app: the menu-bar app with the server, Syncthing and the tunnel inside it. Built on a
-  # Mac because only a Mac can make the icon and sign it; unsigned here (ad hoc), so it opens with
-  # right-click → Open until it is built with a Developer ID. Downloadable from the run's summary.
+  # The Mac app: the menu-bar app with the server, Syncthing and the tunnel inside it, for Apple
+  # Silicon and Intel. Built on a Mac because only a Mac can make the icon and sign it; signed ad
+  # hoc until there is a Developer ID, so macOS asks people to confirm it the first time.
   app:
-    name: app (macOS)
+    name: app (${{ matrix.runtime }})
     runs-on: macos-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [osx-arm64, osx-x64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,10 +86,49 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: tools/uncloud-tunnel/go.sum
 
-      - run: ./scripts/package-macos-app.sh osx-arm64
+      - run: ./scripts/package-macos-app.sh ${{ matrix.runtime }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Uncloud-macos-arm64
-          path: artifacts/Uncloud-osx-arm64.zip
+          name: Uncloud-${{ matrix.runtime }}
+          path: artifacts/Uncloud-${{ matrix.runtime }}.zip
           retention-days: 14
+
+  # What the README links to: every build of main, published as the "mac-latest" release so the
+  # download address never changes. Only after the checks and both apps pass, and never from a
+  # pull request.
+  publish:
+    name: publish Mac app
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [check, app]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Uncloud-osx-*
+          merge-multiple: true
+          path: dist
+
+      - name: Update the mac-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          notes="The Uncloud app for Mac, built from ${GITHUB_SHA::7} on main.
+
+          - **Uncloud-osx-arm64.zip**: Macs with Apple silicon (M1 and later).
+          - **Uncloud-osx-x64.zip**: Macs with an Intel processor.
+
+          It isn't signed by Apple yet, so macOS asks you to confirm it the first time you open it. See the README for how."
+          if ! gh release view mac-latest >/dev/null 2>&1; then
+            gh release create mac-latest dist/Uncloud-osx-arm64.zip dist/Uncloud-osx-x64.zip \
+              --target "$GITHUB_SHA" --title "Uncloud for Mac (latest)" --notes "$notes"
+            exit 0
+          fi
+          # Never deleted and made again: the release stays up throughout, and if anything below
+          # fails part way, the previous build is still what people download.
+          gh release upload mac-latest dist/Uncloud-osx-arm64.zip dist/Uncloud-osx-x64.zip --clobber
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/mac-latest" -f sha="$GITHUB_SHA" -F force=true
+          gh release edit mac-latest --notes "$notes"

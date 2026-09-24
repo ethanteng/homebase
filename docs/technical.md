@@ -564,8 +564,11 @@ Build it with:
 On a Mac this produces `artifacts/Uncloud-osx-arm64.zip`. Signed ad hoc, it runs on the Mac that
 built it and needs right-click → **Open** on any other. For distribution, set
 `UNCLOUD_SIGN_IDENTITY` to a "Developer ID Application" identity, and `UNCLOUD_NOTARY_PROFILE` to a
-`notarytool` keychain profile to notarize and staple it too. CI builds the unsigned app on every
-run; download it from the run's **Artifacts**. The app is large (around 270 MB unpacked) because the
+`notarytool` keychain profile to notarize and staple it too. CI builds the app for Apple silicon and
+Intel on every run and keeps both as the run's **Artifacts**. Every push to `main` that passes also
+updates the `mac-latest` release with them (never deleting it, and without being cancelled part way), so
+`https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.zip` (and
+`…-osx-x64.zip`) always serve the latest build; the README links there. The app is large (around 270 MB unpacked) because the
 app and the server each carry their own .NET runtime.
 
 ### Desktop packaging
