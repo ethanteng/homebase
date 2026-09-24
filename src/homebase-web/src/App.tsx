@@ -215,7 +215,7 @@ export default function App() {
         <a href="#" className="brand" aria-label="Uncloud home">
           <img
             className="brand-mark"
-            src="/uncloud.svg"
+            src="/uncloud.png"
             width="34"
             height="34"
             alt=""
