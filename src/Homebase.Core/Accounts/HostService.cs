@@ -50,22 +50,7 @@ public sealed class HostService
         return root;
     }
 
-    private string? Read()
-    {
-        using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT value FROM host_settings WHERE key = $key";
-        command.Parameters.AddWithValue("$key", RootKey);
-        return command.ExecuteScalar() as string;
-    }
+    private string? Read() => _database.Setting(RootKey);
 
-    private void Write(string root)
-    {
-        using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "INSERT OR REPLACE INTO host_settings(key, value) VALUES ($key, $value)";
-        command.Parameters.AddWithValue("$key", RootKey);
-        command.Parameters.AddWithValue("$value", root);
-        command.ExecuteNonQuery();
-    }
+    private void Write(string root) => _database.SetSetting(RootKey, root);
 }
