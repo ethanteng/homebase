@@ -191,9 +191,9 @@ export default function SyncPanel() {
           <h2>Syncthing isn’t running on this Uncloud</h2>
           <p className="field-help">
             {status.detail ?? "Uncloud couldn’t start Syncthing."} Uncloud uses
-            Syncthing to talk to your computers. Whoever looks after this
-            Uncloud needs to install it (<code>brew install syncthing</code> on
-            a Mac) and restart Uncloud. Nothing below is syncing until then.
+            Syncthing to talk to your computers, and normally brings its own.
+            Whoever looks after this Uncloud needs to sort that out and restart
+            it. Nothing below is syncing until then.
           </p>
         </div>
       )}

@@ -49,3 +49,7 @@ jobs:
       # Builds and type-checks the frontend, then runs the backend integration
       # tests: the same script a contributor runs locally.
       - run: ./scripts/check.sh
+
+      # The Syncthing Uncloud ships is a pinned release checked against a pinned SHA-256. Fetching
+      # it here means a pin that no longer matches fails a pull request, not somebody's install.
+      - run: ./scripts/fetch-syncthing.sh "$RUNNER_TEMP/syncthing" && "$RUNNER_TEMP/syncthing/syncthing" --version

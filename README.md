@@ -94,16 +94,17 @@ it. Anything that runs .NET works; macOS is the most exercised, and Linux runs i
 | --- | --- | --- | --- |
 | [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) | Always | `brew install --cask dotnet-sdk` | [Microsoft's packages](https://learn.microsoft.com/dotnet/core/install/linux) |
 | [Node.js](https://nodejs.org/) 22.12+ | Always, to build the interface | `brew install node` | [NodeSource](https://github.com/nodesource/distributions) or `nvm` |
-| [Syncthing](https://syncthing.net) 1.x or 2.x | Syncing people's computers | `brew install syncthing` | `sudo apt install syncthing` |
 | [Go](https://go.dev/dl/) | The bundled tunnel, when running from source | `brew install go` | [go.dev/dl](https://go.dev/dl/) |
 
 `scripts/dotnet.sh` finds an SDK matching the major version in `global.json` on `PATH`, in
 `~/.dotnet`, or in `~/.cache/homebase/dotnet`, and skips an older `dotnet` rather than using it.
 Only the first dependency restore needs the internet; Uncloud itself works offline.
 
-You don't need to start Syncthing yourself. Uncloud runs its own copy, with its own configuration
-under the preference directory, and stops it on the way out. Without Syncthing installed,
-everything except **My computers** still works.
+You don't need to install or start Syncthing. `./scripts/run.sh` and `./scripts/publish-macos.sh`
+put a copy beside Uncloud — a pinned release whose checksum is checked, see
+[Your own computers](#your-own-computers) — and Uncloud runs it with its own configuration under
+the preference directory and stops it on the way out. If that download fails, everything except
+**My computers** still works.
 
 ### 2. Get the code and start it
 
@@ -528,9 +529,15 @@ offline catches up when it reconnects. Open **My computers** in the sidebar.
 The sync protocol is [Syncthing](https://syncthing.net)'s, not Uncloud's: device identity,
 discovery, NAT traversal, encryption and conflict handling are all its work. The host runs one
 Syncthing, supervised by Uncloud with its own home directory under the preference directory and its
-own loopback-only API port, started and stopped with the app. Install it on the host
-(`brew install syncthing`; 1.x and 2.x both work) and restart Uncloud. Each person installs
-Syncthing on their own computer too.
+own loopback-only API port, started and stopped with the app. Nothing needs installing on the
+host: `scripts/fetch-syncthing.sh`, which the run and publish scripts call, downloads a pinned
+Syncthing release (macOS and Linux, Apple Silicon/arm64 and Intel/amd64), refuses it unless its
+SHA-256 matches the one pinned in the script — taken from the release's checksum file after checking
+Syncthing's release signature — and puts it beside the application with its MPL-2.0 licence. That
+copy is used ahead of anything on the `PATH` and never upgrades itself; a new version is a change
+to the script. `Homebase__Syncthing__Path` still points at a different binary if you'd rather.
+Each person still installs Syncthing on their own computer, until the Uncloud desktop app carries
+it for them.
 
 1. On your computer, add the host's ID (shown in **My computers**) as a remote device.
 2. In **My computers**, paste your computer's ID and **Add computer**.
@@ -575,7 +582,7 @@ syncing when they're away from home, whether or not the host has a tunnel open f
 interface. A pairing code can be redeemed through that tunnel too; guesses are counted per
 client, the same as sign-in.
 
-`Homebase__Syncthing__Path` points at the binary if it isn't on `PATH`,
+`Homebase__Syncthing__Path` runs a different Syncthing than the bundled one,
 `Homebase__Syncthing__GuiPort` moves its local API off 8390, and
 `Homebase__Syncthing__Enabled=false` switches the whole thing off.
 

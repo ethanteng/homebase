@@ -7,8 +7,12 @@ namespace Homebase.Server;
 /// <summary>
 /// Runs Syncthing as a child of Uncloud: its own home directory, its own loopback-only GUI port,
 /// started when Uncloud starts and stopped when it stops. Syncthing missing is not an error —
-/// the rest of Uncloud works, and the Computers panel explains what to install.
+/// the rest of Uncloud works, and the My computers panel says what's wrong.
 /// </summary>
+/// <remarks>
+/// A build made by scripts/publish-macos.sh (or scripts/run.sh) carries its own Syncthing beside
+/// the application, which is used ahead of anything on the PATH, so nobody has to install it.
+/// </remarks>
 public sealed class SyncthingHost(
     string configDirectory, IConfiguration configuration, ILogger<SyncthingHost> logger, HttpClient client)
     : IHostedService, ISyncthingEndpoint, IDisposable
@@ -16,13 +20,28 @@ public sealed class SyncthingHost(
     // Syncthing's device identity and pairings live here. It must be the same durable directory
     // the rest of Uncloud uses: a temporary one loses every pairing when it is cleaned.
     private readonly string _home = Path.Combine(configDirectory, "syncthing");
-    private readonly string _binary = configuration["Homebase:Syncthing:Path"] ?? "syncthing";
+    private readonly string _binary = Binary(configuration["Homebase:Syncthing:Path"], AppContext.BaseDirectory);
     private readonly int _port = configuration.GetValue("Homebase:Syncthing:GuiPort", 8390);
     private Process? _process;
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>Where Syncthing's device identity and pairings are kept.</summary>
     public string Home => _home;
+
+    /// <summary>Which Syncthing is run.</summary>
+    public string Executable => _binary;
+
+    /// <summary>
+    /// A path somebody configured, then the copy Uncloud ships beside itself, then whatever is on
+    /// the PATH — so a build that carries Syncthing needs nothing installed, and one that doesn't
+    /// still works for a host that has it.
+    /// </summary>
+    public static string Binary(string? configured, string applicationDirectory)
+    {
+        if (!string.IsNullOrWhiteSpace(configured)) return configured;
+        var bundled = Path.Combine(applicationDirectory, OperatingSystem.IsWindows() ? "syncthing.exe" : "syncthing");
+        return File.Exists(bundled) ? bundled : "syncthing";
+    }
 
     public bool IsReady { get; private set; }
     public string? Unavailable { get; private set; } = "Uncloud is still starting Syncthing.";
@@ -54,13 +73,19 @@ public sealed class SyncthingHost(
 
             ApiKey = Configure();
             BaseAddress = new Uri($"http://127.0.0.1:{_port}");
-            _process = Process.Start(new ProcessStartInfo(_binary)
+            var serve = new ProcessStartInfo(_binary)
             {
                 ArgumentList = { "serve", "--home", _home, "--no-browser" },
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false
-            }) ?? throw new IOException("Syncthing did not start.");
+            };
+            // Uncloud decides which Syncthing it runs. A release build otherwise replaces its own
+            // binary, which would put an unpinned, unchecked version beside the application and
+            // break the signature of a signed build.
+            serve.Environment["STNOUPGRADE"] = "1";
+            _process = Process.Start(serve) ?? throw new IOException("Syncthing did not start.");
+            logger.LogInformation("Starting Syncthing from {Binary}", _binary);
             // Redirected pipes must be drained. A long-running Syncthing that fills an unread
             // buffer blocks on its next write and stops syncing while still looking healthy.
             _process.OutputDataReceived += (_, line) =>
@@ -78,7 +103,9 @@ public sealed class SyncthingHost(
         }
         catch (Exception error) when (error is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
         {
-            Unavailable = $"Uncloud couldn’t start Syncthing ({_binary}). Install it, or set Homebase__Syncthing__Path.";
+            Unavailable = _binary == "syncthing"
+                ? "This build of Uncloud doesn’t include Syncthing, and there isn’t one installed. Run scripts/fetch-syncthing.sh, or install Syncthing."
+                : $"Uncloud couldn’t start Syncthing ({_binary}).";
             logger.LogWarning(error, "Syncthing unavailable");
         }
     }
@@ -105,6 +132,10 @@ public sealed class SyncthingHost(
             var reporting = options.Element("urAccepted");
             if (reporting is null) options.Add(new XElement("urAccepted", "-1"));
             else if (reporting.Value == "0") reporting.Value = "-1";
+            // Belt and braces with STNOUPGRADE: the version is Uncloud's to choose.
+            var upgrades = options.Element("autoUpgradeIntervalH");
+            if (upgrades is null) options.Add(new XElement("autoUpgradeIntervalH", "0"));
+            else upgrades.Value = "0";
         }
         document.Save(path);
         if (!OperatingSystem.IsWindows())
