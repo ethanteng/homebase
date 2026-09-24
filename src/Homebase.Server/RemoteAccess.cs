@@ -21,7 +21,10 @@ public sealed record RemoteAccessOptions(
     string? Command,
     string? Arguments,
     string StateDirectory,
-    TimeSpan Timeout)
+    TimeSpan Timeout,
+    // Said before launch, rather than turned on from the interface. Somebody who set an
+    // environment variable meant it, and a switch on a web page does not get to contradict them.
+    bool FromEnvironment = false)
 {
     public bool IsEnabled => Provider is not RemoteAccessProvider.None;
 
@@ -132,7 +135,10 @@ public sealed record RemoteAccessOptions(
             // Beside the accounts and the host key, because it is the same kind of thing: what
             // this installation is, rather than anything belonging to the files.
             Path.Combine(stateDirectory, "tunnel"),
-            TimeSpan.FromSeconds(seconds));
+            TimeSpan.FromSeconds(seconds),
+            // A provider named before launch is a decision already taken, whether it named one
+            // or said none: either way the interface reports it rather than overruling it.
+            FromEnvironment: configuration["Homebase:RemoteAccess:Provider"] is { Length: > 0 });
     }
 }
 

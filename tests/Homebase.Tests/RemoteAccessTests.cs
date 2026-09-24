@@ -320,6 +320,105 @@ public sealed class RemoteAccessTests : IDisposable
             StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// A host that was told nothing before launch, with a tunnel standing by for whoever asks.
+    /// </summary>
+    private Tunnels Available(params string[] addresses)
+    {
+        var tunnels = new Tunnels(null, addresses);
+        var options = Read(new());
+        RemoteAccess.Override = _ => new RemoteAccess(options, NullLogger.Instance, tunnels.Next);
+        return tunnels;
+    }
+
+    [Fact]
+    public async Task Remote_access_is_turned_on_from_the_panel_and_takes_effect_at_once()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        using var tunnels = Available(Announced);
+        using var app = new TestHost(_config);
+        using var admin = await app.SignUpAsync("ada");
+
+        var before = await admin.GetFromJsonAsync<JsonElement>("/api/remote-access");
+        Assert.Equal("off", before.GetProperty("status").GetString());
+        Assert.True(before.GetProperty("canChange").GetBoolean());
+
+        (await admin.PutAsJsonAsync("/api/remote-access", new { enabled = true })).EnsureSuccessStatusCode();
+        var state = await Reachable(admin);
+
+        Assert.Equal($"https://{Announced}", state.GetProperty("url").GetString());
+        // Nothing was restarted, and the host answers to the new name straight away.
+        using var arriving = Through(app, Announced);
+        (await arriving.GetAsync("/api/health")).EnsureSuccessStatusCode();
+    }
+
+    [Fact]
+    public async Task Turning_it_off_takes_the_way_in_with_it()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        using var tunnels = Available(Announced);
+        using var app = new TestHost(_config);
+        using var admin = await app.SignUpAsync("ada");
+        (await admin.PutAsJsonAsync("/api/remote-access", new { enabled = true })).EnsureSuccessStatusCode();
+        await Reachable(admin);
+
+        var off = await admin.PutAsJsonAsync("/api/remote-access", new { enabled = false });
+        off.EnsureSuccessStatusCode();
+
+        Assert.Equal("off", (await off.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("status").GetString());
+        using var arriving = Through(app, Announced);
+        Assert.Equal(HttpStatusCode.Forbidden, (await arriving.GetAsync("/api/health")).StatusCode);
+    }
+
+    [Fact]
+    public async Task What_was_turned_on_is_still_on_after_a_restart()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        using (var tunnels = Available(Announced))
+        using (var app = new TestHost(_config))
+        using (var admin = await app.SignUpAsync("ada"))
+        {
+            (await admin.PutAsJsonAsync("/api/remote-access", new { enabled = true })).EnsureSuccessStatusCode();
+            await Reachable(admin);
+        }
+
+        // The same host, started again. Nobody should have to say so twice.
+        using var again = Available(Announced);
+        using var restarted = new TestHost(_config);
+        using var owner = await restarted.SignInAsync("ada");
+
+        Assert.Equal($"https://{Announced}", (await Reachable(owner)).GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task A_provider_named_before_launch_is_not_the_panel_to_change()
+    {
+        const string Announced = "home.tail9f3a.ts.net";
+        using var tunnels = Open("builtin", Announced);
+        using var app = new TestHost(_config);
+        using var admin = await app.SignUpAsync("ada");
+
+        var state = await admin.GetFromJsonAsync<JsonElement>("/api/remote-access");
+        Assert.False(state.GetProperty("canChange").GetBoolean());
+
+        // Somebody said so before launch and meant it; a switch on a web page doesn't overrule it.
+        var refused = await admin.PutAsJsonAsync("/api/remote-access", new { enabled = false });
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+    }
+
+    /// <summary>Waits for the panel to say a tunnel is carrying, as somebody watching it does.</summary>
+    private static async Task<JsonElement> Reachable(HttpClient client)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        JsonElement state;
+        while ((state = await client.GetFromJsonAsync<JsonElement>("/api/remote-access"))
+                   .GetProperty("status").GetString() != "on"
+               && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(25);
+        Assert.Equal("on", state.GetProperty("status").GetString());
+        return state;
+    }
+
     [Fact]
     public async Task A_tunnel_can_be_turned_on_after_the_host_is_already_serving()
     {
