@@ -8,11 +8,14 @@ Uncloud keeps your family's files on a computer at home instead of on somebody e
 Everyone gets their own private space, signs in from any browser, and can keep a folder on their
 laptop in sync with it. There's no monthly storage bill, and nobody else holds your files.
 
-> Uncloud is early. It works, but there's no signed app to download yet: the Mac app has to be
-> built from source, or you set Uncloud up with a few commands in Terminal. Read
-> [What isn't ready yet](#what-isnt-ready-yet) before you move anything important onto it.
+**[Download Uncloud for Mac](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.zip)** (Apple silicon) ·
+[Intel Macs](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-x64.zip) · [How to open it](#get-the-app)
+
+> Uncloud is early. It works, but read [What isn't ready yet](#what-isnt-ready-yet) before you move
+> anything important onto it.
 
 - [How it works](#how-it-works)
+- [Get the app](#get-the-app)
 - [Set up Uncloud](#set-up-uncloud) — for the person who looks after it
 - [Use Uncloud](#use-uncloud) — for everyone in the household
 - [Keeping your files safe](#keeping-your-files-safe)
@@ -46,28 +49,49 @@ plugged into it.
 
 - **No uploading, renaming or deleting in the browser.** Files get in by importing or syncing a
   computer.
-- **No signed app to download.** The Uncloud app for Mac exists, but until it's signed by Apple
-  you build it yourself (or take it from a test build) and open it with right-click → **Open**.
-  Without it, the host is set up from Terminal. Either way the computer has to stay awake: on a
-  Mac, turn off sleep in System Settings.
+- **The app isn't signed by Apple yet**, so macOS asks you to confirm it the first time you open
+  it ([how](#get-the-app)). It's Mac only for now.
+- **The host has to stay on and awake.** On a Mac, turn off sleep in System Settings, and tick
+  **Open at Login** in the Uncloud menu so it starts again after a restart.
 - **No sharing** of a folder between people, and no storage limits per person.
 - **No built-in backup.** Uncloud keeps one copy of everything. [Set up a backup](#keeping-your-files-safe).
 - **No direct Google Drive, iCloud or Evernote sign-in.** Use the folder their app keeps on the
   host instead.
-- Syncing a laptop needs the Uncloud app (Mac), or elsewhere a free app called Syncthing.
+- Syncing a Windows or Linux computer needs a free app called Syncthing, set up by hand.
 - Windows can't be the host yet, though Windows computers can use Uncloud in a browser.
+
+## Get the app
+
+There's one Uncloud app for Mac. The same app runs Uncloud on the host, and keeps everyone's own
+Macs in sync with it.
+
+1. Download the app for your Mac. To check which you have, open  → **About This Mac**: it says
+   **Chip: Apple M…** or **Processor: Intel**.
+   - **[Apple silicon (M1 and later)](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.zip)**
+   - **[Intel](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-x64.zip)**
+2. Open the download to unzip it, and drag **Uncloud** into your **Applications** folder.
+3. Open it. Uncloud isn't signed by Apple yet, so the first time macOS stops it:
+   - **macOS 15 Sequoia and later:** click **Done**, then open **System Settings → Privacy &
+     Security**, scroll down to the message about Uncloud, and click **Open Anyway**.
+   - **Earlier macOS:** right-click (or Control-click) Uncloud in Applications, choose **Open**,
+     then **Open** again.
+
+   After that it opens normally. Uncloud lives in the menu bar at the top of the screen, as a
+   **U**, not in the Dock.
+
+The app is large (about 105 MB to download) because everything it needs is inside it: there is
+nothing else to install. These links always give you the latest build.
 
 ## Set up Uncloud
 
-This part is for whoever looks after Uncloud. It takes about half an hour. You'll need the host
-computer, an internet connection, and to be comfortable pasting commands into Terminal. These steps
-are written for a Mac. For Linux, see the [technical reference](docs/technical.md#running-from-source).
+This part is for whoever looks after Uncloud. It takes about twenty minutes.
 
-**With the Uncloud app (Mac).** Open `Uncloud.app` and choose **Make this Mac the Uncloud host**.
-It runs Uncloud from the menu bar, with nothing else to install, and opens your browser at step 3.
-**Reach From Anywhere** in its menu does what step 6 describes. How to get the app while it's
-unsigned is in the [technical reference](docs/technical.md#the-uncloud-app). Otherwise, set it up
-from Terminal:
+On a Mac, [get the app](#get-the-app), open it, and choose **Make this Mac the Uncloud host**. It
+starts Uncloud and opens your browser. Then carry on from [step 3](#3-make-your-account).
+
+To run Uncloud from Terminal instead, or on Linux, follow steps 1 and 2. You'll need to be
+comfortable pasting commands into Terminal. For Linux, see the
+[technical reference](docs/technical.md#running-from-source).
 
 ### 1. Install the tools Uncloud is built with
 
@@ -78,7 +102,7 @@ brew install --cask dotnet-sdk
 brew install node go git
 ```
 
-### 2. Download and start Uncloud
+### 2. Download and start Uncloud from Terminal
 
 ```sh
 git clone https://github.com/ethanteng/homebase.git ~/uncloud-app
@@ -112,8 +136,8 @@ Choose a folder, either a new empty one or one on an external drive, and click *
 Everyone's files will go inside it, each person in their own space, and everyone shares that
 drive's free space. Pick a drive with plenty of room.
 
-If your Mac says Terminal can't read the folder, allow it under **System Settings → Privacy &
-Security → Files and Folders**.
+If your Mac says Uncloud (or Terminal) can't read the folder, allow it under **System Settings →
+Privacy & Security → Files and Folders**.
 
 Uncloud never moves or changes files that are already there.
 
@@ -127,7 +151,8 @@ accounts.
 
 ### 6. Let everyone in
 
-Open **Storage settings**. Under **Reaching this host from anywhere**, click **Allow this host**.
+With the app, first click the **U** in the menu bar and tick **Reach From Anywhere**. Then open
+**Storage settings**. Under **Reaching this host from anywhere**, click **Allow this host**.
 You'll be taken to Tailscale, a free service Uncloud uses for its secure connection. Sign in or
 make an account.
 
@@ -209,9 +234,10 @@ appear in your space under **Files**.
 
 ### Keep a folder on your laptop in sync
 
-**With the Uncloud app (Mac):**
+**On a Mac, with the Uncloud app:**
 
-1. Open the Uncloud app on your laptop and choose **Connect this computer to an Uncloud**.
+1. [Get the app](#get-the-app) on your laptop, open it, and choose **Connect this computer to an
+   Uncloud**.
 2. In Uncloud in your laptop's browser, open **My computers** and click **Get a pairing code**.
 3. Click **open in the Uncloud app**. (Or type the address and code Uncloud shows into the app.)
 
@@ -219,7 +245,7 @@ That's all. Your Uncloud files appear in a folder called **Uncloud** in your hom
 in step both ways. The Uncloud icon in the menu bar shows whether you're up to date, and pauses or
 disconnects the laptop.
 
-**Without the app:**
+**On Windows or Linux, or without the app:**
 
 1. Download and install [Syncthing](https://syncthing.net/downloads/) on your laptop, and open it.
 2. In Uncloud, open **My computers** and copy this Uncloud's ID.
@@ -270,8 +296,17 @@ Before you rely on Uncloud:
 
 ## Questions and problems
 
-**I can't reach Uncloud.** Check that the host is on and awake, and that the Terminal window from
-step 2 is still open. If the computer restarted, start Uncloud again.
+**I can't reach Uncloud.** Check that the host is on and awake. With the app, click the **U** in
+the host's menu bar: it says whether Uncloud is running, and **Start Uncloud Again** restarts it.
+Tick **Open at Login** so it comes back after a restart. From Terminal, check the window from
+step 2 is still open, and start it again if the computer restarted.
+
+**My laptop isn't syncing.** Click the **U** in the laptop's menu bar. It says whether it's up to
+date, syncing, paused, or can't reach Uncloud. If it can't, check that the host is on, and that
+the laptop can open Uncloud's address in a browser.
+
+**macOS says Uncloud can't be opened.** It isn't signed by Apple yet. See
+[Get the app](#get-the-app) for how to open it the first time.
 
 **Dropbox sign-in fails.** The redirect URI registered with Dropbox has to match the one Uncloud
 shows now. It changes if you turn on remote access after setting up Dropbox. Add the new one on
@@ -280,8 +315,9 @@ the app's **Settings** tab at dropbox.com.
 **The external drive was unplugged.** Plug it back in and refresh. If it comes back under a new
 name, choose the folder again under **Storage settings**.
 
-**My computers says Syncthing isn't running.** Uncloud downloads its own copy of Syncthing when it
-starts. If the host was offline then, restart Uncloud once it's back online.
+**My computers says Syncthing isn't running.** The app has Syncthing built in. Run from Terminal,
+Uncloud downloads its own copy when it starts; if the host was offline then, restart Uncloud once
+it's back online.
 
 **I want to change how Uncloud runs, or help build it.** See the
 [technical reference](docs/technical.md). It covers configuration, running on a home network
