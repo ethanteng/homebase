@@ -91,7 +91,7 @@ node --test "api/*.test.js"
 
 ## Refine the message
 
-Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.svg` is the shared brand mark and favicon. The landing page uses a light, product-led visual system with charcoal type, muted blue-gray interface details, and the existing orange Uncloud accent for actions and brand moments. The product diagram is built in semantic HTML and CSS so it scales cleanly without shipping a large raster illustration. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). Signups are stored in Airtable; see below.
+Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.png` is the shared brand mark and favicon. The landing page uses a light, product-led visual system with navy type, muted blue-gray interface details, and the blues of the Uncloud mark for actions and brand moments. The product diagram is built in semantic HTML and CSS so it scales cleanly without shipping a large raster illustration. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). Signups are stored in Airtable; see below.
 
 Canonical, Open Graph, structured-data, and sitemap URLs use `https://www.uncloud.life/`, matching the production host that the bare domain redirects to. Keep these URLs and the robots.txt sitemap reference aligned. These metadata tags do not configure DNS, hosting, or deployment.
 

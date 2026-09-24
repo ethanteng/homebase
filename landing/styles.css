@@ -2,7 +2,7 @@
   color-scheme: light;
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #172033;
-  background: #fbfaf7;
+  background: #f7fafd;
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   --ink: #172033;
@@ -11,10 +11,11 @@
   --soft-line: #e9edf1;
   --panel: #ffffff;
   --wash: #f3f6f8;
-  --accent: #ff9d74;
-  --accent-hover: #ffb493;
-  --blue: #7d93af;
-  --blue-strong: #58769a;
+  /* The blues of the Uncloud mark. */
+  --accent: #1f6fe5;
+  --accent-hover: #1a62d0;
+  --blue: #2a7ff0;
+  --blue-strong: #1a66d8;
   --shadow: 0 18px 55px rgba(58, 70, 91, 0.08);
 }
 
@@ -27,13 +28,13 @@ h1, h2, p { margin: 0; }
 
 ::selection {
   color: #172033;
-  background: #ffd6c4;
+  background: #cfe5fd;
 }
 
 a:focus-visible,
 button:focus-visible,
 input:focus-visible {
-  outline: 3px solid rgba(255, 157, 116, 0.55);
+  outline: 3px solid rgba(42, 127, 240, 0.5);
   outline-offset: 4px;
 }
 
@@ -208,7 +209,7 @@ h1 span {
   border-radius: 12px;
   padding: 0 24px;
   background: var(--accent);
-  color: #30231f;
+  color: #fff;
   font-weight: 760;
   cursor: pointer;
   transition: transform .15s ease, background .15s ease;
@@ -243,7 +244,7 @@ h1 span {
   font-weight: 700;
 }
 
-.access-status[data-tone="problem"] { color: #b15a3c; }
+.access-status[data-tone="problem"] { color: #c2413b; }
 
 .trust-note {
   margin-top: 10px;
@@ -268,7 +269,7 @@ h1 span {
   border-radius: 30px;
   background:
     radial-gradient(circle at 50% 48%, rgba(215,226,238,.55), transparent 33%),
-    linear-gradient(180deg, rgba(255,255,255,.94), rgba(250,250,248,.98));
+    linear-gradient(180deg, rgba(255,255,255,.94), rgba(248,251,254,.98));
   box-shadow: var(--shadow);
   overflow: hidden;
 }
@@ -428,16 +429,10 @@ h1 span {
   place-items: center;
 }
 
-.u-glyph {
+.device-mark {
   width: 34px;
   height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 9px;
-  background: var(--accent);
-  color: #33231d;
-  font-size: 1.08rem;
-  font-weight: 900;
+  display: block;
 }
 
 .device-desktop .stand {
