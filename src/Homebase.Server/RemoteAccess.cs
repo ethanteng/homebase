@@ -47,17 +47,34 @@ public sealed record RemoteAccessOptions(
     };
 
     /// <summary>
-    /// A link somebody has to follow before this tunnel can carry anything, when the program
-    /// says so. Only Uncloud's own tunnel does: the others are signed in before Uncloud ever
-    /// runs them, and have nobody to ask.
+    /// A link somebody has to follow before this host is allowed onto the tailnet, when the
+    /// program says so. Only Uncloud's own tunnel does: the others are signed in before Uncloud
+    /// ever runs them, and have nobody to ask.
     /// </summary>
     public Regex? SignInPrompt => Provider is RemoteAccessProvider.Builtin ? BuiltinSignIn : null;
+
+    /// <summary>
+    /// A link somebody has to follow before the tailnet may be reached from the public internet.
+    /// A second yes, asked after the first has been given and about a different thing: signing in
+    /// says this host is yours, and this says the outside world may knock.
+    /// </summary>
+    public Regex? AllowPrompt => Provider is RemoteAccessProvider.Builtin ? BuiltinAllow : null;
+
+    /// <summary>
+    /// The program's own account of why it is giving up, written for the person who can do
+    /// something about it. Anything else it printed is a log line, and belongs in the log.
+    /// </summary>
+    public Regex? TroubleReport => Provider is RemoteAccessProvider.Builtin ? BuiltinTrouble : null;
 
     // Uncloud's own tunnel says what it means rather than being read between the lines.
     private static readonly Regex BuiltinAddress =
         new(@"^uncloud-tunnel: url=https://([^\s/]+)/?$", RegexOptions.Multiline);
     private static readonly Regex BuiltinSignIn =
         new(@"^uncloud-tunnel: signin=(\S+)$", RegexOptions.Multiline);
+    private static readonly Regex BuiltinAllow =
+        new(@"^uncloud-tunnel: allow=(\S+)$", RegexOptions.Multiline);
+    private static readonly Regex BuiltinTrouble =
+        new(@"^uncloud-tunnel: trouble=(.+)$", RegexOptions.Multiline);
     private static readonly Regex TailscaleAddress =
         new(@"https://([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.ts\.net)", RegexOptions.IgnoreCase);
     private static readonly Regex CloudflareAddress =
@@ -148,21 +165,35 @@ public sealed record RemoteAccessOptions(
 /// </summary>
 public interface ITunnel : IAsyncDisposable
 {
-    Task<string> OpenAsync(int port, CancellationToken cancellationToken);
-    Task Closed { get; }
-
     /// <summary>
-    /// Completes with a link somebody has to follow before this tunnel can carry anything. A
-    /// tunnel with nobody to ask leaves this alone, and it never completes.
+    /// Opens the tunnel and answers with the public name it now carries. <paramref name="asked"/>
+    /// is called whenever the tunnel wants something of a person instead — more than once in a
+    /// run, in general, because the second thing is only asked once the first has been given.
     /// </summary>
-    Task<string> SignInRequired => Tunnels.NobodyToAsk;
+    Task<string> OpenAsync(int port, Action<Consent> asked, CancellationToken cancellationToken);
+    Task Closed { get; }
 }
 
-public static class Tunnels
+/// <summary>
+/// Something a person has to go and do before the tunnel can carry anything, and the link that
+/// does it. <see cref="Kind"/> is the status Uncloud reports while it waits, because what is
+/// being waited for is the only useful thing to say about waiting.
+/// </summary>
+public sealed record Consent(string Kind, string Url)
 {
-    /// <summary>A sign-in that is never asked for, shared because it never happens.</summary>
-    public static readonly Task<string> NobodyToAsk = new TaskCompletionSource<string>().Task;
+    /// <summary>Allowing this host onto the tailnet at all.</summary>
+    public const string SignIn = "needs_sign_in";
+
+    /// <summary>Allowing that tailnet to be reached from the public internet.</summary>
+    public const string Funnel = "needs_funnel";
 }
+
+/// <summary>
+/// What the tunnel itself said was wrong, in words it meant for a person rather than a log. It
+/// is quoted back to whoever is looking at the settings panel, because they are the only one who
+/// can act on it and “trying again” has never told anybody anything.
+/// </summary>
+public sealed class TunnelTrouble(string message) : Exception(message);
 
 /// <summary>What the administrator is shown, and what the host check consults.</summary>
 public sealed record RemoteAccessState(
@@ -287,7 +318,7 @@ public sealed class RemoteAccess(
                 // "reconnecting" over that would leave a switch nobody could turn back on.
                 if (run.IsCancellationRequested) return;
                 logger.LogWarning(failure, "Couldn’t open a tunnel to this Uncloud");
-                Settle(null, "reconnecting", "Uncloud couldn’t open a tunnel and is trying again.");
+                Settle(null, "reconnecting", Retrying(failure));
             }
             if (run.IsCancellationRequested) return;
             Watch(port, run, settings);
@@ -329,11 +360,14 @@ public sealed class RemoteAccess(
     {
         var tunnel = _tunnels(settings);
         lock (_gate) { _tunnel = tunnel; _status = "opening"; _detail = null; }
-        var opening = tunnel.OpenAsync(port, run.Token);
-        var signIn = tunnel.SignInRequired;
+        // Signalled by the first thing a person is asked for, which stops the clock below. A
+        // deadline is for a program that has gone wrong, and somebody who has gone to find their
+        // phone has not gone wrong.
+        var asked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var opening = tunnel.OpenAsync(port, Asked(asked), run.Token);
         try
         {
-            var settled = await Task.WhenAny(opening, signIn, Task.Delay(settings.Timeout, run.Token));
+            var settled = await Task.WhenAny(opening, asked.Task, Task.Delay(settings.Timeout, run.Token));
 
             if (ReferenceEquals(settled, opening))
             {
@@ -343,19 +377,11 @@ public sealed class RemoteAccess(
                 return hostname;
             }
 
-            if (ReferenceEquals(settled, signIn))
+            if (ReferenceEquals(settled, asked.Task))
             {
-                var link = await signIn;
-                lock (_gate)
-                {
-                    _pending = opening;
-                    _signIn = link;
-                    _status = "needs_sign_in";
-                    _detail = "Uncloud is waiting to be allowed onto the internet.";
-                }
-                logger.LogInformation(
-                    "Uncloud is waiting to be allowed onto the internet. Open {Link} to allow it, "
-                    + "or find the same link under Settings.", link);
+                // Whatever was asked for is already on the state, put there by Ask as the tunnel
+                // said it; the watch below sees this through to an address.
+                lock (_gate) _pending = opening;
                 return null;
             }
 
@@ -422,6 +448,10 @@ public sealed class RemoteAccess(
                     {
                         logger.LogWarning(failure, "The tunnel Uncloud was waiting to be allowed never opened");
                         lock (_gate) { _pending = null; _signIn = null; }
+                        // Said here as well as below, because this is the one somebody is
+                        // watching: they have just followed a link, and a stale one left on the
+                        // page would be the only thing they were told about what happened next.
+                        Settle(null, "reconnecting", Retrying(failure));
                     }
                 }
                 else if (current is not null)
@@ -448,25 +478,19 @@ public sealed class RemoteAccess(
                 try
                 {
                     next = _tunnels(settings);
-                    var opening = next.OpenAsync(port, run.Token);
-                    var signIn = next.SignInRequired;
+                    var asked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var opening = next.OpenAsync(port, Asked(asked), run.Token);
                     lock (_gate) _tunnel = next;
 
                     var reopened = await Task.WhenAny(
-                        opening, signIn, Task.Delay(settings.Timeout, run.Token));
+                        opening, asked.Task, Task.Delay(settings.Timeout, run.Token));
 
-                    if (ReferenceEquals(reopened, signIn))
+                    if (ReferenceEquals(reopened, asked.Task))
                     {
-                        // Asked to be allowed again, which a kept identity usually spares us.
-                        var link = await signIn;
-                        lock (_gate)
-                        {
-                            _pending = opening;
-                            _signIn = link;
-                            _status = "needs_sign_in";
-                            _detail = "Uncloud is waiting to be allowed onto the internet.";
-                        }
-                        logger.LogInformation("Uncloud is waiting to be allowed again. Open {Link}.", link);
+                        // Asked for something again. A kept identity spares the sign-in; the
+                        // tailnet's permission to be reached from outside is asked for once and
+                        // then never again, which is how a run that died on it gets past it.
+                        lock (_gate) _pending = opening;
                         continue;
                     }
                     if (!ReferenceEquals(reopened, opening))
@@ -484,7 +508,7 @@ public sealed class RemoteAccess(
                     logger.LogWarning(failure, "Couldn’t open a tunnel to this Uncloud; trying again");
                     lock (_gate) { if (ReferenceEquals(_tunnel, next)) _tunnel = null; }
                     if (next is not null) await Retire(next);
-                    Settle(null, "reconnecting", "Uncloud couldn’t open a tunnel and is trying again.");
+                    Settle(null, "reconnecting", Retrying(failure));
                 }
             }
         });
@@ -495,6 +519,46 @@ public sealed class RemoteAccess(
         try { await tunnel.DisposeAsync(); }
         catch (Exception failure) { logger.LogWarning(failure, "Couldn’t stop a tunnel that had already gone"); }
     }
+
+    /// <summary>
+    /// Hands the tunnel a way to say a person is needed. The task is what stops the opening
+    /// clock; <see cref="Ask"/> is what puts the link on the page, and happens every time, not
+    /// only the first, because the second thing is asked once the first has been given.
+    /// </summary>
+    private Action<Consent> Asked(TaskCompletionSource waiting) =>
+        consent => { Ask(consent); waiting.TrySetResult(); };
+
+    private void Ask(Consent consent)
+    {
+        lock (_gate)
+        {
+            _signIn = consent.Url;
+            _status = consent.Kind;
+            _detail = consent.Kind == Consent.Funnel
+                ? "Tailscale hasn’t been told yet that this tailnet may be reached from the internet."
+                : "Uncloud is waiting to be allowed onto the internet.";
+        }
+        logger.LogInformation(
+            "Uncloud is waiting for somebody to allow it ({What}). Open {Link} to allow it, or "
+            + "find the same link under Settings.", consent.Kind, consent.Url);
+    }
+
+    /// <summary>
+    /// What to tell somebody while this retries. A tunnel that explained itself is quoted word
+    /// for word: it is the only thing that knows what went wrong, and the person reading the
+    /// panel is the only one who can do anything about it.
+    /// </summary>
+    private static string Retrying(Exception failure) =>
+        Said(failure) is { Length: > 0 } words
+            ? $"{words} Uncloud is trying again."
+            : "Uncloud couldn’t open a tunnel and is trying again.";
+
+    private static string? Said(Exception? failure) => failure switch
+    {
+        null => null,
+        TunnelTrouble trouble => trouble.Message,
+        _ => Said(failure.InnerException)
+    };
 
     private void Settle(string? hostname, string status, string? detail)
     {
@@ -530,17 +594,27 @@ public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) :
 
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<string> _address = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly TaskCompletionSource<string> _signIn = new(TaskCreationOptions.RunContinuationsAsynchronously);
     // The last thing the program said. An address is one line out of dozens, and everything a
     // failure to sign in or to reach the service would have explained is in the rest of them.
     private readonly Queue<string> _recent = new();
+    // Completes when both output streams have ended, which is how the last thing the program
+    // said is known to have been read. The process itself goes first, and the readers catch up.
+    private readonly TaskCompletionSource _drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _streamsOpen = 2;
+    private Action<Consent>? _asked;
+    // Each thing is asked of a person once. The program repeats itself while it waits, and
+    // whoever is looking at the panel is already looking at the link.
+    private int _askedToSignIn;
+    private int _askedToAllow;
+    // The one line the program wrote for a person rather than for a log, if it wrote one.
+    private string? _trouble;
     private Process? _process;
 
     public Task Closed => _closed.Task;
-    public Task<string> SignInRequired => _signIn.Task;
 
-    public async Task<string> OpenAsync(int port, CancellationToken cancellationToken)
+    public async Task<string> OpenAsync(int port, Action<Consent> asked, CancellationToken cancellationToken)
     {
+        _asked = asked;
         var start = new ProcessStartInfo(options.Executable)
         {
             Arguments = options.ArgumentsFor(port),
@@ -553,11 +627,17 @@ public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) :
         process.ErrorDataReceived += (_, line) => Read(line.Data);
         process.Exited += (_, _) =>
         {
-            _address.TrySetException(new LibraryException(
-                $"{options.Executable} stopped with code {process.ExitCode} instead of opening a tunnel, "
-                + $"saying:{Environment.NewLine}{Said()}", "unavailable"));
-            _signIn.TrySetCanceled();
-            _closed.TrySetResult();
+            // Read now, while the process is still ours to ask.
+            var code = process.ExitCode;
+            _ = Task.Run(async () =>
+            {
+                // A program is gone before the readers have finished with what it left in the
+                // pipes, and the line it left there is usually the one saying why. Explaining
+                // the ending without it is how a person ends up watching a spinner over a wall.
+                await Task.WhenAny(_drained.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+                _address.TrySetException(Ended(code));
+                _closed.TrySetResult();
+            });
         };
         _process = process;
 
@@ -582,21 +662,53 @@ public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) :
 
     private void Read(string? line)
     {
-        if (line is null) return;
+        if (line is null)
+        {
+            // The end of one of the two streams: nothing more will arrive on it.
+            if (Interlocked.Decrement(ref _streamsOpen) == 0) _drained.TrySetResult();
+            return;
+        }
         lock (_recent)
         {
             _recent.Enqueue(line);
             while (_recent.Count > Remembered) _recent.Dequeue();
         }
         logger.LogDebug("{Executable}: {Line}", options.Executable, line);
-        // Asked for once and only once: the program repeats itself while it waits, and the
-        // person is already looking at the link.
-        if (options.SignInPrompt?.Match(line) is { Success: true } asked)
-            _signIn.TrySetResult(asked.Groups[1].Value);
+        if (options.TroubleReport?.Match(line) is { Success: true } wrong)
+        {
+            Volatile.Write(ref _trouble, wrong.Groups[1].Value);
+            // Ended here rather than when the process is seen to go, because the two are read on
+            // different threads and the program says this on its way out: waiting for the exit to
+            // explain the exit is a race the explanation loses about as often as it wins.
+            _address.TrySetException(new TunnelTrouble(wrong.Groups[1].Value));
+        }
+        Ask(Consent.SignIn, options.SignInPrompt, line, ref _askedToSignIn);
+        Ask(Consent.Funnel, options.AllowPrompt, line, ref _askedToAllow);
         if (_address.Task.IsCompleted) return;
         if (options.Announcement.Match(line) is { Success: true } found)
             _address.TrySetResult(found.Groups[1].Value);
     }
+
+    /// <summary>Passes on one kind of request for a person, the first time the program makes it.</summary>
+    private void Ask(string kind, Regex? pattern, string line, ref int already)
+    {
+        if (pattern?.Match(line) is not { Success: true } found) return;
+        // Standard output and standard error are read on separate threads, so the claim on this
+        // one has to be taken rather than checked.
+        if (Interlocked.Exchange(ref already, 1) != 0) return;
+        _asked?.Invoke(new Consent(kind, found.Groups[1].Value));
+    }
+
+    /// <summary>
+    /// Why this run ended. A program that explained itself is quoted, so the explanation can
+    /// reach the panel; anything else leaves the whole of what it said, for the log.
+    /// </summary>
+    private Exception Ended(int code) =>
+        Volatile.Read(ref _trouble) is { Length: > 0 } trouble
+            ? new TunnelTrouble(trouble)
+            : new LibraryException(
+                $"{options.Executable} stopped with code {code} instead of opening a tunnel, "
+                + $"saying:{Environment.NewLine}{Said()}", "unavailable");
 
     private string Said()
     {
@@ -630,7 +742,6 @@ public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) :
         {
             _closed.TrySetResult();
             _address.TrySetCanceled();
-            _signIn.TrySetCanceled();
             process.Dispose();
         }
     }

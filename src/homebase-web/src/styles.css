@@ -1638,7 +1638,10 @@ tbody tr.selected {
   flex-wrap: wrap;
   width: 100%;
 }
-.remote-address a {
+/* The address itself, and only the address: the links beside it that are dressed as buttons are
+   words to read rather than a name to copy, and setting them in the same face as the host name
+   left them looking like a different application from the dialog around them. */
+.remote-address a:not(.button) {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 13px;
   /* A long tunnel name must wrap rather than widen the dialog. */

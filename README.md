@@ -164,11 +164,9 @@ its secure connection. Sign in or make an account.
 (With the app, ticking **Reach From Anywhere** under the **U** in the menu bar does the same
 thing. Either one is enough; they are the same switch.)
 
-Then, once, in Tailscale's admin console:
-
-1. Under **DNS**, turn on **HTTPS Certificates**.
-2. Under **Access controls**, allow **Funnel**. Tailscale explains how on its
-   [Funnel page](https://tailscale.com/kb/1223/funnel).
+Tailscale then asks one more thing, also once: that you let this tailnet be reached from the
+public internet. Uncloud puts that in front of you too — the same panel shows **Open it to the
+internet**. Click it, say yes at Tailscale, and come back.
 
 After a minute Uncloud shows your address, something like `https://uncloud.tail1234.ts.net`. Send
 that to everyone. It works at home and away, on any device.

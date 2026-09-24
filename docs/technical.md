@@ -190,17 +190,22 @@ nothing to install, no command line to meet, and no configuration file to find. 
 bound to `127.0.0.1`; the tunnel is the only way in from outside.
 
 The first time it is turned on, the same panel shows one button: *Allow this host*. It goes to
-Tailscale, where a free account says this machine is yours. The public address appears by itself
-when Tailscale lets it through. The node's identity is kept in `tunnel/` beside the accounts, so
-you are asked once and not again.
+Tailscale, where a free account says this machine is yours. Tailscale then wants a second yes,
+about the tailnet rather than this host — Funnel allowed for it (Access controls → `nodeAttrs` →
+`funnel`) and HTTPS certificates turned on (DNS) — and the panel asks for that the same way, as
+*Open it to the internet*. The link behind it is the one Tailscale hands back for turning both on
+at once, so neither is something anybody has to go and find. The public address appears by itself
+once it is through. The node's identity is kept in `tunnel/` beside the accounts, so both are
+asked once and not again.
 
 The menu-bar app's **Reach From Anywhere** tick is the same switch, writing the same setting; it
 restarts the server rather than opening the tunnel in place, because from outside there is no
 signed-in way to ask it to do that. Neither one overrules the other.
 
-Two things have to be true of the Tailscale account, both in its admin console and both one-time:
-Funnel allowed for the tailnet (Access controls → `nodeAttrs` → `funnel`), and HTTPS certificates
-turned on (DNS). If either is missing, Uncloud says so with what Tailscale told it.
+The tunnel says why in words meant for a person, on a line Uncloud reads (`uncloud-tunnel:
+trouble=…`) as well as to the log, so a failure it cannot get past — a tailnet whose owner isn't
+the one sitting at the panel, say — is quoted in **Settings** rather than reported as a tunnel
+that is generically trying again.
 
 Anyone with an account signs in at that address exactly as they would at home, with the same
 username and password; remote access is another door, not another set of keys.

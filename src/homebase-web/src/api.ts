@@ -35,9 +35,16 @@ export interface RemoteAccessState {
   // The name the tunnel is carrying right now, absent while there isn't one.
   hostname: string | null;
   url: string | null;
-  status: "off" | "opening" | "needs_sign_in" | "on" | "reconnecting";
+  status:
+    | "off"
+    | "opening"
+    | "needs_sign_in"
+    | "needs_funnel"
+    | "on"
+    | "reconnecting";
   detail: string | null;
-  // Where somebody has to go, once, to allow this host onto the internet.
+  // Where somebody has to go, once, for whichever of the two yeses is being waited on: signing
+  // in says this host is theirs, and allowing Funnel says the tailnet may be reached from outside.
   signInUrl: string | null;
   // Where Dropbox is told to return the browser, which the tunnel usually decides.
   publicUrl: string;
