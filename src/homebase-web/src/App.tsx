@@ -46,7 +46,7 @@ export default function App() {
   // Coming back from signing in to Dropbox means picking up where they were: adding files, at the
   // account they just signed in to, and told how it went. Read once and taken off the address, so
   // that reloading the page later isn't treated as arriving from Dropbox all over again.
-  const [arriving] = useState(() => {
+  const [arriving, setArriving] = useState(() => {
     const outcome = new URLSearchParams(window.location.search).get("dropbox");
     if (outcome)
       window.history.replaceState(null, "", window.location.pathname + window.location.hash);
@@ -144,6 +144,9 @@ export default function App() {
   function closeDialog() {
     setDialog(null);
     setDropboxFocus(false);
+    // Spent on the dialog it opened. Kept any longer, opening Add files again later would land on
+    // Dropbox and repeat how that sign-in went, as though another had just finished.
+    setArriving(null);
   }
 
   function navigate(nextPath: string) {
