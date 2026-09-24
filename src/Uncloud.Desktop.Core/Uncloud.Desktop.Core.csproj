@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <InternalsVisibleTo Include="Homebase.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Homebase.Core/Homebase.Core.csproj" />
+  </ItemGroup>
+</Project>

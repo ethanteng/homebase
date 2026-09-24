@@ -2,6 +2,8 @@
   <Folder Name="/src/">
     <Project Path="src/Homebase.Core/Homebase.Core.csproj" />
     <Project Path="src/Homebase.Server/Homebase.Server.csproj" />
+    <Project Path="src/Uncloud.Desktop.Core/Uncloud.Desktop.Core.csproj" />
+    <Project Path="src/Uncloud.Desktop/Uncloud.Desktop.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Homebase.Tests/Homebase.Tests.csproj" />

@@ -392,7 +392,7 @@ public sealed class SyncTests : IDisposable
 
         // Typed in lower case, without the dash, with letters people read as digits.
         var typed = issued.Code.Replace("-", "").ToLowerInvariant().Replace('0', 'o').Replace('1', 'l');
-        var result = await codes.RedeemAsync(typed, Laptop, "Bo’s laptop", "10.0.0.5", CancellationToken.None);
+        var result = await codes.RedeemAsync(typed, Laptop, "Bo’s laptop", "10.0.0.5", null, CancellationToken.None);
 
         Assert.Equal(FakeSyncthing.Self, result.HostDeviceId);
         Assert.Equal("Bo", result.AccountName);
@@ -408,10 +408,10 @@ public sealed class SyncTests : IDisposable
         var second = codes.Issue(_bo.Id);
 
         Assert.Equal("invalid_code", (await Assert.ThrowsAsync<LibraryException>(
-            () => codes.RedeemAsync(first.Code, Laptop, null, null, CancellationToken.None))).Code);
-        await codes.RedeemAsync(second.Code, Laptop, null, null, CancellationToken.None);
+            () => codes.RedeemAsync(first.Code, Laptop, null, null, null, CancellationToken.None))).Code);
+        await codes.RedeemAsync(second.Code, Laptop, null, null, null, CancellationToken.None);
         Assert.Equal("invalid_code", (await Assert.ThrowsAsync<LibraryException>(
-            () => codes.RedeemAsync(second.Code, Desktop, null, null, CancellationToken.None))).Code);
+            () => codes.RedeemAsync(second.Code, Desktop, null, null, null, CancellationToken.None))).Code);
         Assert.Null(_ownership.FindDevice(Desktop));
     }
 
@@ -423,12 +423,12 @@ public sealed class SyncTests : IDisposable
         var stale = codes.Issue(_bo.Id);
         now += PairingCodes.Lifetime + TimeSpan.FromSeconds(1);
         Assert.Equal("invalid_code", (await Assert.ThrowsAsync<LibraryException>(
-            () => codes.RedeemAsync(stale.Code, Laptop, null, null, CancellationToken.None))).Code);
+            () => codes.RedeemAsync(stale.Code, Laptop, null, null, null, CancellationToken.None))).Code);
 
         var fresh = codes.Issue(_bo.Id);
         _users.SetDisabled(_bo.Id, true);
         Assert.Equal("invalid_code", (await Assert.ThrowsAsync<LibraryException>(
-            () => codes.RedeemAsync(fresh.Code, Laptop, null, null, CancellationToken.None))).Code);
+            () => codes.RedeemAsync(fresh.Code, Laptop, null, null, null, CancellationToken.None))).Code);
         Assert.Empty(_syncthing.Devices);
     }
 
@@ -440,14 +440,57 @@ public sealed class SyncTests : IDisposable
         var issued = codes.Issue(_bo.Id);
 
         Assert.Equal("invalid_device", (await Assert.ThrowsAsync<LibraryException>(
-            () => codes.RedeemAsync(issued.Code, "not-a-device", null, null, CancellationToken.None))).Code);
+            () => codes.RedeemAsync(issued.Code, "not-a-device", null, null, null, CancellationToken.None))).Code);
         // Somebody else's computer can't be claimed with a code either.
         Assert.Equal("conflict", (await Assert.ThrowsAsync<LibraryException>(
-            () => codes.RedeemAsync(issued.Code, Desktop, null, null, CancellationToken.None))).Code);
+            () => codes.RedeemAsync(issued.Code, Desktop, null, null, null, CancellationToken.None))).Code);
         Assert.Equal(_ada.Id, _ownership.FindDevice(Desktop)!.UserId);
 
-        await codes.RedeemAsync(issued.Code, Laptop, null, null, CancellationToken.None);
+        await codes.RedeemAsync(issued.Code, Laptop, null, null, null, CancellationToken.None);
         Assert.Equal(_bo.Id, _ownership.FindDevice(Laptop)!.UserId);
+    }
+
+    [Fact]
+    public async Task The_app_is_brought_in_on_the_whole_folder_when_nothing_syncs_yet()
+    {
+        var codes = Codes();
+        var issued = codes.Issue(_ada.Id);
+
+        var result = await codes.RedeemAsync(issued.Code, Laptop, "Ada’s laptop", null, _ => _adaRoot, CancellationToken.None);
+
+        var folder = Assert.Single(result.Folders);
+        Assert.Equal(("", "Uncloud"), (folder.Path, folder.Label));
+        Assert.Equal(_adaRoot, _syncthing.Folders[folder.Id].Path);
+        Assert.Equal([Laptop], _syncthing.Folders[folder.Id].DeviceIds);
+        Assert.NotNull(_syncthing.IgnoresWhenAdded[folder.Id]);
+    }
+
+    [Fact]
+    public async Task A_second_computer_gets_every_folder_the_first_already_syncs()
+    {
+        await _sync.PairAsync(_ada.Id, Desktop, null, CancellationToken.None);
+        var documents = await _sync.ShareAsync(_ada.Id, _adaRoot, "Documents", null, CancellationToken.None);
+        var codes = Codes();
+
+        var result = await codes.RedeemAsync(codes.Issue(_ada.Id).Code, Laptop, null, null, _ => _adaRoot, CancellationToken.None);
+
+        Assert.Equal(documents.Id, Assert.Single(result.Folders).Id);
+        Assert.Equal([Desktop, Laptop], _syncthing.Folders[documents.Id].DeviceIds);
+        // Nothing else was started: what already syncs is what the new computer gets.
+        Assert.Single(_syncthing.Folders);
+    }
+
+    [Fact]
+    public async Task Pairing_without_asking_for_everything_changes_no_folder()
+    {
+        await _sync.PairAsync(_ada.Id, Desktop, null, CancellationToken.None);
+        var documents = await _sync.ShareAsync(_ada.Id, _adaRoot, "Documents", null, CancellationToken.None);
+        var codes = Codes();
+
+        var result = await codes.RedeemAsync(codes.Issue(_ada.Id).Code, Laptop, null, null, null, CancellationToken.None);
+
+        Assert.Empty(result.Folders);
+        Assert.Equal([Desktop], _syncthing.Folders[documents.Id].DeviceIds);
     }
 
     [Fact]
@@ -457,12 +500,12 @@ public sealed class SyncTests : IDisposable
         var real = codes.Issue(_bo.Id);
         for (var attempt = 0; attempt < 10; attempt++)
             await Assert.ThrowsAsync<LibraryException>(
-                () => codes.RedeemAsync("AAAAA-AAAAA", Laptop, null, "10.0.0.9", CancellationToken.None));
+                () => codes.RedeemAsync("AAAAA-AAAAA", Laptop, null, "10.0.0.9", null, CancellationToken.None));
 
         Assert.Equal("too_many_attempts", (await Assert.ThrowsAsync<LibraryException>(
-            () => codes.RedeemAsync(real.Code, Laptop, null, "10.0.0.9", CancellationToken.None))).Code);
+            () => codes.RedeemAsync(real.Code, Laptop, null, "10.0.0.9", null, CancellationToken.None))).Code);
         // Another address isn't held up by that one's guessing.
-        await codes.RedeemAsync(real.Code, Laptop, null, "10.0.0.10", CancellationToken.None);
+        await codes.RedeemAsync(real.Code, Laptop, null, "10.0.0.10", null, CancellationToken.None);
     }
 
     public void Dispose()

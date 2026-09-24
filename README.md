@@ -88,6 +88,10 @@ The application, its source folders and its storage paths still use the internal
 The host is the computer everybody's files live on. It needs to stay on and awake while people use
 it. Anything that runs .NET works; macOS is the most exercised, and Linux runs in CI.
 
+**On a Mac, the easiest way is the Uncloud app** ([below](#the-uncloud-app)): open it, choose
+**Make this Mac the Uncloud host**, and it runs everything from the menu bar, then opens your
+browser at step 3. The steps here are for running from source, or on Linux.
+
 ### 1. Install what it needs
 
 | | Needed for | macOS | Debian/Ubuntu |
@@ -253,7 +257,13 @@ brings only what's new, and nothing already here is ever overwritten. Imported f
 
 ### Sync your own computers
 
-To keep a folder on your laptop in step with your Uncloud folder, open **My computers**.
+**With the Uncloud app (Mac).** Install it on your computer and choose **Connect this computer to
+an Uncloud**. In Uncloud, open **My computers**, choose **Get a pairing code**, then click **open
+in the Uncloud app** — or type the address and code it shows into the app. Your whole Uncloud
+folder appears in `~/Uncloud` and stays in step both ways; there is nothing else to install,
+copy or accept. The menu bar icon says how things stand and pauses or disconnects the computer.
+
+**Without the app**, open **My computers**:
 
 1. Install [Syncthing](https://syncthing.net/downloads/) on your computer and open it.
 2. In Syncthing, **Add Remote Device** and paste this Uncloud's ID (copy it from **My computers**).
@@ -536,8 +546,8 @@ SHA-256 matches the one pinned in the script — taken from the release's checks
 Syncthing's release signature — and puts it beside the application with its MPL-2.0 licence. That
 copy is used ahead of anything on the `PATH` and never upgrades itself; a new version is a change
 to the script. `Homebase__Syncthing__Path` still points at a different binary if you'd rather.
-Each person still installs Syncthing on their own computer, until the Uncloud desktop app carries
-it for them.
+With [the Uncloud app](#the-uncloud-app), people's own computers need nothing installed either;
+without it, each person installs Syncthing and pairs by device ID:
 
 1. On your computer, add the host's ID (shown in **My computers**) as a remote device.
 2. In **My computers**, paste your computer's ID and **Add computer**.
@@ -660,9 +670,46 @@ any path that reaches outside the place it stands for. `IHomebaseImporter` remai
 contract for adapters that want to write into the library directly, such as Evernote notes and
 attachments under `Notes/Evernote/`; these folders aren’t created until something needs them.
 
+### The Uncloud app
+
+One Mac app, `Uncloud.app`, for both ends. It lives in the menu bar and, on first launch, asks what
+this Mac is:
+
+- **The host.** The app carries the Uncloud server, its Syncthing and its tunnel, runs them as a
+  child process and stops them when it quits, and opens the browser for the first account. Its
+  menu opens Uncloud, turns **Reach From Anywhere** (the bundled tunnel) on and off, and restarts
+  the server if it stops. Accounts and settings are kept in the same preference directory as a
+  host run from source, so moving between the two keeps everything.
+- **Somebody's computer.** The app runs its own Syncthing (API on `127.0.0.1:8391`, state in
+  `~/Library/Application Support/Uncloud`) and pairs it with a code from **My computers**. The
+  pairing call (`POST /api/sync/pair` with `syncEverything`) adds every folder the account already
+  syncs to this computer, or syncs the whole account folder if nothing syncs yet, and returns the
+  folder ids, so the app sets them up under `~/Uncloud` directly and nothing waits to be accepted.
+  The host is the only device this Syncthing knows, and folders it shares later are accepted into
+  `~/Uncloud` automatically; nothing from any other device ever is. **Disconnect** stops syncing
+  and leaves `~/Uncloud` as it is.
+
+The link **open in the Uncloud app** is `uncloud://pair?address=…&code=…`, with the address being
+the one the page was opened at: if a browser on that computer can reach Uncloud there, so can the
+app. Opened on the host itself at `127.0.0.1`, the page says that address won't work elsewhere.
+
+Build it with:
+
+```sh
+./scripts/package-macos-app.sh            # Apple Silicon
+./scripts/package-macos-app.sh osx-x64    # Intel
+```
+
+On a Mac this produces `artifacts/Uncloud-osx-arm64.zip`. Signed ad hoc, it runs on the Mac that
+built it and needs right-click → **Open** on any other. For distribution, set
+`UNCLOUD_SIGN_IDENTITY` to a "Developer ID Application" identity, and `UNCLOUD_NOTARY_PROFILE` to a
+`notarytool` keychain profile to notarize and staple it too. CI builds the unsigned app on every
+run; download it from the run's **Artifacts**. The app is large (around 270 MB unpacked) because the
+app and the server each carry their own .NET runtime.
+
 ### Desktop packaging
 
-Core logic has no web or desktop dependency. ASP.NET serves the compiled UI and can be started by a future desktop shell. To create a self-contained macOS build without adding a desktop framework:
+To build only the server as a self-contained macOS executable, without the app:
 
 ```sh
 ./scripts/publish-macos.sh            # Apple Silicon
@@ -670,7 +717,7 @@ Core logic has no web or desktop dependency. ASP.NET serves the compiled UI and 
 ./artifacts/osx-arm64/Homebase.Server
 ```
 
-Open http://127.0.0.1:5210. The bundled tunnel is built beside it, so `Homebase__RemoteAccess__Provider=builtin` needs nothing else. This produces a local executable and its assets, not a signed `.app` or `.dmg` yet. No billing, AI, or photo management is included, and there are no per-account storage quotas: everyone draws on the same drive, so one account can fill it for everyone.
+Open http://127.0.0.1:5210. The bundled tunnel is built beside it, so `Homebase__RemoteAccess__Provider=builtin` needs nothing else. For the signed menu-bar app, see [The Uncloud app](#the-uncloud-app). No billing, AI, or photo management is included, and there are no per-account storage quotas: everyone draws on the same drive, so one account can fill it for everyone.
 
 ### Check
 

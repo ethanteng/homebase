@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Homebase.Server\Homebase.Server.csproj" />
+    <ProjectReference Include="..\..\src\Uncloud.Desktop.Core\Uncloud.Desktop.Core.csproj" />
   </ItemGroup>
 
 </Project>

@@ -164,6 +164,41 @@ public sealed partial class SyncService(
     }
 
     /// <summary>
+    /// Brings a newly paired computer in on everything this account syncs, so it needs no folder
+    /// accepted by hand: every folder already synced is sent to it too, and an account syncing
+    /// nothing yet starts syncing its whole folder. What the computer should set up comes back.
+    /// </summary>
+    public async Task<IReadOnlyList<SyncFolder>> IncludeAsync(string userId, string userRoot, string deviceId, CancellationToken cancellationToken)
+    {
+        Require();
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var device = OwnedDevice(userId, deviceId).DeviceId;
+            var folders = ownership.Folders(userId);
+            if (folders.Count == 0)
+                return [await AddAsync(userId, FolderId(userId, ""), "", PathPolicy.Resolve(userRoot, ""), [device], cancellationToken)];
+
+            var live = (await syncthing.FoldersAsync(cancellationToken)).ToDictionary(folder => folder.Id);
+            var included = new List<SyncFolder>();
+            foreach (var folder in folders)
+            {
+                // A record Syncthing has lost is reconciliation's to tidy, not something to hand out.
+                if (!live.TryGetValue(folder.FolderId, out var state)) continue;
+                if (!state.DeviceIds.Contains(device))
+                    await syncthing.SetFolderDevicesAsync(folder.FolderId, [.. state.DeviceIds, device], cancellationToken);
+                included.Add(new SyncFolder(folder.FolderId, folder.Path, Label(folder.Path),
+                    [.. state.DeviceIds.Append(device).Distinct()], state.State, state.Error, state.Files, state.Bytes));
+            }
+            return included;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
     /// Takes up a folder one of this person's computers has offered, so what is on that computer
     /// arrives here and stays in step. Syncthing offers and waits; without this nothing moves.
     /// </summary>

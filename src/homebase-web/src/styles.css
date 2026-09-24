@@ -1831,3 +1831,6 @@ tbody tr.selected {
   border-radius: 7px;
   background: var(--paper);
 }
+.warning-text {
+  color: var(--danger-text);
+}

@@ -65,4 +65,11 @@ public interface ISyncthingApi
     Task SetFolderDevicesAsync(string id, IReadOnlyList<string> deviceIds, CancellationToken cancellationToken);
     Task SetFolderPathAsync(string id, string path, CancellationToken cancellationToken);
     Task KeepVersionsAsync(string id, CancellationToken cancellationToken);
+    /// <summary>
+    /// Whether a folder this device offers is set up here without asking. Only ever turned on by
+    /// the Uncloud app, for the one host it paired with.
+    /// </summary>
+    Task AutoAcceptFromAsync(string deviceId, bool accept, CancellationToken cancellationToken);
+    /// <summary>Where a folder accepted without asking is put.</summary>
+    Task SetDefaultFolderPathAsync(string path, CancellationToken cancellationToken);
 }

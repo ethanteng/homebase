@@ -53,3 +53,38 @@ jobs:
       # The Syncthing Uncloud ships is a pinned release checked against a pinned SHA-256. Fetching
       # it here means a pin that no longer matches fails a pull request, not somebody's install.
       - run: ./scripts/fetch-syncthing.sh "$RUNNER_TEMP/syncthing" && "$RUNNER_TEMP/syncthing/syncthing" --version
+
+  # The Mac app: the menu-bar app with the server, Syncthing and the tunnel inside it. Built on a
+  # Mac because only a Mac can make the icon and sign it; unsigned here (ad hoc), so it opens with
+  # right-click → Open until it is built with a Developer ID. Downloadable from the run's summary.
+  app:
+    name: app (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/homebase-web/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: tools/uncloud-tunnel/go.sum
+
+      - run: ./scripts/package-macos-app.sh osx-arm64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Uncloud-macos-arm64
+          path: artifacts/Uncloud-osx-arm64.zip
+          retention-days: 14

@@ -25,6 +25,12 @@ function describe(folder: SyncFolder) {
   return `${state} · ${folder.files} file${folder.files === 1 ? "" : "s"} · ${formatSize(folder.bytes)}`;
 }
 
+/// The address the app pairs with is the one this page was opened at: if a browser on that
+/// computer can reach Uncloud here, so can the app.
+function pairingLink(code: string) {
+  return `uncloud://pair?address=${encodeURIComponent(window.location.origin)}&code=${encodeURIComponent(code)}`;
+}
+
 export default function SyncPanel() {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [deviceId, setDeviceId] = useState("");
@@ -249,9 +255,25 @@ export default function SyncPanel() {
                 </span>
               )}
             </div>
+            {pairing && (
+              <p className="field-help">
+                On the computer you want to add, with the Uncloud app installed:{" "}
+                <a href={pairingLink(pairing.code)}>open in the Uncloud app</a>,
+                or enter the address <code>{window.location.origin}</code> and
+                the code above.
+              </p>
+            )}
+            {pairing && ["127.0.0.1", "localhost", "[::1]"].includes(window.location.hostname) && (
+              <p className="field-help warning-text">
+                This page is open on the host itself, at an address only the host
+                can use. Open Uncloud from the other computer to get its code, or
+                turn on Reach From Anywhere in the Uncloud app on the host.
+              </p>
+            )}
             <p className="field-help">
-              Using the Uncloud app on your computer? Type this code into it and
-              it pairs itself. Otherwise, add your computer by its Syncthing ID:
+              The Uncloud app keeps your whole folder in step, with nothing else to
+              set up. Without it, install Syncthing on your computer and add it by
+              its ID:
             </p>
             <div className="sync-form">
               <input

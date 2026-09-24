@@ -87,6 +87,21 @@ public sealed class FakeSyncthing : ISyncthingApi
         return Task.CompletedTask;
     }
 
+    public HashSet<string> AutoAccepting { get; } = [];
+    public string? DefaultFolderPath { get; private set; }
+
+    public Task AutoAcceptFromAsync(string deviceId, bool accept, CancellationToken cancellationToken)
+    {
+        if (accept) AutoAccepting.Add(deviceId); else AutoAccepting.Remove(deviceId);
+        return Task.CompletedTask;
+    }
+
+    public Task SetDefaultFolderPathAsync(string path, CancellationToken cancellationToken)
+    {
+        DefaultFolderPath = path;
+        return Task.CompletedTask;
+    }
+
     public Task KeepVersionsAsync(string id, CancellationToken cancellationToken)
     {
         Folders[id] = Folders[id] with { Versioned = true };
