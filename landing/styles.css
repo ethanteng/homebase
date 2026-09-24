@@ -845,15 +845,6 @@ h1 span {
   letter-spacing: normal;
 }
 
-.savings-note {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid var(--soft-line);
-  color: var(--muted);
-  font-size: .85rem;
-  line-height: 1.6;
-}
-
 .about {
   max-width: 820px;
   margin: 0 auto;
