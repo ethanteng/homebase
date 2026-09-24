@@ -89,7 +89,8 @@ wrong is in `~/Library/Application Support/Uncloud/uncloud.log`.
 
 ## Set up Uncloud
 
-This part is for whoever looks after Uncloud. It takes about twenty minutes.
+This part is for whoever looks after Uncloud. With the Mac app, setup takes five minutes or less.
+Manual setup on Linux or from Terminal takes longer.
 
 On a Mac, [get the app](#get-the-app), open it, and choose **Make this Mac the Uncloud host**. It
 starts Uncloud and opens your browser. Then carry on from [step 3](#3-make-your-account).
