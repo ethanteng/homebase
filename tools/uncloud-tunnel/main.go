@@ -27,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	"tailscale.com/client/local"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
@@ -111,6 +112,15 @@ func main() {
 			"Both are in the Tailscale admin console, under Access controls and DNS.", name, err)
 	}
 	defer listener.Close()
+
+	if err := certify(ctx, server, name); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		fail("uncloud-tunnel opened %s to the internet but Tailscale hasn't issued it a certificate: %v\n"+
+			"Nobody can open it until there is one. HTTPS certificates have to be turned on for this "+
+			"tailnet, in the Tailscale admin console under DNS.", name, err)
+	}
 
 	// Only once it is actually carrying traffic, because Uncloud answers to this name from the
 	// moment it hears it.
@@ -207,6 +217,45 @@ func openToTheInternet(ctx context.Context, server *tsnet.Server, status *ipnsta
 		}
 		if now, err := client.StatusWithoutPeers(ctx); err == nil && allowedOut(now.Self) {
 			return
+		}
+	}
+}
+
+// certify gets name's certificate before anybody is told the name. Tailscale issues it the first
+// time it is asked for, which on a tailnet that has only just turned HTTPS on takes a while, and a
+// browser that arrives first is dropped mid-handshake with nothing to say why. Fetched here it is
+// kept on disk, where every handshake after reads it from.
+//
+// Asked for again until it comes, and given up on only after long enough that something is really
+// wrong — Uncloud waits a while longer than this for the address, so it hears the reason.
+func certify(ctx context.Context, server *tsnet.Server, name string) error {
+	client, err := server.LocalClient()
+	if err != nil {
+		return err
+	}
+	deadline := time.Now().Add(150 * time.Second)
+	for {
+		attempt, done := context.WithTimeout(ctx, 60*time.Second)
+		_, _, err := client.CertPair(attempt, name)
+		done()
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		wait := 10 * time.Second
+		if after, limited := local.RateLimitRetryAfter(err); limited {
+			wait = after
+		}
+		if time.Now().Add(wait).After(deadline) {
+			return err
+		}
+		note("still waiting for a certificate for %s: %v", name, err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
 		}
 	}
 }

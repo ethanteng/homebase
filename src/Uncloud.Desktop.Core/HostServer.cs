@@ -8,14 +8,18 @@ namespace Uncloud.Desktop;
 /// On the host, the app runs the Uncloud server it carries — with its Syncthing and tunnel beside
 /// it — as a child process, and stops it on the way out. Nobody opens a terminal.
 /// </summary>
-public sealed class HostServer(string serverDirectory, ILogger logger, HttpClient client, int port = HostServer.Port)
-    : IAsyncDisposable
+public sealed class HostServer(
+    string serverDirectory, ILogger logger, HttpClient client, int port = HostServer.Port,
+    IReadOnlyDictionary<string, string>? settings = null) : IAsyncDisposable
 {
     public const int Port = 5210;
+    // The name the process goes by. Not Path.GetFileNameWithoutExtension of the executable, which
+    // takes ".Server" for an extension and looks for a process called "Homebase".
+    private const string ProcessName = "Homebase.Server";
     private Process? _process;
 
     public Uri Address { get; } = new($"http://127.0.0.1:{port}");
-    public string Executable => Path.Combine(serverDirectory, OperatingSystem.IsWindows() ? "Homebase.Server.exe" : "Homebase.Server");
+    public string Executable => Path.Combine(serverDirectory, OperatingSystem.IsWindows() ? ProcessName + ".exe" : ProcessName);
     public bool IsRunning => _process is { HasExited: false };
 
     /// <summary>
@@ -60,6 +64,8 @@ public sealed class HostServer(string serverDirectory, ILogger logger, HttpClien
         };
         start.Environment["Homebase__Port"] = port.ToString();
         start.Environment["Homebase__StopWhenInputCloses"] = "true";
+        foreach (var (name, value) in settings ?? new Dictionary<string, string>())
+            start.Environment[name] = value;
         // Whether this host can be reached from outside is the server's own setting, kept beside
         // its accounts and changeable from Settings while it runs. Naming a provider here
         // would take that switch away from everybody who is not sitting at this Mac.
@@ -103,22 +109,24 @@ public sealed class HostServer(string serverDirectory, ILogger logger, HttpClien
     }
 
     /// <summary>
-    /// Stops servers run from this same place that this app is not holding — left behind by a copy
-    /// of the app that went without stopping them. Only this exact program: an Uncloud somebody is
-    /// running from a checkout, or anything else that happens to be listening, is not this app's to
-    /// stop.
+    /// Stops the server holding this app's port, when it is one this app left behind — run from
+    /// this same place by a copy of the app that went without stopping it. Both have to be true.
+    /// The same program answering on another port is somebody's Uncloud doing something else, and
+    /// anything else on this port is not this app's to stop either.
     /// </summary>
     private int StopLeftovers()
     {
         var stopped = 0;
         var mine = Path.GetFullPath(Executable);
-        foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(Executable)))
+        var listening = ListeningOnPort();
+        foreach (var process in Process.GetProcessesByName(ProcessName))
         {
             using (process)
             {
                 try
                 {
-                    if (process.MainModule?.FileName is not { } path
+                    if (!listening.Contains(process.Id)
+                        || process.MainModule?.FileName is not { } path
                         || !string.Equals(Path.GetFullPath(path), mine, StringComparison.Ordinal))
                         continue;
                     process.Kill(entireProcessTree: true);
@@ -133,6 +141,36 @@ public sealed class HostServer(string serverDirectory, ILogger logger, HttpClien
             }
         }
         return stopped;
+    }
+
+    /// <summary>
+    /// The processes listening on this app's port, as lsof tells it — which every Mac has. Where
+    /// there is no lsof to ask, nothing is known to be listening, so nothing is stopped: the person
+    /// is told the port is taken instead, which is the safe way to be wrong.
+    /// </summary>
+    private HashSet<int> ListeningOnPort()
+    {
+        try
+        {
+            var start = new ProcessStartInfo("lsof")
+            {
+                ArgumentList = { "-t", "-nP", $"-iTCP:{port}", "-sTCP:LISTEN" },
+                RedirectStandardOutput = true,
+                UseShellExecute = false
+            };
+            using var lsof = Process.Start(start);
+            if (lsof is null) return [];
+            var said = lsof.StandardOutput.ReadToEnd();
+            lsof.WaitForExit(5000);
+            return said.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(line => int.TryParse(line, out var id) ? id : -1)
+                .Where(id => id > 0)
+                .ToHashSet();
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return [];
+        }
     }
 
     // .NET's account of a crash: "Unhandled exception. System.IO.IOException: <why>", then frames.

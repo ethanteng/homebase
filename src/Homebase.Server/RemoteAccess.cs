@@ -142,7 +142,9 @@ public sealed record RemoteAccessOptions(
                 + "people will open, such as Homebase__RemoteAccess__Hostname=files.example.com.",
                 "not_configured");
 
-        var seconds = configuration.GetValue("Homebase:RemoteAccess:TimeoutSeconds", 60);
+        // Long enough for Uncloud's own tunnel to be issued its first certificate, which it waits
+        // for before it will say where it is — and gives up on, saying why, a little before this.
+        var seconds = configuration.GetValue("Homebase:RemoteAccess:TimeoutSeconds", 180);
         if (seconds < 1)
             throw new LibraryException("Homebase__RemoteAccess__TimeoutSeconds must be at least 1.");
 

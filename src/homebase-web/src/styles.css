@@ -1648,9 +1648,25 @@ tbody tr.selected {
   overflow-wrap: anywhere;
 }
 .remote-address .button {
-  padding: 6px 12px;
-  font-size: 13px;
   flex-shrink: 0;
+}
+/* The panel sits inside the host's folder form, and that form's rules are written for its own
+   full-width controls. ".setup-form .primary" pushes a primary button 21px down to clear the field
+   above it, which dropped "Open it to the internet" below the "Copy link" beside it, and the
+   form's card text ran a size larger than the rest of the dialog. Set here for the panel itself:
+   one size for every button in it, and text that matches the dialog around it. */
+.setup-form .remote-access .button {
+  margin-top: 0;
+  padding: 9px 14px;
+  font-size: 12px;
+}
+.setup-form .remote-access p {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.setup-form .remote-access .field-help {
+  font-size: 11px;
+  max-width: none;
 }
 .device-id {
   display: flex;
