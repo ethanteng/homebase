@@ -18,3 +18,5 @@ case "$homebase_runtime" in
   osx-x64) homebase_arch=amd64 ;;   # .NET calls it x64; Go calls it amd64.
 esac
 GOOS=darwin GOARCH="$homebase_arch" ./scripts/build-tunnel.sh "artifacts/$homebase_runtime"
+# So does Syncthing: keeping people's computers in step shouldn't start with a brew install either.
+GOOS=darwin GOARCH="$homebase_arch" ./scripts/fetch-syncthing.sh "artifacts/$homebase_runtime"
