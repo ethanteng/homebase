@@ -1,8 +1,10 @@
 # Uncloud landing page
 
-A landing page for **Uncloud**, with the public address **https://www.uncloud.life/**. The hero now leads with **“Turn a computer you already own into your private cloud.”** The page visually explains the product in one pass: bring files home from cloud services, use an existing Mac, Windows PC, Linux machine, desktop, laptop, or mini PC as the host, then reach those files from the devices and people you trust.
+A landing page for **Uncloud**, with the public address **https://www.uncloud.life/**. The hero leads with **“Your private cloud. In 5 minutes or less.”** and highlights “Save up to $500 a year in subscription costs,” followed by a link to an example of how the savings add up. The subhero explains that people can use a computer they already own and cancel cloud storage plans they no longer need. The existing device illustration, blue accents, pale panels, and typography remain the visual foundation.
 
-The primary message is intentionally about **reusing hardware people already own** — no NAS, proprietary box, or special equipment required. The page keeps the early-access email signup above the main visual, then reinforces privacy, no recurring storage fees, household sharing, and giving old computers a new purpose. This is early-access positioning for the product vision; see the repository README for the application's current capabilities. The app, source folders, and storage paths still use the internal name Homebase.
+The primary message is intentionally about **reusing hardware people already own** — no NAS, proprietary box, or special equipment required. “Turn a computer you already own into private cloud storage” has its own highlighted line. The page keeps the early-access email signup above the main visual, with labeled Mac, PC, and Linux icons in the computer illustration. “Your private cloud, in 5 minutes or less” introduces three steps: pick a computer, make it your cloud, and bring files home. Early-access links return to the signup form.
+
+The value section uses current U.S. monthly prices for 5 named plans: Dropbox Plus, Evernote Starter, Google One Basic (Google Drive), iCloud+ 200 GB, and Microsoft 365 Basic (OneDrive). Together they cost $33.95/month, or $407.40 over 12 months of monthly billing. The example is explicitly conditional on canceling all 5. Official pricing links and the U.S. monthly billing basis are visible on the page; the source record retains the price-check date and calculation assumptions. See [pricing.md](pricing.md) for the source record and update procedure. The app, source folders, and storage paths still use the internal name Homebase.
 
 ## Preview and build
 
@@ -95,7 +97,7 @@ Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`
 
 Canonical, Open Graph, structured-data, and sitemap URLs use `https://www.uncloud.life/`, matching the production host that the bare domain redirects to. Keep these URLs and the robots.txt sitemap reference aligned. These metadata tags do not configure DNS, hosting, or deployment.
 
-“Get early access” submits an email address to the signup function described below. Keep the field and the button as one short row under “Private. Secure. Yours.”; on success the form is replaced by a confirmation line.
+“Get early access” submits an email address to the signup function described above. Keep the field and the button as one short row above “Private. Yours.”; on success the form is replaced by a confirmation line. The header, setup, and closing early-access links return to the signup form.
 
 For the first few conversations, share the page and ask:
 
