@@ -75,8 +75,14 @@ identity="${UNCLOUD_SIGN_IDENTITY:--}"
 timestamp=--timestamp=none
 if [[ "$identity" != "-" ]]; then timestamp=--timestamp; fi
 sign() { codesign --force "$timestamp" --options runtime --entitlements src/Uncloud.Desktop/Uncloud.entitlements -s "$identity" "$@"; }
-# Inside out: every executable and library first, the bundle last, or the bundle's seal is broken.
-find "$app/Contents" -type f \( -perm -u+x -o -name '*.dylib' \) -print0 | while IFS= read -r -d '' file; do
+# Inside out, or the bundle's seal is broken. codesign counts everything in Contents/MacOS as
+# nested code — .NET's managed .dll files included — so every file there is signed, except the
+# app's own executable, which signing the bundle signs. Under Resources only the server's
+# executables and libraries are code; the rest is sealed as resources with the bundle.
+find "$app/Contents/MacOS" -type f ! -path "$app/Contents/MacOS/Uncloud" -print0 | while IFS= read -r -d '' file; do
+  sign "$file"
+done
+find "$app/Contents/Resources" -type f -print0 | while IFS= read -r -d '' file; do
   if file -b "$file" | grep -q 'Mach-O'; then sign "$file"; fi
 done
 sign "$app"
