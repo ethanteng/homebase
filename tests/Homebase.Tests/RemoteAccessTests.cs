@@ -433,6 +433,48 @@ public sealed class RemoteAccessTests : IDisposable
     }
 
     [Fact]
+    public async Task The_second_thing_asked_of_a_person_reaches_the_panel_too()
+    {
+        const string SignIn = "https://login.tailscale.com/a/10692893011e9b";
+        const string Funnel = "https://login.tailscale.com/f/funnel?node=nodekey%3Aabc";
+        using var tunnels = new Tunnels(SignIn, "home.tail9f3a.ts.net");
+        await using var remote = new RemoteAccess(Read(new()), NullLogger.Instance, tunnels.Next);
+
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        await Until(() => remote.State.Status == "needs_sign_in");
+        Assert.Equal(SignIn, remote.State.SignInUrl);
+
+        // The administrator follows that link, and Tailscale then wants a second yes — about the
+        // tailnet this time, not this host. Nobody is going to guess that from a spinner: the
+        // whole run turns on the panel carrying the second link the way it carried the first.
+        tunnels.Latest!.AlsoAsk(Consent.Funnel, Funnel);
+        await Until(() => remote.State.Status == "needs_funnel");
+
+        Assert.Equal(Funnel, remote.State.SignInUrl);
+        Assert.Contains("reached from the internet", remote.State.Detail);
+    }
+
+    [Fact]
+    public async Task A_tunnel_that_gave_up_says_why_where_somebody_can_read_it()
+    {
+        const string SignIn = "https://login.tailscale.com/a/10692893011e9b";
+        const string Said = "Funnel has to be allowed for this tailnet, and HTTPS certificates turned on.";
+        using var tunnels = new Tunnels(SignIn, "home.tail9f3a.ts.net");
+        await using var remote = new RemoteAccess(Read(new()), NullLogger.Instance, tunnels.Next);
+
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        await Until(() => remote.State.Status == "needs_sign_in");
+
+        // It signed in and then ran into something only the administrator can undo. Saying
+        // "trying again" and nothing else leaves them watching a spinner over a wall.
+        tunnels.Latest!.GiveUp(Said);
+        await Until(() => remote.State.Status == "reconnecting");
+
+        Assert.Contains(Said, remote.State.Detail);
+        Assert.Null(remote.State.SignInUrl);
+    }
+
+    [Fact]
     public async Task Turning_it_off_while_it_waits_to_be_allowed_leaves_it_off()
     {
         const string Link = "https://login.tailscale.com/a/10692893011e9b";
@@ -588,9 +630,24 @@ public sealed class RemoteAccessTests : IDisposable
         Assert.Equal("home.tail9f3a.ts.net",
             builtin.Announcement.Match("uncloud-tunnel: url=https://home.tail9f3a.ts.net/").Groups[1].Value);
 
-        // tailscale and cloudflared are signed in before Uncloud ever runs them.
+        // The second thing asked of a person, and a different link: it is about the tailnet
+        // rather than this host, and taking one for the other asks the wrong thing of somebody.
+        const string Funnel = "https://login.tailscale.com/f/funnel?node=nodekey%3Aabc";
+        Assert.Equal(Funnel, builtin.AllowPrompt!.Match($"uncloud-tunnel: allow={Funnel}").Groups[1].Value);
+        Assert.DoesNotMatch(builtin.SignInPrompt, $"uncloud-tunnel: allow={Funnel}");
+        Assert.DoesNotMatch(builtin.AllowPrompt, "uncloud-tunnel: signin=https://login.tailscale.com/a/abc");
+
+        // And the parting words, which are the only account of a failure that ever reaches the
+        // person who can undo it. They are a sentence, so unlike the links they carry spaces.
+        const string Said = "Funnel has to be allowed for this tailnet, and HTTPS turned on.";
+        Assert.Equal(Said, builtin.TroubleReport!.Match($"uncloud-tunnel: trouble={Said}").Groups[1].Value);
+
+        // tailscale and cloudflared are signed in before Uncloud ever runs them, and say nothing
+        // in Uncloud's own words about why they stopped.
         Assert.Null(Read(new() { ["Homebase:RemoteAccess:Provider"] = "tailscale" }).SignInPrompt);
         Assert.Null(Read(new() { ["Homebase:RemoteAccess:Provider"] = "cloudflare" }).SignInPrompt);
+        Assert.Null(Read(new() { ["Homebase:RemoteAccess:Provider"] = "tailscale" }).AllowPrompt);
+        Assert.Null(Read(new() { ["Homebase:RemoteAccess:Provider"] = "cloudflare" }).TroubleReport);
     }
 
     [Fact]
@@ -613,6 +670,33 @@ public sealed class RemoteAccessTests : IDisposable
         });
 
         Assert.Contains("uncloud-no-such-tunnel-program", Flatten(failure));
+    }
+
+    [Fact]
+    public async Task A_real_program_that_gives_up_is_quoted_in_the_panel()
+    {
+        // Everything above stands a tunnel in for the real one. This drives an actual process,
+        // because the seam that failed in the house was this one: the parting words go out on
+        // standard output, and reach the panel only if they are read off it in time.
+        // Windows has no shell to stand in for the tunnel; the rest of the suite covers the
+        // reading, and CI runs this on Linux and macOS.
+        if (!File.Exists("/bin/sh")) return;
+        const string Said = "Funnel has to be allowed for this tailnet, and HTTPS certificates turned on.";
+        var options = Read(new()
+        {
+            ["Homebase:RemoteAccess:Provider"] = "builtin",
+            ["Homebase:RemoteAccess:Command"] = "/bin/sh",
+            ["Homebase:RemoteAccess:Arguments"] =
+                $"-c \"echo 'uncloud-tunnel: trouble={Said}' >&2; exit 1\""
+        });
+        await using var remote = new RemoteAccess(options, NullLogger.Instance);
+
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        await Until(() => remote.State.Status == "reconnecting");
+
+        // Said on standard error, as the real one says it, and still the thing the panel shows.
+        Assert.Contains(Said, remote.State.Detail);
+        Assert.DoesNotContain("exit 1", remote.State.Detail);
     }
 
     [Fact]
@@ -665,6 +749,14 @@ public sealed class RemoteAccessTests : IDisposable
     {
         Assert.False(Read(new()).IsEnabled);
         Assert.Throws<LibraryException>(() => Read(new() { ["Homebase:RemoteAccess:Provider"] = "ngrok" }));
+    }
+
+    /// <summary>Waits for a tunnel to get where it is going, rather than for a fixed time.</summary>
+    private static async Task Until(Func<bool> arrived, int seconds = 20)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(seconds);
+        while (!arrived() && DateTimeOffset.UtcNow < deadline) await Task.Delay(25);
+        Assert.True(arrived(), "The tunnel never got where this was waiting for it to go.");
     }
 
     private RemoteAccessOptions Read(Dictionary<string, string?> settings) =>
@@ -735,20 +827,29 @@ public sealed class RemoteAccessTests : IDisposable
     {
         private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<string> _opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource<string> _asked = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private Action<Consent>? _asked;
 
         public Task Closed => _closed.Task;
-        public Task<string> SignInRequired => _asked.Task;
 
-        public Task<string> OpenAsync(int port, CancellationToken cancellationToken)
+        public Task<string> OpenAsync(int port, Action<Consent> asked, CancellationToken cancellationToken)
         {
+            _asked = asked;
             if (signIn is null) _opened.TrySetResult(address);
-            else _asked.TrySetResult(signIn);
+            else asked(new Consent(Consent.SignIn, signIn));
             return _opened.Task.WaitAsync(cancellationToken);
         }
 
         /// <summary>Stands in for the person following the link and allowing this host.</summary>
         public void Allow() => _opened.TrySetResult(address);
+
+        /// <summary>
+        /// Stands in for the second thing asked of a person, which the real tunnel only asks
+        /// once the first has been given: letting the tailnet be reached from outside.
+        /// </summary>
+        public void AlsoAsk(string kind, string link) => _asked?.Invoke(new Consent(kind, link));
+
+        /// <summary>Stands in for the program giving up and saying why, in its own words.</summary>
+        public void GiveUp(string said) => _opened.TrySetException(new TunnelTrouble(said));
 
         public void Drop() => _closed.TrySetResult();
         public ValueTask DisposeAsync() { Drop(); return ValueTask.CompletedTask; }

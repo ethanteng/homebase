@@ -388,6 +388,39 @@ export default function HostSetup({ onSaved, compact = false }: Props) {
                 </p>
               </>
             )}
+            {remote.status === "needs_funnel" && remote.signInUrl && (
+              <>
+                <p>
+                  One more yes, and only this once. This host is on your Tailscale
+                  account now, but Tailscale doesn’t let anything be reached from
+                  the public internet until you say so. This link says so.
+                </p>
+                <div className="remote-address">
+                  <a
+                    className="button primary"
+                    href={remote.signInUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <ExternalLink size={15} />
+                    Open it to the internet
+                  </a>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    onClick={() => void copyAddress(remote.signInUrl!)}
+                  >
+                    {copied ? <Check size={15} /> : <Copy size={15} />}
+                    {copied ? "Copied" : "Copy link"}
+                  </button>
+                </div>
+                <p className="field-help">
+                  Everyone on this network carries on while you do. The address
+                  appears here by itself once Tailscale has let it through — no
+                  need to restart anything.
+                </p>
+              </>
+            )}
             {remote.status === "on" && remote.url && (
               <>
                 <p>
