@@ -37,9 +37,18 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths)
         }
     }
 
-    /// <summary>All of the account at ~/Uncloud itself; a single folder of it beside the rest.</summary>
-    public string FolderPath(PairedFolder folder) =>
-        folder.Path.Length == 0 ? paths.Files : Path.Combine(paths.Files, folder.Label);
+    /// <summary>
+    /// All of the account at ~/Uncloud itself; a single folder of it at the same place under
+    /// ~/Uncloud as on the host, so Work/Documents and Personal/Documents stay two folders. The
+    /// path comes from the host, so it is held to staying inside ~/Uncloud all the same.
+    /// </summary>
+    public string FolderPath(PairedFolder folder)
+    {
+        var parts = folder.Path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Any(part => part is "." or ".." || part.Contains('\\') || part.Contains('\0')))
+            throw new InvalidDataException($"Uncloud offered a folder this computer won’t keep: “{folder.Path}”.");
+        return parts.Length == 0 ? paths.Files : Path.Combine([paths.Files, .. parts]);
+    }
 
     public async Task<ComputerStatus> StatusAsync(string hostDeviceId, CancellationToken cancellationToken)
     {

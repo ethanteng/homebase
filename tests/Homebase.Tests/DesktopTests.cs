@@ -93,15 +93,56 @@ public sealed class DesktopTests : IDisposable
     }
 
     [Fact]
-    public async Task A_single_synced_folder_lands_beside_the_rest_under_home()
+    public async Task A_synced_folder_lands_where_it_is_on_the_host_so_two_of_the_same_name_stay_apart()
     {
         var computer = new ComputerSync(_computer, _paths);
         await computer.ApplyAsync(new PairingResult(FakeSyncthing.Self, "Ada",
-            [new PairedFolder("uncloud-documents-1", "Documents", "Documents"), new PairedFolder("uncloud-taxes-2", "Taxes", "Paperwork/Taxes")]),
-            CancellationToken.None);
+        [
+            new PairedFolder("uncloud-documents-1", "Documents", "Work/Documents"),
+            new PairedFolder("uncloud-documents-2", "Documents", "Personal/Documents"),
+            new PairedFolder("uncloud-taxes-3", "Taxes", "Taxes")
+        ]), CancellationToken.None);
 
-        Assert.Equal(Path.Combine(_paths.Files, "Documents"), _computer.Folders["uncloud-documents-1"].Path);
-        Assert.Equal(Path.Combine(_paths.Files, "Taxes"), _computer.Folders["uncloud-taxes-2"].Path);
+        Assert.Equal(Path.Combine(_paths.Files, "Work", "Documents"), _computer.Folders["uncloud-documents-1"].Path);
+        Assert.Equal(Path.Combine(_paths.Files, "Personal", "Documents"), _computer.Folders["uncloud-documents-2"].Path);
+        Assert.Equal(Path.Combine(_paths.Files, "Taxes"), _computer.Folders["uncloud-taxes-3"].Path);
+    }
+
+    [Fact]
+    public async Task A_folder_the_host_names_outside_home_is_refused()
+    {
+        var computer = new ComputerSync(_computer, _paths);
+        foreach (var path in new[] { "../Desktop", "Work/../../.ssh", "./x" })
+            await Assert.ThrowsAsync<InvalidDataException>(() => computer.ApplyAsync(
+                new PairingResult(FakeSyncthing.Self, "Ada", [new PairedFolder("evil", "Evil", path)]), CancellationToken.None));
+        Assert.Empty(_computer.Folders);
+    }
+
+    [Fact]
+    public async Task A_computer_already_syncing_with_one_Uncloud_refuses_to_pair_with_another()
+    {
+        new DesktopSettings { Mode = DesktopMode.Computer, Address = "https://first.example", AccountName = "Ada", HostDeviceId = FakeSyncthing.Self }.Save(_paths);
+        await using var controller = new DesktopController(_paths, _temporary, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, new HttpClient());
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            controller.PairAsync(PairingLink.From("https://second.example", "AB12C-DE34F"), "Laptop", CancellationToken.None));
+
+        Assert.Contains("https://first.example", refused.Message);
+        Assert.Equal("https://first.example", DesktopSettings.Load(_paths).Address);
+    }
+
+    [Fact]
+    public async Task A_host_that_cannot_start_is_not_remembered_as_one()
+    {
+        // No server where the app looks for one: starting fails, as a taken port would.
+        await using var controller = new DesktopController(_paths, Path.Combine(_temporary, "no-server-here"),
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, new HttpClient());
+
+        await Assert.ThrowsAnyAsync<Exception>(() => controller.BecomeHostAsync(CancellationToken.None));
+
+        Assert.Equal(DesktopMode.Unset, controller.Settings.Mode);
+        Assert.Equal(DesktopMode.Unset, DesktopSettings.Load(_paths).Mode);
+        Assert.Null(controller.Server);
     }
 
     [Fact]

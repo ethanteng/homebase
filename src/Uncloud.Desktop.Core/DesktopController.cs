@@ -43,8 +43,22 @@ public sealed class DesktopController(
     {
         if (Settings.IsPaired)
             throw new InvalidOperationException("This computer already syncs with an Uncloud. Disconnect it first.");
+        // Remembered only once it works: a host that can't start (its port taken, say) mustn't
+        // become what the app insists on being every time it opens.
+        try
+        {
+            await StartServerAsync(cancellationToken);
+        }
+        catch
+        {
+            if (_server is not null)
+            {
+                await _server.DisposeAsync();
+                _server = null;
+            }
+            throw;
+        }
         Save(Settings with { Mode = DesktopMode.Host });
-        await StartServerAsync(cancellationToken);
     }
 
     public async Task SetReachFromAnywhereAsync(bool reach, CancellationToken cancellationToken)
@@ -65,6 +79,11 @@ public sealed class DesktopController(
     {
         if (Settings.Mode is DesktopMode.Host)
             throw new InvalidOperationException("This computer is the Uncloud host; its files are already here.");
+        // One Uncloud per computer: a second would sync into the same ~/Uncloud and mix two
+        // accounts' files together.
+        if (Settings.IsPaired)
+            throw new InvalidOperationException(
+                $"This computer already syncs with {Settings.AccountName ?? "an Uncloud"} at {Settings.Address}. Disconnect it first.");
         var syncthing = await StartSyncthingAsync(cancellationToken);
         var deviceId = await syncthing.DeviceIdAsync(cancellationToken);
         var result = await new PairingClient(http).PairAsync(link, deviceId, computerName, cancellationToken);
