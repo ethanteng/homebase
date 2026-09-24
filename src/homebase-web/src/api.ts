@@ -41,6 +41,8 @@ export interface RemoteAccessState {
   signInUrl: string | null;
   // Where Dropbox is told to return the browser, which the tunnel usually decides.
   publicUrl: string;
+  // False when a provider was named before launch, which this panel reports rather than changes.
+  canChange: boolean;
 }
 
 export interface ClaimResult {
