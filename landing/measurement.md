@@ -81,3 +81,61 @@ For future debugging, open the page with `?measurement_debug=1&utm_source=measur
 - [Production deployment](https://vercel.com/ethan-teng-consulting-llc/homebase/2estvkzVN929EXpsCpfGRezvx6qf)
 - [Google: import GA4 key events into Ads](https://support.google.com/google-ads/answer/2375435?hl=en)
 - [Google: data-layer event configuration](https://developers.google.com/tag-platform/tag-manager/datalayer)
+
+## GitHub link clicks (September 23, 2026)
+
+GitHub clicks reuse GA4 enhanced measurement's existing **`click`** event. The
+live Website stream has Outbound clicks enabled, and published GTM version 2
+contains one Google tag plus the CTA/lead event tag. There is no separate
+outbound-click tag. Do not add a `github_link_click` emitter or another GTM
+link-click event tag: that would record the same interaction twice.
+
+The header and footer anchors now have stable IDs. GA4 collects them as its
+built-in `link_id` parameter, so placement is available without another event,
+custom JavaScript handler, or custom dimension:
+
+| Parameter | Header | Footer |
+| --- | --- | --- |
+| `event_name` | `click` | `click` |
+| `link_id` | `github-header` | `github-footer` |
+| `link_url` | `https://github.com/ethanteng/homebase` | Same |
+| `link_domain` | `github.com` | Same |
+| `outbound` | `true` | Same |
+| `link_classes` | `github-link` | Same |
+
+The Google tag handles the click before the anchor's normal same-tab navigation.
+There is no additional navigation delay, redirect, `target`, style, accessible
+label, or click handler introduced by this change. As with the site's other
+analytics, collection depends on the Google tag loading successfully; local and
+preview hosts intentionally do not load GTM. GitHub clicks remain diagnostic
+engagement, not waitlist conversions or Google Ads conversion actions.
+
+### Validate
+
+1. In [Uncloud GTM](https://tagmanager.google.com/#/container/accounts/6333208997/containers/264734123/workspaces/3),
+   choose **Preview** and connect to
+   `https://www.uncloud.life/?measurement_debug=1&utm_source=measurement_test&utm_medium=qa&utm_campaign=github_tracking_validation`.
+   Keep Tag Assistant open and wait for the Google tag to load.
+2. Activate the header GitHub icon. Confirm the same tab reaches the repository.
+   In Tag Assistant, select the **G-233MB44VRQ** tag, then **Hits Sent** and the
+   `click` hit. Expect one `click` with the header parameters above. The GTM
+   timeline shows `Link Click`; the CTA/lead event tag should not fire.
+3. Return to the site and repeat with the footer icon, then with keyboard focus
+   and Enter. Expect one `click` for each activation, with the corresponding ID.
+   A page load or hover alone should not produce a `click` event.
+4. In [Uncloud GA4 DebugView](https://analytics.google.com/analytics/web/#/a380265295p555082273/admin/debugview/overview),
+   select the test browser, open `click`, and check `link_url`, `link_id`, and
+   `outbound`. GTM Preview supplies the debug signal. Realtime is also useful;
+   standard reports can take 24–48 hours to populate.
+5. For ongoing reporting, use an Exploration with **Event count** and **Total
+   users**, dimensions **Event name**, **Link URL**, and **Link ID**. Filter Event
+   name to `click` and Link URL to `https://github.com/ethanteng/homebase`, and use
+   Link ID for header/footer placement. No new custom dimension is required.
+
+Before this change, a live Tag Assistant test confirmed one automatic `click`
+hit to `G-233MB44VRQ`, with the correct GitHub URL and `outbound=true`, but an
+empty `link_id`. The landing build and all eight existing landing tests passed
+after adding the IDs. No GTM or GA4 configuration changes are required.
+
+References: [GA4 enhanced measurement parameters](https://support.google.com/analytics/answer/9216061?hl=en),
+[built-in Link ID dimension](https://developers.google.com/analytics/devguides/reporting/data/v1/api-schema).
