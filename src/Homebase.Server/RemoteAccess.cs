@@ -186,8 +186,13 @@ public sealed class RemoteAccess(
         ?? new RemoteAccess(RemoteAccessOptions.From(configuration, stateDirectory), logger);
 
     private readonly Func<RemoteAccessOptions, ITunnel> _tunnels = tunnels ?? (each => new ProcessTunnel(each, logger));
-    private readonly CancellationTokenSource _stopping = new();
+    // The process is shutting down, which ends every run and allows no more.
+    private readonly CancellationTokenSource _shutdown = new();
     private readonly object _gate = new();
+    // This time the tunnel was turned on. Turning it off cancels this one and leaves a new one
+    // for next time, so a watch still finishing the last run cannot speak for the next.
+    private CancellationTokenSource? _run;
+    private RemoteAccessOptions _options = options;
     private ITunnel? _tunnel;
     private string? _hostname;
     private string _status = "off";
@@ -200,8 +205,13 @@ public sealed class RemoteAccess(
     // so the host check costs nothing on a host nobody is reaching from outside.
     private volatile string? _answering;
 
-    public RemoteAccessOptions Options => options;
-    public bool IsEnabled => options.IsEnabled;
+    public RemoteAccessOptions Options { get { lock (_gate) return _options; } }
+
+    /// <summary>Whether a tunnel is wanted at all — configured, or turned on since.</summary>
+    public bool IsEnabled { get { lock (_gate) return _options.IsEnabled; } }
+
+    /// <summary>Whether a tunnel is carrying traffic right now, which is a different question.</summary>
+    public bool IsCarrying => _answering is not null;
 
     public RemoteAccessState State
     {
@@ -209,7 +219,7 @@ public sealed class RemoteAccess(
         {
             lock (_gate)
                 return new RemoteAccessState(
-                    options.Provider.ToString().ToLowerInvariant(),
+                    _options.Provider.ToString().ToLowerInvariant(),
                     _hostname,
                     _hostname is null ? null : $"https://{_hostname}",
                     _status,
@@ -235,20 +245,88 @@ public sealed class RemoteAccess(
     /// </summary>
     public string? Open(int port)
     {
-        var tunnel = _tunnels(options);
-        lock (_gate) { _tunnel = tunnel; _status = "opening"; }
-        var opening = tunnel.OpenAsync(port, _stopping.Token);
+        // Startup is single-threaded and has no synchronisation context, so waiting here cannot
+        // deadlock, and there is nothing else for this thread to be doing yet.
+        var (run, settings) = Begin();
+        return OpenOnceAsync(port, run, settings).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Turns remote access on after the host is already serving, for somebody who asked for it
+    /// from the interface rather than before launch. Nothing waits on the answer: a tunnel that
+    /// needs allowing takes as long as the person does, and the sign-in link is reported through
+    /// <see cref="State"/> as soon as there is one.
+    /// </summary>
+    public void Start(int port, RemoteAccessProvider provider)
+    {
+        CancellationTokenSource run;
+        RemoteAccessOptions settings;
+        // Claimed in one step. Two people pressing the same switch at once must not leave two
+        // tunnels running, only one of which anything is holding on to.
+        lock (_gate)
+        {
+            if (_run is not null) return;
+            _options = _options with { Provider = provider };
+            run = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+            _run = run;
+            settings = _options;
+        }
+        _ = Task.Run(async () =>
+        {
+            try { await OpenOnceAsync(port, run, settings); }
+            catch (Exception failure)
+            {
+                logger.LogWarning(failure, "Couldn’t open a tunnel to this Uncloud");
+                Settle(null, "reconnecting", "Uncloud couldn’t open a tunnel and is trying again.");
+            }
+            Watch(port, run, settings);
+        });
+    }
+
+    /// <summary>
+    /// Turns it off again. The host keeps serving everyone on the network throughout; what stops
+    /// is the way in from outside, and the name it answered to stops being one at once.
+    /// </summary>
+    public async Task StopAsync()
+    {
+        CancellationTokenSource? run;
+        ITunnel? tunnel;
+        lock (_gate)
+        {
+            run = _run;
+            tunnel = _tunnel;
+            _run = null; _tunnel = null; _pending = null;
+            _options = _options with { Provider = RemoteAccessProvider.None };
+        }
+        if (run is not null)
+        {
+            await run.CancelAsync();
+            run.Dispose();
+        }
+        if (tunnel is not null) await Retire(tunnel);
+        Settle(null, "off", null);
+        lock (_gate) _signIn = null;
+    }
+
+    private (CancellationTokenSource Run, RemoteAccessOptions Options) Begin()
+    {
+        var run = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+        lock (_gate) { _run = run; return (run, _options); }
+    }
+
+    private async Task<string?> OpenOnceAsync(int port, CancellationTokenSource run, RemoteAccessOptions settings)
+    {
+        var tunnel = _tunnels(settings);
+        lock (_gate) { _tunnel = tunnel; _status = "opening"; _detail = null; }
+        var opening = tunnel.OpenAsync(port, run.Token);
         var signIn = tunnel.SignInRequired;
         try
         {
-            // Startup is single-threaded and has no synchronisation context, so waiting here
-            // cannot deadlock, and there is nothing else for this thread to be doing yet.
-            var settled = Task.WhenAny(opening, signIn, Task.Delay(options.Timeout, _stopping.Token))
-                .GetAwaiter().GetResult();
+            var settled = await Task.WhenAny(opening, signIn, Task.Delay(settings.Timeout, run.Token));
 
             if (ReferenceEquals(settled, opening))
             {
-                var hostname = opening.GetAwaiter().GetResult();
+                var hostname = await opening;
                 Settle(hostname, "on", null);
                 logger.LogInformation("Uncloud is reachable from anywhere at https://{Hostname}", hostname);
                 return hostname;
@@ -256,7 +334,7 @@ public sealed class RemoteAccess(
 
             if (ReferenceEquals(settled, signIn))
             {
-                var link = signIn.GetAwaiter().GetResult();
+                var link = await signIn;
                 lock (_gate)
                 {
                     _pending = opening;
@@ -271,38 +349,44 @@ public sealed class RemoteAccess(
             }
 
             throw new LibraryException(
-                $"{options.Executable} didn’t report an address within {options.Timeout.TotalSeconds:0} "
+                $"{settings.Executable} didn’t report an address within {settings.Timeout.TotalSeconds:0} "
                 + "seconds, so Uncloud doesn’t know what name to answer to. Check that it is signed "
-                + "in and can reach the internet, or set Homebase__RemoteAccess__Provider=none to "
-                + "start without remote access.", "not_configured");
+                + "in and can reach the internet, or turn remote access off.", "not_configured");
         }
         catch (Exception failure)
         {
-            // Uncloud is about to stop, and nothing else will come back for this: a tunnel
-            // program left running would outlive the host it was started for and keep a name
-            // pointed at a port with nothing behind it.
-            lock (_gate) { _tunnel = null; _pending = null; _signIn = null; _status = "off"; }
-            tunnel.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            // Nothing else will come back for this: a tunnel program left running would outlive
+            // the host it was started for and keep a name pointed at a port with nothing behind it.
+            lock (_gate) { if (ReferenceEquals(_tunnel, tunnel)) _tunnel = null; }
+            await Retire(tunnel);
             if (failure is LibraryException) throw;
-            if (failure is OperationCanceledException && !_stopping.IsCancellationRequested)
+            if (failure is OperationCanceledException && !run.IsCancellationRequested)
                 throw new LibraryException(
-                    $"{options.Executable} stopped before it opened a tunnel.", "unavailable");
+                    $"{settings.Executable} stopped before it opened a tunnel.", "unavailable");
             throw;
         }
     }
 
     /// <summary>
-    /// Reopens the tunnel for as long as Uncloud runs. A tunnel that drops is an outage of
+    /// Reopens the tunnel for as long as this run lasts. A tunnel that drops is an outage of
     /// reaching the host from outside, never of the host: everyone on the network keeps working
     /// while this retries.
     /// </summary>
     public void Watch(int port)
     {
-        if (!IsEnabled) return;
+        CancellationTokenSource? run;
+        RemoteAccessOptions settings;
+        lock (_gate) { run = _run; settings = _options; }
+        if (run is not null) Watch(port, run, settings);
+    }
+
+    private void Watch(int port, CancellationTokenSource run, RemoteAccessOptions settings)
+    {
+        if (!settings.IsEnabled) return;
         _ = Task.Run(async () =>
         {
             var backoff = TimeSpan.FromSeconds(2);
-            while (!_stopping.IsCancellationRequested)
+            while (!run.IsCancellationRequested)
             {
                 ITunnel? current;
                 Task<string>? pending;
@@ -314,7 +398,7 @@ public sealed class RemoteAccess(
                     // wrong; somebody walking off to find their phone has not gone wrong.
                     try
                     {
-                        var allowed = await pending.WaitAsync(_stopping.Token);
+                        var allowed = await pending.WaitAsync(run.Token);
                         lock (_gate) { _pending = null; _signIn = null; }
                         Settle(allowed, "on", null);
                         backoff = TimeSpan.FromSeconds(2);
@@ -322,7 +406,7 @@ public sealed class RemoteAccess(
                             "Uncloud was allowed onto the internet and is reachable at https://{Hostname}", allowed);
                         continue;
                     }
-                    catch (OperationCanceledException) when (_stopping.IsCancellationRequested) { return; }
+                    catch (OperationCanceledException) when (run.IsCancellationRequested) { return; }
                     catch (Exception failure)
                     {
                         logger.LogWarning(failure, "The tunnel Uncloud was waiting to be allowed never opened");
@@ -331,10 +415,10 @@ public sealed class RemoteAccess(
                 }
                 else if (current is not null)
                 {
-                    try { await current.Closed.WaitAsync(_stopping.Token); }
+                    try { await current.Closed.WaitAsync(run.Token); }
                     catch (OperationCanceledException) { return; }
                     catch (Exception failure) { logger.LogWarning(failure, "The tunnel to this Uncloud stopped"); }
-                    if (_stopping.IsCancellationRequested) return;
+                    if (run.IsCancellationRequested) return;
                     Settle(null, "reconnecting", "The tunnel stopped and Uncloud is opening another.");
                 }
 
@@ -345,22 +429,22 @@ public sealed class RemoteAccess(
                 lock (_gate) { if (ReferenceEquals(_tunnel, current)) _tunnel = null; }
                 if (current is not null) await Retire(current);
 
-                try { await Task.Delay(backoff, _stopping.Token); }
+                try { await Task.Delay(backoff, run.Token); }
                 catch (OperationCanceledException) { return; }
                 backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, 60));
 
                 ITunnel? next = null;
                 try
                 {
-                    next = _tunnels(options);
-                    var opening = next.OpenAsync(port, _stopping.Token);
+                    next = _tunnels(settings);
+                    var opening = next.OpenAsync(port, run.Token);
                     var signIn = next.SignInRequired;
                     lock (_gate) _tunnel = next;
 
-                    var settled = await Task.WhenAny(
-                        opening, signIn, Task.Delay(options.Timeout, _stopping.Token));
+                    var reopened = await Task.WhenAny(
+                        opening, signIn, Task.Delay(settings.Timeout, run.Token));
 
-                    if (ReferenceEquals(settled, signIn))
+                    if (ReferenceEquals(reopened, signIn))
                     {
                         // Asked to be allowed again, which a kept identity usually spares us.
                         var link = await signIn;
@@ -374,16 +458,16 @@ public sealed class RemoteAccess(
                         logger.LogInformation("Uncloud is waiting to be allowed again. Open {Link}.", link);
                         continue;
                     }
-                    if (!ReferenceEquals(settled, opening))
+                    if (!ReferenceEquals(reopened, opening))
                         throw new LibraryException(
-                            $"{options.Executable} didn’t report an address in time.", "unavailable");
+                            $"{settings.Executable} didn’t report an address in time.", "unavailable");
 
                     var hostname = await opening;
                     Settle(hostname, "on", null);
                     backoff = TimeSpan.FromSeconds(2);
                     logger.LogInformation("Uncloud is reachable from anywhere again at https://{Hostname}", hostname);
                 }
-                catch (OperationCanceledException) when (_stopping.IsCancellationRequested) { return; }
+                catch (OperationCanceledException) when (run.IsCancellationRequested) { return; }
                 catch (Exception failure)
                 {
                     logger.LogWarning(failure, "Couldn’t open a tunnel to this Uncloud; trying again");
@@ -409,15 +493,19 @@ public sealed class RemoteAccess(
 
     public async ValueTask DisposeAsync()
     {
-        if (!_stopping.IsCancellationRequested) await _stopping.CancelAsync();
+        if (!_shutdown.IsCancellationRequested) await _shutdown.CancelAsync();
         ITunnel? tunnel;
+        CancellationTokenSource? run;
         lock (_gate)
         {
             tunnel = _tunnel;
-            _tunnel = null; _pending = null; _signIn = null; _status = "off"; _hostname = null;
+            run = _run;
+            _tunnel = null; _run = null; _pending = null; _signIn = null; _status = "off"; _hostname = null;
         }
+        _answering = null;
+        run?.Dispose();
         if (tunnel is not null) await tunnel.DisposeAsync();
-        _stopping.Dispose();
+        _shutdown.Dispose();
     }
 }
 

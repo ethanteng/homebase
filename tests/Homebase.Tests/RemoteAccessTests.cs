@@ -321,6 +321,60 @@ public sealed class RemoteAccessTests : IDisposable
     }
 
     [Fact]
+    public async Task A_tunnel_can_be_turned_on_after_the_host_is_already_serving()
+    {
+        using var tunnels = new Tunnels(null, "first.tail9f3a.ts.net", "second.tail9f3a.ts.net");
+        var options = Read(new() { ["Homebase:RemoteAccess:Provider"] = "none" });
+        await using var remote = new RemoteAccess(options, NullLogger.Instance, tunnels.Next);
+
+        // Nothing was asked for before launch, which is the ordinary case: somebody turns it on
+        // later, from the interface, on a host everybody is already using.
+        Assert.False(remote.IsEnabled);
+        Assert.False(remote.IsCarrying);
+
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        Assert.Equal("first.tail9f3a.ts.net", await Settled(remote));
+        Assert.True(remote.Answers("first.tail9f3a.ts.net"));
+
+        // Turning it off takes the way in with it, at once rather than at the next restart.
+        await remote.StopAsync();
+        Assert.False(remote.IsEnabled);
+        Assert.False(remote.Answers("first.tail9f3a.ts.net"));
+        Assert.Equal("off", remote.State.Status);
+
+        // And it can be turned on again, which the tunnel could not survive when a run's
+        // cancellation belonged to the whole object rather than to the run.
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        Assert.Equal("second.tail9f3a.ts.net", await Settled(remote));
+        Assert.True(remote.Answers("second.tail9f3a.ts.net"));
+        Assert.False(remote.Answers("first.tail9f3a.ts.net"));
+    }
+
+    [Fact]
+    public async Task Turning_it_on_twice_leaves_one_tunnel_running()
+    {
+        using var tunnels = new Tunnels(null, "first.tail9f3a.ts.net", "second.tail9f3a.ts.net");
+        var options = Read(new() { ["Homebase:RemoteAccess:Provider"] = "none" });
+        await using var remote = new RemoteAccess(options, NullLogger.Instance, tunnels.Next);
+
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        remote.Start(5210, RemoteAccessProvider.Builtin);
+        Assert.Equal("first.tail9f3a.ts.net", await Settled(remote));
+
+        // The second press found a run already going and left it alone. A tunnel nothing is
+        // holding on to would go on carrying traffic after this one was stopped.
+        Assert.Equal(1, tunnels.Opened);
+    }
+
+    /// <summary>Waits for a tunnel to settle on an address, as a person watching the panel does.</summary>
+    private static async Task<string?> Settled(RemoteAccess remote)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        while (remote.State.Status != "on" && DateTimeOffset.UtcNow < deadline) await Task.Delay(25);
+        return remote.State.Hostname;
+    }
+
+    [Fact]
     public void The_builtin_tunnel_is_the_one_uncloud_ships()
     {
         var options = Read(new() { ["Homebase:RemoteAccess:Provider"] = "builtin" });
@@ -484,6 +538,8 @@ public sealed class RemoteAccessTests : IDisposable
         private readonly List<Tunnel> _opened = [];
 
         public Tunnel? Latest { get { lock (_opened) return _opened.LastOrDefault(); } }
+
+        public int Opened { get { lock (_opened) return _opened.Count; } }
 
         public ITunnel Next(RemoteAccessOptions options)
         {
