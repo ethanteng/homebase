@@ -5,6 +5,10 @@ if [[ ! -d src/homebase-web/node_modules ]]; then
   npm --prefix src/homebase-web ci
 fi
 npm --prefix src/homebase-web run build
+# The app's own return path: what it does when a browser comes back from Dropbox carrying how the
+# sign-in went. Everything that has gone wrong there was in React's lifecycle rather than in any
+# function worth calling directly, so these render the app.
+npm --prefix src/homebase-web run test
 # The signup function has no package of its own; the glob keeps the runner
 # from treating api/ as a module to resolve.
 node --test "api/*.test.js"
