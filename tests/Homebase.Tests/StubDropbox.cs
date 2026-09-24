@@ -59,8 +59,15 @@ public sealed class StubDropbox : IDropboxConnection
         return new MemoryStream(file.Content, writable: false);
     }
 
+    /// <summary>
+    /// The redirect URI the exchange was given, which Dropbox requires to be the one the sign-in
+    /// started with — so a test can tell that it was remembered rather than worked out again.
+    /// </summary>
+    public string? ExchangedWith { get; private set; }
+
     public Task ConnectAsync(string code, string verifier, string redirectUri, CancellationToken cancellationToken)
     {
+        ExchangedWith = redirectUri;
         IsConnected = true;
         return Task.CompletedTask;
     }
@@ -75,6 +82,15 @@ public sealed class StubDropboxes
     private readonly Lock _lock = new();
 
     public bool Configured { get; init; } = true;
+
+    /// <summary>
+    /// Every stub handed out so far, for a test that cares what happened to somebody's connection
+    /// without wanting to know their account id to ask — asking by id would quietly make a new one.
+    /// </summary>
+    public IReadOnlyList<StubDropbox> All
+    {
+        get { lock (_lock) return _byUser.Values.ToArray(); }
+    }
 
     public StubDropbox For(string userId)
     {

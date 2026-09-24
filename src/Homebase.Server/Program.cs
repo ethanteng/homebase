@@ -1,3 +1,4 @@
+using System.Net;
 using Homebase.Core;
 using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
@@ -90,9 +91,15 @@ builder.Services.AddSingleton<ImportLog>();
 builder.Services.AddSingleton<IFolderPicker, NativeFolderPicker>();
 // One shared client; downloads of large files need a generous timeout.
 builder.Services.AddSingleton(_ => new HttpClient { Timeout = TimeSpan.FromMinutes(30) });
+// Uncloud's own Dropbox app, under everybody else's. Overridable so that somebody running their
+// own build against their own app and relay isn't forced to edit source to do it.
+builder.Services.AddSingleton(provider => new DropboxRelay(
+    provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:RelayAppKey"],
+    provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:RelayCallback"]));
 builder.Services.AddSingleton(provider => new DropboxAppKey(
     provider.GetRequiredService<ControlDatabase>(),
-    provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:AppKey"]));
+    provider.GetRequiredService<IConfiguration>()["Homebase:Dropbox:AppKey"],
+    provider.GetRequiredService<DropboxRelay>()));
 builder.Services.AddSingleton<IDropboxApiFactory>(provider => new DropboxApiFactory(
     provider.GetRequiredService<HttpClient>(),
     provider.GetRequiredService<ConnectorStore>(),
@@ -129,6 +136,16 @@ var binding = app.Services.GetRequiredService<HostBinding>();
 string PublicAddress() =>
     binding.PublicUrlConfigured ? binding.PublicUrl : remote.State.Url ?? binding.PublicUrl;
 string RedirectUri() => $"{PublicAddress()}/api/providers/dropbox/callback";
+var relay = app.Services.GetRequiredService<DropboxRelay>();
+var appKeys = app.Services.GetRequiredService<DropboxAppKey>();
+// Where Dropbox sends an account's sign-in back to, which follows from whose Dropbox app it is
+// signing in through. An account on Uncloud's own app goes by way of the relay — that is the one
+// address registered with it — and is told to come home by the port on the end of its state.
+// Anybody on a key somebody here chose comes straight back, as they always did.
+(string RedirectUri, Func<string, string>? WayBack) DropboxReturn(string userId) =>
+    appKeys.UsesRelay(userId)
+        ? (relay.Callback, state => DropboxRelay.StateWithWayBack(state, binding.IsSecure, binding.Port))
+        : (RedirectUri(), (Func<string, string>?)null);
 // Read-only, and the same three whoever's app is being set up.
 string[] DropboxScopes = ["account_info.read", "files.metadata.read", "files.content.read"];
 if (binding.Warning is { } warning) app.Logger.LogWarning("{Warning}", warning);
@@ -426,13 +443,30 @@ app.MapGet("/api/providers/dropbox", (CurrentUser user, UserWorkspaces workspace
 });
 
 app.MapPost("/api/providers/dropbox/connect", (HttpContext context, CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
-    Results.Ok(new
+{
+    var (redirectUri, wayBack) = DropboxReturn(user.Id);
+    // The relay finishes a sign-in by sending the browser to the loopback address, which only
+    // reaches this host when the browser is on this computer. Somebody reached this from elsewhere
+    // — over a tunnel, or across the house — would be sent to their own machine instead, where
+    // there is either nothing listening or, worse, a different Uncloud. Better to say so than to
+    // send them somewhere that cannot work.
+    // A dual-stack socket reports a local browser as ::ffff:127.0.0.1, which is loopback and has to
+    // be read as one, or everybody at the machine gets turned away.
+    var from = context.Connection.RemoteIpAddress;
+    if (from is { IsIPv4MappedToIPv6: true }) from = from.MapToIPv4();
+    if (wayBack is not null && !(from is not null && IPAddress.IsLoopback(from)))
+        throw new LibraryException(
+            "Uncloud's own Dropbox app can only finish a sign-in on the computer Uncloud is running "
+            + "on. You're reaching it from somewhere else, so set up your own Dropbox app under My "
+            + "account — it takes a couple of minutes and works from anywhere.", "not_configured");
+    return Results.Ok(new
     {
-        authorizeUrl = flow.Begin(user.Id, workspaces.For(user.Account).Dropbox.AppKey, RedirectUri(),
+        authorizeUrl = flow.Begin(user.Id, workspaces.For(user.Account).Dropbox.AppKey, redirectUri,
             // Where to put them back afterwards. Dropbox returns the browser to the one registered
             // address, which may not be the one they are using.
-            $"{context.Request.Scheme}://{context.Request.Host}")
-    }));
+            $"{context.Request.Scheme}://{context.Request.Host}", wayBack)
+    });
+});
 
 app.MapPost("/api/providers/dropbox/disconnect", (CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
 {
@@ -462,19 +496,21 @@ app.MapGet("/api/providers/dropbox/callback", async (string? code, string? state
     string? returnTo = null;
     string? verifier = null;
     string? userId = null;
+    string? startedWith = null;
     try
     {
-        (userId, verifier, returnTo) = flow.Consume(state);
+        (userId, verifier, returnTo, startedWith) = flow.Consume(state);
     }
     catch (LibraryException expired)
     {
         app.Logger.LogWarning(expired, "A Dropbox sign-in came back with a state Uncloud didn’t recognise");
     }
     if (error is not null || code is null) return Results.Redirect(Back(returnTo, "denied"));
-    if (verifier is null || userId is null) return Results.Redirect(Back(returnTo, "failed"));
+    if (verifier is null || userId is null || startedWith is null)
+        return Results.Redirect(Back(returnTo, "failed"));
     try
     {
-        await workspaces.For(userId).Dropbox.ConnectAsync(code, verifier, RedirectUri(), cancellationToken);
+        await workspaces.For(userId).Dropbox.ConnectAsync(code, verifier, startedWith, cancellationToken);
         return Results.Redirect(Back(returnTo, "connected"));
     }
     catch (Exception failure) when (failure is LibraryException or HttpRequestException)
@@ -649,6 +685,8 @@ app.MapGet("/api/host/dropbox", (DropboxAppKey appKey) => Results.Ok(new
     appKey = appKey.HostStored,
     configured = appKey.Host is not null,
     fromEnvironment = appKey.HostFromEnvironment,
+    // Setting one here is a convenience, not a requirement, when Uncloud brings its own.
+    relayProvides = relay.Available,
     redirectUri = RedirectUri(),
     scopes = DropboxScopes
 }));
@@ -675,8 +713,10 @@ app.MapGet("/api/account/dropbox", (CurrentUser user, DropboxAppKey appKey) => R
     appKey = appKey.OwnedBy(user.Id),
     configured = appKey.For(user.Id) is not null,
     source = appKey.SourceFor(user.Id).ToString(),
-    // Whether leaving the box empty would still leave them able to connect.
+    // What leaving the box empty would fall back to. Two separate facts because they read
+    // differently on screen: an administrator here chose that key, and nobody chose the relay.
     hostProvides = appKey.Host is not null,
+    relayProvides = relay.Available,
     redirectUri = RedirectUri(),
     scopes = DropboxScopes
 }));
