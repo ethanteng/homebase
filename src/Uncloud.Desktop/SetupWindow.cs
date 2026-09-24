@@ -12,7 +12,7 @@ namespace Uncloud.Desktop;
 /// </summary>
 public sealed class SetupWindow : Window
 {
-    private static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#ff9d74"));
+    private static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#1f6fe5"));
 
     private readonly DesktopController _controller;
     private readonly StackPanel _body = new() { Spacing = 14, Margin = new Thickness(28) };
@@ -90,7 +90,7 @@ public sealed class SetupWindow : Window
         }
         else if (_controller.Settings.Address is { } known) address.Text = known;
 
-        var connect = new Button { Content = "Connect", Background = Accent, HorizontalAlignment = HorizontalAlignment.Right };
+        var connect = new Button { Content = "Connect", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
         connect.Click += async (_, _) =>
         {
             connect.IsEnabled = false;
@@ -123,7 +123,7 @@ public sealed class SetupWindow : Window
     {
         Reset("You’re connected",
             $"Files for {account} are arriving in {_controller.Paths.Files}. Anything you add, change or delete there reaches Uncloud, and the other way round. Uncloud keeps anything deleted for 30 days.");
-        var open = new Button { Content = "Open Uncloud Folder", Background = Accent, HorizontalAlignment = HorizontalAlignment.Right };
+        var open = new Button { Content = "Open Uncloud Folder", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
         open.Click += (_, _) => { App.Open(_controller.Paths.Files); Close(); };
         _body.Children.Add(open);
     }
@@ -132,7 +132,7 @@ public sealed class SetupWindow : Window
     {
         Reset("Make this Mac the host",
             "Uncloud will run here from the menu bar, with everything it needs built in. Next, your browser opens to make the first account and choose where everyone’s files are kept.");
-        var start = new Button { Content = "Start Uncloud Here", Background = Accent, HorizontalAlignment = HorizontalAlignment.Right };
+        var start = new Button { Content = "Start Uncloud Here", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
         start.Click += async (_, _) =>
         {
             start.IsEnabled = false;
