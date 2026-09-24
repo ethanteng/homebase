@@ -3,15 +3,24 @@ using System.Security.Cryptography;
 namespace Homebase.Core.Providers;
 
 /// <summary>
-/// A folder on the host's own computer that everybody here may bring files in from — the Dropbox
-/// or Google Drive folder a desktop app already syncs, an old external drive, a Pictures folder.
+/// A folder on the host's own computer that somebody brings files in from — the Dropbox or Google
+/// Drive folder a desktop app already syncs, an old external drive, a Pictures folder.
 ///
-/// Only an administrator adds one, and that is the whole of the permission model: Uncloud runs as
-/// one operating-system user and can read anything that user can, so a member naming a folder of
-/// their own choosing would be a way around the isolation between accounts rather than a feature.
-/// What is listed here is what the person who looks after this Uncloud has decided to share.
+/// It belongs to whoever added it, and only they can bring files in from it unless they share it
+/// with everyone here, which is a separate step they take on purpose. Only an administrator adds
+/// one: Uncloud runs as one operating-system user and can read anything that user can, so a member
+/// naming a folder of their own choosing would be a way around the isolation between accounts —
+/// the administrator's own files on this computer included — rather than a feature.
 /// </summary>
-public sealed record ImportPlace(string Id, string Name, string Path, DateTimeOffset AddedAt)
+/// <param name="OwnerName">Who added it, as everybody else here sees them.</param>
+public sealed record ImportPlace(
+    string Id,
+    string Name,
+    string Path,
+    DateTimeOffset AddedAt,
+    string OwnerId,
+    bool Shared,
+    string OwnerName = "")
 {
     /// <summary>What imports from this place are recorded under, so two places never collide.</summary>
     public string ProviderId => $"folder:{Id}";

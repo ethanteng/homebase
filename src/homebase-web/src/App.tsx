@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
-  CloudDownload,
   Files,
-  FolderTree,
   Laptop,
   LoaderCircle,
   LogOut,
@@ -14,10 +12,12 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { api, formatSize, SignedOutError } from "./api";
+import { api, SignedOutError } from "./api";
 import type { LibraryState, Session, StorageReport, User } from "./api";
-import ImportPanel from "./ImportPanel";
-import ImportSettings from "./ImportSettings";
+import AddFiles from "./AddFiles";
+import ImportStatus, { useImportJob } from "./ImportStatus";
+import HostDropbox from "./HostDropbox";
+import { StorageCard, StoragePill } from "./StorageMeter";
 import FileBrowser from "./FileBrowser";
 import SyncPanel from "./SyncPanel";
 import HostSetup from "./HostSetup";
@@ -25,8 +25,8 @@ import SignIn from "./SignIn";
 import UsersPanel from "./UsersPanel";
 import AccountPanel from "./AccountPanel";
 
-type View = "files" | "import" | "sync" | "users";
-type Dialog = "host" | "imports" | "account" | null;
+type View = "files" | "sync" | "users";
+type Dialog = "add" | "host" | "account" | null;
 
 function readPath() {
   try {
@@ -43,14 +43,18 @@ export default function App() {
   const [error, setError] = useState("");
   const [path, setPath] = useState(readPath);
   const [revision, setRevision] = useState(0);
-  const [importSettings, setImportSettings] = useState(0);
-  const [dialog, setDialog] = useState<Dialog>(null);
-  const [view, setView] = useState<View>(() =>
-    window.location.search.includes("dropbox=") ? "import" : "files",
+  // Coming back from signing in to Dropbox means picking up where they were: adding files.
+  const [dialog, setDialog] = useState<Dialog>(() =>
+    window.location.search.includes("dropbox=") ? "add" : null,
   );
+  // Somebody sent to set up Dropbox should land on that, not have to find it.
+  const [dropboxFocus, setDropboxFocus] = useState(false);
+  const [view, setView] = useState<View>("files");
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const me = session?.user ?? null;
+  const onImported = useCallback(() => setRevision((value) => value + 1), []);
+  const imports = useImportJob(me != null && library?.rootPath != null, onImported);
 
   // A session that ends while the app is open returns everyone to the sign-in screen rather
   // than to a page of errors nobody can act on.
@@ -91,16 +95,24 @@ export default function App() {
     return () => controller.abort();
   }, [me, revision, signedOut]);
 
+  // How much room is left is on screen all the time, so it is kept current: every minute, and
+  // every few seconds while files are arriving and the number is visibly moving.
   useEffect(() => {
     if (!library?.rootPath) return;
     const controller = new AbortController();
-    api<StorageReport>("/storage", { signal: controller.signal })
-      .then(setStorage)
-      .catch(() => {
-        // A drive that won't say how full it is shouldn't take the app down with it.
-      });
-    return () => controller.abort();
-  }, [library?.rootPath, revision]);
+    const read = () =>
+      api<StorageReport>("/storage", { signal: controller.signal })
+        .then(setStorage)
+        .catch(() => {
+          // A drive that won't say how full it is shouldn't take the app down with it.
+        });
+    void read();
+    const timer = window.setInterval(() => void read(), imports.running ? 5000 : 60000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [library?.rootPath, revision, imports.running]);
 
   useEffect(() => {
     const onHash = () => setPath(readPath());
@@ -109,9 +121,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (dialog) dialogRef.current?.showModal();
-    else dialogRef.current?.close();
+    const element = dialogRef.current;
+    // Going from one dialog straight to another keeps the same one open; opening it twice throws.
+    if (dialog) {
+      if (!element?.open) element?.showModal();
+    } else element?.close();
   }, [dialog]);
+
+  useEffect(() => {
+    if (dialog && dropboxFocus)
+      document.getElementById("dropbox-setup")?.scrollIntoView({ block: "start" });
+  }, [dialog, dropboxFocus]);
+
+  function closeDialog() {
+    setDialog(null);
+    setDropboxFocus(false);
+  }
 
   function navigate(nextPath: string) {
     window.location.hash = encodeURIComponent(nextPath);
@@ -210,14 +235,6 @@ export default function App() {
             My files<span className="nav-shortcut">⌂</span>
           </button>
           <button
-            className={`nav-item${view === "import" ? " active" : ""}`}
-            onClick={() => setView("import")}
-            disabled={!hasFolder}
-          >
-            <CloudDownload size={18} />
-            Bring files in
-          </button>
-          <button
             className={`nav-item${view === "sync" ? " active" : ""}`}
             onClick={() => setView("sync")}
             disabled={!hasFolder}
@@ -236,11 +253,7 @@ export default function App() {
               </button>
               <button className="nav-item" onClick={() => setDialog("host")}>
                 <Settings2 size={18} />
-                Storage settings
-              </button>
-              <button className="nav-item" onClick={() => setDialog("imports")}>
-                <FolderTree size={18} />
-                Where files come from
+                Settings
               </button>
             </>
           )}
@@ -250,37 +263,26 @@ export default function App() {
           </button>
         </div>
         <div className="sidebar-bottom">
-          <div className="drive-card">
-            <div className="drive-icon">
-              <HardDrive size={20} />
-              <span className="status-dot" />
-            </div>
-            <strong>
-              {hasFolder ? me.displayName : "Nearly there"}
-            </strong>
-            <p>
-              {hasFolder
-                ? "Your folder on this Uncloud"
-                : me.isAdmin
+          {hasFolder ? (
+            <StorageCard storage={storage} isAdmin={me.isAdmin} />
+          ) : (
+            <div className="drive-card">
+              <div className="drive-icon">
+                <HardDrive size={20} />
+                <span className="status-dot" />
+              </div>
+              <strong>Nearly there</strong>
+              <p>
+                {me.isAdmin
                   ? "Choose where everyone’s files will live."
                   : "The host hasn’t chosen a folder yet."}
-            </p>
-            {library?.rootPath && (
-              <code title={library.rootPath}>{library.rootPath}</code>
-            )}
-            {hasFolder && storage && (
-              <span className="drive-space">
-                {formatSize(storage.usedBytes)} yours
-                {storage.freeBytes != null
-                  ? ` · ${formatSize(storage.freeBytes)} free on the drive`
-                  : ""}
-              </span>
-            )}
-            <button onClick={() => setDialog("account")}>
-              My account
-              <ArrowUpRight size={14} />
-            </button>
-          </div>
+              </p>
+              <button onClick={() => setDialog("account")}>
+                My account
+                <ArrowUpRight size={14} />
+              </button>
+            </div>
+          )}
           <div className="local-status">
             <span className="status-dot" />
             <span>@{me.username}</span>
@@ -302,32 +304,24 @@ export default function App() {
             <span>Uncloud</span>
             <span className="slash">/</span>
             <strong>
-              {view === "import"
-                ? "Bring files in"
-                : view === "sync"
-                  ? "My computers"
-                  : view === "users"
-                    ? "People"
-                    : "My files"}
+              {view === "sync"
+                ? "My computers"
+                : view === "users"
+                  ? "People"
+                  : "My files"}
             </strong>
           </div>
-          <span className="private-label">
-            <span className="status-dot" />
-            Yours alone
+          <span className="topbar-status">
+            <span className="private-label">
+              <span className="status-dot" />
+              Yours alone
+            </span>
+            {hasFolder && <StoragePill storage={storage} />}
           </span>
         </header>
         <div className="main-content">
           {view === "users" && me.isAdmin ? (
             <UsersPanel me={me} />
-          ) : hasFolder && view === "import" ? (
-            <ImportPanel
-              onImported={() => setRevision((value) => value + 1)}
-              // An administrator setting the host's key helps everybody, so that is where
-              // they land; anybody else sets their own, which needs nothing from them.
-              onConfigure={() => setDialog(me.isAdmin ? "imports" : "account")}
-              canConfigure={me.isAdmin}
-              settingsRevision={importSettings}
-            />
           ) : hasFolder && view === "sync" ? (
             <SyncPanel />
           ) : hasFolder ? (
@@ -336,6 +330,17 @@ export default function App() {
               path={path}
               revision={revision}
               navigate={navigate}
+              onAdd={() => setDialog("add")}
+              status={
+                imports.job && (
+                  <ImportStatus
+                    job={imports.job}
+                    onStop={() => void imports.stop()}
+                    onDismiss={imports.dismiss}
+                    onOpen={navigate}
+                  />
+                )
+              }
             />
           ) : me.isAdmin ? (
             <>
@@ -380,48 +385,64 @@ export default function App() {
       </main>
       <dialog
         ref={dialogRef}
-        className="settings-dialog"
-        onCancel={() => setDialog(null)}
-        onClose={() => setDialog(null)}
+        className={`settings-dialog${dialog === "add" ? " add-dialog" : ""}`}
+        onCancel={closeDialog}
+        onClose={closeDialog}
         aria-labelledby="settings-title"
       >
         <div className="dialog-header">
           <div>
             <span className="eyebrow">
-              {dialog === "account" ? "YOUR ACCOUNT" : "THIS UNCLOUD"}
+              {dialog === "account"
+                ? "YOUR ACCOUNT"
+                : dialog === "add"
+                  ? "MY FILES"
+                  : "THIS UNCLOUD"}
             </span>
             <h2 id="settings-title">
               {dialog === "account"
-                ? "Your sign-in"
-                : dialog === "imports"
-                  ? "Where files come from"
-                  : "Where everyone’s files live"}
+                ? "Your account"
+                : dialog === "add"
+                  ? "Add files"
+                  : "Settings"}
             </h2>
           </div>
           <button
             className="icon-button"
-            aria-label="Close settings"
-            onClick={() => setDialog(null)}
+            aria-label="Close"
+            onClick={closeDialog}
           >
             <X size={20} />
           </button>
         </div>
-        {dialog === "account" && (
-          <AccountPanel
-            me={me}
-            onDropboxChanged={() => setImportSettings((value) => value + 1)}
+        {dialog === "add" && hasFolder && (
+          <AddFiles
+            importing={imports.running}
+            isAdmin={me.isAdmin}
+            storage={storage}
+            onStarted={(job) => {
+              imports.start(job);
+              closeDialog();
+            }}
+            // Whoever looks after this Uncloud sets Dropbox up once for everybody; anyone else
+            // can set up their own, which needs nothing from anybody.
+            onSetUpDropbox={() => {
+              setDropboxFocus(true);
+              setDialog(me.isAdmin ? "host" : "account");
+            }}
           />
+        )}
+        {dialog === "account" && (
+          <AccountPanel me={me} dropboxExpanded={dropboxFocus} />
         )}
         {dialog === "host" && me.isAdmin && (
-          <HostSetup
-            compact
-            onSaved={() => setRevision((value) => value + 1)}
-          />
-        )}
-        {dialog === "imports" && me.isAdmin && (
-          <ImportSettings
-            onChanged={() => setImportSettings((value) => value + 1)}
-          />
+          <>
+            <HostSetup
+              compact
+              onSaved={() => setRevision((value) => value + 1)}
+            />
+            <HostDropbox expanded={dropboxFocus} />
+          </>
         )}
       </dialog>
     </div>

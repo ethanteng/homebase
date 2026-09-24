@@ -98,36 +98,49 @@ export interface SourceEntry {
   modified: string | null;
 }
 
-/// A folder on the host's computer that an administrator has shared with everyone here.
+/// What a folder on this computer looks like to a person, which decides its icon.
+export type PlaceKind = "folder" | "cloud" | "drive";
+
+/// A folder on the host's computer somebody brings files in from. It is its owner's alone unless
+/// they have shared it with everyone here.
 export interface ImportPlace {
   id: string;
   name: string;
-  path: string;
+  // Only its owner is told where it sits on the host's disk.
+  path: string | null;
+  kind: PlaceKind;
   available: boolean;
+  mine: boolean;
+  shared: boolean;
+  // Who shared it, when it isn't this account's own.
+  sharedBy: string | null;
+  // Where in My files its files arrive, such as Files/Documents.
+  destination: string;
 }
 
-export interface ImportSources {
-  places: ImportPlace[];
-  dropbox: {
-    configured: boolean;
-    connected: boolean;
-    accountName: string | null;
-  };
-}
-
-export interface ManagedPlace extends ImportPlace {
-  addedAt: string;
-  destinationPrefix: string;
-}
-
+/// A folder on this computer worth offering, which becomes this account's own once used.
 export interface SuggestedPlace {
   name: string;
   path: string;
+  kind: PlaceKind;
 }
 
-export interface HostPlaces {
-  places: ManagedPlace[];
+/// An online account somebody can connect and bring files in from. Dropbox is the first.
+export interface ImportAccount {
+  id: string;
+  name: string;
+  configured: boolean;
+  connected: boolean;
+  accountName: string | null;
+  destination: string;
+}
+
+export interface ImportSources {
+  accounts: ImportAccount[];
+  places: ImportPlace[];
   suggestions: SuggestedPlace[];
+  // Only somebody who looks after this Uncloud can read the computer it runs on.
+  canAddFolders: boolean;
   canPickFolder: boolean;
 }
 

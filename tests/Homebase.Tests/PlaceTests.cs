@@ -4,6 +4,7 @@ using System.Text.Json;
 using Homebase.Core;
 using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Homebase.Tests;
@@ -13,8 +14,8 @@ namespace Homebase.Tests;
 /// app already syncing to disk gets its files in without touching a developer console.
 ///
 /// Most of these are about the boundary rather than the copying: the process can read anything its
-/// operating-system user can, so which folders are shareable is the whole of what keeps one
-/// account out of another's files.
+/// operating-system user can, so which folders are readable, and by whom, is the whole of what keeps
+/// one account out of another's files. A folder is its owner's alone until they share it.
 /// </summary>
 public sealed class PlaceTests : IDisposable
 {
@@ -47,6 +48,18 @@ public sealed class PlaceTests : IDisposable
         return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
     }
 
+    private static async Task ShareAsync(HttpClient owner, string place, bool shared)
+    {
+        var response = await owner.PatchAsJsonAsync($"/api/host/places/{place}", new { shared });
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static async Task<string> IdOfAsync(HttpClient client) =>
+        (await client.GetFromJsonAsync<JsonElement>("/api/session")).GetProperty("user").GetProperty("id").GetString()!;
+
+    private static async Task<JsonElement[]> PlacesAsync(HttpClient client) =>
+        (await client.GetFromJsonAsync<JsonElement>("/api/imports/sources")).GetProperty("places").EnumerateArray().ToArray();
+
     private void Write(string relative, string contents)
     {
         var full = Path.Combine(_source, relative.Replace('/', Path.DirectorySeparatorChar));
@@ -64,11 +77,16 @@ public sealed class PlaceTests : IDisposable
         using var _ = client;
         var place = await AddPlaceAsync(client, _source, "Dropbox");
 
-        // It shows up as somewhere to bring files in from, alongside the online accounts.
+        // It shows up as somewhere to bring files in from, alongside the online accounts, and as
+        // this account's own rather than anybody else's.
         var sources = await client.GetFromJsonAsync<JsonElement>("/api/imports/sources");
         var listed = Assert.Single(sources.GetProperty("places").EnumerateArray().ToArray());
         Assert.Equal("Dropbox", listed.GetProperty("name").GetString());
         Assert.True(listed.GetProperty("available").GetBoolean());
+        Assert.True(listed.GetProperty("mine").GetBoolean());
+        Assert.False(listed.GetProperty("shared").GetBoolean());
+        Assert.Equal("dropbox", Assert.Single(sources.GetProperty("accounts").EnumerateArray().ToArray())
+            .GetProperty("id").GetString());
 
         // And browsing it is the same shape of answer as browsing an online account.
         var entries = await client.GetFromJsonAsync<JsonElement[]>($"/api/imports/sources/{place}/files?path=");
@@ -151,10 +169,19 @@ public sealed class PlaceTests : IDisposable
         var response = await client.PutAsJsonAsync("/api/host", new { path = moved });
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Contains("Old drive", problem.GetProperty("detail").GetString());
+        var detail = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString()!;
+        Assert.Contains("Old drive", detail);
+        Assert.DoesNotContain("{", detail);
         // And the host's folder is the one it always was, so nobody's files have moved.
         Assert.Equal(root, await TestHost.UserRootAsync(client));
+
+        // Another administrator is refused the same move, without being told the name of a folder
+        // that is private to somebody else.
+        using var other = await app.AddUserAsync(client, "cy", isAdmin: true);
+        var theirs = await other.PutAsJsonAsync("/api/host", new { path = moved });
+        Assert.Equal(HttpStatusCode.Conflict, theirs.StatusCode);
+        Assert.DoesNotContain("Old drive",
+            (await theirs.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString());
     }
 
     [Fact]
@@ -179,7 +206,7 @@ public sealed class PlaceTests : IDisposable
         var places = new ImportPlaces(database, new HostService(database), reachedBy);
 
         // Offering the same folder under its real name must not get past the refusal.
-        var refusal = Assert.Throws<LibraryException>(() => places.Add(real, "Sneaky"));
+        var refusal = Assert.Throws<LibraryException>(() => places.Add("someone", real, "Sneaky"));
         Assert.Equal("forbidden", refusal.Code);
         Assert.Contains("passwords", refusal.Message);
     }
@@ -229,11 +256,11 @@ public sealed class PlaceTests : IDisposable
 
         // Three passes is enough to see through it, and the folder is refused for what it holds.
         var seeing = new ImportPlaces(database, host, reachedBy) { Rewrites = 3 };
-        Assert.Contains("passwords", Assert.Throws<LibraryException>(() => seeing.Add(real, "Sneaky")).Message);
+        Assert.Contains("passwords", Assert.Throws<LibraryException>(() => seeing.Add("someone", real, "Sneaky")).Message);
 
         // Two is not, and the answer is a refusal rather than the half-resolved path it got to.
         var blinkered = new ImportPlaces(database, host, reachedBy) { Rewrites = 2 };
-        var refusal = Assert.Throws<LibraryException>(() => blinkered.Add(real, "Sneaky"));
+        var refusal = Assert.Throws<LibraryException>(() => blinkered.Add("someone", real, "Sneaky"));
         Assert.Equal("forbidden", refusal.Code);
         Assert.Contains("too many linked folders", refusal.Message);
     }
@@ -258,12 +285,15 @@ public sealed class PlaceTests : IDisposable
             new OneStub(source), new ImportPlaces(database, host, _config), NullLoggerFactory.Instance);
 
         var workspace = workspaces.For("someone");
-        workspace.Jobs.Start(source, "folder:abc", "/notes", "notes");
+        // Recorded under the place's id, which is what a request names it by.
+        workspace.Jobs.Start(source, "abc", "/notes", "notes");
         await source.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
-        // A place nobody is importing from is nobody's import to stop.
-        Assert.Equal(0, workspaces.CancelImportsFrom("folder:something-else"));
-        Assert.Equal(1, workspaces.CancelImportsFrom("folder:abc"));
+        // A place nobody is importing from is nobody's import to stop, and nor is one somebody
+        // else is left free to carry on with.
+        Assert.Equal(0, workspaces.CancelImportsFrom("something-else"));
+        Assert.Equal(0, workspaces.CancelImportsFrom("abc", reader => reader != "someone"));
+        Assert.Equal(1, workspaces.CancelImportsFrom("abc"));
 
         source.Gate.SetResult();
         var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
@@ -289,33 +319,204 @@ public sealed class PlaceTests : IDisposable
         var database = new ControlDatabase(_config);
         var host = new HostService(database);
         var places = new ImportPlaces(database, host, _config);
-        var added = places.Add(_source, "Old drive");
-        Assert.Equal(added.Id, places.Require(added.Id).Id);
+        var owner = new UserStore(database).Create("owner", "Owner", TestHost.Password, isAdmin: true);
+        var added = places.Add(owner.Id, _source, "Old drive");
+        Assert.Equal(added.Id, places.Require(added.Id, owner.Id).Id);
 
         // Moved on the service directly, which is not the route an administrator takes.
         host.SelectRoot(Directory.CreateDirectory(Path.Combine(_source, "NewHost")).FullName);
 
-        var refusal = Assert.Throws<LibraryException>(() => places.Require(added.Id));
+        var refusal = Assert.Throws<LibraryException>(() => places.Require(added.Id, owner.Id));
         Assert.Equal("forbidden", refusal.Code);
     }
 
     [Fact]
-    public async Task Only_an_administrator_decides_which_folders_everybody_can_read()
+    public async Task Only_somebody_who_looks_after_this_host_can_add_one_of_its_folders()
     {
         using var app = CreateApp();
         var (admin, _) = await StartAsync(app);
         using var __ = admin;
         using var member = await app.AddUserAsync(admin, "bo");
 
-        // Adding a place shares it with everyone here, so it is the host's decision, not a member's.
-        Assert.Equal(HttpStatusCode.Forbidden, (await member.GetAsync("/api/host/places")).StatusCode);
+        // This computer's folders are its administrator's own files as much as anybody's; a member
+        // naming one would be reading them. So a member isn't offered any, and can't add one.
+        var sources = await member.GetFromJsonAsync<JsonElement>("/api/imports/sources");
+        Assert.False(sources.GetProperty("canAddFolders").GetBoolean());
+        Assert.Empty(sources.GetProperty("suggestions").EnumerateArray());
         Assert.Equal(HttpStatusCode.Forbidden,
             (await member.PostAsJsonAsync("/api/host/places", new { path = _source, name = "Mine" })).StatusCode);
 
         var place = await AddPlaceAsync(admin, _source, "Family photos");
         Assert.Equal(HttpStatusCode.Forbidden, (await member.DeleteAsync($"/api/host/places/{place}")).StatusCode);
-        // What they can do is use one, which is the point of adding it.
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await member.PatchAsJsonAsync($"/api/host/places/{place}", new { shared = true })).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_folder_is_private_to_whoever_added_it_until_they_share_it()
+    {
+        Write("diary.txt", "Mine.");
+        using var app = CreateApp();
+        var (admin, _) = await StartAsync(app);
+        using var __ = admin;
+        using var member = await app.AddUserAsync(admin, "bo");
+        using var otherAdmin = await app.AddUserAsync(admin, "cy", isAdmin: true);
+        var place = await AddPlaceAsync(admin, _source, "Documents");
+
+        // Nobody else sees it, administrators included, and asking for it by id finds nothing
+        // rather than confirming that somebody's private folder is there.
+        foreach (var other in new[] { member, otherAdmin })
+        {
+            Assert.Empty(await PlacesAsync(other));
+            Assert.Equal(HttpStatusCode.NotFound,
+                (await other.GetAsync($"/api/imports/sources/{place}/files?path=")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound,
+                (await other.PostAsJsonAsync("/api/imports", new { remotePath = "/", source = place })).StatusCode);
+        }
+        // Nor can another administrator share it, or take it away, on its owner's behalf.
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await otherAdmin.PatchAsJsonAsync($"/api/host/places/{place}", new { shared = true })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await otherAdmin.DeleteAsync($"/api/host/places/{place}")).StatusCode);
+
+        await ShareAsync(admin, place, shared: true);
+
+        // Shared, it is everybody's to bring files in from — by name and by who shared it, but not
+        // by where it sits on the host's disk, which is only its owner's business.
+        var seen = Assert.Single(await PlacesAsync(member));
+        Assert.Equal("Documents", seen.GetProperty("name").GetString());
+        Assert.False(seen.GetProperty("mine").GetBoolean());
+        Assert.Equal("owner", seen.GetProperty("sharedBy").GetString());
+        Assert.Equal(JsonValueKind.Null, seen.GetProperty("path").ValueKind);
         (await member.GetAsync($"/api/imports/sources/{place}/files?path=")).EnsureSuccessStatusCode();
+
+        await ShareAsync(admin, place, shared: false);
+        Assert.Empty(await PlacesAsync(member));
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await member.GetAsync($"/api/imports/sources/{place}/files?path=")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_folder_stops_being_readable_through_somebody_who_no_longer_looks_after_this_host()
+    {
+        using var app = CreateApp();
+        var (admin, _) = await StartAsync(app);
+        using var __ = admin;
+        using var member = await app.AddUserAsync(admin, "bo");
+        using var formerAdmin = await app.AddUserAsync(admin, "cy", isAdmin: true);
+        var place = await AddPlaceAsync(formerAdmin, _source, "Old drive");
+        await ShareAsync(formerAdmin, place, shared: true);
+        Assert.Single(await PlacesAsync(member));
+
+        var id = await IdOfAsync(formerAdmin);
+        (await admin.PatchAsJsonAsync($"/api/users/{id}", new { isAdmin = false })).EnsureSuccessStatusCode();
+
+        // Being able to read this computer's folders came with looking after it, and so did being
+        // able to share one. Neither outlives it.
+        Assert.Empty(await PlacesAsync(formerAdmin));
+        Assert.Empty(await PlacesAsync(member));
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await member.GetAsync($"/api/imports/sources/{place}/files?path=")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Unsharing_a_folder_stops_anybody_else_partway_through_bringing_it_home()
+    {
+        // The share is what the reading rested on, so taking it back has to reach an import already
+        // under way, which holds the folder it started on and never asks again. Held open at its
+        // first file through the real workspace, so this goes through the same wiring a request does.
+        using var app = CreateApp();
+        var (admin, _) = await StartAsync(app);
+        using var __ = admin;
+        using var member = await app.AddUserAsync(admin, "bo");
+        var place = await AddPlaceAsync(admin, _source, "Family photos");
+        await ShareAsync(admin, place, shared: true);
+
+        var reading = await HeldOpenAsync(app, await IdOfAsync(member), place);
+        var owners = await HeldOpenAsync(app, await IdOfAsync(admin), place);
+        await ShareAsync(admin, place, shared: false);
+
+        Assert.Equal(ImportStage.Stopped, await SettledAsync(reading));
+        // Its owner's own import is theirs, and is left to finish.
+        Assert.Equal(ImportStage.Done, await SettledAsync(owners));
+    }
+
+    [Fact]
+    public async Task Removing_a_folder_stops_an_import_already_running_from_it()
+    {
+        using var app = CreateApp();
+        var (admin, _) = await StartAsync(app);
+        using var __ = admin;
+        var place = await AddPlaceAsync(admin, _source, "Old drive");
+        var running = await HeldOpenAsync(app, await IdOfAsync(admin), place);
+
+        (await admin.DeleteAsync($"/api/host/places/{place}")).EnsureSuccessStatusCode();
+
+        Assert.Equal(ImportStage.Stopped, await SettledAsync(running));
+    }
+
+    /// <summary>
+    /// An import recorded as coming from <paramref name="place"/>, in <paramref name="userId"/>'s own
+    /// workspace, held at its first file until the stub's gate is opened — which the overload of
+    /// SettledAsync below does once whatever the test is about has happened.
+    /// </summary>
+    private static async Task<(ImportJobs Jobs, StubDropbox Source)> HeldOpenAsync(TestHost app, string userId, string place)
+    {
+        var source = new StubDropbox { Gated = true };
+        source.AddFolder("/notes");
+        source.Add("/notes/one.txt", "rev1", "One.");
+        source.Add("/notes/two.txt", "rev1", "Two.");
+        var jobs = app.Services.GetRequiredService<UserWorkspaces>().For(userId).Jobs;
+        jobs.Start(source, place, "/notes", "notes");
+        await source.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        return (jobs, source);
+    }
+
+    private static async Task<ImportStage> SettledAsync((ImportJobs Jobs, StubDropbox Source) held)
+    {
+        held.Source.Gate.TrySetResult();
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (held.Jobs.Current is { Running: true } && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(15);
+        return held.Jobs.Current!.Stage;
+    }
+
+    [Fact]
+    public void Folders_added_before_they_had_owners_stay_shared_by_the_longest_standing_administrator()
+    {
+        // A host from before folders belonged to anybody added them under a warning that everyone
+        // could read them. Taking that away from people halfway through using one isn't Uncloud's
+        // decision to make, so they carry on shared, owned by whoever has looked after it longest.
+        Directory.CreateDirectory(_config);
+        using (var legacy = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_config, "homebase.db")};Pooling=False"))
+        {
+            legacy.Open();
+            using var command = legacy.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE users (
+                    id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
+                    password_hash TEXT NOT NULL, is_admin INTEGER NOT NULL,
+                    created_at TEXT NOT NULL, disabled_at TEXT
+                );
+                CREATE TABLE import_places (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, added_at TEXT NOT NULL
+                );
+                INSERT INTO users VALUES ('member', 'bo', 'Bo', 'x', 0, '2024-01-01T00:00:00+00:00', NULL);
+                INSERT INTO users VALUES ('second', 'cy', 'Cy', 'x', 1, '2024-06-01T00:00:00+00:00', NULL);
+                INSERT INTO users VALUES ('first', 'al', 'Al', 'x', 1, '2024-03-01T00:00:00+00:00', NULL);
+                INSERT INTO import_places VALUES ('p1', 'Family', '/somewhere', '2024-07-01T00:00:00+00:00');
+                PRAGMA user_version = 4;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        var database = new ControlDatabase(_config);
+        var places = new ImportPlaces(database, new HostService(database), _config);
+
+        var place = Assert.Single(places.VisibleTo("member"));
+        Assert.Equal("first", place.OwnerId);
+        Assert.True(place.Shared);
+        // And opening it again, as every request does, leaves it as it is.
+        Assert.Equal("first", Assert.Single(places.VisibleTo("second")).OwnerId);
     }
 
     [Fact]
@@ -365,21 +566,23 @@ public sealed class PlaceTests : IDisposable
     }
 
     [Fact]
-    public async Task Two_places_cannot_share_one_folder_in_the_library()
+    public async Task Choosing_the_same_folder_twice_is_the_same_folder_and_a_second_name_is_numbered()
     {
         var other = Directory.CreateDirectory(Path.Combine(_temporary, "Second")).FullName;
         using var app = CreateApp();
         var (client, _) = await StartAsync(app);
         using var __ = client;
-        await AddPlaceAsync(client, _source, "Dropbox");
+        var first = await AddPlaceAsync(client, _source, "Dropbox");
 
-        // Both would write into Files/Dropbox, which would make "already imported" ambiguous.
+        // Choosing it again, from a suggestion or the folder chooser, is not a mistake to explain.
+        Assert.Equal(first, await AddPlaceAsync(client, _source, "Dropbox again"));
+
+        // Two folders with one name would write into one folder under Files/, so the second is
+        // numbered rather than refused: having two folders called Photos is an ordinary thing.
         var response = await client.PostAsJsonAsync("/api/host/places", new { path = other, name = "Dropbox" });
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-
-        // Nor can the same folder be added twice under two names.
-        var again = await client.PostAsJsonAsync("/api/host/places", new { path = _source, name = "Dropbox again" });
-        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("Dropbox 2", (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("name").GetString());
+        Assert.Equal(2, (await PlacesAsync(client)).Length);
     }
 
     [Fact]

@@ -122,10 +122,18 @@ one feature that could undo everything above if it took a path from a request.
 It doesn't. Uncloud runs as one operating-system user and can read whatever that user can, so a
 member naming a folder would read straight across every other account. Instead:
 
-- **Only an administrator adds a place.** `/api/host/places` sits under the administrative prefix.
-  Adding one shares it with every account on the host, which is a decision about the host.
-- **A request names a place by id, never by path.** `UserWorkspace.Source(id)` looks the id up in
-  the host's list; a path in the request is only ever *relative to* the place it resolved to, and
+- **Only an administrator adds a place.** `/api/host/places` sits under the administrative prefix,
+  because reading this computer's folders is reading the administrator's own files as much as
+  anybody's.
+- **A place is its owner's alone until they share it.** `import_places.owner_id` says whose it is;
+  `ImportPlaces.VisibleTo` hands an account its own places and those shared with everyone, and
+  nothing else. Somebody else's private place answers *not found*, not *forbidden*, so its existence
+  isn't confirmed. Only the owner can share, unshare or remove one, and unsharing or removing stops
+  every other account's import already running from it. A place is only readable through an owner
+  who is still an active administrator: demoting, disabling or deleting them stops their places for
+  everyone, running imports included.
+- **A request names a place by id, never by path.** `UserWorkspace.Source(id)` looks the id up
+  among the places that account may use; a path in the request is only ever *relative to* the place it resolved to, and
   goes through `PathPolicy.Resolve` — the same rejection of `..`, absolute paths, backslashes, NULs
   and dot-prefixed segments, and the same refusal of symbolic links at every level.
 - **A place can never touch the host root or the preference directory**, in either direction: not

@@ -203,22 +203,6 @@ p {
   line-height: 1.8;
   margin-top: 6px;
 }
-.drive-card code {
-  display: block;
-  font-family: inherit;
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 7px;
-}
-.drive-space {
-  display: block;
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 5px;
-}
 .drive-card button {
   display: flex;
   align-items: center;
@@ -1399,19 +1383,6 @@ tbody tr.selected {
   max-width: 62ch;
 }
 
-.storage-note svg {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-.storage-note span {
-  font-size: 11px;
-  line-height: 1.8;
-}
-/* A folder that won't fit has to read differently from one that simply hasn't been measured. */
-.import-list li .muted.will-not-fit {
-  color: var(--danger-text);
-}
-
 .import-progress {
   display: flex;
   flex-direction: column;
@@ -1580,90 +1551,12 @@ tbody tr.selected {
   margin-bottom: 26px;
 }
 
-/* Where files come from. A row of places to choose between, each a tab: a folder on this
-   computer, or a Dropbox account. Chips rather than a select, because the choice is the point
-   of the screen and there are rarely more than a handful. */
-.source-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.source-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--paper);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 550;
-  white-space: nowrap;
-  transition:
-    border-color 0.15s,
-    background 0.15s,
-    color 0.15s;
-}
-.source-chip:hover:not(.active) {
-  border-color: var(--line-strong);
-  color: var(--text);
-}
-.source-chip.active {
-  border-color: var(--accent);
-  background: var(--surface-2);
-  color: var(--text);
-}
-.source-chip svg {
-  flex-shrink: 0;
-}
-/* The account or drive behind the name, said quietly: it identifies the chip without
-   competing with it. */
-.source-chip em {
-  font-style: normal;
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--muted);
-  max-width: 18ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* A drive that isn't plugged in is still worth showing — it explains where a place went. */
-.source-chip.unavailable span {
-  color: var(--muted);
-}
-.source-chip.unavailable em {
-  color: var(--danger-text);
-}
-
 /* Explanatory text under a heading is prose, and prose wants a measure. Without one it runs
    the width of the page and stops reading as an aside. */
 .import-section > .field-help {
   max-width: 72ch;
 }
 
-/* The administrator's side of the same screen, inside the settings dialog. There is more to say
-   here than in the other dialogs, so it gets more room to say it in. */
-.settings-dialog:has(.import-settings) {
-  width: 620px;
-}
-.import-settings {
-  display: flex;
-  flex-direction: column;
-}
-.import-settings .import-section {
-  margin-top: 22px;
-}
-/* Two settings that have nothing to do with each other, one above the other in one dialog: the
-   rule is what stops the second reading as more of the first. Between sections rather than above
-   each, because a notice can sit at the top and the first section is then not the first child. */
-.import-settings .import-section + .import-section {
-  margin-top: 30px;
-  padding-top: 26px;
-  border-top: 1px solid var(--line);
-}
-.import-settings h3,
 .account-dropbox h3 {
   display: flex;
   align-items: center;
@@ -1672,7 +1565,6 @@ tbody tr.selected {
   font-size: 15px;
   font-weight: 600;
 }
-.import-settings h3 svg,
 .account-dropbox h3 svg {
   flex-shrink: 0;
   color: var(--muted);
@@ -1689,28 +1581,6 @@ tbody tr.selected {
 }
 .account-dropbox .button {
   align-self: flex-start;
-}
-.import-settings .import-list {
-  margin-top: 16px;
-}
-.import-settings .step-label {
-  display: block;
-  margin-top: 26px;
-}
-/* Suggestions are offers, not state: lighter than the list of places actually shared. */
-.import-list.suggestions {
-  background: none;
-  border-style: dashed;
-}
-/* .setup-form carries the welcome screen's generous padding, which is wrong for a form sitting
-   inside a section that already has its own spacing. */
-.inline-form {
-  padding: 0;
-  margin-top: 26px;
-  max-width: 460px;
-}
-.inline-form .step-label {
-  margin-top: 0;
 }
 .setup-steps {
   margin: 4px 0 18px;
@@ -1833,4 +1703,467 @@ tbody tr.selected {
 }
 .warning-text {
   color: var(--danger-text);
+}
+
+/* The Dropbox setup reads the same in My account and in Settings, whether or not it sits inside
+   a form that already lays out its labels. */
+.account-dropbox,
+.account-dropbox details {
+  display: flex;
+  flex-direction: column;
+}
+.account-dropbox label {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 23px 0 9px;
+}
+.account-dropbox .button.primary {
+  margin-top: 21px;
+}
+/* Something most people never need, kept out of the way until asked for. */
+details.advanced {
+  margin-top: 14px;
+}
+details.advanced > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--accent);
+  width: fit-content;
+}
+details.advanced[open] > summary {
+  margin-bottom: 10px;
+}
+
+/* A quiet action that shouldn't compete with the buttons beside it. */
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  text-align: left;
+}
+.link-button:hover:not(:disabled) {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* What is on its way into My files, above the files it is on its way to. */
+.page-heading + .import-progress {
+  margin: -8px 0 22px;
+}
+.import-progress-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.import-outcome-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.import-outcome .import-progress-head strong svg {
+  color: var(--ok);
+  flex-shrink: 0;
+}
+.import-outcome.failed {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+}
+.import-outcome.failed .import-progress-head strong,
+.import-outcome.failed .import-progress-head strong svg {
+  color: var(--danger-text);
+}
+.import-outcome .import-list {
+  margin-top: 4px;
+}
+
+/* Adding files: one dialog, whatever the files are coming from. It browses, so it gets the room
+   a list of files needs. */
+.settings-dialog.add-dialog {
+  width: 720px;
+}
+.add-files {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 22px;
+}
+.add-files > .library-note,
+.add-files > .error-message {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.add-question {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+  gap: 10px;
+}
+.source-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  text-align: left;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.source-card:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.source-card strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.source-card .muted {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.source-card-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 8px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--accent);
+}
+/* Not here yet: visible, so it is clear where it will be, but plainly not something to press. */
+.source-card.soon:disabled {
+  opacity: 1;
+  border-style: dashed;
+  background: none;
+}
+.source-card.soon .source-card-icon {
+  color: var(--muted);
+}
+.add-promise {
+  margin: 4px 0 0;
+}
+.add-promise strong {
+  color: var(--text);
+  font-weight: 550;
+}
+.add-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.add-crumbs button:disabled {
+  opacity: 1;
+}
+.add-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.add-where {
+  font-size: 12px;
+}
+.browse-list {
+  max-height: 46vh;
+  overflow: auto;
+}
+.browse-list li {
+  padding: 6px 10px 6px 6px;
+}
+/* The whole row opens a folder, not just its name: a big target is kinder than a small one. */
+.browse-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  text-align: left;
+}
+.browse-name:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.browse-name:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.browse-name > svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.browse-name > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.browse-name strong {
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.browse-name .muted {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.import-list li.unavailable .browse-name strong {
+  color: var(--muted);
+}
+.import-list li.unavailable .browse-name .muted {
+  color: var(--danger-text);
+}
+.add-button {
+  padding: 8px 13px;
+  flex-shrink: 0;
+}
+.add-another {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.add-typed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.add-typed label {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--muted);
+}
+.add-typed .path-input {
+  flex: 1;
+  min-width: 220px;
+  width: auto;
+}
+.place-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+@media (max-width: 720px) {
+  .add-files .import-list li {
+    flex-wrap: nowrap;
+  }
+  .add-files .import-list li > div {
+    flex-basis: auto;
+  }
+  .source-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .heading-actions .button.primary {
+    padding: 10px 13px;
+  }
+}
+
+/* How much room is left. Everybody here shares one drive, so this is on every page: large in the
+   sidebar, compact in the top bar where it survives on a phone. Colour only ever adds to the
+   words, which say "running low" themselves. */
+:root {
+  --warn: #f2c26b;
+}
+.storage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 15px;
+}
+.storage-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.storage-free {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+}
+.storage-free span {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.storage-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.storage-bar span {
+  display: block;
+  height: 100%;
+}
+.storage-mine,
+.swatch.mine {
+  background: var(--accent);
+}
+.storage-others {
+  background: var(--line-strong);
+}
+.storage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.storage-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+.storage-warning {
+  display: flex;
+  gap: 6px;
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.storage-warning svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.storage-card.level-low {
+  border-color: var(--warn);
+}
+.storage-card.level-low .storage-free,
+.storage-card.level-low .storage-warning {
+  color: var(--warn);
+}
+.storage-card.level-critical {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+}
+.storage-card.level-critical .storage-free,
+.storage-card.level-critical .storage-warning {
+  color: var(--danger-text);
+}
+.topbar-status {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.storage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.storage-pill strong {
+  color: var(--text);
+  font-weight: 650;
+}
+.storage-bar.mini {
+  width: 54px;
+  height: 6px;
+}
+.storage-pill.level-low {
+  border-color: var(--warn);
+}
+.storage-pill.level-low,
+.storage-pill.level-low strong {
+  color: var(--warn);
+}
+.storage-pill.level-critical {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+}
+.storage-pill.level-critical,
+.storage-pill.level-critical strong {
+  color: var(--danger-text);
+}
+.add-room {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.add-room svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.add-room strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.add-room.level-low {
+  border-color: var(--warn);
+}
+.add-room.level-low strong {
+  color: var(--warn);
+}
+.add-room.level-critical {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+}
+.add-room.level-critical strong {
+  color: var(--danger-text);
+}
+@media (max-width: 580px) {
+  /* On a phone the sidebar's card is gone, so the top bar keeps the space left and gives up the
+     privacy note, which every page's heading already says. */
+  .topbar-status .private-label {
+    display: none;
+  }
 }

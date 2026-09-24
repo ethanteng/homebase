@@ -53,8 +53,12 @@ public sealed class ControlDatabase(string directory)
                     key TEXT NOT NULL, value TEXT NOT NULL,
                     PRIMARY KEY (user_id, key)
                 );
+                -- A folder on this computer somebody adds files from. It is theirs alone unless they
+                -- share it, which is a separate, deliberate step.
                 CREATE TABLE IF NOT EXISTS import_places (
-                    id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, added_at TEXT NOT NULL
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, added_at TEXT NOT NULL,
+                    owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+                    shared INTEGER NOT NULL DEFAULT 0
                 );
                 -- Syncthing's configuration is the whole host's. These say which account each
                 -- paired computer and each synced folder belongs to, which Syncthing can't.
@@ -74,9 +78,10 @@ public sealed class ControlDatabase(string directory)
                     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                     expires_at TEXT NOT NULL
                 );
-                PRAGMA user_version = 4;
+                PRAGMA user_version = 5;
                 """;
             command.ExecuteNonQuery();
+            OwnPlaces(connection);
             // Password hashes and sealed tokens live here; nobody else on the host needs to read it.
             if (!OperatingSystem.IsWindows() && File.Exists(_path))
                 File.SetUnixFileMode(_path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
@@ -87,5 +92,34 @@ public sealed class ControlDatabase(string directory)
             connection.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Folders on this computer used to belong to nobody and be open to everybody. A host from then
+    /// gets the columns that say whose each one is, and every folder already there is given to the
+    /// longest-standing administrator and left shared: adding one then came with the warning that
+    /// everyone here could read it, so sharing was what whoever added it chose. Taking it away from
+    /// people who may be halfway through bringing it home is not a decision to make for them.
+    /// </summary>
+    private static void OwnPlaces(SqliteConnection connection)
+    {
+        using var columns = connection.CreateCommand();
+        columns.CommandText = "SELECT COUNT(*) FROM pragma_table_info('import_places') WHERE name = 'owner_id'";
+        if (Convert.ToInt64(columns.ExecuteScalar()) > 0) return;
+        // Checked again under the write lock: two requests opening the database at once would
+        // otherwise both find the column missing, and the second to add it would fail.
+        using var transaction = connection.BeginTransaction(deferred: false);
+        columns.Transaction = transaction;
+        if (Convert.ToInt64(columns.ExecuteScalar()) > 0) return;
+        using var migrate = connection.CreateCommand();
+        migrate.Transaction = transaction;
+        migrate.CommandText = """
+            ALTER TABLE import_places ADD COLUMN owner_id TEXT REFERENCES users(id) ON DELETE CASCADE;
+            ALTER TABLE import_places ADD COLUMN shared INTEGER NOT NULL DEFAULT 0;
+            UPDATE import_places SET shared = 1, owner_id = (
+                SELECT id FROM users WHERE is_admin = 1 AND disabled_at IS NULL ORDER BY created_at, id LIMIT 1);
+            """;
+        migrate.ExecuteNonQuery();
+        transaction.Commit();
     }
 }
