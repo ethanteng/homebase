@@ -14,7 +14,12 @@
     <PackageReference Include="Avalonia" Version="11.3.22" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The same framework as the Uncloud server the app carries, so the two publish identical
+         copies of .NET and the Mac app keeps only one (scripts/package-macos-app.sh). It also
+         brings Microsoft.Extensions.Logging. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Uncloud.Desktop.Core/Uncloud.Desktop.Core.csproj" />

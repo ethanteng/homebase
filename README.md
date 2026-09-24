@@ -8,8 +8,8 @@ Uncloud keeps your family's files on a computer at home instead of on somebody e
 Everyone gets their own private space, signs in from any browser, and can keep a folder on their
 laptop in sync with it. There's no monthly storage bill, and nobody else holds your files.
 
-**[Download Uncloud for Mac](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.zip)** (Apple silicon) ·
-[Intel Macs](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-x64.zip) · [How to open it](#get-the-app)
+**[Download Uncloud for Mac](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.dmg)** (Apple silicon) ·
+[Intel Macs](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-x64.dmg) · [How to open it](#get-the-app)
 
 > Uncloud is early. It works, but read [What isn't ready yet](#what-isnt-ready-yet) before you move
 > anything important onto it.
@@ -67,9 +67,10 @@ Macs in sync with it.
 
 1. Download the app for your Mac. To check which you have, open  → **About This Mac**: it says
    **Chip: Apple M…** or **Processor: Intel**.
-   - **[Apple silicon (M1 and later)](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.zip)**
-   - **[Intel](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-x64.zip)**
-2. Open the download to unzip it, and drag **Uncloud** into your **Applications** folder.
+   - **[Apple silicon (M1 and later)](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.dmg)**
+   - **[Intel](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-x64.dmg)**
+2. Open the download, and drag **Uncloud** onto the **Applications** folder beside it. Then eject
+   the **Uncloud** disk in Finder's sidebar.
 3. Open it. Uncloud isn't signed by Apple yet, so the first time macOS stops it:
    - **macOS 15 Sequoia and later:** click **Done**, then open **System Settings → Privacy &
      Security**, scroll down to the message about Uncloud, and click **Open Anyway**.
@@ -79,8 +80,9 @@ Macs in sync with it.
    After that it opens normally. Uncloud lives in the menu bar at the top of the screen, as a
    **U**, not in the Dock.
 
-The app is large (about 105 MB to download) because everything it needs is inside it: there is
-nothing else to install. These links always give you the latest build.
+The app is about 60 MB to download because everything it needs is inside it: there is nothing
+else to install. These links always give you the latest build. If it ever won't open, what went
+wrong is in `~/Library/Application Support/Uncloud/uncloud.log`.
 
 ## Set up Uncloud
 

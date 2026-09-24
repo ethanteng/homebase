@@ -63,13 +63,17 @@ public sealed class DesktopPaths(string appData, string files)
     public string Files { get; } = files;
     public string SettingsFile => Path.Combine(AppData, "desktop.json");
     public string Syncthing => Path.Combine(AppData, "syncthing");
+    /// <summary>The app's log: a menu-bar app has no console to look at.</summary>
+    public string Log => Path.Combine(AppData, "uncloud.log");
 
     public static DesktopPaths ForThisUser()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var appData = OperatingSystem.IsMacOS()
             ? Path.Combine(home, "Library", "Application Support", "Uncloud")
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Uncloud");
+            // Without DoNotVerify a folder that doesn't exist yet comes back as "", and the app's
+            // state would land wherever it was started from.
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify), "Uncloud");
         return new DesktopPaths(appData, Path.Combine(home, "Uncloud"));
     }
 }

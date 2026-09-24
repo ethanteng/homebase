@@ -22,9 +22,15 @@ public sealed class App : Application
     internal static string? StartupLink { get; set; }
 
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
+    // One menu for the app's whole life, whose items change. On macOS the menu-bar item is bound
+    // to the first menu it's given, and handing it another one throws — which, at startup, is a
+    // crash before anything appears.
+    private readonly NativeMenu _menu = new();
     private DesktopController _controller = null!;
     private ILoggerFactory _loggers = null!;
+    private ILogger _logger = null!;
     private TrayIcon _tray = null!;
+    private string? _shownMenu;
     private SetupWindow? _setup;
     private string _status = "Starting…";
     private bool _paused;
@@ -38,7 +44,15 @@ public sealed class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
-        _loggers = LoggerFactory.Create(builder => builder.AddProvider(new FileLoggerProvider(Path.Combine(Paths.AppData, "uncloud.log"))));
+        _loggers = LoggerFactory.Create(builder => builder.AddProvider(new FileLoggerProvider(Paths.Log)));
+        _logger = _loggers.CreateLogger("Uncloud.App");
+        // A menu-bar app that quits over one failed click leaves people with nothing to click. What
+        // went wrong goes in the log, and the app carries on.
+        Dispatcher.UIThread.UnhandledException += (_, unhandled) =>
+        {
+            _logger.LogCritical(unhandled.Exception, "Unhandled error");
+            unhandled.Handled = true;
+        };
         _controller = new DesktopController(Paths, ServerDirectory, _loggers, _http);
 
         _tray = new TrayIcon
@@ -46,7 +60,7 @@ public sealed class App : Application
             Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://Uncloud/Assets/tray.png"))),
             ToolTipText = "Uncloud",
             IsVisible = true,
-            Menu = new NativeMenu()
+            Menu = _menu
         };
         // Black on transparent, so macOS tints it to suit a light or dark menu bar.
         MacOSProperties.SetIsTemplateIcon(_tray, true);
@@ -61,7 +75,8 @@ public sealed class App : Application
             };
 
         RebuildMenu();
-        _ = StartAsync();
+        // Once the app is running, so anything that goes wrong starting reaches the log above.
+        Dispatcher.UIThread.Post(async () => await StartAsync());
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         timer.Tick += async (_, _) => await RefreshAsync();
         timer.Start();
@@ -78,6 +93,7 @@ public sealed class App : Application
         }
         catch (Exception error)
         {
+            _logger.LogError(error, "Uncloud couldn’t start");
             _status = error.Message;
         }
         if (_controller.Settings.Mode is DesktopMode.Unset || StartupLink is not null) ShowSetup(StartupLink);
@@ -86,28 +102,36 @@ public sealed class App : Application
 
     private async Task RefreshAsync()
     {
-        switch (_controller.Settings.Mode)
+        try
         {
-            case DesktopMode.Computer:
-                var status = await _controller.StatusAsync(CancellationToken.None);
-                _status = status.Summary;
-                _paused = status.Summary == "Paused";
-                break;
-            case DesktopMode.Host:
-                _status = _controller.Server is { IsRunning: true }
-                    ? "Uncloud is running"
-                    : $"Uncloud has stopped. {_controller.Server?.LastError}".Trim();
-                break;
-            default:
-                _status = "Not set up yet";
-                break;
+            switch (_controller.Settings.Mode)
+            {
+                case DesktopMode.Computer:
+                    var status = await _controller.StatusAsync(CancellationToken.None);
+                    _status = status.Summary;
+                    _paused = status.Summary == "Paused";
+                    break;
+                case DesktopMode.Host:
+                    _status = _controller.Server is { IsRunning: true }
+                        ? "Uncloud is running"
+                        : $"Uncloud has stopped. {_controller.Server?.LastError}".Trim();
+                    break;
+                default:
+                    _status = "Not set up yet";
+                    break;
+            }
+        }
+        catch (Exception error)
+        {
+            _logger.LogWarning(error, "Couldn’t check how syncing is going");
+            _status = error.Message;
         }
         RebuildMenu();
     }
 
     private void RebuildMenu()
     {
-        var menu = new NativeMenu();
+        var menu = new List<NativeMenuItemBase>();
         menu.Add(new NativeMenuItem(_status) { IsEnabled = false });
         menu.Add(new NativeMenuItemSeparator());
         var settings = _controller.Settings;
@@ -117,13 +141,13 @@ public sealed class App : Application
                 if (settings.AccountName is { } account)
                     menu.Add(new NativeMenuItem($"Signed in as {account}") { IsEnabled = false });
                 menu.Add(Item("Open Uncloud Folder", () => Open(Paths.Files)));
-                if (settings.Address is { } address) menu.Add(Item("Open Uncloud in Browser", () => Open(address)));
+                // Handlers read how things stand when clicked: an item that didn't change stays in
+                // the menu, however long ago it was made.
+                if (settings.Address is not null)
+                    menu.Add(Item("Open Uncloud in Browser", () => Open(_controller.Settings.Address ?? "")));
                 menu.Add(new NativeMenuItemSeparator());
-                menu.Add(Item(_paused ? "Resume Syncing" : "Pause Syncing", async () =>
-                {
-                    await _controller.PauseAsync(!_paused, CancellationToken.None);
-                    await RefreshAsync();
-                }));
+                menu.Add(Item(_paused ? "Resume Syncing" : "Pause Syncing",
+                    () => Guard(() => _controller.PauseAsync(!_paused, CancellationToken.None))));
                 menu.Add(Item("Disconnect This Computer…", () => ShowSetup(null, disconnect: true)));
                 break;
             case DesktopMode.Host:
@@ -133,7 +157,8 @@ public sealed class App : Application
                     ToggleType = NativeMenuItemToggleType.CheckBox,
                     IsChecked = settings.ReachFromAnywhere
                 };
-                reach.Click += async (_, _) => await Guard(() => _controller.SetReachFromAnywhereAsync(!settings.ReachFromAnywhere, CancellationToken.None));
+                reach.Click += async (_, _) => await Guard(() =>
+                    _controller.SetReachFromAnywhereAsync(!_controller.Settings.ReachFromAnywhere, CancellationToken.None));
                 menu.Add(reach);
                 if (_controller.Server is not { IsRunning: true })
                     menu.Add(Item("Start Uncloud Again", () => Guard(() => _controller.RestartServerAsync(CancellationToken.None))));
@@ -151,13 +176,26 @@ public sealed class App : Application
             menu.Add(atLogin);
         }
         menu.Add(Item("Quit Uncloud", Quit));
-        _tray.Menu = menu;
+
+        // Only when something changed: the status is checked every few seconds, and replacing the
+        // items each time would redraw a menu somebody might have open.
+        var shown = string.Join('\n', menu.Select(item => item is NativeMenuItem { Header: var header } entry
+            ? $"{header}|{entry.IsChecked}|{entry.IsEnabled}"
+            : "—"));
+        if (shown == _shownMenu) return;
+        _shownMenu = shown;
+        _menu.Items.Clear();
+        foreach (var item in menu) _menu.Items.Add(item);
     }
 
     private async Task Guard(Func<Task> action)
     {
         try { await action(); }
-        catch (Exception error) { _status = error.Message; }
+        catch (Exception error)
+        {
+            _logger.LogWarning(error, "A menu action failed");
+            _status = error.Message;
+        }
         await RefreshAsync();
     }
 
@@ -201,7 +239,8 @@ public sealed class App : Application
     private async void Quit()
     {
         _tray.IsVisible = false;
-        await _controller.DisposeAsync();
+        try { await _controller.DisposeAsync(); }
+        catch (Exception error) { _logger.LogWarning(error, "Couldn’t stop everything cleanly"); }
         _loggers.Dispose();
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) desktop.Shutdown();
     }
