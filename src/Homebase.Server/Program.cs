@@ -22,9 +22,7 @@ static string Join(string? existing, params string[] additions) => string.Join('
     (existing ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Concat(additions).Distinct(StringComparer.OrdinalIgnoreCase));
 
-var defaultConfig = OperatingSystem.IsMacOS()
-    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "Homebase")
-    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Homebase");
+var defaultConfig = HostPaths.DefaultConfigDirectory;
 
 // Read once before anything is started, so a missing certificate or an unreadable bind address
 // is refused while there is still nothing running to clean up.
@@ -135,15 +133,12 @@ string[] DropboxScopes = ["account_info.read", "files.metadata.read", "files.con
 if (binding.Warning is { } warning) app.Logger.LogWarning("{Warning}", warning);
 // A tunnel that drops is an outage of reaching this host from outside, never of the host, so
 // this reopens in the background while everyone on the network carries on.
-// Whether this host can be reached from outside, as the person last left it. An environment
-// variable still wins: somebody who said so before launch meant it.
-const string RemoteAccessSetting = "remote_access";
 // What somebody turned on from the interface last time. Read here rather than before the
 // application was built, because only the container knows which directory this host keeps its
 // own things in — a test host's is not the one a person's would be. Nothing waits on it: the
 // address arrives through the watch, as it does for a tunnel still to be allowed.
 if (!remote.IsEnabled
-    && app.Services.GetRequiredService<ControlDatabase>().Setting(RemoteAccessSetting) is { } kept
+    && app.Services.GetRequiredService<ControlDatabase>().Setting(HostPaths.RemoteAccessSetting) is { } kept
     && Enum.TryParse<RemoteAccessProvider>(kept, ignoreCase: true, out var remembered)
     && remembered is not RemoteAccessProvider.None)
     remote.Start(binding.Port, remembered);
@@ -587,7 +582,7 @@ app.MapPut("/api/remote-access", async (ReachFromAnywhere request, RemoteAccess 
             + "setting to decide it here instead.", "conflict");
 
     var wanted = request.Enabled ? RemoteAccessProvider.Builtin : RemoteAccessProvider.None;
-    control.SetSetting(RemoteAccessSetting, wanted.ToString().ToLowerInvariant());
+    control.SetSetting(HostPaths.RemoteAccessSetting, wanted.ToString().ToLowerInvariant());
     if (request.Enabled) access.Start(binding.Port, wanted);
     else await access.StopAsync();
     return Results.Ok(Reachability(access));

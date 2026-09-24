@@ -155,10 +155,10 @@ public sealed class App : Application
                 var reach = new NativeMenuItem("Reach From Anywhere")
                 {
                     ToggleType = NativeMenuItemToggleType.CheckBox,
-                    IsChecked = settings.ReachFromAnywhere
+                    IsChecked = _controller.ReachFromAnywhere
                 };
                 reach.Click += async (_, _) => await Guard(() =>
-                    _controller.SetReachFromAnywhereAsync(!_controller.Settings.ReachFromAnywhere, CancellationToken.None));
+                    _controller.SetReachFromAnywhereAsync(!_controller.ReachFromAnywhere, CancellationToken.None));
                 menu.Add(reach);
                 if (_controller.Server is not { IsRunning: true })
                     menu.Add(Item("Start Uncloud Again", () => Guard(() => _controller.RestartServerAsync(CancellationToken.None))));

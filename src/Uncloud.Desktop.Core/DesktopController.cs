@@ -1,3 +1,4 @@
+using Homebase.Core.Accounts;
 using Homebase.Core.Sync;
 using Microsoft.Extensions.Logging;
 
@@ -61,9 +62,15 @@ public sealed class DesktopController(
         Save(Settings with { Mode = DesktopMode.Host });
     }
 
+    /// <summary>
+    /// The same switch Storage settings has, for somebody who is at this Mac rather than in a
+    /// browser. It writes what the server reads, so the two can never disagree — and restarts the
+    /// server, because from out here there is no signed-in way to ask it to do this where it
+    /// stands, which is what the panel does.
+    /// </summary>
     public async Task SetReachFromAnywhereAsync(bool reach, CancellationToken cancellationToken)
     {
-        Save(Settings with { ReachFromAnywhere = reach });
+        Reachability.SetSetting(HostPaths.RemoteAccessSetting, reach ? "builtin" : "none");
         if (_server is null) return;
         await _server.StopAsync();
         await StartServerAsync(cancellationToken);
@@ -124,9 +131,25 @@ public sealed class DesktopController(
 
     private async Task StartServerAsync(CancellationToken cancellationToken)
     {
+        // Carried across once, for a host that was reached from anywhere before the server kept
+        // that setting itself. Otherwise an upgrade would quietly shut the door.
+        if (Settings.ReachFromAnywhere)
+        {
+            if (Reachability.Setting(HostPaths.RemoteAccessSetting) is null)
+                Reachability.SetSetting(HostPaths.RemoteAccessSetting, "builtin");
+            Save(Settings with { ReachFromAnywhere = false });
+        }
         _server ??= new HostServer(serverDirectory, loggers.CreateLogger("Uncloud.Server"), http);
-        await _server.StartAsync(Settings.ReachFromAnywhere, cancellationToken);
+        await _server.StartAsync(cancellationToken);
     }
+
+    /// <summary>The server's own settings, which it reads at startup and writes while running.</summary>
+    private ControlDatabase Reachability => new(HostPaths.DefaultConfigDirectory);
+
+    /// <summary>Whether this host opens a way in from outside, as the server has it.</summary>
+    public bool ReachFromAnywhere =>
+        Reachability.Setting(HostPaths.RemoteAccessSetting) is { } kept
+        && !kept.Equals("none", StringComparison.OrdinalIgnoreCase);
 
     private async Task<ISyncthingApi> StartSyncthingAsync(CancellationToken cancellationToken)
     {
