@@ -1,4 +1,5 @@
 using Avalonia;
+using Microsoft.Extensions.Logging;
 
 namespace Uncloud.Desktop;
 
@@ -21,23 +22,42 @@ internal static class Program
         }
         using (instance)
         {
+            // Opened from Finder there's nowhere for .NET to print why it stopped, so it goes in the
+            // log, where "Uncloud won't open" can be answered.
+            AppDomain.CurrentDomain.UnhandledException += (_, unhandled) => Fatal(paths, unhandled.ExceptionObject as Exception);
             App.Paths = paths;
             App.ServerDirectory = ServerDirectory();
             App.StartupLink = args.FirstOrDefault(argument => argument.StartsWith(PairingLink.Scheme + "://", StringComparison.OrdinalIgnoreCase));
-            return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args, Avalonia.Controls.ShutdownMode.OnExplicitShutdown);
+            try
+            {
+                return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args, Avalonia.Controls.ShutdownMode.OnExplicitShutdown);
+            }
+            catch (Exception error)
+            {
+                Fatal(paths, error);
+                throw;
+            }
         }
+    }
+
+    private static void Fatal(DesktopPaths paths, Exception? error)
+    {
+        using var log = new FileLoggerProvider(paths.Log);
+        log.CreateLogger("Uncloud").LogCritical(error, "Uncloud stopped");
     }
 
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace();
 
     /// <summary>
-    /// The Uncloud server the app carries, with Syncthing and the tunnel beside it: inside the
-    /// bundle on macOS (Contents/Resources/server), beside the app anywhere else.
+    /// The Uncloud server the app carries, with Syncthing and the tunnel beside it. In the Mac app
+    /// it sits beside the app itself, sharing its copy of .NET; a build without it looks in ./server.
     /// </summary>
     private static string ServerDirectory()
     {
         if (Environment.GetEnvironmentVariable("UNCLOUD_SERVER_DIR") is { Length: > 0 } configured) return configured;
-        var bundled = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Resources", "server"));
-        return Directory.Exists(bundled) ? bundled : Path.Combine(AppContext.BaseDirectory, "server");
+        var beside = AppContext.BaseDirectory;
+        return File.Exists(Path.Combine(beside, OperatingSystem.IsWindows() ? "Homebase.Server.exe" : "Homebase.Server"))
+            ? beside
+            : Path.Combine(beside, "server");
     }
 }

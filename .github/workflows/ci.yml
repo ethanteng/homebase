@@ -88,6 +88,10 @@ jobs:
 
       - run: ./scripts/package-macos-app.sh ${{ matrix.runtime }}
 
+      # Opens the app it just built, as somebody would, and fails if it doesn't stay open or can't
+      # start the server it carries. The Intel build runs under Rosetta.
+      - run: ./scripts/smoke-macos-app.sh artifacts/app-${{ matrix.runtime }}/Uncloud.app
+
       - uses: actions/upload-artifact@v4
         with:
           name: Uncloud-${{ matrix.runtime }}

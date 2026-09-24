@@ -25,10 +25,28 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 # The server as publish-macos.sh builds it: interface, tunnel and Syncthing beside it.
 ./scripts/publish-macos.sh "$runtime"
-cp -R "artifacts/$runtime" "$app/Contents/Resources/server"
-
+desktop="artifacts/app-$runtime.publish"
+rm -rf -- "$desktop"
 ./scripts/dotnet.sh publish src/Uncloud.Desktop -c Release -r "$runtime" --self-contained true \
-  -p:UseAppHost=true -o "$app/Contents/MacOS"
+  -p:UseAppHost=true -o "$desktop"
+
+# One copy of .NET, not two: the app and the server it carries sit side by side in Contents/MacOS
+# and share it. Both reference the same framework, so every file they both ship is the same file.
+# One that differs would leave one of them running on the other's copy, so it stops the build.
+cp -R "artifacts/$runtime/." "$app/Contents/MacOS/"
+different=()
+while IFS= read -r -d '' file; do
+  file="${file#"$desktop"/}"
+  if [[ -e "$app/Contents/MacOS/$file" ]] && ! cmp -s "$desktop/$file" "$app/Contents/MacOS/$file"; then
+    different+=("$file")
+  fi
+done < <(find "$desktop" -type f -print0)
+if ((${#different[@]})); then
+  echo "The app and the server ship different copies of: ${different[*]}" >&2
+  exit 1
+fi
+cp -R "$desktop/." "$app/Contents/MacOS/"
+rm -rf -- "$desktop"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -76,14 +94,10 @@ timestamp=--timestamp=none
 if [[ "$identity" != "-" ]]; then timestamp=--timestamp; fi
 sign() { codesign --force "$timestamp" --options runtime --entitlements src/Uncloud.Desktop/Uncloud.entitlements -s "$identity" "$@"; }
 # Inside out, or the bundle's seal is broken. codesign counts everything in Contents/MacOS as
-# nested code — .NET's managed .dll files included — so every file there is signed, except the
-# app's own executable, which signing the bundle signs. Under Resources only the server's
-# executables and libraries are code; the rest is sealed as resources with the bundle.
+# nested code — .NET's managed .dll files and the server's web pages included — so every file
+# there is signed, except the app's own executable, which signing the bundle signs.
 find "$app/Contents/MacOS" -type f ! -path "$app/Contents/MacOS/Uncloud" -print0 | while IFS= read -r -d '' file; do
   sign "$file"
-done
-find "$app/Contents/Resources" -type f -print0 | while IFS= read -r -d '' file; do
-  if file -b "$file" | grep -q 'Mach-O'; then sign "$file"; fi
 done
 sign "$app"
 codesign --verify --deep --strict "$app"

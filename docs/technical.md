@@ -568,8 +568,17 @@ built it and needs right-click → **Open** on any other. For distribution, set
 Intel on every run and keeps both as the run's **Artifacts**. Every push to `main` that passes also
 updates the `mac-latest` release with them (never deleting it, and without being cancelled part way), so
 `https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.zip` (and
-`…-osx-x64.zip`) always serve the latest build; the README links there. The app is large (around 270 MB unpacked) because the
-app and the server each carry their own .NET runtime.
+`…-osx-x64.zip`) always serve the latest build; the README links there. Before the zip is kept,
+`scripts/smoke-macos-app.sh` opens the built app on the runner, once as a Mac nobody has set up and
+once as the host, and fails the build if it doesn't stay open, logs an error, or its server doesn't
+answer.
+
+The app and the server it carries sit side by side in `Contents/MacOS` and share one copy of .NET
+(around 190 MB unpacked, 75 MB zipped, instead of 275 and 105 with a copy each). The desktop project
+references the ASP.NET Core framework for that reason alone, so both publish identical framework
+files; the packaging script stops if any file the two share differs. Trimming would shrink each
+further, but trimmed copies differ, so they couldn't share. The app logs to
+`~/Library/Application Support/Uncloud/uncloud.log`, including anything that stops it.
 
 ### Desktop packaging
 
