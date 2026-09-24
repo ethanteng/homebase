@@ -52,9 +52,11 @@ public sealed class DropboxApi(HttpClient client, IProviderTokens tokens, Func<s
         }
     }
 
-    public async Task ConnectAsync(string code, string verifier, string redirectUri, CancellationToken cancellationToken)
+    public async Task ConnectAsync(string code, string verifier, string appKey, string redirectUri, CancellationToken cancellationToken)
     {
-        var result = await DropboxOAuth.ExchangeAsync(client, AppKey, code, verifier, redirectUri, cancellationToken);
+        // Deliberately not this client's AppKey, which is read afresh and so answers with whatever
+        // is in force now. A sign-in that began under another app has to be finished under it.
+        var result = await DropboxOAuth.ExchangeAsync(client, appKey, code, verifier, redirectUri, cancellationToken);
         if (result.RefreshToken is null)
             throw new LibraryException("Dropbox didn’t return a lasting connection. Try connecting again.", "provider_auth");
         _accessToken = result.AccessToken;

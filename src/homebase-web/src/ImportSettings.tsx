@@ -123,7 +123,9 @@ export default function ImportSettings({ onChanged }: Props) {
       );
       setNotice(
         !result.configured
-          ? "Dropbox app key removed. Anyone here who wasn’t using their own app key will need to add one under My account before they can connect Dropbox."
+          ? dropbox?.relayProvides
+            ? "Dropbox app key removed. Anyone here who wasn’t using their own app key goes back to Uncloud’s own app, so nobody is left unable to connect."
+            : "Dropbox app key removed. Anyone here who wasn’t using their own app key will need to add one under My account before they can connect Dropbox."
           : result.disconnected > 0
             ? `Dropbox app key saved. ${result.disconnected} Dropbox connection${result.disconnected === 1 ? " that used this key was" : "s that used this key were"} signed out, because they were authorised through the old app — those people can connect again from Bring files in. Anyone using their own app key was left alone.`
             : "Dropbox app key saved. Everyone here can now connect their own Dropbox in one click.",
@@ -131,6 +133,75 @@ export default function ImportSettings({ onChanged }: Props) {
       await loadDropbox();
       onChanged();
     });
+
+  // Nothing here is a step anybody has to take when Uncloud brings its own Dropbox app and nobody
+  // has set a key — so it folds away. A key already set, one coming from the environment, or no
+  // app of Uncloud's own, and it is a real setting again rather than a preference.
+  const hostKeyIsAdvanced =
+    dropbox !== null &&
+    dropbox.relayProvides &&
+    !dropbox.appKey &&
+    !dropbox.fromEnvironment;
+
+  const dropboxApp = dropbox && (
+    <>
+      <p className="field-help">
+        {dropbox.relayProvides
+          ? "Uncloud brings its own Dropbox app, so everybody here can already connect their Dropbox in one click. Set a key here only if you’d rather the household’s Dropbox sign-ins went through an app you registered."
+          : "Only needed to connect Dropbox accounts online, and only a convenience: set a key here and everybody on this Uncloud can connect their own Dropbox in one click."}{" "}
+        Anybody who would rather not wait for you, or would rather use their own
+        Dropbox app, sets one under <strong>My account</strong> instead — theirs
+        wins over this one, and changing this never touches them.
+      </p>
+
+      {dropbox.fromEnvironment && (
+        <p className="library-note" role="status">
+          This Uncloud is using the app key from{" "}
+          <code>Homebase__Dropbox__AppKey</code>. Saving a key here replaces it.
+        </p>
+      )}
+
+      <DropboxAppSteps
+        redirectUri={dropbox.redirectUri}
+        scopes={dropbox.scopes}
+        idPrefix="host-dropbox"
+      />
+
+      <label htmlFor="dropbox-app-key">App key</label>
+      <input
+        id="dropbox-app-key"
+        className="path-input"
+        value={appKey}
+        onChange={(event) => setAppKey(event.target.value)}
+        placeholder="the app key from that page"
+        autoComplete="off"
+        spellCheck={false}
+        disabled={busy !== ""}
+        aria-describedby="app-key-help"
+      />
+      <p id="app-key-help" className="field-help">
+        <AppKeyReassurance /> Changing this key signs out the Dropbox connections
+        that were made through it, because each was authorised through the old
+        app — anybody using their own key is left alone.
+      </p>
+      <button
+        className="button primary"
+        onClick={() => void saveAppKey()}
+        disabled={busy !== "" || appKey.trim() === (dropbox.appKey ?? "")}
+      >
+        {busy === "app-key" ? (
+          <LoaderCircle size={16} className="spin" />
+        ) : (
+          <Check size={16} />
+        )}
+        {/* Emptying the box is how a key is taken away, so say so — but only when there is one
+            to take away, or an untouched box reads as an offer to break something. */}
+        {appKey.trim() === "" && dropbox.appKey
+          ? "Remove the app key"
+          : "Save the app key"}
+      </button>
+    </>
+  );
 
   return (
     <div className="import-settings">
@@ -266,69 +337,28 @@ export default function ImportSettings({ onChanged }: Props) {
         </form>
       </section>
 
-      <section className="import-section">
-        <div className="import-section-head">
-          <h3>Dropbox app for everyone here</h3>
-        </div>
-        <p className="field-help">
-          Only needed to connect Dropbox accounts online, and only a convenience:
-          set a key here and everybody on this Uncloud can connect their own
-          Dropbox in one click. Anybody who would rather not wait for you, or
-          would rather use their own Dropbox app, sets one under{" "}
-          <strong>My account</strong> instead — theirs wins over this one, and
-          changing this never touches them.
-        </p>
-
-        {dropbox?.fromEnvironment && (
-          <p className="library-note" role="status">
-            This Uncloud is using the app key from{" "}
-            <code>Homebase__Dropbox__AppKey</code>. Saving a key here replaces
-            it.
-          </p>
-        )}
-
-        {dropbox && (
-          <DropboxAppSteps
-            redirectUri={dropbox.redirectUri}
-            scopes={dropbox.scopes}
-            idPrefix="host-dropbox"
-          />
-        )}
-
-        <label htmlFor="dropbox-app-key">App key</label>
-        <input
-          id="dropbox-app-key"
-          className="path-input"
-          value={appKey}
-          onChange={(event) => setAppKey(event.target.value)}
-          placeholder="the app key from that page"
-          autoComplete="off"
-          spellCheck={false}
-          disabled={busy !== ""}
-          aria-describedby="app-key-help"
-        />
-        <p id="app-key-help" className="field-help">
-          <AppKeyReassurance /> Changing this key signs out the Dropbox
-          connections that were made through it, because each was authorised
-          through the old app — anybody using their own key is left alone.
-        </p>
-        <button
-          className="button primary"
-          onClick={() => void saveAppKey()}
-          disabled={busy !== "" || appKey.trim() === (dropbox?.appKey ?? "")}
-        >
-          {busy === "app-key" ? (
-            <LoaderCircle size={16} className="spin" />
-          ) : (
-            <Check size={16} />
-          )}
-          {/* Emptying the box is how a key is taken away, so say so — but only when there is one
-              to take away, or an untouched box reads as an offer to break something. */}
-          {appKey.trim() === "" && dropbox?.appKey
-            ? "Remove the app key"
-            : "Save the app key"}
-        </button>
-      </section>
+      {/* Registering a Dropbox app is an advanced setting wherever Uncloud brings its own: the
+          household can already connect Dropbox in one click, so this is a preference about whose
+          app the sign-ins go through and not a step anybody has to take. It opens out in full the
+          moment there is a key here to see, because a setting somebody has already used must not
+          become one they cannot find. */}
+      {dropbox &&
+        (hostKeyIsAdvanced ? (
+          <details className="import-section advanced-section">
+            <summary>
+              <span className="advanced-lead">Advanced</span>
+              Use a Dropbox app you registered
+            </summary>
+            {dropboxApp}
+          </details>
+        ) : (
+          <section className="import-section">
+            <div className="import-section-head">
+              <h3>Dropbox app for everyone here</h3>
+            </div>
+            {dropboxApp}
+          </section>
+        ))}
     </div>
   );
 }

@@ -138,20 +138,33 @@ export interface DropboxAppSettings {
   configured: boolean;
   // A key supplied by Homebase__Dropbox__AppKey rather than typed in here.
   fromEnvironment: boolean;
+  // Whether this build brings its own Dropbox app, which makes a key here optional.
+  relayProvides: boolean;
   redirectUri: string;
   scopes: string[];
 }
 
 /// Where the app key an account connects through came from.
-export type DropboxKeySource = "None" | "Own" | "Host" | "Environment";
+export type DropboxKeySource =
+  | "None"
+  | "Own"
+  | "Host"
+  | "Environment"
+  // Uncloud’s own Dropbox app, which is there without anybody setting anything up.
+  | "Relay";
 
 export interface MyDropboxApp {
   // This account's own key, as opposed to whatever it falls back to.
   appKey: string | null;
   configured: boolean;
   source: DropboxKeySource;
-  // Whether leaving the box empty still leaves this account able to connect.
+  // What leaving the box empty falls back to. Kept apart because they read differently: an
+  // administrator here chose the host's key, and nobody chose Uncloud's own.
   hostProvides: boolean;
+  relayProvides: boolean;
+  // Whether Uncloud's own app could finish a sign-in for this browser. False when Uncloud is being
+  // used from another computer, where only a key of one's own works.
+  relayReachable: boolean;
   redirectUri: string;
   scopes: string[];
 }

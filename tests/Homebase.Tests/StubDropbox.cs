@@ -13,8 +13,14 @@ public sealed class StubDropbox : IDropboxConnection
     public bool IsConnected { get; set; } = true;
     public string? AccountName { get; set; } = "Stub";
 
+    /// <summary>
+    /// The key in force for this account, settable because the real one is read afresh every time
+    /// and so can change under a sign-in that is already out at dropbox.com.
+    /// </summary>
+    public string Key { get; set; } = "app-key";
+
     public string AppKey => IsConfigured
-        ? "app-key"
+        ? Key
         : throw new LibraryException("No Dropbox app key here.", "provider_unconfigured");
 
     /// <summary>Held shut, a download waits here until a test lets it through.</summary>
@@ -59,8 +65,19 @@ public sealed class StubDropbox : IDropboxConnection
         return new MemoryStream(file.Content, writable: false);
     }
 
-    public Task ConnectAsync(string code, string verifier, string redirectUri, CancellationToken cancellationToken)
+    /// <summary>
+    /// The redirect URI the exchange was given, which Dropbox requires to be the one the sign-in
+    /// started with — so a test can tell that it was remembered rather than worked out again.
+    /// </summary>
+    public string? ExchangedWith { get; private set; }
+
+    /// <summary>The app key the exchange was given, for the same reason.</summary>
+    public string? ExchangedUnder { get; private set; }
+
+    public Task ConnectAsync(string code, string verifier, string appKey, string redirectUri, CancellationToken cancellationToken)
     {
+        ExchangedWith = redirectUri;
+        ExchangedUnder = appKey;
         IsConnected = true;
         return Task.CompletedTask;
     }
@@ -75,6 +92,15 @@ public sealed class StubDropboxes
     private readonly Lock _lock = new();
 
     public bool Configured { get; init; } = true;
+
+    /// <summary>
+    /// Every stub handed out so far, for a test that cares what happened to somebody's connection
+    /// without wanting to know their account id to ask — asking by id would quietly make a new one.
+    /// </summary>
+    public IReadOnlyList<StubDropbox> All
+    {
+        get { lock (_lock) return _byUser.Values.ToArray(); }
+    }
 
     public StubDropbox For(string userId)
     {
