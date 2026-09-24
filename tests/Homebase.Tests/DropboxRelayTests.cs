@@ -191,6 +191,34 @@ public sealed class DropboxRelayTests : IDisposable
     }
 
     [Fact]
+    public async Task The_account_screen_knows_when_Uncloud_s_own_app_is_no_use_to_this_browser()
+    {
+        // The refusal above sends somebody to My account. That screen must not then tell them
+        // there is nothing to set up, which is what it says to everybody else on the relay — being
+        // turned away and reassured in the same breath is worse than either on its own.
+        using var app = CreateApp(caller: IPAddress.Parse("192.168.1.50"),
+            extra: [("Homebase:Bind", "0.0.0.0"), ("Homebase:AllowedHosts", "uncloud.local")]);
+        using var client = await StartAsync(app);
+
+        var mine = await client.GetFromJsonAsync<JsonElement>("/api/account/dropbox");
+
+        Assert.Equal("Relay", mine.GetProperty("source").GetString());
+        Assert.False(mine.GetProperty("relayReachable").GetBoolean());
+    }
+
+    [Fact]
+    public async Task The_account_screen_says_the_relay_is_reachable_from_the_computer_it_runs_on()
+    {
+        using var app = CreateApp();
+        using var client = await StartAsync(app);
+
+        var mine = await client.GetFromJsonAsync<JsonElement>("/api/account/dropbox");
+
+        Assert.Equal("Relay", mine.GetProperty("source").GetString());
+        Assert.True(mine.GetProperty("relayReachable").GetBoolean());
+    }
+
+    [Fact]
     public async Task A_build_with_no_key_of_its_own_behaves_as_though_none_of_this_existed()
     {
         // The key is empty in a build nobody has set one for, and that has to be the old behaviour

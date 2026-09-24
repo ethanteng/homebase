@@ -142,6 +142,16 @@ var appKeys = app.Services.GetRequiredService<DropboxAppKey>();
 // signing in through. An account on Uncloud's own app goes by way of the relay — that is the one
 // address registered with it — and is told to come home by the port on the end of its state.
 // Anybody on a key somebody here chose comes straight back, as they always did.
+// Whether the browser is on this computer, which is the whole of whether the relay can finish a
+// sign-in for it: the last hop is to the loopback address, and that is this host only from here.
+// A dual-stack socket reports a local browser as ::ffff:127.0.0.1, which has to be read as
+// loopback or everybody at the machine gets turned away.
+bool BrowserIsHere(HttpContext context)
+{
+    var from = context.Connection.RemoteIpAddress;
+    if (from is { IsIPv4MappedToIPv6: true }) from = from.MapToIPv4();
+    return from is not null && IPAddress.IsLoopback(from);
+}
 (string RedirectUri, Func<string, string>? WayBack) DropboxReturn(string userId) =>
     appKeys.UsesRelay(userId)
         ? (relay.Callback, state => DropboxRelay.StateWithWayBack(state, binding.IsSecure, binding.Port))
@@ -445,16 +455,10 @@ app.MapGet("/api/providers/dropbox", (CurrentUser user, UserWorkspaces workspace
 app.MapPost("/api/providers/dropbox/connect", (HttpContext context, CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
 {
     var (redirectUri, wayBack) = DropboxReturn(user.Id);
-    // The relay finishes a sign-in by sending the browser to the loopback address, which only
-    // reaches this host when the browser is on this computer. Somebody reached this from elsewhere
-    // — over a tunnel, or across the house — would be sent to their own machine instead, where
-    // there is either nothing listening or, worse, a different Uncloud. Better to say so than to
-    // send them somewhere that cannot work.
-    // A dual-stack socket reports a local browser as ::ffff:127.0.0.1, which is loopback and has to
-    // be read as one, or everybody at the machine gets turned away.
-    var from = context.Connection.RemoteIpAddress;
-    if (from is { IsIPv4MappedToIPv6: true }) from = from.MapToIPv4();
-    if (wayBack is not null && !(from is not null && IPAddress.IsLoopback(from)))
+    // Somebody reaching this from elsewhere — over a tunnel, or across the house — would be sent
+    // to their own machine instead, where there is either nothing listening or, worse, a different
+    // Uncloud. Better to say so than to send them somewhere that cannot work.
+    if (wayBack is not null && !BrowserIsHere(context))
         throw new LibraryException(
             "Uncloud's own Dropbox app can only finish a sign-in on the computer Uncloud is running "
             + "on. You're reaching it from somewhere else, so set up your own Dropbox app under My "
@@ -708,7 +712,7 @@ app.MapPut("/api/host/dropbox", (SetDropboxAppKey request, DropboxAppKey appKey,
 // One account's own Dropbox app. Anybody signed in can set this for themselves: an app key is not
 // a secret, it only ever authorises that account's own Dropbox, and the alternative is everybody
 // waiting on whoever looks after the host.
-app.MapGet("/api/account/dropbox", (CurrentUser user, DropboxAppKey appKey) => Results.Ok(new
+app.MapGet("/api/account/dropbox", (HttpContext context, CurrentUser user, DropboxAppKey appKey) => Results.Ok(new
 {
     appKey = appKey.OwnedBy(user.Id),
     configured = appKey.For(user.Id) is not null,
@@ -717,6 +721,10 @@ app.MapGet("/api/account/dropbox", (CurrentUser user, DropboxAppKey appKey) => R
     // differently on screen: an administrator here chose that key, and nobody chose the relay.
     hostProvides = appKey.Host is not null,
     relayProvides = relay.Available,
+    // Whether Uncloud's own app could actually finish a sign-in for the browser asking. Somebody
+    // reading this from another computer needs a key of their own, and telling them there is
+    // nothing to set up — right after refusing them — would be worse than saying nothing.
+    relayReachable = BrowserIsHere(context),
     redirectUri = RedirectUri(),
     scopes = DropboxScopes
 }));

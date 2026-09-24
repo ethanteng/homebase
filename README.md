@@ -206,6 +206,10 @@ If you want your own, it is the same four steps it always was:
    **App key**.
 4. Paste the app key into Uncloud.
 
+The box for it is tucked away, since most people never need it: open **Where files come from** and
+click **Advanced — Use a Dropbox app you registered**. The four steps and the redirect URI to copy
+are in there too.
+
 Do this after step 6, because the redirect URI is based on your Uncloud's address. A key you set
 here replaces Uncloud's own for everybody who hasn't set one of their own — and anyone can always
 set their own under **My account**, which beats both.
@@ -234,9 +238,13 @@ sidebar shows how much you're using and how much room is left.
 Open **Bring files in** and choose where from:
 
 - **A folder on the host**, if one has been made available, such as the family Dropbox folder.
-- **Your Dropbox.** Click **Connect your Dropbox** and sign in. Uncloud can only read your Dropbox,
-  never change it. If Uncloud asks you to set up a Dropbox app first, follow the steps it shows
-  under **My account**. They take a couple of minutes.
+- **Your Dropbox.** Click **Connect your Dropbox** and sign in — there is nothing to set up first.
+  Uncloud can only read your Dropbox, never change it.
+
+  Two cases need one extra step, and Uncloud says so when you hit them: if you're using Uncloud
+  **from another computer** rather than the one it runs on, or if it tells you no Dropbox app is
+  set up here. Either way, open **My account**, click **Use my own Dropbox app instead**, and
+  follow the four steps there. They take a couple of minutes and need nobody else.
 
 Pick a file or a folder and bring it home. Use **Check size** first on a big folder to make sure
 it fits. You can close the page while it runs, and come back to see how far it's got. **Stop**
@@ -328,8 +336,8 @@ setting up Dropbox. Add the new one on the app's **Settings** tab at dropbox.com
 
 **"Uncloud's own Dropbox app can only finish a sign-in on the computer Uncloud is running on."**
 You are reaching Uncloud from somewhere else — another computer in the house, or over remote
-access. Set up your own Dropbox app under **My account**, using the steps above; that one works
-from anywhere.
+access. Open **My account**, click **Use my own Dropbox app instead**, and follow the steps there;
+an app you registered returns the sign-in straight to Uncloud, so it works from anywhere.
 
 **The external drive was unplugged.** Plug it back in and refresh. If it comes back under a new
 name, choose the folder again under **Storage settings**.

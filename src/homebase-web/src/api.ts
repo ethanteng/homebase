@@ -160,6 +160,9 @@ export interface MyDropboxApp {
   // administrator here chose the host's key, and nobody chose Uncloud's own.
   hostProvides: boolean;
   relayProvides: boolean;
+  // Whether Uncloud's own app could finish a sign-in for this browser. False when Uncloud is being
+  // used from another computer, where only a key of one's own works.
+  relayReachable: boolean;
   redirectUri: string;
   scopes: string[];
 }

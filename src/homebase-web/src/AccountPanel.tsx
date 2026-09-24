@@ -100,10 +100,18 @@ export default function AccountPanel({ me, onDropboxChanged }: Props) {
     }
   }
 
-  // Nothing is connecting this account to Dropbox yet, or it is their own key doing it: either way
-  // the app-key form is the thing they came here for, so it is not tucked away.
+  // Uncloud's own app is no use to a browser on another computer: the sign-in finishes by handing
+  // itself to Uncloud over loopback. Somebody in that position has just been turned away from
+  // Connect, so this is the screen they were sent to.
+  const relayIsNoUseHere =
+    dropbox !== null && dropbox.source === "Relay" && !dropbox.relayReachable;
+
+  // Nothing is connecting this account to Dropbox yet, it is their own key doing it, or what would
+  // have can't reach them: either way the app-key form is the thing they came here for, so it is
+  // not tucked away.
   const settleForOwn =
-    dropbox !== null && (dropbox.source === "Own" || dropbox.source === "None");
+    dropbox !== null &&
+    (dropbox.source === "Own" || dropbox.source === "None" || relayIsNoUseHere);
 
   const form = dropbox && (
     <>
@@ -216,9 +224,11 @@ export default function AccountPanel({ me, onDropboxChanged }: Props) {
           <p className="field-help">
             {dropbox.source === "Own"
               ? "You connect Dropbox through your own Dropbox app. Nobody else here can see or change it."
-              : dropbox.source === "Relay"
-                ? "Nothing to set up — Uncloud has its own Dropbox app, so you can just press Connect under Bring files in."
-                : dropbox.source === "None"
+              : relayIsNoUseHere
+                ? "You’re using Uncloud from a different computer than the one it runs on, and Uncloud’s own Dropbox app can’t finish a sign-in across that gap. Set up your own below and it’ll work from anywhere — it takes a couple of minutes and needs nobody else."
+                : dropbox.source === "Relay"
+                  ? "Nothing to set up — Uncloud has its own Dropbox app, so you can just press Connect under Bring files in."
+                  : dropbox.source === "None"
                   ? "Connecting Dropbox needs a Dropbox app. Nobody has set one up on this Uncloud, so make your own — it takes a couple of minutes and doesn’t need anyone else."
                   : "You’re connecting through the Dropbox app this Uncloud offers everybody. That’s usually what you want. Set your own below if you’d rather not depend on it."}
           </p>
