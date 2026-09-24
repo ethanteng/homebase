@@ -101,8 +101,10 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  // A sign-in Dropbox has nowhere to return: waiting for the code to be brought back by hand.
-  const [pasting, setPasting] = useState(false);
+  // A sign-in Dropbox has nowhere to return: waiting for the code to be brought back by hand. The
+  // address is kept so the card can always offer it — a tab that was blocked, or closed by mistake,
+  // must not leave somebody holding a form with nothing to fill it from.
+  const [pasting, setPasting] = useState<{ url: string; opened: boolean } | null>(null);
   const [code, setCode] = useState("");
   const [typing, setTyping] = useState(false);
   const [typedPath, setTypedPath] = useState("");
@@ -270,23 +272,42 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
       setNotice(`${target.name} was taken off this list. Nothing on this computer or in your files changed.`);
     });
 
-  const connect = (target: ImportAccount) =>
-    run("connect", async () => {
+  const connect = (target: ImportAccount) => {
+    // Opened here rather than once the request comes back. A tab opened after an await has lost the
+    // click that justified it, and a browser is right to stop it as an unasked-for popup — so the
+    // tab is claimed while the click is still in hand and pointed at Dropbox a moment later.
+    // Deliberately not `noopener`, which would hand back nothing to point: the blank tab is severed
+    // from this one instead, before it is sent anywhere.
+    const waiting = target.oneClickHere ? null : window.open("", "_blank");
+    if (waiting) {
+      try {
+        waiting.opener = null;
+      } catch {
+        // Some browsers refuse this; the tab is going to Dropbox either way.
+      }
+    }
+    return run("connect", async () => {
       const { authorizeUrl, paste } = await api<{ authorizeUrl: string; paste: boolean }>(
         `/providers/${encodeURIComponent(target.id)}/connect`,
         { method: "POST" },
       );
       if (!paste) {
+        waiting?.close();
         window.location.href = authorizeUrl;
         return;
       }
       // Nowhere for Dropbox to hand the sign-in back to, so it goes to a tab of its own and the
       // person brings the code across. Leaving this page open is the point: it is where the code
       // is going, and navigating away would lose the half of the sign-in that stayed here.
-      window.open(authorizeUrl, "_blank", "noopener,noreferrer");
-      setPasting(true);
+      let opened = false;
+      if (waiting && !waiting.closed) {
+        waiting.location.replace(authorizeUrl);
+        opened = true;
+      }
       setCode("");
+      setPasting({ url: authorizeUrl, opened });
     });
+  };
 
   const finishPaste = (target: ImportAccount) =>
     run("paste", async () => {
@@ -294,7 +315,7 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
         method: "POST",
         body: JSON.stringify({ code }),
       });
-      setPasting(false);
+      setPasting(null);
       setCode("");
       setNotice(`Uncloud is signed in to ${target.name}.`);
       await load();
@@ -595,9 +616,21 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
           <div className="notice-card">
             <h2>Paste the code from {account.name}</h2>
             <p className="field-help">
-              {account.name} is open in another tab. Sign in there, and it will show you a code —
-              copy it and paste it here to finish.
+              {pasting.opened
+                ? `${account.name} is open in another tab. Sign in there, and it will show you a code — copy it and paste it here to finish.`
+                : `Open ${account.name} below and sign in. It will show you a code — copy it and paste it here to finish.`}
             </p>
+            {/* Always offered, not only when the tab was stopped: a tab closed by mistake would
+                otherwise leave somebody holding a form with nothing to fill it from. */}
+            <a
+              className="button secondary"
+              href={pasting.url}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {pasting.opened ? `Reopen ${account.name}` : `Open ${account.name}`}
+              <ArrowUpRight size={15} />
+            </a>
             <label htmlFor="dropbox-paste-code">Code from {account.name}</label>
             <input
               id="dropbox-paste-code"
@@ -620,7 +653,7 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
               <button
                 className="link-button"
                 onClick={() => {
-                  setPasting(false);
+                  setPasting(null);
                   setCode("");
                 }}
                 disabled={busy !== ""}
