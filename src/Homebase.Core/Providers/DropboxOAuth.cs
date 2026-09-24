@@ -25,31 +25,50 @@ public static class DropboxOAuth
     public static string Challenge(string verifier) =>
         Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
 
-    public static string AuthorizeUrl(string appKey, string redirectUri, string verifier, string state)
+    /// <param name="redirectUri">
+    /// Where Dropbox returns the browser, or null to ask for no return at all — Dropbox then shows
+    /// the code on its own page for the person to copy. That is the only way to finish a sign-in
+    /// from a computer this host cannot be reached at by a browser, since every address Dropbox
+    /// would return to has to be registered with the app in advance and nobody can register theirs.
+    /// </param>
+    /// <param name="state">
+    /// Carried back with the code, and so pointless when there is no return trip. Omitted then: it
+    /// guards a callback nobody is making, and a person copying a code should not be handed a
+    /// second thing to copy.
+    /// </param>
+    public static string AuthorizeUrl(string appKey, string? redirectUri, string verifier, string? state)
     {
         var query = new Dictionary<string, string>
         {
             ["client_id"] = appKey,
             ["response_type"] = "code",
-            ["redirect_uri"] = redirectUri,
             ["code_challenge"] = Challenge(verifier),
             ["code_challenge_method"] = "S256",
             // Offline access is what makes the connection outlive a single access token.
-            ["token_access_type"] = "offline",
-            ["state"] = state
+            ["token_access_type"] = "offline"
         };
+        if (redirectUri is not null) query["redirect_uri"] = redirectUri;
+        if (state is not null) query["state"] = state;
         return $"{AuthorizeEndpoint}?{string.Join('&', query.Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"))}";
     }
 
-    public static Task<Tokens> ExchangeAsync(HttpClient client, string appKey, string code, string verifier, string redirectUri, CancellationToken cancellationToken) =>
-        PostAsync(client, new Dictionary<string, string>
+    /// <param name="redirectUri">
+    /// Exactly what the sign-in was started with, including nothing at all: Dropbox checks the code
+    /// against the address it was issued for, so a code that was never issued for one has to be
+    /// exchanged without one.
+    /// </param>
+    public static Task<Tokens> ExchangeAsync(HttpClient client, string appKey, string code, string verifier, string? redirectUri, CancellationToken cancellationToken)
+    {
+        var form = new Dictionary<string, string>
         {
             ["code"] = code,
             ["grant_type"] = "authorization_code",
             ["client_id"] = appKey,
-            ["code_verifier"] = verifier,
-            ["redirect_uri"] = redirectUri
-        }, cancellationToken);
+            ["code_verifier"] = verifier
+        };
+        if (redirectUri is not null) form["redirect_uri"] = redirectUri;
+        return PostAsync(client, form, cancellationToken);
+    }
 
     public static Task<Tokens> RefreshAsync(HttpClient client, string appKey, string refreshToken, CancellationToken cancellationToken) =>
         PostAsync(client, new Dictionary<string, string>

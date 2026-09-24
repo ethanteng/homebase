@@ -26,9 +26,18 @@ public sealed class DropboxSetupTests : IDisposable
         _config = Path.Combine(_temporary, "Config");
     }
 
-    private TestHost CreateApp(string? environmentKey = null) => new(_config, settings: environmentKey is null
-        ? null
-        : new Dictionary<string, string?> { ["Homebase:Dropbox:AppKey"] = environmentKey });
+    /// <summary>
+    /// A host with no app of Uncloud's own, which is what these are about: where a key comes from
+    /// when somebody here has to supply it. The relay is the floor under all of that and has its own
+    /// tests; leaving it in would mean every account here was already connectable and none of these
+    /// would be testing anything.
+    /// </summary>
+    private TestHost CreateApp(string? environmentKey = null)
+    {
+        var settings = new Dictionary<string, string?> { ["Homebase:Dropbox:RelayAppKey"] = "" };
+        if (environmentKey is not null) settings["Homebase:Dropbox:AppKey"] = environmentKey;
+        return new TestHost(_config, settings: settings);
+    }
 
     private async Task<HttpClient> StartAsync(TestHost app)
     {

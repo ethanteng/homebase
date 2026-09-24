@@ -101,6 +101,11 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // A sign-in Dropbox has nowhere to return: waiting for the code to be brought back by hand. The
+  // address is kept so the card can always offer it — a tab that was blocked, or closed by mistake,
+  // must not leave somebody holding a form with nothing to fill it from.
+  const [pasting, setPasting] = useState<{ url: string; opened: boolean } | null>(null);
+  const [code, setCode] = useState("");
   const [typing, setTyping] = useState(false);
   const [typedPath, setTypedPath] = useState("");
 
@@ -267,13 +272,53 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
       setNotice(`${target.name} was taken off this list. Nothing on this computer or in your files changed.`);
     });
 
-  const connect = (target: ImportAccount) =>
-    run("connect", async () => {
-      const { authorizeUrl } = await api<{ authorizeUrl: string }>(
+  const connect = (target: ImportAccount) => {
+    // Opened here rather than once the request comes back. A tab opened after an await has lost the
+    // click that justified it, and a browser is right to stop it as an unasked-for popup — so the
+    // tab is claimed while the click is still in hand and pointed at Dropbox a moment later.
+    // Deliberately not `noopener`, which would hand back nothing to point: the blank tab is severed
+    // from this one instead, before it is sent anywhere.
+    const waiting = target.oneClickHere ? null : window.open("", "_blank");
+    if (waiting) {
+      try {
+        waiting.opener = null;
+      } catch {
+        // Some browsers refuse this; the tab is going to Dropbox either way.
+      }
+    }
+    return run("connect", async () => {
+      const { authorizeUrl, paste } = await api<{ authorizeUrl: string; paste: boolean }>(
         `/providers/${encodeURIComponent(target.id)}/connect`,
         { method: "POST" },
       );
-      window.location.href = authorizeUrl;
+      if (!paste) {
+        waiting?.close();
+        window.location.href = authorizeUrl;
+        return;
+      }
+      // Nowhere for Dropbox to hand the sign-in back to, so it goes to a tab of its own and the
+      // person brings the code across. Leaving this page open is the point: it is where the code
+      // is going, and navigating away would lose the half of the sign-in that stayed here.
+      let opened = false;
+      if (waiting && !waiting.closed) {
+        waiting.location.replace(authorizeUrl);
+        opened = true;
+      }
+      setCode("");
+      setPasting({ url: authorizeUrl, opened });
+    });
+  };
+
+  const finishPaste = (target: ImportAccount) =>
+    run("paste", async () => {
+      await api(`/providers/${encodeURIComponent(target.id)}/paste`, {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      });
+      setPasting(null);
+      setCode("");
+      setNotice(`Uncloud is signed in to ${target.name}.`);
+      await load();
     });
 
   const disconnect = (target: ImportAccount) =>
@@ -338,7 +383,7 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
     const connected = (candidate: ImportAccount) =>
       candidate.connected
         ? `Signed in as ${candidate.accountName ?? "you"}`
-        : candidate.configured && candidate.connectableHere
+        : candidate.configured
           ? "Sign in to connect"
           : isAdmin
             ? "Needs a few minutes to set up"
@@ -565,30 +610,69 @@ export default function AddFiles({ importing, isAdmin, storage, onStarted, onSet
       <div className="add-files">
         {header}
         {messages}
-        {account.configured && account.connectableHere ? (
+        {account.configured && pasting ? (
+          // The sign-in is open in another tab and Dropbox is showing a code, because there was
+          // nowhere for it to hand the sign-in back to. This is where the code comes.
+          <div className="notice-card">
+            <h2>Paste the code from {account.name}</h2>
+            <p className="field-help">
+              {pasting.opened
+                ? `${account.name} is open in another tab. Sign in there, and it will show you a code — copy it and paste it here to finish.`
+                : `Open ${account.name} below and sign in. It will show you a code — copy it and paste it here to finish.`}
+            </p>
+            {/* Always offered, not only when the tab was stopped: a tab closed by mistake would
+                otherwise leave somebody holding a form with nothing to fill it from. */}
+            <a
+              className="button secondary"
+              href={pasting.url}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {pasting.opened ? `Reopen ${account.name}` : `Open ${account.name}`}
+              <ArrowUpRight size={15} />
+            </a>
+            <label htmlFor="dropbox-paste-code">Code from {account.name}</label>
+            <input
+              id="dropbox-paste-code"
+              className="path-input"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              placeholder="paste the code here"
+              autoComplete="off"
+              spellCheck={false}
+              disabled={busy !== ""}
+            />
+            <div className="card-actions">
+              <button
+                className="button primary"
+                onClick={() => void finishPaste(account)}
+                disabled={busy !== "" || code.trim() === ""}
+              >
+                {busy === "paste" ? "Finishing…" : `Finish connecting ${account.name}`}
+              </button>
+              <button
+                className="link-button"
+                onClick={() => {
+                  setPasting(null);
+                  setCode("");
+                }}
+                disabled={busy !== ""}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : account.configured ? (
           <div className="notice-card">
             <h2>Connect your {account.name}</h2>
             <p className="field-help">
               You’ll sign in on {account.name}’s own page. Uncloud can only look at and copy your
               files — it can never change or delete anything in your {account.name}.
+              {!account.oneClickHere &&
+                ` Because you’re using Uncloud from a different computer than the one it runs on, ${account.name} will show you a code at the end — copy it back here and you’re done.`}
             </p>
             <button className="button primary" onClick={() => void connect(account)} disabled={busy !== ""}>
               {busy === "connect" ? `Opening ${account.name}…` : `Connect ${account.name}`}
-              <ArrowUpRight size={15} />
-            </button>
-          </div>
-        ) : account.configured ? (
-          // Uncloud's own app is there, but it can only finish a sign-in on the computer Uncloud
-          // runs on, and this browser isn't there.
-          <div className="notice-card">
-            <h2>Connect {account.name} from the Uncloud computer</h2>
-            <p className="field-help">
-              {isAdmin
-                ? `Right now ${account.name} can only be connected from the computer Uncloud runs on. Do it there, or set ${account.name} up once for everyone — about five minutes on ${account.name}’s website — and it connects from anywhere.`
-                : `Right now ${account.name} can only be connected from the computer Uncloud runs on. Do it there, or set it up yourself — about five minutes on ${account.name}’s website — and it connects from anywhere.`}
-            </p>
-            <button className="button primary" onClick={onSetUpDropbox}>
-              {isAdmin ? `Set up ${account.name} for everyone` : "Set it up myself"}
               <ArrowUpRight size={15} />
             </button>
           </div>

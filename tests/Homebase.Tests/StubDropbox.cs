@@ -74,8 +74,16 @@ public sealed class StubDropbox : IDropboxConnection
     /// <summary>The app key the exchange was given, for the same reason.</summary>
     public string? ExchangedUnder { get; private set; }
 
-    public Task ConnectAsync(string code, string verifier, string appKey, string redirectUri, CancellationToken cancellationToken)
+    /// <summary>Makes the next exchange fail, the way Dropbox refuses a code that isn't one.</summary>
+    public bool RefuseNext { get; set; }
+
+    public Task ConnectAsync(string code, string verifier, string appKey, string? redirectUri, CancellationToken cancellationToken)
     {
+        if (RefuseNext)
+        {
+            RefuseNext = false;
+            throw new LibraryException("Dropbox refused the sign-in (400).", "provider_auth");
+        }
         ExchangedWith = redirectUri;
         ExchangedUnder = appKey;
         IsConnected = true;

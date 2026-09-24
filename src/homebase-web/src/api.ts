@@ -141,8 +141,9 @@ export interface ImportAccount {
   configured: boolean;
   connected: boolean;
   accountName: string | null;
-  // False when signing in can't finish from this browser, and a setup of one's own is needed.
-  connectableHere: boolean;
+  // False when signing in can't finish by itself from this browser. Connecting still works: the
+  // person copies a code from Dropbox instead of being handed back automatically.
+  oneClickHere: boolean;
   destination: string;
 }
 

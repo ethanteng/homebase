@@ -34,7 +34,7 @@ public sealed class DropboxAuthFlow
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(10);
 
     private sealed record Pending(
-        string Verifier, string State, string? ReturnTo, string AppKey, string RedirectUri,
+        string Verifier, string? State, string? ReturnTo, string AppKey, string? RedirectUri,
         DateTimeOffset Expires);
 
     private readonly ConcurrentDictionary<string, Pending> _pending = new(StringComparer.Ordinal);
@@ -58,10 +58,51 @@ public sealed class DropboxAuthFlow
     }
 
     /// <summary>
+    /// Starts a sign-in that Dropbox will not return anywhere: it shows the code on its own page and
+    /// the person brings it back by hand. The only way to connect from a computer this host cannot
+    /// be reached at, since every address Dropbox would return to has to be registered with the app
+    /// beforehand and nobody can register their own.
+    ///
+    /// There is no state, because state guards a callback and there is no callback to guard. What
+    /// takes its place is the session: the code is handed back through <see cref="ClaimedBy"/> by an
+    /// account that is already signed in, and only ever becomes that account's connection.
+    /// </summary>
+    public string BeginWithoutReturn(string userId, string appKey)
+    {
+        var verifier = DropboxOAuth.CreateVerifier();
+        Prune();
+        _pending[userId] = new Pending(verifier, null, null, appKey, null,
+            DateTimeOffset.UtcNow.Add(Lifetime));
+        return DropboxOAuth.AuthorizeUrl(appKey, null, verifier, null);
+    }
+
+    /// <summary>
+    /// The verifier and app key this account is waiting to finish a pasted sign-in with. Left in
+    /// place rather than taken: a code copied across by hand gets mistyped, and losing the whole
+    /// sign-in over one wrong character would mean starting again at Dropbox for nothing. The
+    /// caller takes it with <see cref="Forget"/> once a code has actually been spent, which is what
+    /// stops one being used twice; until then it stands until it expires.
+    ///
+    /// Refuses a sign-in that expected to come back on its own: that one's code belongs to a
+    /// redirect, and accepting a pasted code against it would let a person be talked into carrying
+    /// across a code from a sign-in they did not start.
+    /// </summary>
+    public (string Verifier, string AppKey) ClaimedBy(string userId)
+    {
+        if (_pending.TryGetValue(userId, out var pending)
+            && pending.State is null
+            && DateTimeOffset.UtcNow <= pending.Expires)
+            return (pending.Verifier, pending.AppKey);
+        throw new LibraryException(
+            "That code didn't come from a sign-in Uncloud started, or it took too long. "
+            + "Press Connect again.", "provider_auth");
+    }
+
+    /// <summary>
     /// The account, verifier, return address, app key and redirect URI this state belongs to,
     /// forgotten on the way out so a code can never be replayed against it.
     /// </summary>
-    public (string UserId, string Verifier, string? ReturnTo, string AppKey, string RedirectUri)
+    public (string UserId, string Verifier, string? ReturnTo, string AppKey, string? RedirectUri)
         Consume(string? state)
     {
         if (state is not null)
@@ -69,6 +110,7 @@ public sealed class DropboxAuthFlow
             var offered = Encoding.UTF8.GetBytes(state);
             foreach (var (userId, pending) in _pending)
             {
+                if (pending.State is null) continue;
                 var candidate = Encoding.UTF8.GetBytes(pending.State);
                 if (candidate.Length != offered.Length
                     || !CryptographicOperations.FixedTimeEquals(candidate, offered)) continue;
