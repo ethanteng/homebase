@@ -32,7 +32,7 @@ public sealed class HostServer(string serverDirectory, ILogger logger, HttpClien
         };
         start.Environment["Homebase__Port"] = Port.ToString();
         // Whether this host can be reached from outside is the server's own setting, kept beside
-        // its accounts and changeable from Storage settings while it runs. Naming a provider here
+        // its accounts and changeable from Settings while it runs. Naming a provider here
         // would take that switch away from everybody who is not sitting at this Mac.
         _process = Process.Start(start) ?? throw new IOException("Uncloud didn’t start.");
         // Drained, or a server that fills an unread pipe stops answering while looking alive.

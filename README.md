@@ -29,8 +29,9 @@ plugged into it.
 
 - **Everyone has their own space.** Each person has their own username and password, and sees only
   their own files. Nobody else in the household can open them.
-- **Bring your files home.** Copy files and folders out of Dropbox, or out of any folder on the
-  host (such as the folder your Google Drive, OneDrive or iCloud app keeps), into your space.
+- **Bring your files home.** Click **Add files** and copy files and folders out of Dropbox, or out
+  of a folder or drive on the host (such as the folder your Google Drive, OneDrive or iCloud app
+  keeps), into your space. What you add is yours alone; sharing is something you choose to do.
 - **Keep your laptop in step.** Choose a folder on your laptop and it stays in sync with Uncloud.
   Add, change or delete a file on one and the same happens on the other, even when you're away
   from home.
@@ -40,7 +41,8 @@ plugged into it.
 ### What you can do today
 
 - Browse your folders, look at file details, and download files, from any browser.
-- Import from Dropbox, or from folders on the host.
+- Add files from Dropbox, or from folders and drives on the host, all from one **Add files** button.
+- See how much room is left on the host at a glance, on every page.
 - Sync folders on your own computers with your space.
 - Get back a file deleted on a synced laptop for 30 days afterwards.
 - Add and manage everyone in the household from one screen.
@@ -53,7 +55,8 @@ plugged into it.
   it ([how](#get-the-app)). It's Mac only for now.
 - **The host has to stay on and awake.** On a Mac, turn off sleep in System Settings, and tick
   **Open at Login** in the Uncloud menu so it starts again after a restart.
-- **No sharing** of a folder between people, and no storage limits per person.
+- **No sharing of files inside Uncloud** between people, and no storage limits per person. (A folder
+  on the host can be shared for others to add from.)
 - **No built-in backup.** Uncloud keeps one copy of everything. [Set up a backup](#keeping-your-files-safe).
 - **No direct Google Drive, iCloud or Evernote sign-in.** Use the folder their app keeps on the
   host instead.
@@ -154,9 +157,9 @@ accounts.
 
 ### 6. Let everyone in
 
-Open **Storage settings**. Under **Reaching this host from anywhere**, click **Reach this host
-from anywhere**, then **Allow this host**. You'll be taken to Tailscale, a free service Uncloud
-uses for its secure connection. Sign in or make an account.
+Open **Settings**. Under **Reaching this host from anywhere**, click **Reach this host from
+anywhere**, then **Allow this host**. You'll be taken to Tailscale, a free service Uncloud uses for
+its secure connection. Sign in or make an account.
 
 (With the app, ticking **Reach From Anywhere** under the **U** in the menu bar does the same
 thing. Either one is enough; they are the same switch.)
@@ -176,22 +179,11 @@ out of service at once, without stopping Uncloud for anybody at home.
 This connection is fine for browsing and downloading everyday files. It's slow for very large
 ones, like hours of video.
 
-### 7. Choose where people can bring files from (optional)
+### 7. Dropbox (optional)
 
-Everyone can bring files into their space from two kinds of places, and you decide which are
-available. Open **Where files come from**.
-
-**Folders on this computer.** If the host has the Dropbox, Google Drive, OneDrive or iCloud Drive
-app, that app already keeps a copy of the files in a folder on this computer. Add that folder here,
-and everyone can copy what they want out of it into their own space. No sign-in needed. Uncloud
-suggests the folders it finds. An old external drive works the same way.
-
-> **Everyone with an account can see every folder you add here.** Add a shared family Dropbox, not
-> your personal one.
-
-**Dropbox, online.** Nothing to do. Uncloud comes with its own Dropbox app, so anybody with an
-account here can connect their Dropbox by pressing **Connect** — no developer console, no app key,
-nothing to paste. Skip to the next step.
+Nothing to do. Uncloud comes with its own Dropbox app, so anybody with an account here can connect
+their own Dropbox from **Add files** by pressing **Connect** — no developer console, no app key,
+nothing to paste. It shares nobody's files: each person signs in to their own Dropbox.
 
 You might still register your own Dropbox app if you would rather your household's sign-ins didn't
 go through an app somebody else registered — or if Uncloud tells you its own app can't be used here.
@@ -200,7 +192,8 @@ computer, through a proxy you set up, or on an `https://` address with your own 
 of those, a key of your own works instead, and anybody can set theirs under **My account** without
 waiting for you.
 
-If you want your own, it is the same four steps it always was:
+If you want your own, open **Settings**, scroll to **Dropbox for everyone here**, and click
+**Advanced — Use a Dropbox app you registered**. It is four steps:
 
 1. Go to [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps) and click
    **Create app**. Choose **Scoped access** and **Full Dropbox**, and give it any name.
@@ -209,10 +202,6 @@ If you want your own, it is the same four steps it always was:
 3. On the **Settings** tab, add the **Redirect URI** that Uncloud shows you, and copy the
    **App key**.
 4. Paste the app key into Uncloud.
-
-The box for it is tucked away, since most people never need it: open **Where files come from** and
-click **Advanced — Use a Dropbox app you registered**. The four steps and the redirect URI to copy
-are in there too.
 
 Do this after step 6, because the redirect URI is based on your Uncloud's address. A key you set
 here replaces Uncloud's own for everybody who hasn't set one of their own — and anyone can always
@@ -234,29 +223,42 @@ Forgot your password? Ask them. They can give you a new one under **People**.
 ### Your files
 
 **My files** is your space. Only you can see it. Click into folders, use the browser's back
-button, filter and sort, and click a file to see its details or download it. The bottom of the
-sidebar shows how much you're using and how much room is left.
+button, filter and sort, and click a file to see its details or download it. The sidebar and the
+top of every page show how much room is left on the host, and how much of it is yours. They turn
+amber, then red, when it runs low.
 
-### Bring files in
+### Add files
 
-Open **Bring files in** and choose where from:
+On **My files**, click **Add files** and choose where they are:
 
-- **A folder on the host**, if one has been made available, such as the family Dropbox folder.
-- **Your Dropbox.** Click **Connect your Dropbox** and sign in — there is nothing to set up first.
-  Uncloud can only read your Dropbox, never change it.
+- **This computer** (for whoever looks after Uncloud): the folders and drives on the host, such as
+  Documents, Pictures, an old backup drive, or the folder your Dropbox or Google Drive app keeps.
+  Open one to look inside, or add the whole thing. **Choose another folder…** finds anything else.
+- **Dropbox.** Click **Connect Dropbox** and sign in — there is nothing to set up first. Uncloud can
+  only read your Dropbox, never change it.
 
-  If Uncloud says it needs a Dropbox app of your own, it will say why — its own app only works
-  when you're using Uncloud on the computer it runs on, at the plain local address it starts on.
-  Open **My account**, click **Use my own Dropbox app instead**, and follow the four steps there.
-  They take a couple of minutes and need nobody else.
+  If Uncloud says Dropbox needs setting up, it says why: its own Dropbox app only works when you're
+  using Uncloud on the computer it runs on. Click **Set it up myself** and follow the steps. They
+  take a few minutes and need nobody else.
+- **Shared with you**, if someone has shared a folder with everyone.
 
-Pick a file or a folder and bring it home. Use **Check size** first on a big folder to make sure
-it fits. You can close the page while it runs, and come back to see how far it's got. **Stop**
-ends it early and keeps whatever has already arrived.
+Google Drive and Evernote are coming. Until then, the folder the Google Drive app keeps on the host
+works under **This computer**.
 
-Files are copied, never moved: the originals stay where they were. Importing the same folder
-again only brings what's new, and Uncloud never overwrites a file you already have. Imported files
-appear in your space under **Files**.
+Click **Add** next to a file or folder. Uncloud checks it fits first, and the space left is shown
+at the top of every page. You can close the page while it runs; **My files** shows how far it has
+got, and **Stop** ends it early and keeps whatever has already arrived.
+
+Files are copied, never moved: the originals stay where they were. Adding the same folder again
+only brings what's new, and Uncloud never overwrites a file you already have. Added files appear
+at the top of **My files**, in a folder named after where they came from, such as **Dropbox** or
+**Documents**.
+
+**What you add is yours alone.** A folder on this computer that you add can only be added from by
+you. To let everyone in the house add from it too — a folder of family photos, say — open it in
+**Add files** and click **Share this folder with everyone here**. **Make private again** undoes it.
+Sharing lets others copy from that folder into their own space; it never shows them your files in
+Uncloud.
 
 ### Keep a folder on your laptop in sync
 
@@ -346,7 +348,7 @@ app instead**, and follow the steps there; an app you registered sends the sign-
 Uncloud, so it works in all of those.
 
 **The external drive was unplugged.** Plug it back in and refresh. If it comes back under a new
-name, choose the folder again under **Storage settings**.
+name, choose the folder again under **Settings**.
 
 **My computers says Syncthing isn't running.** The app has Syncthing built in. Run from Terminal,
 Uncloud downloads its own copy when it starts; if the host was offline then, restart Uncloud once

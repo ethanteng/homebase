@@ -5,7 +5,7 @@ namespace Homebase.Core.Accounts;
 
 /// <summary>
 /// Everything that belongs to one account: their folder, their Dropbox connection, their
-/// imports. Nothing here is shared with another account, and none of it can be reached without
+/// imports, the folders on this computer they bring files in from. Nothing here is shared with another account, and none of it can be reached without
 /// a user id that came from an authenticated session.
 /// </summary>
 public sealed class UserWorkspace
@@ -42,11 +42,11 @@ public sealed class UserWorkspace
 
     /// <summary>
     /// The place a request names, as something the import engine can read. The id is the only thing
-    /// a request gets to choose, and it has to match a place an administrator put on the list —
-    /// which is why no request can ever name a folder of its own.
+    /// a request gets to choose, and it has to match a folder this account added or one somebody
+    /// shared with everyone — which is why no request can ever name a folder of its own.
     /// </summary>
     public IImportSource Source(string? sourceId) =>
         sourceId is null || sourceId.Length == 0 || sourceId == DropboxApi.ProviderName
             ? Dropbox
-            : new LocalFolderSource(_places.Require(sourceId));
+            : new LocalFolderSource(_places.Require(sourceId, UserId));
 }

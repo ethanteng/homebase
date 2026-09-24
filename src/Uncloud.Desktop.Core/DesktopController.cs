@@ -63,7 +63,7 @@ public sealed class DesktopController(
     }
 
     /// <summary>
-    /// The same switch Storage settings has, for somebody who is at this Mac rather than in a
+    /// The same switch Settings has, for somebody who is at this Mac rather than in a
     /// browser. It writes what the server reads, so the two can never disagree — and restarts the
     /// server, because from out here there is no signed-in way to ask it to do this where it
     /// stands, which is what the panel does.

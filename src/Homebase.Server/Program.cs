@@ -379,6 +379,27 @@ static void IssueSession(HttpContext context, AuthSession session) =>
         Expires = session.ExpiresAt
     });
 
+// A folder on this computer as one account sees it. Where it is on the disk is only its owner's
+// to know; everybody else it is shared with sees its name and who shared it.
+static object Place(ImportPlace place, string viewer, Func<string, string> kind)
+{
+    var mine = place.OwnerId == viewer;
+    return new
+    {
+        place.Id,
+        place.Name,
+        path = mine ? place.Path : null,
+        kind = kind(place.Path),
+        // Said plainly rather than discovered by trying: an unplugged drive is a normal thing for a
+        // household to have, not an error.
+        available = Directory.Exists(place.Path),
+        mine,
+        place.Shared,
+        sharedBy = mine ? null : place.OwnerName,
+        destination = place.DestinationPrefix
+    };
+}
+
 static object Describe(UserAccount account) => new
 {
     account.Id,
@@ -577,28 +598,42 @@ app.MapGet("/api/providers/dropbox/callback", async (string? code, string? state
     }
 });
 
-// Everywhere files can be brought in from, as this account sees them: the folders an
-// administrator has shared, and this account's own Dropbox.
-app.MapGet("/api/imports/sources", (CurrentUser user, UserWorkspaces workspaces, ImportPlaces places) =>
+// Everywhere this account can bring files in from: its online accounts, the folders on this
+// computer it added or somebody shared with everyone, and — for somebody who looks after this host —
+// the folders worth offering that it hasn't added yet.
+app.MapGet("/api/imports/sources", (HttpContext context, CurrentUser user, UserWorkspaces workspaces, ImportPlaces places, IFolderPicker picker) =>
 {
-    var dropbox = workspaces.For(user.Account).Dropbox;
+    var workspace = workspaces.For(user.Account);
+    var dropbox = workspace.Dropbox;
+    var visible = places.VisibleTo(user.Id);
+    var kind = visible.Count > 0 ? places.Kinds() : _ => "folder";
     return Results.Ok(new
     {
-        places = places.List().Select(place => new
+        // One entry per kind of online account, so the next one is a line here rather than a new
+        // shape for the page to learn.
+        accounts = new[]
         {
-            place.Id,
-            place.Name,
-            place.Path,
-            // Said plainly rather than discovered by trying: an unplugged drive is a normal thing
-            // for a household to have, not an error.
-            available = Directory.Exists(place.Path)
-        }),
-        dropbox = new
-        {
-            configured = dropbox.IsConfigured,
-            connected = dropbox.IsConnected,
-            accountName = dropbox.AccountName
-        }
+            new
+            {
+                id = DropboxApi.ProviderName,
+                name = "Dropbox",
+                configured = dropbox.IsConfigured,
+                connected = dropbox.IsConnected,
+                accountName = dropbox.AccountName,
+                // Whether Connect can work from this browser. Uncloud's own Dropbox app only
+                // finishes a sign-in on the computer it runs on; saying so before somebody presses
+                // Connect is kinder than refusing them after.
+                connectableHere = !appKeys.UsesRelay(user.Id) || RelayCannotFinish(context) is null,
+                // Where in this account's folder its files arrive, so the page can say so.
+                destination = workspace.Source(DropboxApi.ProviderName).DestinationPrefix
+            }
+        },
+        places = visible.Select(place => Place(place, user.Id, kind)),
+        suggestions = user.IsAdmin ? places.Suggestions(user.Id) : [],
+        // Only somebody who looks after this host can read its folders. Anyone else is shown what
+        // has been shared with them, and nothing about the rest of this computer.
+        canAddFolders = user.IsAdmin,
+        canPickFolder = user.IsAdmin && picker.IsSupported
     });
 });
 
@@ -636,7 +671,7 @@ app.MapGet("/api/remote-access", (RemoteAccess access) => Results.Ok(Reachabilit
 // Turning it on and off, from the interface, on a host everybody is already using. Nothing is
 // restarted: the tunnel opens or closes where it stands, and the answer says where things got to
 // rather than where they will end up — a tunnel waiting to be allowed is still waiting when this
-// returns, and Storage settings shows the link as soon as there is one.
+// returns, and Settings shows the link as soon as there is one.
 app.MapPut("/api/remote-access", async (ReachFromAnywhere request, RemoteAccess access, ControlDatabase control) =>
 {
     if (access.Options.FromEnvironment)
@@ -668,14 +703,17 @@ object Reachability(RemoteAccess access)
 app.MapGet("/api/host", (HostService host, IFolderPicker picker) =>
     Results.Ok(new { rootPath = host.RootPath, canPickFolder = picker.IsSupported }));
 
-app.MapPut("/api/host", async (SelectRoot request, HostService host, UsageService usage, ImportPlaces places, SyncService sync, CancellationToken cancellationToken) =>
+app.MapPut("/api/host", async (SelectRoot request, CurrentUser user, HostService host, UsageService usage, ImportPlaces places, SyncService sync, CancellationToken cancellationToken) =>
 {
-    // Refused here rather than left to break later: a folder everybody on this host may read from
+    // Refused here rather than left to break later: a folder somebody on this host reads from
     // cannot also be where everybody's files live, or bringing files in would read across accounts.
+    // Somebody else's folder is refused without being named, since it may be private to them.
     if (places.Conflicting(request.Path) is { } clash)
         throw new LibraryException(
-            $"“{clash.Name}” is somewhere everyone here brings files in from, and it holds this folder "
-            + "(or sits inside it). Remove it under Where files come from, or choose a different folder.",
+            clash.OwnerId == user.Id
+                ? $"You add files from “{clash.Name}”, and it holds this folder (or sits inside it). "
+                  + $"Choose a different folder, or take “{clash.Name}” off the list under Add files first."
+                : "Somebody here adds files from a folder that holds this one (or sits inside it). Choose a different folder.",
             "conflict");
     var root = host.SelectRoot(request.Path);
     usage.Invalidate(root);
@@ -726,34 +764,26 @@ app.MapPost("/api/host/unclaimed", (CurrentUser user, HostService host, UserWork
 app.MapPost("/api/folder-picker", async (IFolderPicker picker, CancellationToken cancellationToken) =>
     Results.Ok(new { path = await picker.ChooseAsync(cancellationToken) }));
 
-// The folders everybody on this Uncloud may bring files in from. Administrative, because adding one
-// shares it with every account here.
-app.MapGet("/api/host/places", (ImportPlaces places, IFolderPicker picker) =>
-    Results.Ok(new
-    {
-        places = places.List().Select(place => new
-        {
-            place.Id,
-            place.Name,
-            place.Path,
-            place.AddedAt,
-            place.DestinationPrefix,
-            available = Directory.Exists(place.Path)
-        }),
-        suggestions = places.Suggestions(),
-        canPickFolder = picker.IsSupported
-    }));
+// Adding a folder on this computer, which is administrative because only somebody who looks after
+// this host may read its folders. What they add is theirs alone: nothing here shares it.
+app.MapPost("/api/host/places", (AddPlace request, CurrentUser user, ImportPlaces places) =>
+    Results.Ok(Place(places.Add(user.Id, request.Path, request.Name), user.Id, places.Kinds())));
 
-app.MapPost("/api/host/places", (AddPlace request, ImportPlaces places) =>
-    Results.Ok(places.Add(request.Path, request.Name)));
-
-app.MapDelete("/api/host/places/{id}", (string id, ImportPlaces places, UserWorkspaces workspaces) =>
+// Sharing a folder with everyone here, or no longer sharing it. Only its owner can do either.
+app.MapPatch("/api/host/places/{id}", (string id, SharePlace request, CurrentUser user, ImportPlaces places, UserWorkspaces workspaces) =>
 {
-    var place = places.Find(id);
-    places.Remove(id);
+    var place = places.SetShared(id, user.Id, request.Shared);
+    // Anybody else partway through bringing it home was reading it on the strength of the share.
+    if (!request.Shared) workspaces.CancelImportsFrom(place.Id, reader => reader != user.Id);
+    return Results.Ok(Place(place, user.Id, places.Kinds()));
+});
+
+app.MapDelete("/api/host/places/{id}", (string id, CurrentUser user, ImportPlaces places, UserWorkspaces workspaces) =>
+{
+    var place = places.Remove(id, user.Id);
     // Taking the row away does not reach an import already running from it, which holds the folder
     // it started on. Removing a place has to actually stop the reading, not just the starting.
-    var stopped = workspaces.CancelImportsFrom(place.ProviderId);
+    var stopped = workspaces.CancelImportsFrom(place.Id);
     return Results.Ok(new { removed = true, stopped });
 });
 
@@ -859,7 +889,15 @@ app.MapPost("/api/users", (CreateUser request, UserStore users, UserWorkspaces w
     return Results.Ok(Describe(account));
 });
 
-app.MapPatch("/api/users/{id}", async (string id, UpdateUser request, CurrentUser actor, UserStore users, SessionStore sessions, UserWorkspaces workspaces, DropboxAuthFlow flow, SyncService sync, CancellationToken cancellationToken) =>
+// Somebody who no longer looks after this host no longer reads its folders, and nor does anyone
+// they shared one with. An import already running holds the folder it started on, so stopping the
+// starting isn't enough; whatever already arrived stays.
+void StopReadingFoldersOf(IEnumerable<ImportPlace> theirs, UserWorkspaces workspaces)
+{
+    foreach (var place in theirs) workspaces.CancelImportsFrom(place.Id);
+}
+
+app.MapPatch("/api/users/{id}", async (string id, UpdateUser request, CurrentUser actor, UserStore users, SessionStore sessions, UserWorkspaces workspaces, DropboxAuthFlow flow, SyncService sync, ImportPlaces places, CancellationToken cancellationToken) =>
 {
     if (users.Find(id) is null) throw new LibraryException("There’s no such account.", "not_found");
     if (request.DisplayName is not null) users.SetDisplayName(id, request.DisplayName);
@@ -869,6 +907,8 @@ app.MapPatch("/api/users/{id}", async (string id, UpdateUser request, CurrentUse
         sessions.DeleteAllFor(id, except: id == actor.Id ? actor.Token : null);
     }
     if (request.IsAdmin is { } admin) users.SetAdmin(id, admin);
+    if (request.IsAdmin == false || request.Disabled == true)
+        StopReadingFoldersOf(places.List().Where(place => place.OwnerId == id), workspaces);
     if (request.Disabled is { } disabled)
     {
         users.SetDisabled(id, disabled);
@@ -887,13 +927,16 @@ app.MapPatch("/api/users/{id}", async (string id, UpdateUser request, CurrentUse
     return Results.Ok(Describe(users.Find(id)!));
 });
 
-app.MapDelete("/api/users/{id}", async (string id, UserStore users, SessionStore sessions, UserWorkspaces workspaces, DropboxAuthFlow flow, HostService host, DropboxAppKey appKey, SyncService sync, CancellationToken cancellationToken) =>
+app.MapDelete("/api/users/{id}", async (string id, UserStore users, SessionStore sessions, UserWorkspaces workspaces, DropboxAuthFlow flow, HostService host, DropboxAppKey appKey, SyncService sync, ImportPlaces places, CancellationToken cancellationToken) =>
 {
     if (users.Find(id) is null) throw new LibraryException("There’s no such account.", "not_found");
+    // Read before the account goes, because its folders go with it.
+    var theirs = places.List().Where(place => place.OwnerId == id).ToArray();
     // Nothing may carry on syncing into a deleted account's folder.
     await sync.ForgetAsync(id, () => users.Delete(id), cancellationToken);
     sessions.DeleteAllFor(id);
     workspaces.Forget(id);
+    StopReadingFoldersOf(theirs, workspaces);
     flow.Forget(id);
     // Their row went with the account; this drops what was held for it in memory.
     appKey.Forget(id);
@@ -967,6 +1010,7 @@ public static class Sources
 
 public sealed record ImportRequest(string RemotePath, string? Label, string? Source);
 public sealed record AddPlace(string? Path, string? Name);
+public sealed record SharePlace(bool Shared);
 public sealed record SetDropboxAppKey(string? AppKey);
 public sealed record PairDevice(string DeviceId, string? Name);
 public sealed record SyncFolderRequest(string? Path, IReadOnlyList<string>? DeviceIds);

@@ -1,18 +1,27 @@
 using Homebase.Core.Accounts;
+using Microsoft.Data.Sqlite;
 
 namespace Homebase.Core.Providers;
 
-/// <summary>Somewhere an administrator could add, offered rather than typed out.</summary>
-public sealed record SuggestedPlace(string Name, string Path);
+/// <summary>
+/// Somewhere on this computer worth offering, rather than making somebody type it out.
+/// <paramref name="Kind"/> is what it looks like to a person: an ordinary folder, the folder a
+/// cloud app keeps, or a drive plugged into this computer.
+/// </summary>
+public sealed record SuggestedPlace(string Name, string Path, string Kind);
 
 /// <summary>
-/// The folders on this computer that Uncloud may bring files in from, and the rules about which
-/// folders those are allowed to be.
+/// The folders on this computer that people bring files in from, whose each one is, who else may
+/// use it, and the rules about which folders those are allowed to be.
+///
+/// A folder is its owner's alone until they share it. Sharing is a separate, deliberate step,
+/// because most of what is on this computer — somebody's Documents, their Desktop — is nobody
+/// else's business.
 ///
 /// The rules are the isolation boundary, not a convenience. Uncloud runs as one operating-system
-/// user, so a place that contains the host's storage root would hand every member a way to read
-/// every other account's files, and a place that contains the preference directory would hand them
-/// the password hashes and the key that seals everybody's Dropbox tokens. Both are refused when a
+/// user, so a place that contains the host's storage root would hand whoever can read it every
+/// other account's files, and a place that contains the preference directory would hand them the
+/// password hashes and the key that seals everybody's Dropbox tokens. Both are refused when a
 /// place is added and again every time one is used, because the storage root can move afterwards.
 /// </summary>
 public sealed class ImportPlaces(ControlDatabase database, HostService host, string configDirectory)
@@ -26,33 +35,54 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
     /// </summary>
     public int Rewrites { get; init; } = 8;
 
-    public IReadOnlyList<ImportPlace> List()
-    {
-        using var connection = database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, name, path, added_at FROM import_places ORDER BY name COLLATE NOCASE";
-        using var reader = command.ExecuteReader();
-        var places = new List<ImportPlace>();
-        while (reader.Read())
-            places.Add(new ImportPlace(reader.GetString(0), reader.GetString(1), reader.GetString(2),
-                DateTimeOffset.Parse(reader.GetString(3))));
-        return places;
-    }
+    /// <summary>This computer's home folder, where suggestions come from; replaced in tests.</summary>
+    public string Home { get; init; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    public ImportPlace Find(string id) =>
-        List().FirstOrDefault(place => place.Id == id)
-        ?? throw new LibraryException("That place isn’t on this Uncloud any more.", "not_found");
+    /// <summary>Where this computer mounts drives plugged into it; replaced in tests.</summary>
+    public IReadOnlyList<string> DriveFolders { get; init; } = OperatingSystem.IsMacOS()
+        ? ["/Volumes"]
+        : OperatingSystem.IsLinux() ? [$"/media/{Environment.UserName}", $"/run/media/{Environment.UserName}"] : [];
+
+    private const string Columns = """
+        SELECT p.id, p.name, p.path, p.added_at, p.owner_id, p.shared, u.display_name
+        FROM import_places p LEFT JOIN users u ON u.id = p.owner_id
+        """;
+
+    // A place is only read through somebody who still looks after this host. An administrator who
+    // is demoted or disabled stops being able to read this computer's folders, and so does anyone
+    // they had shared one with: the sharing was only ever theirs to give.
+    private const string Usable = "u.is_admin = 1 AND u.disabled_at IS NULL";
+
+    /// <summary>
+    /// Every place on this host, whoever it belongs to. Only for checks about the host itself,
+    /// such as whether its folder may move somewhere; what a person may use is
+    /// <see cref="VisibleTo"/>.
+    /// </summary>
+    public IReadOnlyList<ImportPlace> List() => Query("", _ => { });
+
+    /// <summary>The places this account may bring files in from: its own, and those shared with everyone.</summary>
+    public IReadOnlyList<ImportPlace> VisibleTo(string userId) =>
+        Query($"WHERE {Usable} AND (p.owner_id = $user OR p.shared = 1)",
+            parameters => parameters.AddWithValue("$user", userId));
+
+    /// <summary>
+    /// One place this account may use. A place that exists but isn't theirs to use is reported as
+    /// missing, not as forbidden: somebody else's private folder is not a thing to confirm exists.
+    /// </summary>
+    public ImportPlace Find(string id, string userId) =>
+        VisibleTo(userId).FirstOrDefault(place => place.Id == id)
+        ?? throw new LibraryException("That folder isn’t available any more.", "not_found");
 
     /// <summary>
     /// The place, checked against today's storage root and confirmed to still be there. Everything
     /// that reads from a place goes through here rather than through <see cref="Find"/>.
     /// </summary>
-    public ImportPlace Require(string id)
+    public ImportPlace Require(string id, string userId)
     {
-        var place = Find(id);
+        var place = Find(id, userId);
         if (!Directory.Exists(place.Path))
             throw new LibraryException(
-                $"“{place.Name}” isn’t on this computer right now. Plug the drive back in, or ask an administrator to remove it.",
+                $"“{place.Name}” isn’t on this computer right now. If it’s on a drive, plug the drive back in.",
                 "unavailable");
         // Re-checked rather than trusted: the host's folder may have moved since this was added,
         // and a place that now holds it would read straight across everybody's accounts.
@@ -62,8 +92,8 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
 
     /// <summary>
     /// The place that would hold, or sit inside, this folder — or null when none would. Asked before
-    /// the host's folder moves: a folder everybody may read from is not somewhere everybody's files
-    /// can live, and refusing the move is kinder than silently disabling the place afterwards.
+    /// the host's folder moves: a folder people bring files in from is not somewhere everybody's
+    /// files can live, and refusing the move is kinder than silently disabling the place afterwards.
     /// </summary>
     public ImportPlace? Conflicting(string root)
     {
@@ -71,69 +101,153 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
         return List().FirstOrDefault(place => Nested(Safe(place.Path), resolved));
     }
 
-    public ImportPlace Add(string? path, string? name)
+    /// <summary>
+    /// Adds a folder for <paramref name="ownerId"/> alone. Adding the same folder again hands back
+    /// the one already there, so choosing a folder twice is never an error to explain.
+    /// </summary>
+    public ImportPlace Add(string ownerId, string? path, string? name = null)
     {
         var resolved = PathPolicy.NormalizeRoot(path ?? "");
         PathPolicy.RejectLink(resolved);
         if (Refusal(resolved) is { } refusal) throw new LibraryException(refusal, "forbidden");
-        var existing = List();
-        if (existing.FirstOrDefault(place => Same(Safe(place.Path), Safe(resolved))) is { } already)
-            throw new LibraryException($"That folder is already here, as “{already.Name}”.", "conflict");
+        var own = Owned(ownerId);
+        if (own.FirstOrDefault(place => Same(Safe(place.Path), Safe(resolved))) is { } already) return already;
 
         var label = string.IsNullOrWhiteSpace(name) ? Path.GetFileName(resolved) : name.Trim();
         if (label.Length == 0) label = "Imported";
         if (label.Length > 60) label = label[..60].TrimEnd();
-        // Two places writing into one folder under Files/ would make "already imported" ambiguous
-        // between them, so the names that become folders have to stay distinct.
-        var folder = ImportPlace.FolderName(label);
-        if (existing.Any(place => ImportPlace.FolderName(place.Name).Equals(folder, StringComparison.OrdinalIgnoreCase)))
-            throw new LibraryException($"Something here is already called “{folder}”. Give this one another name.", "conflict");
+        // Each place writes into a folder of its own at the top of My files, so the names that
+        // become folders stay distinct among everything this person can bring files in from. Two
+        // folders both called "Photos" is an ordinary thing to have, so the second is numbered.
+        var taken = own.Concat(VisibleTo(ownerId))
+            .Select(place => ImportPlace.FolderName(place.Name))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unique = label;
+        for (var number = 2; taken.Contains(ImportPlace.FolderName(unique)); number++)
+            unique = $"{label} {number}";
 
-        var place = new ImportPlace(ImportPlace.NewId(), label, resolved, DateTimeOffset.UtcNow);
+        var place = new ImportPlace(ImportPlace.NewId(), unique, resolved, DateTimeOffset.UtcNow, ownerId, Shared: false);
         using var connection = database.Open();
         using var command = connection.CreateCommand();
-        command.CommandText =
-            "INSERT INTO import_places(id, name, path, added_at) VALUES ($id, $name, $path, $added)";
+        command.CommandText = """
+            INSERT INTO import_places(id, name, path, added_at, owner_id, shared)
+            VALUES ($id, $name, $path, $added, $owner, 0)
+            """;
         command.Parameters.AddWithValue("$id", place.Id);
         command.Parameters.AddWithValue("$name", place.Name);
         command.Parameters.AddWithValue("$path", place.Path);
         command.Parameters.AddWithValue("$added", place.AddedAt.ToString("O"));
+        command.Parameters.AddWithValue("$owner", ownerId);
         command.ExecuteNonQuery();
         return place;
     }
 
     /// <summary>
-    /// Takes a place off the list. Nothing already brought home is touched or forgotten: those are
-    /// ordinary files in somebody's folder now, and the record of where they came from is theirs.
+    /// Shares one of <paramref name="ownerId"/>'s folders with everyone here, or stops sharing it.
+    /// Only its owner can do either; to anybody else it isn't theirs, and so isn't there.
     /// </summary>
-    public void Remove(string id)
+    public ImportPlace SetShared(string id, string ownerId, bool shared)
     {
-        using var connection = database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM import_places WHERE id = $id";
-        command.Parameters.AddWithValue("$id", id);
-        if (command.ExecuteNonQuery() == 0)
-            throw new LibraryException("That place isn’t on this Uncloud any more.", "not_found");
+        using (var connection = database.Open())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE import_places SET shared = $shared WHERE id = $id AND owner_id = $owner";
+            command.Parameters.AddWithValue("$shared", shared ? 1 : 0);
+            command.Parameters.AddWithValue("$id", id);
+            command.Parameters.AddWithValue("$owner", ownerId);
+            if (command.ExecuteNonQuery() == 0)
+                throw new LibraryException("That folder isn’t available any more.", "not_found");
+        }
+        return Owned(ownerId).First(place => place.Id == id);
     }
 
     /// <summary>
-    /// Folders worth offering: the ones a desktop sync app puts where everybody expects, and the
-    /// home folders people keep things in. Only what exists, is allowed, and isn't already here.
+    /// Takes one of <paramref name="ownerId"/>'s folders off their list. Nothing already brought
+    /// home is touched or forgotten: those are ordinary files in somebody's folder now, and the
+    /// record of where they came from is theirs.
     /// </summary>
-    public IReadOnlyList<SuggestedPlace> Suggestions()
+    public ImportPlace Remove(string id, string ownerId)
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var place = Owned(ownerId).FirstOrDefault(candidate => candidate.Id == id)
+            ?? throw new LibraryException("That folder isn’t available any more.", "not_found");
+        using var connection = database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM import_places WHERE id = $id AND owner_id = $owner";
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$owner", ownerId);
+        command.ExecuteNonQuery();
+        return place;
+    }
+
+    private IReadOnlyList<ImportPlace> Owned(string ownerId) =>
+        Query("WHERE p.owner_id = $owner", parameters => parameters.AddWithValue("$owner", ownerId));
+
+    private IReadOnlyList<ImportPlace> Query(string where, Action<SqliteParameterCollection> bind)
+    {
+        using var connection = database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"{Columns} {where} ORDER BY p.name COLLATE NOCASE";
+        bind(command.Parameters);
+        using var reader = command.ExecuteReader();
+        var places = new List<ImportPlace>();
+        while (reader.Read())
+            places.Add(new ImportPlace(
+                reader.GetString(0), reader.GetString(1), reader.GetString(2),
+                DateTimeOffset.Parse(reader.GetString(3)),
+                reader.IsDBNull(4) ? "" : reader.GetString(4),
+                reader.GetInt64(5) != 0,
+                reader.IsDBNull(6) ? "" : reader.GetString(6)));
+        return places;
+    }
+
+    /// <summary>
+    /// Folders worth offering <paramref name="ownerId"/>: the ones people keep things in, the ones a
+    /// desktop sync app puts where everybody expects, and drives plugged into this computer. Only
+    /// what exists, is allowed, and isn't already on their list.
+    /// </summary>
+    public IReadOnlyList<SuggestedPlace> Suggestions(string ownerId)
+    {
+        var taken = Owned(ownerId);
+        return Candidates()
+            .Where(candidate => !taken.Any(place => Same(Safe(place.Path), Safe(candidate.Path))))
+            .ToArray();
+    }
+
+    /// <summary>
+    /// What each folder looks like to a person, whether or not it was ever suggested: a drive, a
+    /// cloud app's folder, or an ordinary one. Looked around for once, then asked per folder.
+    /// </summary>
+    public Func<string, string> Kinds()
+    {
+        var candidates = Candidates().Select(candidate => (Real: Safe(candidate.Path), candidate.Kind)).ToArray();
+        var drives = DriveFolders.Select(Safe).ToArray();
+        return path =>
+        {
+            var real = Safe(path);
+            if (drives.Any(folder => Inside(folder, real))) return "drive";
+            return candidates.FirstOrDefault(candidate => Same(candidate.Real, real)).Kind ?? "folder";
+        };
+    }
+
+    private IReadOnlyList<SuggestedPlace> Candidates()
+    {
+        var home = Home;
         if (home.Length == 0) return [];
         var candidates = new List<SuggestedPlace>();
 
-        void Offer(string name, string path)
+        void Offer(string name, string path, string kind)
         {
-            if (Directory.Exists(path)) candidates.Add(new SuggestedPlace(name, path));
+            if (Directory.Exists(path)) candidates.Add(new SuggestedPlace(name, path, kind));
         }
 
-        Offer("Dropbox", Path.Combine(home, "Dropbox"));
-        Offer("Google Drive", Path.Combine(home, "Google Drive"));
-        Offer("OneDrive", Path.Combine(home, "OneDrive"));
+        // The folders people keep their own things in come first: they are what most people are
+        // looking for, and they need nothing else installed.
+        foreach (var name in new[] { "Desktop", "Documents", "Downloads", "Pictures", "Movies", "Music" })
+            Offer(name, Path.Combine(home, name), "folder");
+
+        Offer("Dropbox", Path.Combine(home, "Dropbox"), "cloud");
+        Offer("Google Drive", Path.Combine(home, "Google Drive"), "cloud");
+        Offer("OneDrive", Path.Combine(home, "OneDrive"), "cloud");
         // Where macOS mounts the file providers of Google Drive, OneDrive, Box and the rest, under
         // names that carry the signed-in address. Nobody wants "GoogleDrive-me@example.com" as a
         // folder in their library, so the service's own name is what gets offered.
@@ -142,22 +256,40 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
         {
             if (Directory.Exists(cloudStorage))
                 foreach (var directory in Directory.EnumerateDirectories(cloudStorage).Order(StringComparer.OrdinalIgnoreCase))
-                    candidates.Add(new SuggestedPlace(ServiceName(Path.GetFileName(directory)), directory));
+                    candidates.Add(new SuggestedPlace(ServiceName(Path.GetFileName(directory)), directory, "cloud"));
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
             // A file provider Uncloud isn't allowed to look at is one fewer thing to offer, not a
-            // reason to offer nothing: the folders below are still worth suggesting.
+            // reason to offer nothing: the folders around it are still worth suggesting.
         }
-        foreach (var name in new[] { "Documents", "Desktop", "Pictures", "Movies", "Music" })
-            Offer(name, Path.Combine(home, name));
 
-        var taken = List();
+        // Drives plugged into this computer: an old backup drive is one of the commonest places a
+        // household's files are waiting. The startup disk appears among them on a Mac as a link to
+        // the root of everything, which is not a drive anybody means, so links are passed over.
+        foreach (var drives in DriveFolders)
+        {
+            try
+            {
+                if (!Directory.Exists(drives)) continue;
+                foreach (var drive in new DirectoryInfo(drives).EnumerateDirectories()
+                             .OrderBy(drive => drive.Name, StringComparer.OrdinalIgnoreCase))
+                    if (drive.LinkTarget is null && !drive.Attributes.HasFlag(FileAttributes.ReparsePoint)
+                        && !drive.Name.StartsWith('.'))
+                        candidates.Add(new SuggestedPlace(drive.Name, drive.FullName, "drive"));
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                // Drives that can't be listed are simply not offered.
+            }
+        }
+
         return candidates
+            // A drive holding everybody's Uncloud files, or a home folder that does, is left out
+            // exactly as it would be refused if somebody chose it by hand.
             .Where(candidate => Refusal(Safe(candidate.Path)) is null)
-            .Where(candidate => !taken.Any(place => Same(place.Path, Safe(candidate.Path))))
             // Two entries can resolve to the same folder — ~/Dropbox is often a link into
-            // CloudStorage — and offering it twice would just be a way to fail the second time.
+            // CloudStorage — and offering it twice would just be a way to add it twice.
             .DistinctBy(candidate => Safe(candidate.Path), StringComparer.OrdinalIgnoreCase)
             .DistinctBy(candidate => ImportPlace.FolderName(candidate.Name), StringComparer.OrdinalIgnoreCase)
             .ToArray();

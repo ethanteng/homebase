@@ -49,11 +49,11 @@ public sealed class ProviderTests : IDisposable
         Assert.Equal("Done", job.GetProperty("stage").GetString());
         Assert.Equal(1, job.GetProperty("result").GetProperty("importedCount").GetInt32());
 
-        var localFile = Path.Combine(root, "Files", "Dropbox", "notes", "hello.txt");
+        var localFile = Path.Combine(root, "Dropbox", "notes", "hello.txt");
         Assert.Equal("First draft.", await File.ReadAllTextAsync(localFile));
 
         // The import is an ordinary file, so the normal browser sees it.
-        var listing = await client.GetFromJsonAsync<DirectoryListing>("/api/files?path=Files/Dropbox/notes");
+        var listing = await client.GetFromJsonAsync<DirectoryListing>("/api/files?path=Dropbox/notes");
         Assert.Equal("hello.txt", listing!.Entries.Single().Name);
         Assert.Single(await client.GetFromJsonAsync<JsonElement[]>("/api/imports") ?? []);
     }
@@ -72,7 +72,7 @@ public sealed class ProviderTests : IDisposable
 
         Assert.Equal(0, again.GetProperty("result").GetProperty("importedCount").GetInt32());
         Assert.Equal("First draft.",
-            await File.ReadAllTextAsync(Path.Combine(root, "Files", "Dropbox", "notes", "hello.txt")));
+            await File.ReadAllTextAsync(Path.Combine(root, "Dropbox", "notes", "hello.txt")));
     }
 
     [Fact]

@@ -119,7 +119,7 @@ On a Mac you can instead build a self-contained executable, which needs neither 
 on the host; see [Desktop packaging](#desktop-packaging).
 
 For remote access through the bundled tunnel, build the tunnel first (it needs Go). Turning it on
-is done from **Storage settings** afterwards, not here:
+is done from **Settings** afterwards, not here:
 
 ```sh
 ./scripts/build-tunnel.sh
@@ -179,7 +179,7 @@ sign in from outside the house, Uncloud can open a **tunnel**: an outbound conne
 that already owns a name and a certificate. Nothing is forwarded at the router, no port is opened
 to the internet, and no certificate has to be obtained here or renewed.
 
-It is turned on in **Storage settings**, under *Reaching this host from anywhere*, and turned off
+It is turned on in **Settings**, under *Reaching this host from anywhere*, and turned off
 in the same place. Nothing is restarted either way: the tunnel opens or closes where it stands,
 and everyone on the network carries on throughout. The choice is kept in `host_settings` beside
 the storage root, so a host that was reachable comes back reachable.
@@ -237,7 +237,7 @@ Homebase__RemoteAccess__Hostname=files.example.com \
 
 | Setting | What it does |
 | --- | --- |
-| `Homebase__RemoteAccess__Provider` | `none`, `builtin`, `tailscale`, or `cloudflare`. Setting this at all decides the matter before launch, so **Storage settings** then reports remote access rather than changing it. Leave it unset to decide it there. |
+| `Homebase__RemoteAccess__Provider` | `none`, `builtin`, `tailscale`, or `cloudflare`. Setting this at all decides the matter before launch, so **Settings** then reports remote access rather than changing it. Leave it unset to decide it there. |
 | `Homebase__RemoteAccess__Hostname` | The address to answer to. Required for a named Cloudflare tunnel; the name to ask the tailnet for under `builtin`; otherwise read from what the tunnel announces. |
 | `Homebase__RemoteAccess__Tunnel` | The name of a Cloudflare tunnel to run, instead of a throwaway one. |
 | `Homebase__RemoteAccess__Command` | Where the tunnel program lives, if it isn't on the `PATH`. |
@@ -289,7 +289,7 @@ reverse proxy on your own name, as above, and keep the tunnel for convenience.
 
 ### Upgrading a single-user library
 
-The folder a previous version used becomes the host folder, and nothing in it is moved. Files sitting at its top level are listed under **Storage settings**, and **Move them into my folder** renames each one into the administrator's folder — nothing is copied, and anything whose name is already taken is reported rather than overwritten.
+The folder a previous version used becomes the host folder, and nothing in it is moved. Files sitting at its top level are listed under **Settings**, and **Move them into my folder** renames each one into the administrator's folder — nothing is copied, and anything whose name is already taken is reported rather than overwritten.
 
 ## Bringing files in
 
@@ -297,33 +297,54 @@ Uncloud copies files and folders onto storage you own. An import happens **once*
 here, this copy is the one that counts, and Uncloud never goes back for it. Nothing already on disk
 is ever overwritten.
 
-There are two ways in, and they are the same import underneath — the same walk, the same room check,
-the same never-overwrite rule, the same log. Open **Bring files in** in the sidebar and choose where
-from.
+Everything comes in through one place: **Add files** on **My files**. It asks where the files are —
+this computer, an online account such as Dropbox, or a folder somebody shared — and then every source
+is browsed and added the same way, because underneath it is the same import: the same walk, the same
+room check, the same never-overwrite rule, the same log. Google Drive and Evernote appear there as
+*coming soon*; each will be an online account like Dropbox when it arrives.
+
+What anybody adds is **theirs alone**. Sharing is a separate, deliberate step, not the default.
 
 ### A folder on this computer
 
 The easy one, and the one to reach for first: nothing to sign up for, nothing to configure, and it
 works for every service at once. If a desktop app already syncs a folder onto this machine —
-Dropbox, Google Drive, OneDrive, iCloud Drive — point Uncloud at that folder. An old external drive
-or a `Documents` folder works exactly the same way.
+Dropbox, Google Drive, OneDrive, iCloud Drive — add from that folder. An old external drive or a
+`Documents` folder works exactly the same way.
 
-An administrator adds the folders under **Where files come from**, which offers whatever it finds on
-this computer (`~/Dropbox`, `~/Google Drive`, `~/Library/CloudStorage/*`, `Documents`, `Pictures`…)
-as one-click suggestions, with a folder chooser and a path box for anything else. Files brought in
-from a place called *Dropbox* land in `Files/Dropbox/`.
+**This computer** lists the folders Uncloud finds (`Desktop`, `Documents`, `Downloads`, `Pictures`,
+`~/Dropbox`, `~/Google Drive`, `~/Library/CloudStorage/*`, and drives under `/Volumes`) alongside
+any already used, all alike: open one and browse it, or add the whole thing. **Choose another
+folder…** opens the folder chooser on the host, with a path box behind it for anyone not sitting at
+the host. Files from a folder called *Documents* land in a `Documents/` folder at the top of My
+files; a second folder with the same name is numbered rather than refused.
 
-Adding a place shares it with **every account on this host**, which is why only an administrator can
-do it: Uncloud runs as one operating-system user and can read whatever that user can, so letting a
-member name a folder would be a way around the isolation between accounts rather than a feature. For
-the same reason a place can never be, contain, or sit inside the host's storage folder or Uncloud's
-preference directory, and that is re-checked every time a place is used rather than only when it is
-added — moving the host's folder afterwards doesn't open a way in. Paths inside a place go through
-the same policy the library uses: no traversal, no hidden entries, and symbolic links are left out of
-listings rather than followed.
+Only someone who looks after the host (an administrator) is offered this computer at all, because
+Uncloud runs as one operating-system user and can read whatever that user can — the administrator's
+own files included. Letting a member name a folder would be a way around the isolation between
+accounts rather than a feature. A folder an administrator adds is **theirs alone**: nobody else, other
+administrators included, sees it or can read from it, and asking for it by id answers *not found*
+rather than confirming it exists. Its owner can **Share this folder with everyone here**, after which
+every account sees it under **Shared with you** by name and by who shared it — never by where it sits
+on the disk — and can add from it into their own space. **Make private again** takes it back and stops
+anyone else's import already running from it; **Take off this list** stops every import from it.
 
-Removing a place stops anyone bringing anything else in from it. Nothing already brought home is
-touched: those are ordinary files in somebody's folder now.
+Being able to read and share this computer's folders comes with looking after it and goes with it: an
+administrator who is demoted, disabled or deleted stops being able to read their folders, and so does
+everyone they shared one with, including any import already under way.
+
+For the same reason as above, a folder can never be, contain, or sit inside the host's storage folder
+or Uncloud's preference directory, and that is re-checked every time a folder is used rather than
+only when it is added — moving the host's folder afterwards doesn't open a way in. Suggestions that
+would break the rule, such as a drive that holds the host's folder, are left out. Paths inside a
+folder go through the same policy the library uses: no traversal, no hidden entries, and symbolic
+links are left out of listings rather than followed.
+
+Taking a folder off the list, or unsharing it, touches nothing already brought home: those are
+ordinary files in somebody's folder now.
+
+A host from before folders had owners gives each existing one to its longest-standing administrator
+and leaves it shared, since adding one then came with the warning that everyone could read it.
 
 ### A Dropbox account online
 
@@ -331,12 +352,18 @@ For Dropbox files that aren't synced to this computer. Each account connects its
 the connection it authorises is the signing-in person's alone. Uncloud asks only for read-only
 permissions, so it cannot change anything in anybody's Dropbox.
 
-Connecting goes through a Dropbox *app*, and there are two places one can come from:
+Connecting goes through a Dropbox *app*, and there are three places one can come from, first
+match wins:
 
 - **Your own**, under **My account**. Anybody signed in can set this up for themselves, and it wins
-  over the host's. Nobody's Dropbox waits on anybody else.
-- **The host's**, under **Where files come from**. An administrator who sets one here saves everyone
-  else the trouble: with a host key in place, connecting Dropbox is one click for every account.
+  over the others. Nobody's Dropbox waits on anybody else.
+- **The host's**, under **Settings** (*Advanced*, while Uncloud's own is in use). An administrator
+  who sets one here saves everyone else the trouble: connecting Dropbox is one click for every
+  account, from any computer. It shares nobody's files: each person still signs in to their own
+  Dropbox.
+- **Uncloud's own**, which needs nobody to set anything up. It finishes a sign-in only on the
+  computer Uncloud runs on; from anywhere else **Add files** says so and offers the setup above
+  instead. See [the Dropbox relay](dropbox-relay.md).
 
 Both screens show the same four steps, the exact redirect URI to register, and the three permissions
 to tick. An app key is not a secret — Uncloud signs in with PKCE precisely because a program on
@@ -360,22 +387,27 @@ of having one.
 
 ### Either way
 
-Files land in `Files/` as ordinary files, and the normal browser shows them. Importing a folder again
+Files land at the top of My files, in a folder named after where they came from (`Dropbox/`,
+`Documents/`), as ordinary files the normal browser shows. They share the top level with anything
+else there, such as a folder synced from a laptop: a folder of the same name is added to, never
+overwritten, and a file already in the way is reported as skipped. Importing a folder again
 brings only what is new; anything already imported, hidden, or blocked by an existing file is listed
 as skipped rather than silently passed over, and one unreadable file doesn't abandon the rest. A
-folder Dropbox refuses to list is retried before Uncloud gives up on it, and giving up is reported at
-the top of the panel and written to the log rather than left to be noticed.
+folder Dropbox refuses to list is retried before Uncloud gives up on it, and giving up is reported
+when the import finishes and written to the log rather than left to be noticed.
 
-An import runs on its own rather than inside the request that started it, so the panel shows how
-far it has got — the file it is on, how many of how many, and how much has arrived — and **Stop**
-ends it. Whatever already arrived stays; only the rest is dropped. Leaving the page or reloading
-doesn't cancel anything: the import carries on and the panel picks it back up.
+An import runs on its own rather than inside the request that started it, so **My files** shows how
+far it has got — how many of how many files, and how much has arrived — and **Stop** ends it.
+Whatever already arrived stays; only the rest is dropped. Leaving the page or reloading doesn't
+cancel anything: the import carries on and My files picks it back up, then says what arrived with a
+**Show them** link to the folder it landed in.
 
-The sidebar shows the space left on the drive your folder lives on. A file's size is listed beside
-it; a folder's costs a walk of its whole tree, so **Check size** asks for it and reports what the
-folder holds, how much of that isn't home yet, and whether it fits. Every import measures the same
-way before downloading anything, and refuses outright when the files wouldn't fit — running the
-drive out of room halfway through a folder is worse than not starting. Some room is always left
+The space left on the host's drive is on every page: large in the sidebar, with a bar of what is
+yours, what everything else takes and what is free, and as a pill in the top bar that stays on a
+phone. It turns amber under 10% (or 5 GB) free and red under 3% (or 1 GB), and refreshes every minute,
+every few seconds while files are arriving. **Add files** repeats it. Every import measures what it
+would bring before downloading anything, and refuses outright when the files wouldn't fit — running
+the drive out of room halfway through a folder is worse than not starting. Some room is always left
 over, so the local index still has somewhere to write.
 
 Dropbox sign-in uses the authorization-code flow with PKCE, so there is no client secret — an app
@@ -531,7 +563,7 @@ the settings screen; an account with its own key ignores it. `Homebase__Syncthin
 `IImportSource` is what the import engine sees: metadata, a listing, and a stream. A Dropbox account
 and a folder on this computer both implement it, so nothing in the engine, the panel, or the log
 knows which is which. A new service is that interface plus whatever it takes to authenticate, and it
-chooses the folder under `Files/` its imports land in. An implementation is responsible for refusing
+chooses the folder at the top of My files its imports land in. An implementation is responsible for refusing
 any path that reaches outside the place it stands for. `IHomebaseImporter` remains an unimplemented
 contract for adapters that want to write into the library directly, such as Evernote notes and
 attachments under `Notes/Evernote/`; these folders aren’t created until something needs them.
@@ -600,7 +632,7 @@ To build only the server as a self-contained macOS executable, without the app:
 ./artifacts/osx-arm64/Homebase.Server
 ```
 
-Open http://127.0.0.1:5210. The bundled tunnel is built beside it, so turning on remote access in **Storage settings** needs nothing else. For the menu-bar app, see [The Uncloud app](#the-uncloud-app). No billing, AI, or photo management is included, and there are no per-account storage quotas: everyone draws on the same drive, so one account can fill it for everyone.
+Open http://127.0.0.1:5210. The bundled tunnel is built beside it, so turning on remote access in **Settings** needs nothing else. For the menu-bar app, see [The Uncloud app](#the-uncloud-app). No billing, AI, or photo management is included, and there are no per-account storage quotas: everyone draws on the same drive, so one account can fill it for everyone.
 
 ### Check
 

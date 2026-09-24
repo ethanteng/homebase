@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import {
   ArrowDown,
   ArrowDownToLine,
@@ -9,6 +10,7 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  Plus,
   RefreshCw,
   Search,
   X,
@@ -21,6 +23,9 @@ interface Props {
   path: string;
   revision: number;
   navigate: (path: string) => void;
+  onAdd: () => void;
+  /** Whatever is on its way in, shown above the files it is on its way to. */
+  status?: ReactNode;
 }
 type Sort = "name" | "modified" | "size";
 const dateFormat = new Intl.DateTimeFormat(undefined, {
@@ -50,6 +55,8 @@ export default function FileBrowser({
   path,
   revision,
   navigate,
+  onAdd,
+  status,
 }: Props) {
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [loading, setLoading] = useState(true);
@@ -124,22 +131,30 @@ export default function FileBrowser({
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">YOUR PERSONAL LIBRARY</span>
+          <span className="eyebrow">{path ? "MY FILES" : "ONLY YOU CAN SEE THESE"}</span>
           <h1>
-            {path ? path.split("/").at(-1) : "All files"}
+            {path ? path.split("/").at(-1) : "My files"}
             <span className="heading-dot">.</span>
           </h1>
-          <p>Right here on your computer. Right where they belong.</p>
+          <p>Kept at home, not in the cloud. Nobody else here can open them.</p>
         </div>
-        <button
-          className="button secondary refresh-button"
-          onClick={() => setRefresh((value) => value + 1)}
-          disabled={loading}
-        >
-          <RefreshCw size={16} className={loading ? "spin" : ""} />
-          Refresh
-        </button>
+        <div className="heading-actions">
+          <button
+            className="button secondary refresh-button"
+            onClick={() => setRefresh((value) => value + 1)}
+            disabled={loading}
+            aria-label="Refresh"
+            title="Refresh"
+          >
+            <RefreshCw size={16} className={loading ? "spin" : ""} />
+          </button>
+          <button className="button primary" onClick={onAdd}>
+            <Plus size={16} />
+            Add files
+          </button>
+        </div>
       </div>
+      {status}
       <div className="library-summary">
         <span>
           <FolderOpen size={18} />
@@ -153,7 +168,7 @@ export default function FileBrowser({
         <span>{loading ? "—" : `${formatSize(bytes)} in files`}</span>
         <span className="summary-local">
           <i className="status-dot" />
-          Stored locally
+          Stored at home
         </span>
       </div>
       <div className="browser-layout">
@@ -164,7 +179,7 @@ export default function FileBrowser({
         >
           <div className="file-toolbar">
             <nav aria-label="Folder path" className="breadcrumbs">
-              <button onClick={() => navigate("")}>All files</button>
+              <button onClick={() => navigate("")}>My files</button>
               {path
                 .split("/")
                 .filter(Boolean)
@@ -212,7 +227,7 @@ export default function FileBrowser({
                     className="button secondary"
                     onClick={() => navigate("")}
                   >
-                    Back to all files
+                    Back to My files
                   </button>
                 )}
               </div>
@@ -225,19 +240,34 @@ export default function FileBrowser({
           ) : entries.length === 0 ? (
             <div className="empty-state">
               <FolderOpen size={38} />
-              <h2>{query ? "No matching files" : "A little room to grow"}</h2>
-              <p>
+              <h2>
                 {query
-                  ? "Try a different name, or clear the filter."
-                  : "Add files to this folder in Finder, then refresh. They’ll appear here just as they are."}
-              </p>
-              {query && (
+                  ? "No matching files"
+                  : path
+                    ? "This folder is empty"
+                    : "Nothing here yet"}
+              </h2>
+              {(query || !path) && (
+                <p>
+                  {query
+                    ? "Try a different name, or clear the filter."
+                    : "Bring in the files you keep elsewhere — in Dropbox, on a drive, in a folder. Only you will be able to see them."}
+                </p>
+              )}
+              {query ? (
                 <button
                   className="button secondary"
                   onClick={() => setQuery("")}
                 >
                   Clear filter
                 </button>
+              ) : (
+                !path && (
+                  <button className="button primary" onClick={onAdd}>
+                    <Plus size={16} />
+                    Add files
+                  </button>
+                )
               )}
             </div>
           ) : (
@@ -339,9 +369,8 @@ export default function FileBrowser({
                   : `${entries.length} ${entries.length === 1 ? "item" : "items"}${query ? ` of ${listing?.entries.length ?? 0}` : ""}`}
             </span>
             <span>
-              Hidden files are kept out of view
               {listing?.skippedCount
-                ? ` · ${listing.skippedCount} linked or unreadable items skipped`
+                ? `${listing.skippedCount} item${listing.skippedCount === 1 ? "" : "s"} can’t be shown here`
                 : ""}
             </span>
           </div>
@@ -379,8 +408,7 @@ export default function FileBrowser({
               Download file
             </a>
             <p className="field-help">
-              This is an ordinary file in your Uncloud folder. You can always
-              open it directly in Finder.
+              An ordinary file, kept at home. Only you can see it.
             </p>
           </aside>
         )}
@@ -388,10 +416,8 @@ export default function FileBrowser({
       <div className="library-note">
         <ShieldMark />
         <p>
-          Your files stay yours. Uncloud reads this folder and keeps a local
-          index.
-          <br />
-          <span>Changes you make in Finder appear when you refresh.</span>
+          Your files stay yours. They’re kept on this Uncloud at home, not
+          with a cloud company.
         </p>
       </div>
     </>

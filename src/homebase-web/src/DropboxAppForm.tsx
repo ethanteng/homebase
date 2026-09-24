@@ -73,10 +73,9 @@ export default function DropboxAppSteps({ redirectUri, scopes, idPrefix }: Props
 export function AppKeyReassurance() {
   return (
     <>
-      <ShieldCheck size={14} /> An app key isn’t a secret. Uncloud signs in with
-      PKCE, which is the flow for a program that can’t keep one, so there is no
-      Dropbox app secret anywhere in Uncloud — which is why it doesn’t have to be
-      an administrator who sets one.
+      <ShieldCheck size={14} /> An app key isn’t a password. It only lets Uncloud ask Dropbox for
+      permission: each person still signs in to their own Dropbox, and Uncloud can only read it,
+      never change it.
     </>
   );
 }

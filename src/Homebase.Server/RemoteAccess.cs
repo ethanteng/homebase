@@ -355,7 +355,7 @@ public sealed class RemoteAccess(
                 }
                 logger.LogInformation(
                     "Uncloud is waiting to be allowed onto the internet. Open {Link} to allow it, "
-                    + "or find the same link under Storage settings.", link);
+                    + "or find the same link under Settings.", link);
                 return null;
             }
 

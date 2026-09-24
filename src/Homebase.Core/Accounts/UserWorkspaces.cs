@@ -97,19 +97,24 @@ public sealed class UserWorkspaces(
     }
 
     /// <summary>
-    /// Stops every import running from one place, after it is taken off the list. Deleting the row
-    /// is not enough on its own: a running import holds the source it started with, which carries
-    /// the folder it resolved to and never asks again, so it would carry on reading a folder that
-    /// is no longer shared — the very case an administrator removing a folder shared by mistake is
-    /// trying to stop. Whatever already arrived stays, as it does for any stopped import.
+    /// Stops every import running from one place, after it is taken off the list or stops being
+    /// shared. Changing the row is not enough on its own: a running import holds the source it
+    /// started with, which carries the folder it resolved to and never asks again, so it would carry
+    /// on reading a folder that is no longer anybody's to read — the very case somebody removing or
+    /// unsharing a folder by mistake is trying to stop. Whatever already arrived stays, as it does
+    /// for any stopped import.
+    ///
+    /// <paramref name="sourceId"/> is the place's id, as a request names it and a job records it.
+    /// <paramref name="affected"/> picks out whose imports to stop; everyone's, when it is absent.
     /// </summary>
-    public int CancelImportsFrom(string sourceId)
+    public int CancelImportsFrom(string sourceId, Func<string, bool>? affected = null)
     {
         UserWorkspace[] workspaces;
         lock (_lock) workspaces = _workspaces.Values.ToArray();
         var stopped = 0;
         foreach (var workspace in workspaces)
-            if (workspace.Jobs.Current is { Running: true } job && job.SourceId == sourceId)
+            if (workspace.Jobs.Current is { Running: true } job && job.SourceId == sourceId
+                && (affected is null || affected(workspace.UserId)))
             {
                 workspace.Jobs.Cancel();
                 stopped++;

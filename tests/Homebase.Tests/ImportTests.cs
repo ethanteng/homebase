@@ -32,7 +32,7 @@ public sealed class ImportTests : IDisposable
         var result = await _imports.ImportAsync(_dropbox, "/notes/hello.txt", CancellationToken.None);
 
         var item = Assert.Single(result.Imported);
-        Assert.Equal("Files/Dropbox/notes/hello.txt", item.LocalPath);
+        Assert.Equal("Dropbox/notes/hello.txt", item.LocalPath);
         Assert.Equal("First draft.", await File.ReadAllTextAsync(LocalPath(item.LocalPath)));
         var recorded = Assert.Single(_imports.Imported());
         Assert.Equal("rev1", recorded.RemoteRev);
@@ -52,9 +52,9 @@ public sealed class ImportTests : IDisposable
         var result = await _imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
 
         Assert.Equal(2, result.ImportedCount);
-        Assert.Equal("One.", await File.ReadAllTextAsync(LocalPath("Files/Dropbox/notes/one.txt")));
-        Assert.Equal("Two.", await File.ReadAllTextAsync(LocalPath("Files/Dropbox/notes/deeper/two.txt")));
-        Assert.False(File.Exists(LocalPath("Files/Dropbox/notes/.secret")));
+        Assert.Equal("One.", await File.ReadAllTextAsync(LocalPath("Dropbox/notes/one.txt")));
+        Assert.Equal("Two.", await File.ReadAllTextAsync(LocalPath("Dropbox/notes/deeper/two.txt")));
+        Assert.False(File.Exists(LocalPath("Dropbox/notes/.secret")));
         Assert.Contains(result.Skipped, skip => skip.RemotePath.EndsWith(".secret"));
     }
 
@@ -68,7 +68,7 @@ public sealed class ImportTests : IDisposable
 
         var result = await _imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
 
-        Assert.Equal("Files/Dropbox/notes/two.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Equal("Dropbox/notes/two.txt", Assert.Single(result.Imported).LocalPath);
         Assert.Contains(result.Skipped, skip => skip.Reason.Contains("Already imported"));
         Assert.Equal(2, _imports.Imported().Count);
     }
@@ -84,14 +84,14 @@ public sealed class ImportTests : IDisposable
         var result = await _imports.ImportAsync(_dropbox, "/notes/hello.txt", CancellationToken.None);
 
         Assert.Empty(result.Imported);
-        Assert.Equal("First draft.", await File.ReadAllTextAsync(LocalPath("Files/Dropbox/notes/hello.txt")));
+        Assert.Equal("First draft.", await File.ReadAllTextAsync(LocalPath("Dropbox/notes/hello.txt")));
         Assert.Equal("rev1", _imports.Imported().Single().RemoteRev);
     }
 
     [Fact]
     public async Task Homebase_refuses_to_take_over_a_file_it_did_not_write()
     {
-        var destination = LocalPath("Files/Dropbox/notes");
+        var destination = LocalPath("Dropbox/notes");
         Directory.CreateDirectory(destination);
         await File.WriteAllTextAsync(Path.Combine(destination, "hello.txt"), "Mine, from before.");
         _dropbox.AddFile("/notes/hello.txt", "rev1", "Theirs.");
@@ -107,7 +107,7 @@ public sealed class ImportTests : IDisposable
     [Fact]
     public async Task A_file_appearing_during_the_download_is_not_overwritten()
     {
-        var destination = LocalPath("Files/Dropbox/notes/hello.txt");
+        var destination = LocalPath("Dropbox/notes/hello.txt");
         _dropbox.AddFile("/notes/hello.txt", "rev1", "From Dropbox.");
         _dropbox.WhileDownloading = () =>
         {
@@ -133,9 +133,9 @@ public sealed class ImportTests : IDisposable
 
         var result = await _imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
 
-        Assert.Equal("Files/Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Equal("Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
         Assert.Contains(result.Skipped, skip => skip.RemotePath.EndsWith("broken.txt"));
-        Assert.Equal("Arrives.", await File.ReadAllTextAsync(LocalPath("Files/Dropbox/notes/fine.txt")));
+        Assert.Equal("Arrives.", await File.ReadAllTextAsync(LocalPath("Dropbox/notes/fine.txt")));
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public sealed class ImportTests : IDisposable
 
         var result = await _imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
 
-        Assert.Equal("Files/Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Equal("Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
         var skip = Assert.Single(result.Skipped, skip => skip.RemotePath.EndsWith("slow.txt"));
         // "A task was canceled" tells the person nothing about their file.
         Assert.Equal("Getting this file took too long.", skip.Reason);
@@ -167,7 +167,7 @@ public sealed class ImportTests : IDisposable
 
         var result = await _imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
 
-        Assert.Equal("Files/Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Equal("Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
         Assert.Contains(result.Skipped, skip => skip.RemotePath.EndsWith("broken.txt"));
     }
 
@@ -228,7 +228,7 @@ public sealed class ImportTests : IDisposable
         // Both numbers, so the message says what to do about it.
         Assert.Contains("4 KB", error.Message);
         Assert.Contains("1 KB", error.Message);
-        Assert.False(Directory.Exists(LocalPath("Files/Dropbox/notes")));
+        Assert.False(Directory.Exists(LocalPath("Dropbox/notes")));
         Assert.Empty(_imports.Imported());
     }
 
@@ -270,7 +270,7 @@ public sealed class ImportTests : IDisposable
     {
         // Uncloud won't overwrite it, so it is never downloaded — holding the folder back over
         // room it was never going to need would refuse the files that could have arrived.
-        var destination = LocalPath("Files/Dropbox/notes");
+        var destination = LocalPath("Dropbox/notes");
         Directory.CreateDirectory(destination);
         await File.WriteAllTextAsync(Path.Combine(destination, "big.bin"), "Mine, from before.");
         _dropbox.AddFolder("/notes");
@@ -284,7 +284,7 @@ public sealed class ImportTests : IDisposable
 
         var result = await imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
 
-        Assert.Equal("Files/Dropbox/notes/small.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Equal("Dropbox/notes/small.txt", Assert.Single(result.Imported).LocalPath);
         Assert.Contains(result.Skipped, skip => skip.Reason.Contains("won’t overwrite"));
         Assert.Equal("Mine, from before.",
             await File.ReadAllTextAsync(Path.Combine(destination, "big.bin")));
@@ -295,7 +295,7 @@ public sealed class ImportTests : IDisposable
     {
         // Nothing can be written beneath an ordinary file, so those bytes are never fetched and
         // must not be counted — least of all against the files that could have arrived.
-        var notes = Directory.CreateDirectory(LocalPath("Files/Dropbox/notes")).FullName;
+        var notes = Directory.CreateDirectory(LocalPath("Dropbox/notes")).FullName;
         await File.WriteAllTextAsync(Path.Combine(notes, "archive"), "Not a folder.");
         _dropbox.AddFolder("/notes");
         _dropbox.AddFolder("/notes/archive");
@@ -309,7 +309,7 @@ public sealed class ImportTests : IDisposable
 
         var result = await imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
 
-        Assert.Equal("Files/Dropbox/notes/small.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Equal("Dropbox/notes/small.txt", Assert.Single(result.Imported).LocalPath);
         Assert.Contains(result.Skipped, skip => skip.RemotePath.EndsWith("big.bin"));
         Assert.Equal("Not a folder.", await File.ReadAllTextAsync(Path.Combine(notes, "archive")));
     }
@@ -317,7 +317,7 @@ public sealed class ImportTests : IDisposable
     [Fact]
     public async Task Measuring_leaves_out_a_file_whose_place_is_already_taken()
     {
-        var destination = LocalPath("Files/Dropbox/notes");
+        var destination = LocalPath("Dropbox/notes");
         Directory.CreateDirectory(destination);
         await File.WriteAllTextAsync(Path.Combine(destination, "big.bin"), "Mine, from before.");
         _dropbox.AddFolder("/notes");
@@ -400,9 +400,9 @@ public sealed class ImportTests : IDisposable
 
         var result = await _imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
 
-        Assert.Equal("Files/Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
+        Assert.Equal("Dropbox/notes/fine.txt", Assert.Single(result.Imported).LocalPath);
         Assert.Contains(result.Skipped, skip => skip.RemotePath.Contains("broken"));
-        Assert.Equal("Arrives.", await File.ReadAllTextAsync(LocalPath("Files/Dropbox/notes/fine.txt")));
+        Assert.Equal("Arrives.", await File.ReadAllTextAsync(LocalPath("Dropbox/notes/fine.txt")));
     }
 
     [Fact]
@@ -550,7 +550,7 @@ public sealed class ImportTests : IDisposable
         source.Add("/Photo.jpg", "one");
         source.Add("/photo.jpg", "another");
         new ImportLog().Record(_root, new ImportedFile(
-            source.ProviderId, "/Photo.jpg", "rev1", "Files/Camera/Photo.jpg", 3, "hash", DateTimeOffset.UtcNow));
+            source.ProviderId, "/Photo.jpg", "rev1", "Camera/Photo.jpg", 3, "hash", DateTimeOffset.UtcNow));
 
         var estimate = await _imports.MeasureAsync(source, "/", CancellationToken.None);
 
@@ -570,7 +570,7 @@ public sealed class ImportTests : IDisposable
         await _imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
 
         // The same file offered again by something that writes to the same place.
-        var alongside = new CaseKeepingSource { Destination = "Files/Dropbox" };
+        var alongside = new CaseKeepingSource { Destination = "Dropbox" };
         alongside.Add("/notes/one.txt", "One.");
 
         var result = await _imports.ImportAsync(alongside, "/", CancellationToken.None);
@@ -590,7 +590,7 @@ public sealed class ImportTests : IDisposable
         private readonly Dictionary<string, (SourceEntry Entry, byte[] Content)> _files = new(StringComparer.Ordinal);
 
         public string ProviderId => "folder:test";
-        public string Destination { get; init; } = "Files/Camera";
+        public string Destination { get; init; } = "Camera";
         public string DestinationPrefix => Destination;
 
         public void Add(string path, string contents) => _files[path] = (

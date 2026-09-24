@@ -7,12 +7,12 @@ import DropboxAppSteps, { AppKeyReassurance } from "./DropboxAppForm";
 
 interface Props {
   me: User;
-  /** Called when this account's Dropbox app changes, so the import panel keeps up. */
-  onDropboxChanged: () => void;
+  /** Open straight onto the Dropbox steps, when somebody came here to set Dropbox up. */
+  dropboxExpanded?: boolean;
 }
 
 /** The one thing everybody can change about their own account.  */
-export default function AccountPanel({ me, onDropboxChanged }: Props) {
+export default function AccountPanel({ me, dropboxExpanded = false }: Props) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [busy, setBusy] = useState(false);
@@ -52,19 +52,16 @@ export default function AccountPanel({ me, onDropboxChanged }: Props) {
         body: JSON.stringify({ appKey }),
       });
       const signedOut = result.disconnected
-        ? " Your existing Dropbox connection was signed out, because it was authorised through the old app — connect again under Bring files in."
+        ? " You were signed out of Dropbox, because you’d connected through the old setup — connect again from Add files."
         : "";
       setKeyNotice(
         appKey.trim() === ""
           ? result.configured
-            ? `Your own app key was removed. You’ll connect through ${
-                result.source === "Relay" ? "Uncloud’s own app" : "this Uncloud’s app"
-              } instead.${signedOut}`
-            : `Your own app key was removed, and there’s no other one here, so Dropbox can’t be connected until you add a key.${signedOut}`
-          : `Saved. Your Dropbox connects through your own app now.${signedOut}`,
+            ? `Removed. You’ll connect Dropbox the way everyone else here does.${signedOut}`
+            : `Removed. Dropbox can’t be connected until you add a key again.${signedOut}`
+          : `Saved. You can connect your Dropbox from Add files.${signedOut}`,
       );
       await loadDropbox();
-      onDropboxChanged();
     } catch (failure) {
       setKeyError(
         failure instanceof Error ? failure.message : "Couldn’t save that app key.",
@@ -215,37 +212,35 @@ export default function AccountPanel({ me, onDropboxChanged }: Props) {
       </button>
 
       {dropbox && (
-        <section className="import-section account-dropbox">
+        <section className="import-section account-dropbox" id="dropbox-setup">
           <div className="import-section-head">
             <h3>
               <CloudDownload size={16} />
-              Your Dropbox app
+              Dropbox
             </h3>
           </div>
           <p className="field-help">
             {dropbox.source === "Own"
-              ? "You connect Dropbox through your own Dropbox app. Nobody else here can see or change it."
+              ? "You connect Dropbox through a setup of your own. Nobody else here can see or change it."
               : relayIsNoUseHere
-                ? "Uncloud’s own Dropbox app can’t finish a sign-in the way this Uncloud is being reached — it only works from the computer Uncloud runs on, at its plain local address. Set up your own below and it’ll work either way. It takes a couple of minutes and needs nobody else."
-                : dropbox.source === "Relay"
-                  ? "Nothing to set up — Uncloud has its own Dropbox app, so you can just press Connect under Bring files in."
-                  : dropbox.source === "None"
-                  ? "Connecting Dropbox needs a Dropbox app. Nobody has set one up on this Uncloud, so make your own — it takes a couple of minutes and doesn’t need anyone else."
-                  : "You’re connecting through the Dropbox app this Uncloud offers everybody. That’s usually what you want. Set your own below if you’d rather not depend on it."}
+                ? "Dropbox can only be connected from the computer Uncloud runs on, the way things are set up now. To connect it from here, set it up yourself below — it takes about five minutes on Dropbox’s website, and needs nobody else."
+                : dropbox.source === "None"
+                  ? "To connect your Dropbox, it needs setting up once on Dropbox’s website. Nobody has done that on this Uncloud yet, so you can do it yourself — it takes about five minutes."
+                  : "Dropbox is ready to connect from Add files. There’s nothing you need to do here."}
           </p>
 
           {settleForOwn ? (
             form
           ) : (
-            // Somebody already has a Dropbox app working for this account, so the four steps for
-            // making one are an answer to a question they haven’t asked. Folded away rather than
-            // dropped: wanting your own app is a legitimate thing to want, and this is where it is.
-            <details className="own-app-details">
-              <summary>Use my own Dropbox app instead</summary>
+            // Somebody already has a Dropbox app working for this account, so the steps for making
+            // one are an answer to a question they haven’t asked. Folded away rather than dropped:
+            // wanting your own is a legitimate thing to want, and this is where it is.
+            <details className="own-app-details" open={dropboxExpanded}>
+              <summary>Use my own Dropbox setup instead</summary>
               <p className="field-help">
                 {dropbox.source === "Relay"
-                  ? "Worth doing if you’d rather your Dropbox sign-in didn’t go through an app somebody else registered, or if you’re reaching this Uncloud from another computer — Uncloud’s own app can only finish a sign-in on the computer it’s running on."
-                  : "Worth doing if you’d rather not depend on whoever looks after this Uncloud keeping their app working."}
+                  ? "Worth doing if you’d rather your Dropbox sign-in didn’t go through an app somebody else registered, or to connect Dropbox from a computer other than the one Uncloud runs on."
+                  : "Worth doing if you’d rather not depend on whoever looks after this Uncloud keeping their setup working."}
               </p>
               {form}
             </details>
@@ -255,3 +250,4 @@ export default function AccountPanel({ me, onDropboxChanged }: Props) {
     </form>
   );
 }
+
