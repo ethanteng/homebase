@@ -1,10 +1,10 @@
 # Uncloud landing page
 
-A landing page for **Uncloud**, with the public address **https://www.uncloud.life/**. The hero leads with **“Your private cloud. Set up in minutes.”** The subhero explains that people can use a computer they already own and cancel cloud storage plans they no longer need. The existing device illustration, blue accents, pale panels, and typography remain the visual foundation.
+A landing page for **Uncloud**, with the public address **https://www.uncloud.life/**. The hero leads with **“Your private cloud. In 5 minutes or less.”** and highlights $407.40/year in avoided bills, conditional on canceling the five plans linked below. The subhero explains that people can use a computer they already own and cancel cloud storage plans they no longer need. The existing device illustration, blue accents, pale panels, and typography remain the visual foundation.
 
-The primary message is intentionally about **reusing hardware people already own** — no NAS, proprietary box, or special equipment required. The page keeps the early-access email signup above the main visual, then explains setup in three steps: pick a computer, make it your cloud, and bring files home. The product owner's current estimate is five minutes or less with the Mac app. The setup section links to the Mac download and guide in the repository README. Windows can access files in a browser but cannot host them yet, and Google Drive/iCloud files must be downloaded to the computer before importing.
+The primary message is intentionally about **reusing hardware people already own** — no NAS, proprietary box, or special equipment required. “Turn a computer you already own into private cloud storage” has its own highlighted line. The page keeps the early-access email signup above the main visual, with labeled Mac, PC, and Linux icons in the computer illustration. “Your private cloud, in 5 minutes or less” introduces three steps: pick a computer, make it your cloud, and bring files home. Early-access links return to the signup form.
 
-The value section uses illustrative arithmetic, not competitor pricing: canceling a $10/month plan avoids $120/year in subscription charges. It distinguishes this from net savings, which depend on the plans canceled, electricity, storage, and backup costs. It also asks people to check their copies, backups, and other subscription features before canceling. Do not turn this example into a promised saving or imply every service feature is replaced. The app, source folders, and storage paths still use the internal name Homebase.
+The value section uses current U.S. monthly prices for five named plans: Dropbox Plus, Evernote Starter, Google One Basic (Google Drive), iCloud+ 200 GB, and Microsoft 365 Basic (OneDrive). Together they cost $33.95/month, or $407.40 over 12 months of monthly billing. The example is explicitly conditional on canceling all five; it distinguishes avoided charges from net savings and asks people to check backups and other subscription features before canceling. Official pricing links, the check date, and billing assumptions are visible on the page. See [pricing.md](pricing.md) for the source record and update procedure. The app, source folders, and storage paths still use the internal name Homebase.
 
 ## Preview and build
 
@@ -97,7 +97,7 @@ Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`
 
 Canonical, Open Graph, structured-data, and sitemap URLs use `https://www.uncloud.life/`, matching the production host that the bare domain redirects to. Keep these URLs and the robots.txt sitemap reference aligned. These metadata tags do not configure DNS, hosting, or deployment.
 
-“Get early access” submits an email address to the signup function described above. Keep the field and the button as one short row above “Private. Yours.”; on success the form is replaced by a confirmation line. “See the 3 steps” links to the setup section; the header and closing early-access links return to the signup form.
+“Get early access” submits an email address to the signup function described above. Keep the field and the button as one short row above “Private. Yours.”; on success the form is replaced by a confirmation line. The header, setup, and closing early-access links return to the signup form.
 
 For the first few conversations, share the page and ask:
 

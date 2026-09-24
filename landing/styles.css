@@ -168,14 +168,48 @@ h1 span {
   color: var(--blue);
 }
 
-.hero-description {
-  max-width: 850px;
+.hero-highlight {
   margin: 28px auto 0;
+  color: var(--ink);
+  font-size: clamp(1.1rem, 1.7vw, 1.45rem);
+  line-height: 1.6;
+  text-wrap: balance;
+}
+
+.hero-highlight strong {
+  padding: 2px 5px;
+  background: linear-gradient(transparent 48%, #dcecff 48%);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  font-weight: 650;
+}
+
+.hero-description {
+  max-width: 780px;
+  margin: 14px auto 0;
   color: var(--muted);
   font-size: clamp(1.08rem, 1.7vw, 1.42rem);
   line-height: 1.55;
   text-wrap: pretty;
 }
+
+.hero-savings {
+  display: grid;
+  gap: 5px;
+  margin: 22px auto 0;
+  line-height: 1.5;
+}
+
+.hero-savings strong {
+  color: var(--blue-strong);
+  font-size: clamp(1.18rem, 2vw, 1.6rem);
+  font-weight: 750;
+  letter-spacing: -.025em;
+}
+
+.hero-savings > span { color: var(--muted); font-size: .92rem; }
+.hero-savings a { text-decoration: underline; text-underline-offset: 3px; }
+.hero-savings a:hover { color: var(--blue-strong); }
 
 .access-action {
   max-width: 690px;
@@ -511,6 +545,9 @@ h1 span {
 }
 
 .platform-pills span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   padding: 8px 11px;
   border-radius: 999px;
   background: white;
@@ -519,6 +556,8 @@ h1 span {
   font-size: .78rem;
   font-weight: 700;
 }
+
+.platform-pills img { object-fit: contain; }
 
 .hardware-note {
   margin-top: 12px;
@@ -707,15 +746,8 @@ h1 span {
   line-height: 1.6;
 }
 
-.setup-note {
-  max-width: 730px;
-  margin: 24px auto 0;
-  color: var(--muted);
-  font-size: .9rem;
-  line-height: 1.6;
-}
-
 .savings {
+  scroll-margin-top: 28px;
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   align-items: center;
@@ -740,12 +772,63 @@ h1 span {
   font-size: 1rem;
 }
 
-.savings-equation > span[aria-hidden] { padding: 0 6px; }
+.subscription-prices {
+  width: 100%;
+  margin-top: 18px;
+  border-collapse: collapse;
+  font-size: .95rem;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.subscription-prices caption {
+  padding-bottom: 16px;
+  color: var(--muted);
+  font-size: .8rem;
+  text-align: left;
+  line-height: 1.5;
+}
+
+.subscription-prices th,
+.subscription-prices td {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.subscription-prices thead th {
+  padding-top: 0;
+  color: var(--muted);
+  font-size: .75rem;
+  font-weight: 600;
+}
+
+.subscription-prices th { font-weight: 650; }
+.subscription-prices th:first-child { padding-right: 16px; }
+.subscription-prices th:last-child,
+.subscription-prices td { text-align: right; white-space: nowrap; }
+.subscription-prices td { font-weight: 650; }
+
+.subscription-prices a {
+  text-decoration: underline;
+  text-decoration-color: #c7d5e6;
+  text-underline-offset: 3px;
+}
+.subscription-prices a:hover { color: var(--blue-strong); }
+.subscription-prices small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.subscription-prices tfoot th,
+.subscription-prices tfoot td { border-bottom: 0; padding-bottom: 0; }
 
 .savings-total {
   margin-top: 8px;
   color: var(--blue-strong);
-  font-size: clamp(3.7rem, 6.5vw, 6rem);
+  font-size: clamp(3rem, 5.6vw, 5.25rem);
   font-weight: 780;
   line-height: 1.1;
   letter-spacing: -.06em;
@@ -885,7 +968,7 @@ h1 span {
   }
 
   .hero-description {
-    margin-top: 22px;
+    margin-top: 14px;
     font-size: 1.05rem;
   }
 
@@ -922,6 +1005,10 @@ h1 span {
   }
 
   .host-card { padding: 28px 16px 24px; }
+
+  .platform-pills { gap: 6px; }
+  .platform-pills span { padding: 7px 8px; gap: 6px; font-size: .74rem; }
+  .platform-pills img { width: 16px; height: 16px; }
 
   .device-shelf {
     display: grid;
