@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Homebase.Core;
@@ -211,6 +212,205 @@ public sealed class DesktopTests : IDisposable
 
         item.Set(false);
         Assert.False(item.IsEnabled);
+    }
+
+    [Fact]
+    public async Task A_server_that_falls_over_is_explained_by_why_not_by_where()
+    {
+        // Windows has no shell to stand in for the server; CI runs this on Linux and macOS.
+        if (!File.Exists("/bin/sh")) return;
+        // What .NET prints when Kestrel can't have its port, down to the frame the menu used to show.
+        var server = FakeServer(Path.Combine(_temporary, "crashes"), """
+            #!/bin/sh
+            echo 'Unhandled exception. System.IO.IOException: Failed to bind to address http://127.0.0.1:5210: address already in use.' >&2
+            echo ' ---> Microsoft.AspNetCore.Connections.AddressInUseException: Address already in use' >&2
+            echo '   at Program.<Main>$(String[] args) in /Users/runner/work/homebase/src/Homebase.Server/Program.cs:line 986' >&2
+            exit 134
+            """);
+        await using var host = new HostServer(server, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            new HttpClient(), FreePort());
+
+        var failure = await Assert.ThrowsAsync<IOException>(() => host.StartAsync(CancellationToken.None));
+
+        Assert.Contains("address already in use", failure.Message);
+        Assert.Equal("Failed to bind to address http://127.0.0.1:5210: address already in use.", host.LastError);
+        Assert.DoesNotContain("Program.cs", host.LastError);
+    }
+
+    [Fact]
+    public async Task Something_already_answering_is_not_taken_for_the_server_starting()
+    {
+        if (!File.Exists("/bin/sh")) return;
+        // Something that isn't this app's server is already answering at its port — here, a
+        // listener standing in for an Uncloud run from somewhere else. It isn't this app's to stop.
+        var port = FreePort();
+        using var other = Answer(port);
+        var launched = Path.Combine(_temporary, "launched");
+        var server = FakeServer(Path.Combine(_temporary, "never-started"), $"""
+            #!/bin/sh
+            touch '{launched}'
+            sleep 30
+            """);
+        await using var host = new HostServer(server, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            new HttpClient(), port);
+
+        // Launching beside it would only fail to bind, while the answer from the other one said
+        // the new one was fine. It says what is wrong instead, before starting anything.
+        var failure = await Assert.ThrowsAsync<IOException>(() => host.StartAsync(CancellationToken.None));
+
+        Assert.Contains($"already answering at port {port}", failure.Message);
+        Assert.Equal(failure.Message, host.LastError);
+        Assert.False(host.IsRunning);
+        Assert.False(File.Exists(launched));
+        Assert.True(other.IsListening);
+    }
+
+    [Fact]
+    public async Task A_server_an_earlier_copy_of_the_app_left_running_is_stopped_so_this_one_can_start()
+    {
+        // The case this is for, with the real server: one started the way the app starts it, whose
+        // app went without stopping it, still holding the port.
+        if (OperatingSystem.IsWindows() || !HasLsof) return;
+        var port = FreePort();
+        var settings = new Dictionary<string, string>
+        {
+            ["Homebase__ConfigDirectory"] = Path.Combine(_temporary, "HostConfig"),
+            ["Homebase__Syncthing__Enabled"] = "false"
+        };
+        var servers = AppContext.BaseDirectory;
+        using var leftover = StartServer(servers, port, settings);
+        using var http = new HttpClient();
+        await Answering(http, port);
+
+        await using var host = new HostServer(servers, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            http, port, settings);
+        await host.StartAsync(CancellationToken.None);
+
+        Assert.True(leftover.WaitForExit(10_000));
+        Assert.True(host.IsRunning);
+        (await http.GetAsync($"http://127.0.0.1:{port}/api/health")).EnsureSuccessStatusCode();
+    }
+
+    [Fact]
+    public async Task The_same_program_on_another_port_is_not_taken_for_the_one_in_the_way()
+    {
+        // What stops a leftover is its holding this app's port, not only its being the same
+        // program: an Uncloud from this same place, doing something else on another port, is left
+        // alone even while something else is in the way here.
+        if (OperatingSystem.IsWindows() || !HasLsof) return;
+        var sleep = new[] { "/bin/sleep", "/usr/bin/sleep" }.FirstOrDefault(File.Exists);
+        if (sleep is null) return;
+        var directory = Directory.CreateDirectory(Path.Combine(_temporary, "same-program")).FullName;
+        File.Copy(sleep, Path.Combine(directory, "Homebase.Server"));
+        using var elsewhere = Process.Start(new ProcessStartInfo(Path.Combine(directory, "Homebase.Server"), "60")
+        {
+            UseShellExecute = false
+        })!;
+        var port = FreePort();
+        using var other = Answer(port);
+
+        try
+        {
+            await using var host = new HostServer(directory, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+                new HttpClient(), port);
+            await Assert.ThrowsAsync<IOException>(() => host.StartAsync(CancellationToken.None));
+
+            Assert.False(elsewhere.HasExited);
+        }
+        finally
+        {
+            if (!elsewhere.HasExited) elsewhere.Kill();
+        }
+    }
+
+    [Fact]
+    public async Task The_server_stops_when_whoever_started_it_goes()
+    {
+        // The app holds one end of a pipe and never writes to it; the server reads the other. The
+        // app going away, however it goes, is that end closing.
+        using var app = new System.IO.Pipes.AnonymousPipeServerStream(System.IO.Pipes.PipeDirection.Out);
+        using var server = new System.IO.Pipes.AnonymousPipeClientStream(System.IO.Pipes.PipeDirection.In, app.ClientSafePipeHandle);
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _ = Homebase.Server.ParentWatch.StopWhenClosed(new StreamReader(server), () => stopped.TrySetResult());
+
+        // Still there: nothing to do.
+        await Task.Delay(300);
+        Assert.False(stopped.Task.IsCompleted);
+
+        app.Dispose();
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    private static bool HasLsof => File.Exists("/usr/sbin/lsof") || File.Exists("/usr/bin/lsof");
+
+    private static Process StartServer(string directory, int port, Dictionary<string, string> settings)
+    {
+        var start = new ProcessStartInfo(Path.Combine(directory, "Homebase.Server"))
+        {
+            WorkingDirectory = directory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        start.Environment["Homebase__Port"] = port.ToString();
+        foreach (var (name, value) in settings) start.Environment[name] = value;
+        var process = Process.Start(start)!;
+        process.OutputDataReceived += (_, _) => { };
+        process.ErrorDataReceived += (_, _) => { };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        return process;
+    }
+
+    private static async Task Answering(HttpClient http, int port)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            try
+            {
+                if ((await http.GetAsync($"http://127.0.0.1:{port}/api/health")).IsSuccessStatusCode) return;
+            }
+            catch (HttpRequestException) { }
+            await Task.Delay(200);
+        }
+        throw new TimeoutException($"Nothing answered at port {port}.");
+    }
+
+    /// <summary>Something that isn't this app's server, answering at its port.</summary>
+    private static System.Net.HttpListener Answer(int port)
+    {
+        var listener = new System.Net.HttpListener { Prefixes = { $"http://127.0.0.1:{port}/" } };
+        listener.Start();
+        _ = Task.Run(async () =>
+        {
+            while (listener.IsListening)
+            {
+                try { var context = await listener.GetContextAsync(); context.Response.StatusCode = 200; context.Response.Close(); }
+                catch (Exception) { return; }
+            }
+        });
+        return listener;
+    }
+
+    private static string FakeServer(string directory, string script)
+    {
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "Homebase.Server");
+        File.WriteAllText(path, script.Replace("\r\n", "\n") + "\n");
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return directory;
+    }
+
+    private static int FreePort()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
     }
 
     public void Dispose()

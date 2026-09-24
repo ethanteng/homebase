@@ -247,7 +247,7 @@ Homebase__RemoteAccess__Hostname=files.example.com \
 | `Homebase__RemoteAccess__Tunnel` | The name of a Cloudflare tunnel to run, instead of a throwaway one. |
 | `Homebase__RemoteAccess__Command` | Where the tunnel program lives, if it isn't on the `PATH`. |
 | `Homebase__RemoteAccess__Arguments` | The whole command line, replacing what Uncloud would have run. `{port}` is substituted. |
-| `Homebase__RemoteAccess__TimeoutSeconds` | How long to wait for an address before giving up. 60 by default. |
+| `Homebase__RemoteAccess__TimeoutSeconds` | How long to wait for an address before giving up. 180 by default, because the bundled tunnel waits for its first certificate before announcing one. |
 
 Under `builtin` there is nothing to install: `./scripts/build-tunnel.sh` builds the tunnel (it needs
 [Go](https://go.dev/dl/)) and `./scripts/publish-macos.sh` puts it beside the published application.
