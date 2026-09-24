@@ -243,6 +243,9 @@ On **My files**, click **Add files** and choose where they are:
   again.
 - **Shared with you**, if someone has shared a folder with everyone.
 
+**Sign Uncloud out of Dropbox** at the bottom of the Dropbox list ends the connection whenever you
+like. Files you already added stay where they are; only Uncloud's way back into Dropbox goes.
+
 Google Drive and Evernote are coming. Until then, the folder the Google Drive app keeps on the host
 works under **This computer**.
 
