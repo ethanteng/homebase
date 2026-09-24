@@ -8,9 +8,9 @@ Uncloud keeps your family's files on a computer at home instead of on somebody e
 Everyone gets their own private space, signs in from any browser, and can keep a folder on their
 laptop in sync with it. There's no monthly storage bill, and nobody else holds your files.
 
-> Uncloud is early. It works, but setting it up still takes a few commands in Terminal, and
-> there's no app to download yet. Read [What isn't ready yet](#what-isnt-ready-yet) before you move
-> anything important onto it.
+> Uncloud is early. It works, but there's no signed app to download yet: the Mac app has to be
+> built from source, or you set Uncloud up with a few commands in Terminal. Read
+> [What isn't ready yet](#what-isnt-ready-yet) before you move anything important onto it.
 
 - [How it works](#how-it-works)
 - [Set up Uncloud](#set-up-uncloud) — for the person who looks after it
@@ -46,13 +46,15 @@ plugged into it.
 
 - **No uploading, renaming or deleting in the browser.** Files get in by importing or syncing a
   computer.
-- **No app to download.** The host is set up from Terminal, and has to be started again after it
-  restarts. The computer also has to stay awake. On a Mac, turn off sleep in System Settings.
+- **No signed app to download.** The Uncloud app for Mac exists, but until it's signed by Apple
+  you build it yourself (or take it from a test build) and open it with right-click → **Open**.
+  Without it, the host is set up from Terminal. Either way the computer has to stay awake: on a
+  Mac, turn off sleep in System Settings.
 - **No sharing** of a folder between people, and no storage limits per person.
 - **No built-in backup.** Uncloud keeps one copy of everything. [Set up a backup](#keeping-your-files-safe).
 - **No direct Google Drive, iCloud or Evernote sign-in.** Use the folder their app keeps on the
   host instead.
-- Syncing a laptop means installing a free app called Syncthing on it.
+- Syncing a laptop needs the Uncloud app (Mac), or elsewhere a free app called Syncthing.
 - Windows can't be the host yet, though Windows computers can use Uncloud in a browser.
 
 ## Set up Uncloud
@@ -60,6 +62,12 @@ plugged into it.
 This part is for whoever looks after Uncloud. It takes about half an hour. You'll need the host
 computer, an internet connection, and to be comfortable pasting commands into Terminal. These steps
 are written for a Mac. For Linux, see the [technical reference](docs/technical.md#running-from-source).
+
+**With the Uncloud app (Mac).** Open `Uncloud.app` and choose **Make this Mac the Uncloud host**.
+It runs Uncloud from the menu bar, with nothing else to install, and opens your browser at step 3.
+**Reach From Anywhere** in its menu does what step 6 describes. How to get the app while it's
+unsigned is in the [technical reference](docs/technical.md#the-uncloud-app). Otherwise, set it up
+from Terminal:
 
 ### 1. Install the tools Uncloud is built with
 
@@ -200,6 +208,18 @@ again only brings what's new, and Uncloud never overwrites a file you already ha
 appear in your space under **Files**.
 
 ### Keep a folder on your laptop in sync
+
+**With the Uncloud app (Mac):**
+
+1. Open the Uncloud app on your laptop and choose **Connect this computer to an Uncloud**.
+2. In Uncloud in your laptop's browser, open **My computers** and click **Get a pairing code**.
+3. Click **open in the Uncloud app**. (Or type the address and code Uncloud shows into the app.)
+
+That's all. Your Uncloud files appear in a folder called **Uncloud** in your home folder, and stay
+in step both ways. The Uncloud icon in the menu bar shows whether you're up to date, and pauses or
+disconnects the laptop.
+
+**Without the app:**
 
 1. Download and install [Syncthing](https://syncthing.net/downloads/) on your laptop, and open it.
 2. In Uncloud, open **My computers** and copy this Uncloud's ID.

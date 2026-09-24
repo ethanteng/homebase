@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>Uncloud</AssemblyName>
+    <RootNamespace>Uncloud.Desktop</RootNamespace>
+    <ApplicationIcon Condition="Exists('Assets/uncloud.ico')">Assets/uncloud.ico</ApplicationIcon>
+    <!-- A menu-bar app: no Dock icon and no window until one is asked for (LSUIElement, in Info.plist). -->
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+  </PropertyGroup>
+  <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Uncloud.Desktop.Core/Uncloud.Desktop.Core.csproj" />
+  </ItemGroup>
+</Project>

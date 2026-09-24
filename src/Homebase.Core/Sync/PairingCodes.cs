@@ -4,8 +4,14 @@ using Homebase.Core.Accounts;
 
 namespace Homebase.Core.Sync;
 
-/// <summary>What a computer learns by redeeming a pairing code: who to sync with, and for whom.</summary>
-public sealed record PairingResult(string HostDeviceId, string AccountName);
+/// <summary>
+/// What a computer learns by redeeming a pairing code: who to sync with, for whom, and — when it
+/// asked to be brought in on everything — which folders to set up.
+/// </summary>
+public sealed record PairingResult(string HostDeviceId, string AccountName, IReadOnlyList<PairedFolder> Folders);
+
+/// <summary>A folder the computer should keep, by the id Syncthing knows it by.</summary>
+public sealed record PairedFolder(string Id, string Label, string Path);
 
 /// <summary>A code shown to a signed-in person, for their computer to type in.</summary>
 public sealed record PairingCode(string Code, DateTimeOffset ExpiresAt);
@@ -73,7 +79,12 @@ public sealed class PairingCodes(
     /// with the code gets one answer, whether it never existed, expired, was used, or belongs to
     /// an account that has since been disabled.
     /// </summary>
-    public async Task<PairingResult> RedeemAsync(string? code, string? deviceId, string? name, string? address, CancellationToken cancellationToken)
+    /// <param name="rootFor">
+    /// Where an account's files are, when the computer asked to be brought in on everything the
+    /// account syncs; null to pair it and nothing more.
+    /// </param>
+    public async Task<PairingResult> RedeemAsync(string? code, string? deviceId, string? name, string? address,
+        Func<string, string>? rootFor, CancellationToken cancellationToken)
     {
         try { _throttle.RequireAllowed(null, address); }
         catch (LibraryException)
@@ -103,9 +114,14 @@ public sealed class PairingCodes(
             if (ownership.FindDevice(device) is not { } owned || owned.UserId != account.Id)
                 await sync.PairAsync(account.Id, device, name, cancellationToken);
 
+            var folders = rootFor is null
+                ? []
+                : await sync.IncludeAsync(account.Id, rootFor(account.Id), device, cancellationToken);
+
             Delete(hash!);
             _throttle.RecordSuccess(null, address);
-            return new PairingResult(await syncthing.DeviceIdAsync(cancellationToken), account.DisplayName);
+            return new PairingResult(await syncthing.DeviceIdAsync(cancellationToken), account.DisplayName,
+                folders.Select(folder => new PairedFolder(folder.Id, folder.Label, folder.Path)).ToArray());
         }
         finally
         {

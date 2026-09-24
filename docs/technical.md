@@ -51,7 +51,8 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   through [Syncthing](https://syncthing.net), which the host runs and supervises. Computers,
   folders and offers are owned per account. Deleted or replaced files are kept on the host for 30
   days. Syncing works from anywhere, not only at home.
-- One-time pairing codes let a future desktop app pair a computer without copying device IDs.
+- One-time pairing codes pair a computer without copying device IDs, and the Uncloud app for Mac
+  uses them to pair itself with nothing to install, copy or accept ([The Uncloud app](#the-uncloud-app)).
 
 **Reaching the host**
 
@@ -404,8 +405,8 @@ SHA-256 matches the one pinned in the script — taken from the release's checks
 Syncthing's release signature — and puts it beside the application with its MPL-2.0 licence. That
 copy is used ahead of anything on the `PATH` and never upgrades itself; a new version is a change
 to the script. `Homebase__Syncthing__Path` still points at a different binary if you'd rather.
-Each person still installs Syncthing on their own computer, until the Uncloud desktop app carries
-it for them.
+With [the Uncloud app](#the-uncloud-app), people's own computers need nothing installed either;
+without it, each person installs Syncthing and pairs by device ID:
 
 1. On your computer, add the host's ID (shown in **My computers**) as a remote device.
 2. In **My computers**, paste your computer's ID and **Add computer**.
@@ -416,11 +417,13 @@ it for them.
 Instead of copying device IDs, a computer can pair itself with a code. **Get a pairing code** in
 **My computers** shows a ten-character code that works once, for ten minutes. A client on the
 computer sends it to `POST /api/sync/pair` as `{ "code", "deviceId", "name" }`, without a session
-and with the `X-Homebase-Request: 1` header, and gets back `{ "hostDeviceId", "accountName" }`.
+and with the `X-Homebase-Request: 1` header, and gets back `{ "hostDeviceId", "accountName", "folders" }`. With `"syncEverything": true`, which
+the Uncloud app sends, the computer is also brought in on every folder the account already syncs,
+or the whole account folder if nothing syncs yet, and `folders` lists them for it to set up.
 That computer is now paired with the account that asked for the code. Codes are stored only as
 hashes, a new one replaces the last, wrong guesses are throttled per address, and a mistake that
 isn't the code's — a malformed device ID, a computer another account already has — doesn't use it
-up. This is the API the planned Uncloud desktop app, which will carry its own Syncthing, will use.
+up. This is the API the Uncloud app uses.
 
 Syncthing has one configuration for the whole host and no idea of accounts, so Uncloud records
 which account every computer and every folder belongs to and answers everything from that record.
@@ -528,9 +531,46 @@ any path that reaches outside the place it stands for. `IHomebaseImporter` remai
 contract for adapters that want to write into the library directly, such as Evernote notes and
 attachments under `Notes/Evernote/`; these folders aren’t created until something needs them.
 
+### The Uncloud app
+
+One Mac app, `Uncloud.app`, for both ends. It lives in the menu bar and, on first launch, asks what
+this Mac is:
+
+- **The host.** The app carries the Uncloud server, its Syncthing and its tunnel, runs them as a
+  child process and stops them when it quits, and opens the browser for the first account. Its
+  menu opens Uncloud, turns **Reach From Anywhere** (the bundled tunnel) on and off, and restarts
+  the server if it stops. Accounts and settings are kept in the same preference directory as a
+  host run from source, so moving between the two keeps everything.
+- **Somebody's computer.** The app runs its own Syncthing (API on `127.0.0.1:8391`, state in
+  `~/Library/Application Support/Uncloud`) and pairs it with a code from **My computers**. The
+  pairing call (`POST /api/sync/pair` with `syncEverything`) adds every folder the account already
+  syncs to this computer, or syncs the whole account folder if nothing syncs yet, and returns the
+  folder ids, so the app sets them up under `~/Uncloud` directly and nothing waits to be accepted.
+  The host is the only device this Syncthing knows, and folders it shares later are accepted into
+  `~/Uncloud` automatically; nothing from any other device ever is. **Disconnect** stops syncing
+  and leaves `~/Uncloud` as it is.
+
+The link **open in the Uncloud app** is `uncloud://pair?address=…&code=…`, with the address being
+the one the page was opened at: if a browser on that computer can reach Uncloud there, so can the
+app. Opened on the host itself at `127.0.0.1`, the page says that address won't work elsewhere.
+
+Build it with:
+
+```sh
+./scripts/package-macos-app.sh            # Apple Silicon
+./scripts/package-macos-app.sh osx-x64    # Intel
+```
+
+On a Mac this produces `artifacts/Uncloud-osx-arm64.zip`. Signed ad hoc, it runs on the Mac that
+built it and needs right-click → **Open** on any other. For distribution, set
+`UNCLOUD_SIGN_IDENTITY` to a "Developer ID Application" identity, and `UNCLOUD_NOTARY_PROFILE` to a
+`notarytool` keychain profile to notarize and staple it too. CI builds the unsigned app on every
+run; download it from the run's **Artifacts**. The app is large (around 270 MB unpacked) because the
+app and the server each carry their own .NET runtime.
+
 ### Desktop packaging
 
-Core logic has no web or desktop dependency. ASP.NET serves the compiled UI and can be started by a future desktop shell. To create a self-contained macOS build without adding a desktop framework:
+To build only the server as a self-contained macOS executable, without the app:
 
 ```sh
 ./scripts/publish-macos.sh            # Apple Silicon
@@ -538,7 +578,7 @@ Core logic has no web or desktop dependency. ASP.NET serves the compiled UI and 
 ./artifacts/osx-arm64/Homebase.Server
 ```
 
-Open http://127.0.0.1:5210. The bundled tunnel is built beside it, so `Homebase__RemoteAccess__Provider=builtin` needs nothing else. This produces a local executable and its assets, not a signed `.app` or `.dmg` yet. No billing, AI, or photo management is included, and there are no per-account storage quotas: everyone draws on the same drive, so one account can fill it for everyone.
+Open http://127.0.0.1:5210. The bundled tunnel is built beside it, so `Homebase__RemoteAccess__Provider=builtin` needs nothing else. For the menu-bar app, see [The Uncloud app](#the-uncloud-app). No billing, AI, or photo management is included, and there are no per-account storage quotas: everyone draws on the same drive, so one account can fill it for everyone.
 
 ### Check
 

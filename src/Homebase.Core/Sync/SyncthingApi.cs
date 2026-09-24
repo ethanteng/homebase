@@ -166,6 +166,14 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
         SendAsync(HttpMethod.Patch, $"/rest/config/folders/{Uri.EscapeDataString(id)}",
             JsonSerializer.Serialize(new { versioning = Versioning() }), cancellationToken);
 
+    public Task AutoAcceptFromAsync(string deviceId, bool accept, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Patch, $"/rest/config/devices/{Uri.EscapeDataString(deviceId)}",
+            JsonSerializer.Serialize(new { autoAcceptFolders = accept }), cancellationToken);
+
+    public Task SetDefaultFolderPathAsync(string path, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Patch, "/rest/config/defaults/folder",
+            JsonSerializer.Serialize(new { path }), cancellationToken);
+
     /// <summary>
     /// A deletion made on a laptop reaches this host as faithfully as a new file does. Versions
     /// kept here, under the folder's hidden <c>.stversions</c>, are what make that recoverable.

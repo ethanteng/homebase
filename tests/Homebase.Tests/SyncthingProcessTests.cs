@@ -1,9 +1,9 @@
-using Homebase.Server;
+using Homebase.Core.Sync;
 
 namespace Homebase.Tests;
 
 /// <summary>Which Syncthing Uncloud runs: the one it ships, unless somebody said otherwise.</summary>
-public sealed class SyncthingHostTests : IDisposable
+public sealed class SyncthingProcessTests : IDisposable
 {
     private readonly string _application = Directory.CreateDirectory(
         Path.Combine(Path.GetTempPath(), "homebase-tests", Guid.NewGuid().ToString("N"))).FullName;
@@ -15,8 +15,8 @@ public sealed class SyncthingHostTests : IDisposable
     {
         File.WriteAllText(Bundled, "");
 
-        Assert.Equal(Bundled, SyncthingHost.Binary(null, _application));
-        Assert.Equal(Bundled, SyncthingHost.Binary(" ", _application));
+        Assert.Equal(Bundled, SyncthingProcess.Binary(null, _application));
+        Assert.Equal(Bundled, SyncthingProcess.Binary(" ", _application));
     }
 
     [Fact]
@@ -24,13 +24,13 @@ public sealed class SyncthingHostTests : IDisposable
     {
         File.WriteAllText(Bundled, "");
 
-        Assert.Equal("/opt/syncthing/bin/syncthing", SyncthingHost.Binary("/opt/syncthing/bin/syncthing", _application));
+        Assert.Equal("/opt/syncthing/bin/syncthing", SyncthingProcess.Binary("/opt/syncthing/bin/syncthing", _application));
     }
 
     [Fact]
     public void Without_a_bundled_copy_the_path_is_asked()
     {
-        Assert.Equal("syncthing", SyncthingHost.Binary(null, _application));
+        Assert.Equal("syncthing", SyncthingProcess.Binary(null, _application));
     }
 
     public void Dispose()
