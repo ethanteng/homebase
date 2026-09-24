@@ -142,15 +142,36 @@ var appKeys = app.Services.GetRequiredService<DropboxAppKey>();
 // signing in through. An account on Uncloud's own app goes by way of the relay — that is the one
 // address registered with it — and is told to come home by the port on the end of its state.
 // Anybody on a key somebody here chose comes straight back, as they always did.
-// Whether the browser is on this computer, which is the whole of whether the relay can finish a
-// sign-in for it: the last hop is to the loopback address, and that is this host only from here.
-// A dual-stack socket reports a local browser as ::ffff:127.0.0.1, which has to be read as
-// loopback or everybody at the machine gets turned away.
-bool BrowserIsHere(HttpContext context)
+// Why Uncloud's own Dropbox app can't finish a sign-in for the browser asking, or null when it
+// can. It ends by handing the sign-in to this host at its plain loopback address, so every way
+// that hop can fail to arrive is a reason not to start down it: better to say so than to send
+// somebody somewhere that cannot work. Each of these leaves them their own app key, which comes
+// straight back here and so has none of these problems.
+string? RelayCannotFinish(HttpContext context)
 {
+    // A host serving its own https is reached by a name its certificate was issued for, and the
+    // loopback address is not usually one of them — the browser would stop at a certificate
+    // warning rather than arrive. A certificate that does cover it can't be told apart from here.
+    if (binding.IsSecure)
+        return "This Uncloud answers on its own secure address, which Uncloud's own Dropbox app "
+             + "can't finish a sign-in on. Set up your own Dropbox app under My account — it takes "
+             + "a couple of minutes and works either way.";
+    // X-Forwarded-For is believed only from a tunnel Uncloud opened itself, so behind a proxy
+    // somebody else configured the address below is the proxy's — often loopback, which would read
+    // as "sitting at the machine" for somebody who is nowhere near it.
+    if (binding.TrustedProxies.Count > 0 && !remote.IsEnabled)
+        return "This Uncloud is behind a proxy, so it can't tell whether you're at the computer it "
+             + "runs on — and Uncloud's own Dropbox app only works there. Set up your own Dropbox "
+             + "app under My account — it takes a couple of minutes and works either way.";
+    // A dual-stack socket reports a local browser as ::ffff:127.0.0.1, which has to be read as
+    // loopback or everybody at the machine gets turned away.
     var from = context.Connection.RemoteIpAddress;
     if (from is { IsIPv4MappedToIPv6: true }) from = from.MapToIPv4();
-    return from is not null && IPAddress.IsLoopback(from);
+    if (from is null || !IPAddress.IsLoopback(from))
+        return "Uncloud's own Dropbox app can only finish a sign-in on the computer Uncloud is "
+             + "running on. You're reaching it from somewhere else, so set up your own Dropbox app "
+             + "under My account — it takes a couple of minutes and works from anywhere.";
+    return null;
 }
 (string RedirectUri, Func<string, string>? WayBack) DropboxReturn(string userId) =>
     appKeys.UsesRelay(userId)
@@ -455,14 +476,10 @@ app.MapGet("/api/providers/dropbox", (CurrentUser user, UserWorkspaces workspace
 app.MapPost("/api/providers/dropbox/connect", (HttpContext context, CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
 {
     var (redirectUri, wayBack) = DropboxReturn(user.Id);
-    // Somebody reaching this from elsewhere — over a tunnel, or across the house — would be sent
-    // to their own machine instead, where there is either nothing listening or, worse, a different
-    // Uncloud. Better to say so than to send them somewhere that cannot work.
-    if (wayBack is not null && !BrowserIsHere(context))
-        throw new LibraryException(
-            "Uncloud's own Dropbox app can only finish a sign-in on the computer Uncloud is running "
-            + "on. You're reaching it from somewhere else, so set up your own Dropbox app under My "
-            + "account — it takes a couple of minutes and works from anywhere.", "not_configured");
+    // Refused rather than quietly sent back here instead: the key in force is Uncloud's own, and
+    // Dropbox would turn away a sign-in to it from an address that app doesn't hold.
+    if (wayBack is not null && RelayCannotFinish(context) is { } why)
+        throw new LibraryException(why, "not_configured");
     return Results.Ok(new
     {
         authorizeUrl = flow.Begin(user.Id, workspaces.For(user.Account).Dropbox.AppKey, redirectUri,
@@ -500,21 +517,23 @@ app.MapGet("/api/providers/dropbox/callback", async (string? code, string? state
     string? returnTo = null;
     string? verifier = null;
     string? userId = null;
+    string? startedUnder = null;
     string? startedWith = null;
     try
     {
-        (userId, verifier, returnTo, startedWith) = flow.Consume(state);
+        (userId, verifier, returnTo, startedUnder, startedWith) = flow.Consume(state);
     }
     catch (LibraryException expired)
     {
         app.Logger.LogWarning(expired, "A Dropbox sign-in came back with a state Uncloud didn’t recognise");
     }
     if (error is not null || code is null) return Results.Redirect(Back(returnTo, "denied"));
-    if (verifier is null || userId is null || startedWith is null)
+    if (verifier is null || userId is null || startedUnder is null || startedWith is null)
         return Results.Redirect(Back(returnTo, "failed"));
     try
     {
-        await workspaces.For(userId).Dropbox.ConnectAsync(code, verifier, startedWith, cancellationToken);
+        await workspaces.For(userId).Dropbox
+            .ConnectAsync(code, verifier, startedUnder, startedWith, cancellationToken);
         return Results.Redirect(Back(returnTo, "connected"));
     }
     catch (Exception failure) when (failure is LibraryException or HttpRequestException)
@@ -724,7 +743,7 @@ app.MapGet("/api/account/dropbox", (HttpContext context, CurrentUser user, Dropb
     // Whether Uncloud's own app could actually finish a sign-in for the browser asking. Somebody
     // reading this from another computer needs a key of their own, and telling them there is
     // nothing to set up — right after refusing them — would be worse than saying nothing.
-    relayReachable = BrowserIsHere(context),
+    relayReachable = RelayCannotFinish(context) is null,
     redirectUri = RedirectUri(),
     scopes = DropboxScopes
 }));

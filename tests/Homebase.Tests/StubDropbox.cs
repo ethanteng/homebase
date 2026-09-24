@@ -13,8 +13,14 @@ public sealed class StubDropbox : IDropboxConnection
     public bool IsConnected { get; set; } = true;
     public string? AccountName { get; set; } = "Stub";
 
+    /// <summary>
+    /// The key in force for this account, settable because the real one is read afresh every time
+    /// and so can change under a sign-in that is already out at dropbox.com.
+    /// </summary>
+    public string Key { get; set; } = "app-key";
+
     public string AppKey => IsConfigured
-        ? "app-key"
+        ? Key
         : throw new LibraryException("No Dropbox app key here.", "provider_unconfigured");
 
     /// <summary>Held shut, a download waits here until a test lets it through.</summary>
@@ -65,9 +71,13 @@ public sealed class StubDropbox : IDropboxConnection
     /// </summary>
     public string? ExchangedWith { get; private set; }
 
-    public Task ConnectAsync(string code, string verifier, string redirectUri, CancellationToken cancellationToken)
+    /// <summary>The app key the exchange was given, for the same reason.</summary>
+    public string? ExchangedUnder { get; private set; }
+
+    public Task ConnectAsync(string code, string verifier, string appKey, string redirectUri, CancellationToken cancellationToken)
     {
         ExchangedWith = redirectUri;
+        ExchangedUnder = appKey;
         IsConnected = true;
         return Task.CompletedTask;
     }

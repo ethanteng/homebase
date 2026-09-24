@@ -41,6 +41,28 @@ tunnel address means accepting a hostname from the request, and there is no shar
 the relay and each Uncloud to sign one with. People reaching Uncloud from another computer set their
 own app key instead; Uncloud tells them so when they press Connect.
 
+## Where it is not offered
+
+Forwarding only to loopback is what keeps the argument above true, and it is also the whole of what
+limits where this works. `RelayCannotFinish` in `Program.cs` refuses to start a sign-in it cannot
+finish, rather than sending somebody on a hop that ends nowhere. Three cases:
+
+- **The browser is on another computer.** The last hop reaches this host only from this host.
+- **Uncloud is behind a proxy somebody else configured.** `X-Forwarded-For` is believed only from a
+  tunnel Uncloud opened itself, so the address a request appears to come from is the proxy's — and a
+  proxy on the same machine is loopback, which would read as "sitting at the machine" for somebody
+  who is nowhere near it. Uncloud cannot tell, so it does not guess.
+- **Uncloud answers on its own https address.** A certificate is issued for the name people use, and
+  the loopback address is not usually one of them, so the hop would stop at a certificate warning
+  instead of arriving. A certificate that *does* cover the loopback address would work, but cannot be
+  told apart from one that does not without inspecting it, so this refuses either way. That is why
+  the state's scheme letter can still say `s` and nothing currently emits one: the format can express
+  it if that check is ever worth adding, and the relay is deployed once for every build there will
+  ever be.
+
+Each of these leaves the person their own app key, which returns straight to their Uncloud and so
+has none of these problems. Uncloud says exactly that when they press Connect.
+
 ## Setting it up
 
 1. **Register the app.** At [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps),

@@ -150,10 +150,15 @@ public sealed class DropboxRelayTests : IDisposable
 
         var state = Parameter(await AuthorizeUrlAsync(client), "state");
         Assert.EndsWith(".h5210", state);
+        var mine = Assert.Single(dropboxes.All);
+        var began = mine.Key;
 
-        // The key in force changes while the sign-in is out at Dropbox.
+        // An administrator sets a host key while the sign-in is out at Dropbox. That moves this
+        // account off the relay, so what this host would now name as its redirect URI changes —
+        // and the key in force changes with it, which the stub stands in for here.
         (await client.PutAsJsonAsync("/api/host/dropbox", new { appKey = "arrived-mid-sign-in" }))
             .EnsureSuccessStatusCode();
+        mine.Key = "arrived-mid-sign-in";
 
         using var callbacks = app.NotFollowingRedirects();
         var back = await callbacks.GetAsync(
@@ -162,6 +167,65 @@ public sealed class DropboxRelayTests : IDisposable
 
         var connected = Assert.Single(dropboxes.All, stub => stub.ExchangedWith is not null);
         Assert.Equal(DropboxRelay.CallbackUrl, connected.ExchangedWith);
+        // And under the app it began under. Dropbox checks a code against the app it was issued to
+        // as well as the address, so presenting the key that arrived mid-sign-in loses it just as
+        // surely as presenting the wrong address would.
+        Assert.Equal(began, connected.ExchangedUnder);
+        Assert.NotEqual("arrived-mid-sign-in", connected.ExchangedUnder);
+    }
+
+    [Fact]
+    public async Task A_host_serving_its_own_secure_address_is_not_offered_the_relay()
+    {
+        // The relay's last hop is a plain navigation to the loopback address. A certificate is
+        // issued for the name people use, not usually for 127.0.0.1, so that hop would stop at a
+        // certificate warning instead of arriving — and a certificate that does cover it cannot be
+        // told apart from here, so this refuses either way rather than guessing.
+        var certificate = Path.Combine(_temporary, "uncloud.pfx");
+        await File.WriteAllBytesAsync(certificate, SelfSigned());
+        using var app = CreateApp(extra: [("Homebase:Certificate:Path", certificate)]);
+        using var client = await StartAsync(app);
+
+        Assert.False((await client.GetFromJsonAsync<JsonElement>("/api/account/dropbox"))
+            .GetProperty("relayReachable").GetBoolean());
+
+        var refused = await client.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Contains("secure address", (await refused.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task A_host_behind_somebody_else_s_proxy_is_not_offered_the_relay()
+    {
+        // X-Forwarded-For is believed only from a tunnel Uncloud opened itself — a proxy somebody
+        // else configured is taken at its word about scheme and host and nothing more. So the
+        // address a request arrives from is the proxy's, and a proxy on this machine is loopback:
+        // everybody behind it would read as sitting at the machine and be sent to their own.
+        using var app = CreateApp(caller: IPAddress.Loopback,
+            extra: [("Homebase:TrustedProxies", "127.0.0.1")]);
+        using var client = await StartAsync(app);
+
+        Assert.False((await client.GetFromJsonAsync<JsonElement>("/api/account/dropbox"))
+            .GetProperty("relayReachable").GetBoolean());
+
+        var refused = await client.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Contains("behind a proxy", (await refused.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("detail").GetString());
+    }
+
+    /// <summary>A certificate to point <c>Homebase:Certificate:Path</c> at; never used to serve.</summary>
+    private static byte[] SelfSigned()
+    {
+        using var key = System.Security.Cryptography.RSA.Create(2048);
+        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+            "CN=uncloud.local", key,
+            System.Security.Cryptography.HashAlgorithmName.SHA256,
+            System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+        using var certificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        return certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pfx);
     }
 
     [Fact]

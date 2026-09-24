@@ -30,7 +30,13 @@ public interface IDropboxConnection : IDropboxApi
     /// <summary>The app key, or a refusal explaining that this host has none.</summary>
     string AppKey { get; }
     string? AccountName { get; }
-    Task ConnectAsync(string code, string verifier, string redirectUri, CancellationToken cancellationToken);
+    /// <param name="appKey">
+    /// The app key the sign-in was started with, which need not be the one in force now: somebody
+    /// else can change which Dropbox app an account uses while its browser is away at dropbox.com.
+    /// Dropbox checks the code against the app it was issued to, so the exchange has to present
+    /// that one or lose a sign-in the person completed correctly.
+    /// </param>
+    Task ConnectAsync(string code, string verifier, string appKey, string redirectUri, CancellationToken cancellationToken);
     void Disconnect();
 }
 

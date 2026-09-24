@@ -21,18 +21,21 @@ namespace Homebase.Server;
 /// out at the very moment the connection succeeded. The origin is only ever one this Uncloud
 /// already answers to, checked before it is stored.
 ///
-/// And it remembers the redirect URI itself, rather than working it out again when the code comes
-/// back. Dropbox requires the exchange to present the same one the sign-in was started with, and
-/// what this host would answer today is not reliably what it answered a minute ago: a tunnel
-/// allowed mid-sign-in changes it, and which Dropbox app an account connects through — whose
-/// redirect URI differs — can be changed by somebody else while the browser is away at dropbox.com.
+/// And it remembers the app key and redirect URI the sign-in was started with, rather than working
+/// them out again when the code comes back. Dropbox checks a code against the app it was issued to
+/// and the address it was issued for, and neither is reliably what this host would answer a minute
+/// later: an administrator setting or clearing the host key changes which Dropbox app every account
+/// without one of its own uses, and a tunnel coming up changes the address. Both can happen while
+/// the browser is away at dropbox.com, and recomputing either loses a sign-in the person completed
+/// correctly.
 /// </summary>
 public sealed class DropboxAuthFlow
 {
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(10);
 
     private sealed record Pending(
-        string Verifier, string State, string? ReturnTo, string RedirectUri, DateTimeOffset Expires);
+        string Verifier, string State, string? ReturnTo, string AppKey, string RedirectUri,
+        DateTimeOffset Expires);
 
     private readonly ConcurrentDictionary<string, Pending> _pending = new(StringComparer.Ordinal);
 
@@ -49,16 +52,17 @@ public sealed class DropboxAuthFlow
         if (wayBack is not null) state = wayBack(state);
         Prune();
         // One at a time per account: starting a sign-in abandons whichever one came before it.
-        _pending[userId] = new Pending(verifier, state, returnTo, redirectUri,
+        _pending[userId] = new Pending(verifier, state, returnTo, appKey, redirectUri,
             DateTimeOffset.UtcNow.Add(Lifetime));
         return DropboxOAuth.AuthorizeUrl(appKey, redirectUri, verifier, state);
     }
 
     /// <summary>
-    /// The account, verifier, return address and redirect URI this state belongs to, forgotten on
-    /// the way out so a code can never be replayed against it.
+    /// The account, verifier, return address, app key and redirect URI this state belongs to,
+    /// forgotten on the way out so a code can never be replayed against it.
     /// </summary>
-    public (string UserId, string Verifier, string? ReturnTo, string RedirectUri) Consume(string? state)
+    public (string UserId, string Verifier, string? ReturnTo, string AppKey, string RedirectUri)
+        Consume(string? state)
     {
         if (state is not null)
         {
@@ -70,7 +74,8 @@ public sealed class DropboxAuthFlow
                     || !CryptographicOperations.FixedTimeEquals(candidate, offered)) continue;
                 _pending.TryRemove(userId, out _);
                 if (DateTimeOffset.UtcNow <= pending.Expires)
-                    return (userId, pending.Verifier, pending.ReturnTo, pending.RedirectUri);
+                    return (userId, pending.Verifier, pending.ReturnTo, pending.AppKey,
+                        pending.RedirectUri);
                 break;
             }
         }

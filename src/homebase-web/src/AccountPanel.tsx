@@ -100,9 +100,10 @@ export default function AccountPanel({ me, onDropboxChanged }: Props) {
     }
   }
 
-  // Uncloud's own app is no use to a browser on another computer: the sign-in finishes by handing
-  // itself to Uncloud over loopback. Somebody in that position has just been turned away from
-  // Connect, so this is the screen they were sent to.
+  // Uncloud's own app finishes a sign-in by handing it to Uncloud at its plain local address, and
+  // there is more than one way that can fail to arrive: a browser on another computer, a proxy in
+  // between, a host answering on its own secure address. Whoever this is true for has just been
+  // turned away from Connect, and this is the screen they were sent to.
   const relayIsNoUseHere =
     dropbox !== null && dropbox.source === "Relay" && !dropbox.relayReachable;
 
@@ -225,7 +226,7 @@ export default function AccountPanel({ me, onDropboxChanged }: Props) {
             {dropbox.source === "Own"
               ? "You connect Dropbox through your own Dropbox app. Nobody else here can see or change it."
               : relayIsNoUseHere
-                ? "You’re using Uncloud from a different computer than the one it runs on, and Uncloud’s own Dropbox app can’t finish a sign-in across that gap. Set up your own below and it’ll work from anywhere — it takes a couple of minutes and needs nobody else."
+                ? "Uncloud’s own Dropbox app can’t finish a sign-in the way this Uncloud is being reached — it only works from the computer Uncloud runs on, at its plain local address. Set up your own below and it’ll work either way. It takes a couple of minutes and needs nobody else."
                 : dropbox.source === "Relay"
                   ? "Nothing to set up — Uncloud has its own Dropbox app, so you can just press Connect under Bring files in."
                   : dropbox.source === "None"
