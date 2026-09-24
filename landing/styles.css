@@ -106,6 +106,33 @@ input:focus-visible {
   background: #fff;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.github-link {
+  display: inline-flex;
+  padding: 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  transition: color .15s ease;
+}
+
+.github-link:hover { color: var(--ink); }
+
+.site-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px 0 36px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .9rem;
+}
+
 .hero {
   padding: clamp(48px, 7vw, 96px) 0 clamp(56px, 7vw, 100px);
 }
@@ -712,6 +739,7 @@ h1 span {
   .site-header { min-height: 72px; }
   .header-cta { padding: 9px 12px; font-size: .82rem; }
   .wordmark { font-size: 1.2rem; }
+  .header-actions { gap: 6px; }
 
   .hero { padding: 38px 0 56px; }
 
