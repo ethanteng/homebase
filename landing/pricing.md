@@ -1,19 +1,22 @@
-# Homepage subscription example
+# Uncloud Home offer
 
-Checked September 24, 2026. All amounts are USD for U.S. consumer plans, billed monthly, before tax. These are regular prices, excluding trials, promotions, app-store variations, and annual-billing discounts.
+Messaging approved for the homepage on September 24, 2026. Prices are USD.
 
-| Service | Plan | Monthly price | Official source |
-| --- | --- | ---: | --- |
-| Dropbox | Plus, 2 TB | $11.99 | [Plans](https://www.dropbox.com/plans), with **Billed monthly** selected |
-| Evernote | Starter | $14.99 | [Compare plans](https://evernote.com/compare-plans), with **Monthly** selected; also confirmed in the [plan migration FAQ](https://help.evernote.com/hc/en-us/articles/46317642175763-Discontinuing-Evernote-Personal-Professional-Introducing-Starter-Advanced-FAQ) |
-| Google Drive | Google One Basic, 100 GB | $1.99 | [Google One plans](https://one.google.com/about/plans) |
-| iCloud+ | 200 GB | $2.99 | [Apple iCloud+](https://www.apple.com/icloud/) |
-| OneDrive | Microsoft 365 Basic, 100 GB | $1.99 | [Microsoft OneDrive plans](https://www.microsoft.com/en-us/microsoft-365/onedrive/onedrive-plans-and-pricing) |
+| Item | Included |
+| --- | --- |
+| Regular price | $99 one-time |
+| Early-access founding price | $79 one-time, locked in at signup for when Uncloud is ready |
+| Trial | 30 days free, no credit card |
+| Household | Up to 6 members |
+| Devices | Unlimited |
+| Host | 1 primary host computer |
+| Remote access | Included |
+| Migrations | Included |
+| Software updates | Included |
+| Storage | As much as the host computer and connected drives can hold |
 
-Monthly total: 1,199 + 1,499 + 199 + 299 + 199 = 3,395 cents ($33.95).
+There are no monthly storage fees, capacity tiers, or per-member charges in this offer. The homepage emphasizes reusing a computer and storage people already own, with setup in minutes. File transfers can take longer; keep the host on and online for remote access.
 
-Twelve monthly bills: 3,395 × 12 = 40,740 cents ($407.40). This is **not** the price of buying annual plans.
+The website currently collects early-access email signups. Joining the list locks in the $79 one-time price when the product is ready; it does not activate a trial or take payment. The calls to action, trial note, pricing card, and signup confirmation make that distinction explicit. When trial delivery or checkout becomes available, update the action and confirmation together.
 
-The scenario assumes one subscription to each listed plan and cancellation of all 5. It is not an assertion that a typical customer has these plans or will save this amount. Avoided subscription charges are not net savings: electricity, drives, backup, and any other applicable costs must be considered. Uncloud's file storage does not imply replacement of Evernote's note editing, Gmail storage, or iCloud device backups.
-
-When updating prices, check all 5 official pages, use the same country and billing period, and update the table, all displayed totals (including the hero), date, and this record together. Do not mix a discounted annual equivalent (for example Dropbox's $9.99/month billed yearly) with month-to-month prices. The example is static and makes no browser requests to the providers.
+Keep the hero, pricing card, metadata, and JSON-LD description aligned when changing the offer. The former competitor subscription table and annual-savings claim are retired; they are not part of this pricing model. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.

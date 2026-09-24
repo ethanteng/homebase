@@ -99,7 +99,7 @@ if (form && status) {
       // The form has done its job; leaving it there invites a second submission.
       form.hidden = true;
       // role="status" announces the change; a <p> can't take focus anyway.
-      say("You’re on the list. We’ll be in touch.", "done");
+      say("You’re on the list. Your $79 one-time price is locked in for launch. We’ll email you when your 30-day free trial is ready.", "done");
     } catch (problem) {
       submitting = false;
       say(problem.message || "That didn’t go through. Try again in a moment.", "problem");
