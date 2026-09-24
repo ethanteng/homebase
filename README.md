@@ -110,7 +110,7 @@ brew install node go git
 git clone https://github.com/ethanteng/homebase.git ~/uncloud-app
 cd ~/uncloud-app
 ./scripts/build-tunnel.sh
-Homebase__RemoteAccess__Provider=builtin ./scripts/run.sh
+./scripts/run.sh
 ```
 
 The first start takes a few minutes. It's ready when the messages stop scrolling. **Leave this
@@ -118,11 +118,12 @@ Terminal window open.** Closing it, or pressing Ctrl+C, stops Uncloud. To start 
 
 ```sh
 cd ~/uncloud-app
-Homebase__RemoteAccess__Provider=builtin ./scripts/run.sh
+./scripts/run.sh
 ```
 
-The `Homebase__RemoteAccess__Provider=builtin` part is what lets people reach Uncloud from other
-devices (step 6). Leave it off if only this computer will ever use Uncloud.
+`./scripts/build-tunnel.sh` only has to be run once. It builds the tunnel that lets people reach
+Uncloud from other devices, which you turn on in step 6 — there is nothing to type at Terminal
+for that.
 
 ### 3. Make your account
 
@@ -153,10 +154,12 @@ accounts.
 
 ### 6. Let everyone in
 
-With the app, first click the **U** in the menu bar and tick **Reach From Anywhere**. Then open
-**Storage settings**. Under **Reaching this host from anywhere**, click **Allow this host**.
-You'll be taken to Tailscale, a free service Uncloud uses for its secure connection. Sign in or
-make an account.
+Open **Storage settings**. Under **Reaching this host from anywhere**, click **Reach this host
+from anywhere**, then **Allow this host**. You'll be taken to Tailscale, a free service Uncloud
+uses for its secure connection. Sign in or make an account.
+
+(With the app, ticking **Reach From Anywhere** under the **U** in the menu bar does the same
+thing. Either one is enough; they are the same switch.)
 
 Then, once, in Tailscale's admin console:
 
@@ -166,6 +169,9 @@ Then, once, in Tailscale's admin console:
 
 After a minute Uncloud shows your address, something like `https://uncloud.tail1234.ts.net`. Send
 that to everyone. It works at home and away, on any device.
+
+To close it again later, use the same panel: **Stop reaching it from anywhere** takes the address
+out of service at once, without stopping Uncloud for anybody at home.
 
 This connection is fine for browsing and downloading everyday files. It's slow for very large
 ones, like hours of video.
