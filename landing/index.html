@@ -93,6 +93,7 @@
     <link rel="stylesheet" href="./hero-visual.css" />
     <script type="module" src="./main.js"></script>
     <script type="module" src="./hero-visual.js"></script>
+    <script type="module" src="./savings-animation.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -117,12 +118,11 @@
           <div class="hero-copy">
             <p class="eyebrow">Uncloud Home</p>
             <h1 id="hero-heading">
-              Your computer.
-              <span>Your family’s private cloud.</span>
+              Turn a computer you already own
+              <span>into your family’s private cloud.</span>
             </h1>
             <p class="hero-description">
-              Use the computer and storage you already own.
-              Set up in minutes. Access your files anywhere.
+              <strong>Set up in minutes. Access your files anywhere.</strong>
             </p>
           </div>
 
@@ -157,8 +157,7 @@
                     <span class="bill-cost"><strong>$1.99</strong><small>/mo</small></span>
                   </li>
                 </ul>
-                <p class="bills-total"><strong>$500</strong> <span>/ year</span></p>
-                <p class="bills-repeat">$41.95 every month.</p>
+                <p class="bills-total"><strong>Over $500</strong> <span>per year</span></p>
               </div>
 
               <div class="transfer-bridge" aria-hidden="true">
@@ -232,7 +231,7 @@
             <li>
               <span class="step-number" aria-hidden="true">3</span>
               <h3>Bring your files home</h3>
-              <p>Move files from Dropbox, Google Drive and more. Migrations included. Transfer time depends on your files.</p>
+              <p>Move files from Dropbox, Google Drive and more.</p>
             </li>
           </ol>
         </section>
@@ -253,9 +252,9 @@
                 <tr><th scope="row"><a href="https://www.apple.com/icloud/">iCloud+ <small>200 GB</small></a></th><td>$2.99</td></tr>
                 <tr><th scope="row"><a href="https://www.microsoft.com/en-us/microsoft-365/p/microsoft-365-basic/cfq7ttc0ktxs">OneDrive <small>Microsoft 365 Basic · 100 GB</small></a></th><td>$1.99</td></tr>
               </tbody>
-              <tfoot><tr><th scope="row">Monthly total</th><td>$41.95</td></tr></tfoot>
+              <tfoot><tr><th scope="row">Monthly total</th><td><span data-savings-monthly aria-hidden="true">$41.95</span><span class="sr-only">$41.95</span></td></tr></tfoot>
             </table>
-            <p class="annual-total"><strong>$503.40</strong> <span>per year in subscription storage costs</span></p>
+            <p class="annual-total"><strong data-savings-annual aria-hidden="true">$503.40</strong><span class="sr-only">$503.40</span> <span>per year in subscription storage costs</span></p>
           </div>
         </section>
 
@@ -267,20 +266,20 @@
           <div class="pricing-card">
             <div class="pricing-offer">
               <h3>Uncloud Home</h3>
-              <p class="price"><strong>$79</strong> <span>one-time</span></p>
-              <p class="regular-price">Early-access founding price · Regularly $99</p>
+              <p class="price"><s class="standard-price"><span class="sr-only">Standard price </span>$99</s> <strong><span class="sr-only">Early-access price </span>$79</strong> <span>one-time</span></p>
+              <p class="regular-price">Standard price $99 · <strong>Save $20 with early access</strong></p>
               <p class="price-promise">No monthly storage fees.</p>
               <a class="primary-link" href="#early-access">Get early access</a>
               <p class="trial-note">30-day free trial. No credit card.</p>
-              <p class="access-note">Sign up now to lock in $79 when Uncloud is ready. No payment today.</p>
+              <p class="access-note">Sign up for early access to lock in $79 when Uncloud is ready. No payment today.</p>
             </div>
             <div class="pricing-includes">
               <h3>Everything your household needs</h3>
               <ul class="included-features" role="list">
                 <li>Unlimited household members</li>
                 <li>Unlimited devices</li>
-                <li>Remote access included</li>
-                <li>Migrations included</li>
+                <li>Access your files from anywhere</li>
+                <li>Bring your files from Dropbox, Google Drive &amp; more</li>
                 <li>Software updates included</li>
                 <li>1 primary host computer</li>
               </ul>
