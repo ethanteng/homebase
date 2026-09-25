@@ -1,10 +1,10 @@
 # Uncloud landing page
 
-A landing page for **Uncloud**, with the public address **https://www.uncloud.life/**. The hero leads with **“Your private cloud. In 5 minutes or less.”** and highlights “Save up to $500 a year in subscription costs,” followed by a link to an example of how the savings add up. The subhero explains that people can use a computer they already own and cancel cloud storage plans they no longer need. The existing device illustration, blue accents, pale panels, and typography remain the visual foundation.
+A landing page for **Uncloud Home**, at **https://www.uncloud.life/**. The hero leads with **“Your computer. Your family’s private cloud.”** and the graphic’s **“$99 lifetime”** and **“No monthly storage fees.”** Signing up for early access locks in the $79 founding price when the product is ready. The animated hero compares “Multiple subscriptions.” and a rounded $500 / year on the left with a single $99 lifetime Uncloud Home purchase on the right. The early-access signup below it locks in $79 at launch, with a 30-day free trial and no credit card.
 
-The primary message is intentionally about **reusing hardware people already own** — no NAS, proprietary box, or special equipment required. “Turn a computer you already own into private cloud storage” has its own highlighted line. The page keeps the early-access email signup above the main visual, with labeled Mac, PC, and Linux icons in the computer illustration. “Your private cloud, in 5 minutes or less” introduces three steps: pick a computer, make it your cloud, and bring files home. Early-access links return to the signup form.
+The page has four sections: the value proposition and animated subscription comparison, three short setup steps, a household subscription comparison, and one pricing card. Uncloud Home includes unlimited household members, unlimited devices, remote access, migrations, software updates, and 1 primary host computer. Capacity comes from the computer and connected drives; there are no storage tiers. See [pricing.md](pricing.md) for the offer and copy rules.
 
-The value section uses current U.S. monthly prices for 5 named plans: Dropbox Plus, Evernote Starter, Google One Basic (Google Drive), iCloud+ 200 GB, and Microsoft 365 Basic (OneDrive). Together they cost $33.95/month, or $407.40 over 12 months of monthly billing. The example is explicitly conditional on canceling all 5. Official pricing links and the U.S. monthly billing basis are visible on the page; the source record retains the price-check date and calculation assumptions. See [pricing.md](pricing.md) for the source record and update procedure. The app, source folders, and storage paths still use the internal name Homebase.
+The blue accents, pale panels, typography and logo remain the visual foundation. A single computer illustration replaces the previous multi-device diagram. The subscription example uses Dropbox Family, Evernote Starter, Google One Basic, iCloud+ 200 GB, and Microsoft 365 Basic. The table links to official prices and shows $503.40 per year in subscription storage costs. Calculation details and assumptions are retained in pricing.md. The early-access offer is highlighted above the signup form, and “Compare with Uncloud” introduces the pricing card. Repeated benefits and the closing pitch remain removed. The app, source folders, and storage paths still use the internal name Homebase.
 
 ## Preview and build
 
@@ -93,11 +93,11 @@ node --test "api/*.test.js"
 
 ## Refine the message
 
-Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.png` is the shared brand mark and favicon. The landing page uses a light, product-led visual system with navy type, muted blue-gray interface details, and the blues of the Uncloud mark for actions and brand moments. The product diagram is built in semantic HTML and CSS so it scales cleanly without shipping a large raster illustration. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). Signups are stored in Airtable; see below.
+Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.png` is the shared brand mark and favicon. The landing page uses a light, product-led visual system with navy type, muted blue-gray interface details, and the blues of the Uncloud mark for actions and brand moments. The hero graphic is built in semantic HTML with `hero-visual.css` and `hero-visual.js`, so brand labels and prices remain crisp at every screen size. It plays once after 65% of the graphic enters the viewport: subscription cards become grayscale, a file travels left to right, and the Uncloud panel becomes bright blue and white. The 4.2-second sequence plays once, without a replay control. Reduced-motion preferences and missing JavaScript show the final static composition. Narrow screens retain the left/right comparison and put detailed plan names in the linked savings table. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). Signups are stored in Airtable; see below.
 
 Canonical, Open Graph, structured-data, and sitemap URLs use `https://www.uncloud.life/`, matching the production host that the bare domain redirects to. Keep these URLs and the robots.txt sitemap reference aligned. These metadata tags do not configure DNS, hosting, or deployment.
 
-“Get early access” submits an email address to the signup function described above. Keep the field and the button as one short row above “Private. Yours.”; on success the form is replaced by a confirmation line. The header, setup, and closing early-access links return to the signup form.
+“Get early access” submits an email address to the signup function described above. The form is an early-access waitlist, not an immediate trial activation or checkout. Keep the field and button together above the trial note; on success, confirm that their $79 one-time price is locked in for launch and that they will receive an email when their 30-day free trial is ready. The header and pricing-card calls to action return to the form. Pricing links jump to the single offer.
 
 For the first few conversations, share the page and ask:
 
@@ -109,7 +109,7 @@ Change one major message at a time. A useful next headline to compare is **“Un
 
 ## Search and sharing assets
 
-The title, description, Open Graph/Twitter metadata, and JSON-LD live directly in `index.html`, alongside the crawlable copy. JSON-LD connects the organization, website, homepage, and software application, and describes the early-access positioning. It intentionally omits offers, ratings, and download links until there are real ones to publish.
+The title, description, Open Graph/Twitter metadata, and JSON-LD live directly in `index.html`, alongside the crawlable copy. JSON-LD connects the organization, website, homepage, and software application, and describes the early-access positioning. It includes the announced one-time prices and trial terms in the application description. It omits a purchasable Offer, ratings, and download links while the site is an early-access waitlist.
 
 The landing Vite config explicitly uses `landing/public/` as its public directory. Vite copies these files unchanged into the root of `artifacts/landing/`, which is the output directory published by `vercel.json`:
 
