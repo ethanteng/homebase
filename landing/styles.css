@@ -416,6 +416,7 @@ h1 span {
 
 .price {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 12px;
   margin-top: 16px;
@@ -430,7 +431,9 @@ h1 span {
 }
 
 .price span { color: var(--muted); font-weight: 600; }
+.standard-price { color: var(--muted); font-size: clamp(1.8rem, 3vw, 2.5rem); font-weight: 600; text-decoration-thickness: 2px; }
 .regular-price { margin-top: 12px; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+.regular-price strong { color: var(--blue-strong); font-weight: 700; }
 .price-promise { margin-top: 20px; font-weight: 700; }
 
 .pricing-offer .primary-link {
