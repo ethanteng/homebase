@@ -2,6 +2,12 @@
 
 Configured September 20, 2026. The public page is https://www.uncloud.life/.
 
+## Signup events stopped with the LaunchList widget
+
+As of September 25, 2026 the early-access form is a LaunchList widget (see [README.md](README.md#early-access-signups)), and the page no longer sends `cta_click` or `generate_lead`. The widget is a cross-origin iframe: clicks inside it never reach this page's data layer, its form submits into a new tab on getlaunchlist.com, and the only message it posts back is its own height. Nothing on the page can tell that a signup happened.
+
+Until a signup can be observed on an Uncloud page again, the GA4 key event and the **Uncloud - Waitlist signup (GA4)** Ads conversion below record nothing new, and the page_view → cta_click → generate_lead funnel ends at page views. Count signups in LaunchList, which receives the page's query string and so keeps `utm_*` and click IDs with each signup. The GTM tags are unchanged and will fire again if the data layer events come back. The rest of this document describes the setup as it was when the page's own form sent them.
+
 ## Accounts and implementation
 
 - GA4 account: Ethan Teng Consulting LLC, `380265295`.

@@ -12,7 +12,6 @@ npm --prefix src/homebase-web run test
 # The signup function has no package of its own; the glob keeps the runner
 # from treating api/ as a module to resolve.
 node --test "api/*.test.js"
-node --test "landing/*.test.cjs"
 # The bundled tunnel, when there is a Go to build it with. Without one, Uncloud still builds
 # and runs; only Homebase__RemoteAccess__Provider=builtin is unavailable.
 if command -v go >/dev/null 2>&1; then

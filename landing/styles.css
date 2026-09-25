@@ -215,27 +215,6 @@ h1 span {
 }
 .access-offer strong { color: var(--blue-strong); font-weight: 800; }
 
-.access-form {
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
-  gap: 10px;
-}
-
-.access-input {
-  flex: 1 1 300px;
-  min-width: 0;
-  min-height: 56px;
-  border: 1px solid #cfd6df;
-  background: rgba(255,255,255,.94);
-  border-radius: 12px;
-  padding: 0 17px;
-  color: var(--ink);
-  box-shadow: 0 4px 18px rgba(58,70,91,.04);
-}
-
-.access-input::placeholder { color: #9099aa; }
-
 .primary-link {
   min-height: 56px;
   border: 0;
@@ -254,32 +233,6 @@ h1 span {
 }
 
 .primary-link:disabled { opacity: .62; cursor: default; }
-
-.access-trap {
-  position: absolute;
-  left: -9999px;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-}
-
-.access-form[hidden] { display: none; }
-
-.access-status {
-  min-height: 1.5em;
-  margin-top: 12px;
-  color: var(--muted);
-  font-size: .95rem;
-}
-
-.access-status:empty { min-height: 0; margin-top: 0; }
-
-.access-status[data-tone="done"] {
-  color: var(--blue-strong);
-  font-weight: 700;
-}
-
-.access-status[data-tone="problem"] { color: #c2413b; }
 
 .trust-note {
   margin-top: 14px;
@@ -513,22 +466,7 @@ h1 span {
 
   .access-action { margin-top: 28px; }
 
-  .access-form {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  /* The flex basis measures height once the row becomes a column, so the input
-     has to stop flexing or it stretches into a text area. */
-  .access-input {
-    flex: 0 0 auto;
-    max-width: none;
-  }
-
-  .access-input,
-  .primary-link {
-    width: 100%;
-  }
+  .primary-link { width: 100%; }
 
   .setup { text-align: left; }
   .setup-steps { grid-template-columns: 1fr; gap: 16px; }

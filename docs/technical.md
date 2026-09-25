@@ -64,7 +64,7 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
 **Also in this repository**
 
 - A landing page for [www.uncloud.life](https://www.uncloud.life/) with an early-access signup
-  that records to Airtable ([`landing/`](../landing/README.md)).
+  through a LaunchList widget ([`landing/`](../landing/README.md)).
 - Integration tests over real temporary files and SQLite, and front-end tests that render the app
   in jsdom, run by `./scripts/check.sh` in CI on macOS and Linux.
 
@@ -553,7 +553,7 @@ src/homebase-web/        React + TypeScript + Vite
 tools/uncloud-tunnel/    The bundled tunnel: a Tailscale node built from tsnet (Go)
 tests/Homebase.Tests/    Integration tests against real temporary files and SQLite
 src/homebase-web/src/*.test.tsx   Front-end tests: the app rendered in jsdom, host answers stood in
-landing/, api/           The uncloud.life landing page and its signup function
+landing/, api/           The uncloud.life landing page and its retired signup function
 ```
 
 [`docs/multi-user.md`](multi-user.md) is the design for accounts and isolation.

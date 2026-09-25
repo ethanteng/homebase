@@ -37,11 +37,19 @@ Commit and push the configuration to trigger a new Git deployment. Redeploying a
 
 ## Early-access signups
 
+The page's signup form is a [LaunchList](https://getlaunchlist.com/) widget, waitlist key `21CSQp`. `index.html` loads `https://getlaunchlist.com/js/widget.js` and marks the spot with `<div class="launchlist-widget" data-key-id="21CSQp">`; the script fills that element with an iframe served by LaunchList. **The LaunchList waitlist is the list.** The form's fields, button label and colors, validation messages, and the confirmation a visitor sees after signing up are all configured in the LaunchList dashboard, not in this repository, and `styles.css` cannot reach inside the iframe. The widget forwards the page's query string to LaunchList, so `utm_*` parameters and ad click IDs travel with the signup.
+
+The iframe submits into a new tab on getlaunchlist.com and tells the page nothing but its height, so the page cannot observe a signup. See [measurement.md](measurement.md) for what that does to `cta_click` and `generate_lead`.
+
+### The retired Airtable function
+
+The page no longer calls `api/subscribe.js`. It is left in place, still deployed, so the Airtable list and its configuration below stay documented until it is removed; signups already in Airtable are not in LaunchList.
+
 `api/subscribe.js` is a Vercel serverless function at `/api/subscribe`. It validates the address, writes it to an Airtable table, and then emails a notification. **The table is the list.** The email is only how a signup gets noticed, which is why the order matters: a signup that cannot be stored is a failure the visitor is asked to retry, and a notification that cannot be sent is a line in the log.
 
 Every API token is only ever read on the server. Never put one in `landing/main.js` or any other file the browser downloads — anything shipped to a browser is public.
 
-### The Airtable table
+#### The Airtable table
 
 The base is **Uncloud**, and the table is `Signups` unless you set `AIRTABLE_TABLE`. Field names have to match exactly; Airtable rejects a write that names a field the table does not have.
 
@@ -61,7 +69,7 @@ Create a **personal access token** at [airtable.com/create/tokens](https://airta
 
 The free Airtable plan allows 1,000 records per base and 1,000 API calls per month per workspace. One signup is one call. That is comfortable for early access and the ceiling is a signal to move the list somewhere else, not a surprise.
 
-### Environment variables
+#### Environment variables
 
 Set these in the Vercel project under **Settings → Environment Variables**, for every environment the page is deployed to:
 
@@ -93,11 +101,11 @@ node --test "api/*.test.js"
 
 ## Refine the message
 
-Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.png` is the shared brand mark and favicon. The landing page uses a light, product-led visual system with navy type, muted blue-gray interface details, and the blues of the Uncloud mark for actions and brand moments. The hero graphic is built in semantic HTML with `hero-visual.css` and `hero-visual.js`, so brand labels and prices remain crisp at every screen size. It plays once after 65% of the graphic enters the viewport: the subscription panel shrinks to 84% of its original size (90% on phones) and its cards become grayscale, a file travels left to right, and the Uncloud panel becomes bright blue and white. The 4.2-second sequence plays once, without a replay control. Reduced-motion preferences and missing JavaScript show the final static composition. Narrow screens retain the left/right comparison and put detailed plan names in the linked savings table. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). Signups are stored in Airtable; see below.
+Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.png` is the shared brand mark and favicon. The landing page uses a light, product-led visual system with navy type, muted blue-gray interface details, and the blues of the Uncloud mark for actions and brand moments. The hero graphic is built in semantic HTML with `hero-visual.css` and `hero-visual.js`, so brand labels and prices remain crisp at every screen size. It plays once after 65% of the graphic enters the viewport: the subscription panel shrinks to 84% of its original size (90% on phones) and its cards become grayscale, a file travels left to right, and the Uncloud panel becomes bright blue and white. The 4.2-second sequence plays once, without a replay control. Reduced-motion preferences and missing JavaScript show the final static composition. Narrow screens retain the left/right comparison and put detailed plan names in the linked savings table. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). Signups go to LaunchList; see above.
 
 Canonical, Open Graph, structured-data, and sitemap URLs use `https://www.uncloud.life/`, matching the production host that the bare domain redirects to. Keep these URLs and the robots.txt sitemap reference aligned. These metadata tags do not configure DNS, hosting, or deployment.
 
-“Get early access” submits an email address to the signup function described above. The form is an early-access waitlist, not an immediate trial activation or checkout. Keep the field and button together above the trial note; on success, confirm that their $79 one-time price is locked in for launch and that they will receive an email when their 30-day free trial is ready. The header and pricing-card calls to action return to the form. Pricing links jump to the single offer.
+The LaunchList widget described above collects the address. The form is an early-access waitlist, not an immediate trial activation or checkout. Keep the widget between the $79 offer and the trial note. Its button label and confirmation live in the LaunchList dashboard; keep them consistent with the page: the confirmation should say their $79 one-time price is locked in for launch and that they will receive an email when their 30-day free trial is ready. The header and pricing-card calls to action return to the form. Pricing links jump to the single offer.
 
 For the first few conversations, share the page and ask:
 
