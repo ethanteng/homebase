@@ -9,7 +9,7 @@ npm --prefix src/homebase-web run build
 # sign-in went. Everything that has gone wrong there was in React's lifecycle rather than in any
 # function worth calling directly, so these render the app.
 npm --prefix src/homebase-web run test
-# The signup function has no package of its own; the glob keeps the runner
+# The Dropbox callback has no package of its own; the glob keeps the runner
 # from treating api/ as a module to resolve.
 node --test "api/*.test.js"
 node --test "landing/*.test.cjs"
