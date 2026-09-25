@@ -93,6 +93,7 @@
     <link rel="stylesheet" href="./hero-visual.css" />
     <script type="module" src="./main.js"></script>
     <script type="module" src="./hero-visual.js"></script>
+    <script type="module" src="./savings-animation.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -252,9 +253,9 @@
                 <tr><th scope="row"><a href="https://www.apple.com/icloud/">iCloud+ <small>200 GB</small></a></th><td>$2.99</td></tr>
                 <tr><th scope="row"><a href="https://www.microsoft.com/en-us/microsoft-365/p/microsoft-365-basic/cfq7ttc0ktxs">OneDrive <small>Microsoft 365 Basic · 100 GB</small></a></th><td>$1.99</td></tr>
               </tbody>
-              <tfoot><tr><th scope="row">Monthly total</th><td>$41.95</td></tr></tfoot>
+              <tfoot><tr><th scope="row">Monthly total</th><td><span data-savings-monthly aria-hidden="true">$41.95</span><span class="sr-only">$41.95</span></td></tr></tfoot>
             </table>
-            <p class="annual-total"><strong>$503.40</strong> <span>per year in subscription storage costs</span></p>
+            <p class="annual-total"><strong data-savings-annual aria-hidden="true">$503.40</strong><span class="sr-only">$503.40</span> <span>per year in subscription storage costs</span></p>
           </div>
         </section>
 

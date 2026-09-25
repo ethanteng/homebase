@@ -392,8 +392,11 @@ h1 span {
 .subscription-prices a:hover { color: var(--blue-strong); }
 .subscription-prices small { display: block; margin-top: 4px; color: var(--muted); font-size: .75rem; font-weight: 400; line-height: 1.4; }
 .subscription-prices tfoot th, .subscription-prices tfoot td { border-bottom: 0; font-weight: 750; }
+.subscription-prices tbody th, .subscription-prices tbody td { transition: opacity .3s ease, background-color .3s ease; }
+.subscription-prices [data-savings-row="waiting"] > * { opacity: .45; }
+.subscription-prices [data-savings-row="current"] > * { background-color: #edf4fc; }
 .annual-total { margin-top: 16px; padding: 18px 20px; border-radius: 14px; background: #edf4fc; }
-.annual-total strong { display: block; color: var(--blue-strong); font-size: clamp(2.2rem, 3.5vw, 3.25rem); letter-spacing: -.05em; line-height: 1.15; }
+.annual-total strong { display: block; color: var(--blue-strong); font-size: clamp(2.2rem, 3.5vw, 3.25rem); font-variant-numeric: tabular-nums; letter-spacing: -.05em; line-height: 1.15; }
 .annual-total span { display: block; margin-top: 6px; font-size: .85rem; line-height: 1.5; }
 
 .pricing {
