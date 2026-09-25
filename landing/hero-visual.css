@@ -1,4 +1,4 @@
-.home-comparison { margin: 36px auto 0; }
+.home-comparison { --subscription-scale: .84; margin: 36px auto 0; }
 .comparison-stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 100px minmax(0, 1.08fr);
@@ -11,7 +11,7 @@
   box-shadow: var(--shadow);
   overflow: hidden;
 }
-.bills-pane { min-width: 0; filter: grayscale(1); opacity: .78; transform: scale(.97); }
+.bills-pane { min-width: 0; filter: grayscale(1); opacity: .78; transform: scale(var(--subscription-scale)); }
 .bills-pane h2 { margin-bottom: 18px; font-size: 1.2rem; letter-spacing: -.035em; }
 .bill-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .bill {
@@ -84,7 +84,7 @@
 .home-comparison[data-state="playing"] .transfer-file { animation: move-file 4.2s ease both; }
 @keyframes quiet-subscriptions {
   0%, 24% { filter: grayscale(0); opacity: 1; transform: scale(1); }
-  66%, 100% { filter: grayscale(1); opacity: .78; transform: scale(.97); }
+  66%, 100% { filter: grayscale(1); opacity: .78; transform: scale(var(--subscription-scale)); }
 }
 @keyframes focus-uncloud {
   0%, 30% { filter: grayscale(1); opacity: .65; border-color: #dce3eb; box-shadow: none; background: #f7fafd; }
@@ -110,7 +110,7 @@
   .solution-pane { padding: 24px 18px; }
 }
 @media (max-width: 620px) {
-  .home-comparison { margin-top: 28px; }
+  .home-comparison { --subscription-scale: .9; margin-top: 28px; }
   .comparison-stage { padding: 16px 12px; gap: 8px; grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr); border-radius: 22px; }
   .bills-pane h2 { font-size: .9rem; margin-bottom: 12px; }
   .bill-list { gap: 8px; }
@@ -143,7 +143,7 @@
   .transfer-file { width: 9px; height: 12px; top: calc(50% - 6px); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .home-comparison .bills-pane { filter: grayscale(1) !important; opacity: .78 !important; transform: scale(.97) !important; }
+  .home-comparison .bills-pane { filter: grayscale(1) !important; opacity: .78 !important; transform: scale(var(--subscription-scale)) !important; }
   .home-comparison .solution-pane { filter: grayscale(0) !important; opacity: 1 !important; border-color: #82b5f6 !important; background: #fff !important; box-shadow: 0 16px 44px #1f6fe51a !important; }
   .home-comparison .transfer-sweep { stroke-dashoffset: 0 !important; }
   .home-comparison .transfer-file { display: none !important; }
