@@ -246,7 +246,7 @@ h1 span {
 .trust-note {
   margin-top: 14px;
   color: var(--ink);
-  font-size: .9rem;
+  font-size: clamp(1.05rem, 1.5vw, 1.2rem);
   font-weight: 500;
   line-height: 1.55;
 }
