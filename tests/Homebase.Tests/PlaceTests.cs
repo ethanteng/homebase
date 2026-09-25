@@ -352,7 +352,10 @@ public sealed class PlaceTests : IDisposable
         var backup = Directory.CreateDirectory(Path.Combine(volumes, "Backup")).FullName;
         Directory.CreateDirectory(Path.Combine(backup, "Old.app"));
         Directory.CreateDirectory(Path.Combine(backup, "Photos"));
-        // So is one whose shortcut leads somewhere other than Applications.
+        // So is one of nothing but apps with nowhere to drag them: somebody's archive of old software.
+        var archive = Directory.CreateDirectory(Path.Combine(volumes, "Archive")).FullName;
+        Directory.CreateDirectory(Path.Combine(archive, "Old.app"));
+        // Or one whose shortcut leads somewhere other than Applications.
         var tools = Directory.CreateDirectory(Path.Combine(volumes, "Tools")).FullName;
         Directory.CreateDirectory(Path.Combine(tools, "Tool.app"));
         Directory.CreateSymbolicLink(Path.Combine(tools, "Notes"), _source);
@@ -367,7 +370,7 @@ public sealed class PlaceTests : IDisposable
         };
 
         var offered = places.Suggestions("someone");
-        Assert.Equal(["Backup", "Blank", "Tools"], offered.Select(place => place.Name));
+        Assert.Equal(["Archive", "Backup", "Blank", "Tools"], offered.Select(place => place.Name));
         Assert.All(offered, place => Assert.Equal("drive", place.Kind));
     }
 

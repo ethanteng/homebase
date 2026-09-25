@@ -308,7 +308,10 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
     /// </summary>
     private static bool Installer(DirectoryInfo drive)
     {
-        var apps = 0;
+        // Both are needed: a drive of nothing but apps, with no shortcut to drag them onto, is as
+        // likely to be somebody's archive of old software as an installer.
+        var apps = false;
+        var shortcut = false;
         try
         {
             foreach (var entry in drive.EnumerateFileSystemInfos())
@@ -319,9 +322,10 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
                 if (entry.LinkTarget is { } target)
                 {
                     if (!Same(target, "/Applications")) return false;
+                    shortcut = true;
                 }
                 else if (entry is DirectoryInfo && entry.Name.EndsWith(".app", StringComparison.OrdinalIgnoreCase))
-                    apps++;
+                    apps = true;
                 else
                     return false;
             }
@@ -330,7 +334,7 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
         {
             return false;
         }
-        return apps > 0;
+        return apps && shortcut;
     }
 
     /// <summary>"GoogleDrive-me@example.com" as a person would say it.</summary>
