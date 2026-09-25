@@ -41,64 +41,6 @@ The page's signup form is a [LaunchList](https://getlaunchlist.com/) widget, wai
 
 The iframe submits into a new tab on getlaunchlist.com and, on its own, tells the page nothing but its height. [`launchlist-head.html`](launchlist-head.html) is the head code that makes up for that: saved in LaunchList under **Integration → Custom code → Head code**, it runs inside the widget, tells the page when a signup is attempted and sent so `main.js` can push `cta_click` and `generate_lead`, and gives the email field an accessible name and autofill. It is not part of the build; after changing it, paste the whole file into LaunchList again. See [measurement.md](measurement.md) for what the events mean now.
 
-### The retired Airtable function
-
-The page no longer calls `api/subscribe.js`. It is left in place, still deployed, so the Airtable list and its configuration below stay documented until it is removed; signups already in Airtable are not in LaunchList.
-
-`api/subscribe.js` is a Vercel serverless function at `/api/subscribe`. It validates the address, writes it to an Airtable table, and then emails a notification. **The table is the list.** The email is only how a signup gets noticed, which is why the order matters: a signup that cannot be stored is a failure the visitor is asked to retry, and a notification that cannot be sent is a line in the log.
-
-Every API token is only ever read on the server. Never put one in `landing/main.js` or any other file the browser downloads — anything shipped to a browser is public.
-
-#### The Airtable table
-
-The base is **Uncloud**, and the table is `Signups` unless you set `AIRTABLE_TABLE`. Field names have to match exactly; Airtable rejects a write that names a field the table does not have.
-
-| Field | Type | Written when |
-| --- | --- | --- |
-| `Email` | Email, and the table's primary field | Always. The row is upserted on this field, so one person is one row however many times they sign up. |
-| `Signed Up` | Date, with time enabled | Always. The most recent request; a repeat signup moves it. |
-| `Source` | Single line text | Only when the visit carried a `utm_source`. |
-| `Referrer` | Single line text | Only when the browser reported one. |
-| `Created` | Created time | Never by the function. Airtable computes it, so it holds the *first* signup even after `Signed Up` has moved. |
-
-`Source` and `Referrer` are left out of the write when empty rather than sent blank: the upsert sets every field it is given, so a later visit with no campaign would otherwise erase what the first one recorded.
-
-The base also has a `Preview Signups` table with the same four written fields. Point `AIRTABLE_TABLE` at it from Vercel's Preview environment and test signups stay out of the real list; drop the table if previews should not take signups at all.
-
-Create a **personal access token** at [airtable.com/create/tokens](https://airtable.com/create/tokens) with the `data.records:read` and `data.records:write` scopes, granted to this base only. The old API keys stopped working in February 2024.
-
-The free Airtable plan allows 1,000 records per base and 1,000 API calls per month per workspace. One signup is one call. That is comfortable for early access and the ceiling is a signal to move the list somewhere else, not a surprise.
-
-#### Environment variables
-
-Set these in the Vercel project under **Settings → Environment Variables**, for every environment the page is deployed to:
-
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `AIRTABLE_TOKEN` | yes | Personal access token, scoped to the signup base. |
-| `AIRTABLE_BASE_ID` | yes | The base id, starting `app…`. It is in the base's API documentation URL. |
-| `AIRTABLE_TABLE` | no | Table name. Defaults to `Signups`. Point a preview deployment at a different table to keep test signups out of the real list. |
-| `MAILTRAP_TOKEN` | no | Mailtrap API token. Sending tokens and sandbox tokens are different; use one that matches the mode below. |
-| `SIGNUP_NOTIFY_TO` | no | Address that receives the signup notifications. |
-| `MAILTRAP_FROM` | no | Sender address. Defaults to `early-access@uncloud.life`. |
-| `MAILTRAP_INBOX_ID` | no | Set it to route through the Mailtrap sandbox (`sandbox.api.mailtrap.io`) instead of live sending. Useful for a preview deployment. |
-
-Only the Airtable settings are required. With the Mailtrap pair unset the function still records every signup; it just does so without telling anyone. Setting one of that pair without the other is the same as setting neither.
-
-Live sending needs a **verified sending domain** in Mailtrap, and `MAILTRAP_FROM` has to be on that domain. Until the domain is verified, set `MAILTRAP_INBOX_ID` and read the notifications in the sandbox inbox. Sandbox mode affects only the notification — the Airtable row is real either way.
-
-Changing an environment variable does not change a deployment that already exists. Redeploy after setting them.
-
-The function answers with a generic message when Airtable fails or a required variable is missing; the reason goes to the function log, not to the visitor. A missing variable never names itself in a response.
-
-Run the function's tests from the repository root:
-
-```sh
-node --test "api/*.test.js"
-```
-
-`./scripts/check.sh` runs them along with everything else.
-
 ## Refine the message
 
 Visitor-facing copy and metadata are in `index.html`; styles are in `styles.css`; `uncloud.png` is the shared brand mark and favicon. The landing page uses a light, product-led visual system with navy type, muted blue-gray interface details, and the blues of the Uncloud mark for actions and brand moments. The hero graphic is built in semantic HTML with `hero-visual.css` and `hero-visual.js`, so brand labels and prices remain crisp at every screen size. It plays once after 65% of the graphic enters the viewport: the subscription panel shrinks to 84% of its original size (90% on phones) and its cards become grayscale, a file travels left to right, and the Uncloud panel becomes bright blue and white. The 4.2-second sequence plays once, without a replay control. Reduced-motion preferences and missing JavaScript show the final static composition. Narrow screens retain the left/right comparison and put detailed plan names in the linked savings table. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). Signups go to LaunchList; see above.

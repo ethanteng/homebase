@@ -553,7 +553,7 @@ src/homebase-web/        React + TypeScript + Vite
 tools/uncloud-tunnel/    The bundled tunnel: a Tailscale node built from tsnet (Go)
 tests/Homebase.Tests/    Integration tests against real temporary files and SQLite
 src/homebase-web/src/*.test.tsx   Front-end tests: the app rendered in jsdom, host answers stood in
-landing/, api/           The uncloud.life landing page and its retired signup function
+landing/, api/           The uncloud.life landing page, and the Dropbox sign-in relay it hosts
 ```
 
 [`docs/multi-user.md`](multi-user.md) is the design for accounts and isolation.
