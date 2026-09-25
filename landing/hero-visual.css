@@ -70,8 +70,14 @@
 .solution-price strong { font-size: clamp(3.5rem, 6vw, 5.8rem); line-height: 1; letter-spacing: -.075em; font-weight: 780; }
 .solution-price span { font-size: 1.1rem; font-weight: 700; }
 .solution-promise { margin-top: 12px; font-size: 1rem; font-weight: 750; line-height: 1.4; }
-.solution-hardware { margin-top: 18px; color: #58647a; font-size: .92rem; line-height: 1.5; }
-.solution-platforms { margin-top: 7px; color: #667189; font-size: .75rem; }
+.solution-summary { max-width: 50ch; margin: 18px auto 0; color: #58647a; font-size: .92rem; line-height: 1.5; text-wrap: balance; }
+.solution-summary > * { display: block; }
+.solution-summary strong { font-weight: 700; }
+.solution-platforms { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 14px; }
+.platform-mark { width: 18px; height: 18px; background: #667189; mask: var(--mark) center / contain no-repeat; }
+.platform-mac { --mark: url('./icons/apple.svg'); }
+.platform-pc { --mark: url('./icons/windows.svg'); }
+.platform-linux { --mark: url('./icons/linux.svg'); }
 .solution-founder { display: inline-block; margin-top: 20px; color: var(--blue-strong); font-size: .85rem; font-weight: 700; line-height: 1.5; text-decoration: underline; text-underline-offset: 4px; }
 
 /* The static fallback is the final, Uncloud-focused state. */
@@ -135,9 +141,9 @@
   .solution-price strong { font-size: clamp(2.6rem, 10vw, 3.7rem); }
   .solution-price span { font-size: .8rem; }
   .solution-promise { font-size: .76rem; margin-top: 12px; }
-  .solution-hardware { font-size: .69rem; margin-top: 14px; }
-  .solution-hardware br { display: none; }
-  .solution-platforms { font-size: .62rem; }
+  .solution-summary { font-size: .69rem; margin-top: 14px; }
+  .solution-platforms { gap: 10px; margin-top: 10px; }
+  .platform-mark { width: 13px; height: 13px; }
   .solution-founder { font-size: .68rem; margin-top: 14px; }
   .transfer-track, .transfer-sweep { stroke-width: 5; }
   .transfer-file { width: 9px; height: 12px; top: calc(50% - 6px); }
