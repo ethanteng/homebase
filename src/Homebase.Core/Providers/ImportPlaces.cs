@@ -267,6 +267,7 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
         // Drives plugged into this computer: an old backup drive is one of the commonest places a
         // household's files are waiting. The startup disk appears among them on a Mac as a link to
         // the root of everything, which is not a drive anybody means, so links are passed over.
+        // So is an app's installer left open after installing it — Uncloud's own among them.
         foreach (var drives in DriveFolders)
         {
             try
@@ -275,7 +276,7 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
                 foreach (var drive in new DirectoryInfo(drives).EnumerateDirectories()
                              .OrderBy(drive => drive.Name, StringComparer.OrdinalIgnoreCase))
                     if (drive.LinkTarget is null && !drive.Attributes.HasFlag(FileAttributes.ReparsePoint)
-                        && !drive.Name.StartsWith('.'))
+                        && !drive.Name.StartsWith('.') && !Installer(drive))
                         candidates.Add(new SuggestedPlace(drive.Name, drive.FullName, "drive"));
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
@@ -293,6 +294,47 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
             .DistinctBy(candidate => Safe(candidate.Path), StringComparer.OrdinalIgnoreCase)
             .DistinctBy(candidate => ImportPlace.FolderName(candidate.Name), StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    /// <summary>
+    /// Whether this drive is an app's installer: a disk image holding the app and a shortcut to
+    /// Applications to drag it onto, and nothing else anybody would see. macOS mounts one every
+    /// time it is opened and numbers them when they pile up, so six downloads left open are six
+    /// "drives" called Uncloud, Uncloud 1, Uncloud 2… none of which has anybody's files on it.
+    ///
+    /// Read only until the first thing that couldn't be in an installer, which on a drive with
+    /// files on it is almost always the first thing there. A drive that can't be read is still
+    /// offered: opening it is what explains why it can't be.
+    /// </summary>
+    private static bool Installer(DirectoryInfo drive)
+    {
+        // Both are needed: a drive of nothing but apps, with no shortcut to drag them onto, is as
+        // likely to be somebody's archive of old software as an installer.
+        var apps = false;
+        var shortcut = false;
+        try
+        {
+            foreach (var entry in drive.EnumerateFileSystemInfos())
+            {
+                // What Finder hides — .DS_Store, the background picture, the volume's icon — is
+                // how an installer is dressed, not what it holds.
+                if (entry.Name.StartsWith('.') || entry.Attributes.HasFlag(FileAttributes.Hidden)) continue;
+                if (entry.LinkTarget is { } target)
+                {
+                    if (!Same(target, "/Applications")) return false;
+                    shortcut = true;
+                }
+                else if (entry is DirectoryInfo && entry.Name.EndsWith(".app", StringComparison.OrdinalIgnoreCase))
+                    apps = true;
+                else
+                    return false;
+            }
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+        return apps && shortcut;
     }
 
     /// <summary>"GoogleDrive-me@example.com" as a person would say it.</summary>

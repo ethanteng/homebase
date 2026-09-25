@@ -334,6 +334,47 @@ public sealed class PlaceTests : IDisposable
     }
 
     [Fact]
+    public void An_installer_left_open_is_not_offered_as_a_drive()
+    {
+        // Opening Uncloud's download mounts it under /Volumes, and macOS numbers the next one
+        // opened while it's still there, so a Mac that has installed a few builds is offered
+        // "Uncloud", "Uncloud 1", "Uncloud 2"… as drives to bring files in from.
+        var volumes = Directory.CreateDirectory(Path.Combine(_temporary, "Volumes")).FullName;
+        foreach (var name in new[] { "Uncloud", "Uncloud 1" })
+        {
+            var installer = Directory.CreateDirectory(Path.Combine(volumes, name)).FullName;
+            Directory.CreateDirectory(Path.Combine(installer, "Uncloud.app", "Contents"));
+            Directory.CreateSymbolicLink(Path.Combine(installer, "Applications"), "/Applications");
+            Directory.CreateDirectory(Path.Combine(installer, ".background"));
+            File.WriteAllText(Path.Combine(installer, ".DS_Store"), "");
+        }
+        // An app on a drive with anything else on it is a drive with files on it.
+        var backup = Directory.CreateDirectory(Path.Combine(volumes, "Backup")).FullName;
+        Directory.CreateDirectory(Path.Combine(backup, "Old.app"));
+        Directory.CreateDirectory(Path.Combine(backup, "Photos"));
+        // So is one of nothing but apps with nowhere to drag them: somebody's archive of old software.
+        var archive = Directory.CreateDirectory(Path.Combine(volumes, "Archive")).FullName;
+        Directory.CreateDirectory(Path.Combine(archive, "Old.app"));
+        // Or one whose shortcut leads somewhere other than Applications.
+        var tools = Directory.CreateDirectory(Path.Combine(volumes, "Tools")).FullName;
+        Directory.CreateDirectory(Path.Combine(tools, "Tool.app"));
+        Directory.CreateSymbolicLink(Path.Combine(tools, "Notes"), _source);
+        // And one with nothing on it yet is still a drive somebody might mean.
+        Directory.CreateDirectory(Path.Combine(volumes, "Blank"));
+
+        var database = new ControlDatabase(_config);
+        var places = new ImportPlaces(database, new HostService(database), _config)
+        {
+            Home = Directory.CreateDirectory(Path.Combine(_temporary, "Home")).FullName,
+            DriveFolders = [volumes]
+        };
+
+        var offered = places.Suggestions("someone");
+        Assert.Equal(["Archive", "Backup", "Blank", "Tools"], offered.Select(place => place.Name));
+        Assert.All(offered, place => Assert.Equal("drive", place.Kind));
+    }
+
+    [Fact]
     public async Task Only_somebody_who_looks_after_this_host_can_add_one_of_its_folders()
     {
         using var app = CreateApp();

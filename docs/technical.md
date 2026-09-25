@@ -318,11 +318,12 @@ Dropbox, Google Drive, OneDrive, iCloud Drive — add from that folder. An old e
 `Documents` folder works exactly the same way.
 
 **This computer** lists the folders Uncloud finds (`Desktop`, `Documents`, `Downloads`, `Pictures`,
-`~/Dropbox`, `~/Google Drive`, `~/Library/CloudStorage/*`, and drives under `/Volumes`) alongside
-any already used, all alike: open one and browse it, or add the whole thing. **Choose another
-folder…** opens the folder chooser on the host, with a path box behind it for anyone not sitting at
-the host. Files from a folder called *Documents* land in a `Documents/` folder at the top of My
-files; a second folder with the same name is numbered rather than refused.
+`~/Dropbox`, `~/Google Drive`, `~/Library/CloudStorage/*`, and drives under `/Volumes`, leaving out
+an app's installer left open — a drive holding nothing but an `.app` and a shortcut to
+Applications) alongside any already used, all alike: open one and browse it, or add the whole
+thing. **Choose another folder…** opens the folder chooser on the host, with a path box behind it
+for anyone not sitting at the host. Files from a folder called *Documents* land in a `Documents/`
+folder at the top of My files; a second folder with the same name is numbered rather than refused.
 
 Only someone who looks after the host (an administrator) is offered this computer at all, because
 Uncloud runs as one operating-system user and can read whatever that user can — the administrator's
