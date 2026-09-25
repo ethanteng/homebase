@@ -38,10 +38,9 @@
 .bill-cost { white-space: nowrap; }
 .bill-cost strong { font-size: 1rem; font-weight: 700; }
 .bill-cost small { color: #344056; font-size: .72rem; }
-.bills-total { display: flex; align-items: baseline; gap: 7px; margin-top: 22px; }
+.bills-total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; margin-top: 22px; }
 .bills-total strong { font-size: clamp(2rem, 3.4vw, 3.4rem); line-height: 1; letter-spacing: -.06em; }
 .bills-total span { color: #344056; font-size: 1rem; }
-.bills-repeat { margin-top: 8px; color: #344056; font-size: .85rem; }
 .transfer-bridge { position: relative; color: var(--blue-strong); }
 .transfer-label { display: block; margin-bottom: 16px; font-size: .73rem; font-weight: 700; text-align: center; white-space: nowrap; }
 .transfer-bridge svg { display: block; width: 100%; overflow: visible; }
@@ -126,7 +125,6 @@
   .bills-total { flex-wrap: wrap; gap: 2px 4px; margin-top: 16px; }
   .bills-total strong { font-size: clamp(1.45rem, 5.8vw, 2rem); }
   .bills-total span { font-size: .72rem; }
-  .bills-repeat { font-size: .68rem; line-height: 1.4; }
   .solution-pane { align-self: stretch; display: flex; flex-direction: column; justify-content: center; padding: 20px 9px; border-radius: 14px; }
   .solution-kicker { font-size: .6rem; letter-spacing: .06em; line-height: 1.5; }
   .solution-computer { width: 108px; margin: 18px auto 16px; }
