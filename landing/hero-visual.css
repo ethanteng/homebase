@@ -70,7 +70,8 @@
 .solution-price strong { font-size: clamp(3.5rem, 6vw, 5.8rem); line-height: 1; letter-spacing: -.075em; font-weight: 780; }
 .solution-price span { font-size: 1.1rem; font-weight: 700; }
 .solution-promise { margin-top: 12px; font-size: 1rem; font-weight: 750; line-height: 1.4; }
-.solution-summary { max-width: 36ch; margin: 18px auto 0; color: #58647a; font-size: .92rem; line-height: 1.5; text-wrap: balance; }
+.solution-summary { max-width: 50ch; margin: 18px auto 0; color: #58647a; font-size: .92rem; line-height: 1.5; text-wrap: balance; }
+.solution-summary span { display: block; }
 .solution-platforms { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 14px; }
 .platform-mark { width: 18px; height: 18px; background: #667189; mask: var(--mark) center / contain no-repeat; }
 .platform-mac { --mark: url('./icons/apple.svg'); }
