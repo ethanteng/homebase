@@ -1,0 +1,41 @@
+<!--
+  Uncloud's head code for the LaunchList widget. It is not part of the page build: paste all of
+  it into LaunchList → Integration → Custom code → Head code, and keep this copy in step with
+  what is saved there. Without it the widget still takes signups, but the page records neither
+  cta_click nor generate_lead (see measurement.md).
+-->
+<script>
+  (function () {
+    if (window.parent === window) return;
+
+    // Only an event name crosses to the page. Never the address or anything else typed here.
+    function tell(name) {
+      try {
+        window.parent.postMessage({ type: "uncloud:" + name }, "*");
+      } catch (problem) {}
+    }
+
+    // Capturing on the document runs ahead of LaunchList's own submit handler, so every
+    // attempt is heard, including the empty and invalid ones it goes on to reject.
+    document.addEventListener("submit", function () {
+      tell("signup_attempt");
+    }, true);
+
+    // LaunchList calls form.submit() only once the address passes its checks. That call is
+    // the signup leaving for LaunchList, in a new tab.
+    var send = HTMLFormElement.prototype.submit;
+    HTMLFormElement.prototype.submit = function () {
+      tell("signup_sent");
+      return send.apply(this, arguments);
+    };
+
+    // The field has only a placeholder; give it a name and let browsers fill it.
+    document.addEventListener("DOMContentLoaded", function () {
+      var email = document.getElementById("ll_email");
+      if (email) {
+        email.setAttribute("aria-label", "Your email address");
+        email.setAttribute("autocomplete", "email");
+      }
+    });
+  })();
+</script>

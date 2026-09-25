@@ -27,85 +27,31 @@ if (names.length > 1) {
   update();
 }
 
-const form = document.querySelector("#access-form");
-const status = document.querySelector("#access-status");
+// The signup form is LaunchList's widget, an iframe from another origin. The head code kept in
+// launchlist-head.html runs inside it and posts an event name here; nothing typed ever crosses.
+const widget = document.querySelector(".launchlist-widget");
 
-if (form && status) {
-  const field = form.querySelector("#access-email");
-  const submit = form.querySelector("button[type=submit]");
-  let intentMeasured = false;
-  let submitting = false;
+if (widget) {
+  const events = new Map([
+    ["uncloud:signup_attempt", "cta_click"],
+    ["uncloud:signup_sent", "generate_lead"],
+  ]);
+  const measured = new Set();
 
-  function measure(event) {
-    // Never put email, form values, or API error text in the data layer.
+  window.addEventListener("message", (message) => {
+    const frame = widget.querySelector("iframe");
+    if (message.origin !== "https://getlaunchlist.com" || !frame || message.source !== frame.contentWindow) return;
+    const event = events.get(message.data && message.data.type);
+    // The widget stays after a signup, so a second address is possible; count each event once.
+    if (!event || measured.has(event)) return;
+    measured.add(event);
     window.dataLayer = window.dataLayer || [];
     window.dataLayer.push({ event });
-  }
+  });
 
-  function say(message, tone) {
-    status.textContent = message;
-    status.dataset.tone = tone;
-  }
-
-  // Where this visitor came from, recorded alongside the signup because it is
-  // gone the moment the page is. This goes to the signup record, never to the
-  // data layer, and never carries anything the visitor typed.
-  function origin() {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      return { source: params.get("utm_source") || "", referrer: document.referrer || "" };
-    } catch {
-      return {};
-    }
-  }
-
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (submitting || form.hidden) return;
-    if (!intentMeasured) {
-      measure("cta_click");
-      intentMeasured = true;
-    }
-    const email = field.value.trim();
-    if (!email) {
-      say("Enter your email address.", "problem");
-      field.focus();
-      return;
-    }
-
-    submitting = true;
-    submit.disabled = true;
-    field.readOnly = true;
-    say("Sending…", "working");
-
-    try {
-      const response = await fetch("/api/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          website: form.querySelector("#access-website").value,
-          ...origin(),
-        }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || "That didn’t go through.");
-
-      // A successful HTTP response can also mean a bot trap or a repeat.
-      if (result.accepted === true) {
-        measure("generate_lead");
-      }
-
-      // The form has done its job; leaving it there invites a second submission.
-      form.hidden = true;
-      // role="status" announces the change; a <p> can't take focus anyway.
-      say("You’re on the list. Your $79 one-time price is locked in for launch. We’ll email you when your 30-day free trial is ready.", "done");
-    } catch (problem) {
-      submitting = false;
-      say(problem.message || "That didn’t go through. Try again in a moment.", "problem");
-      submit.disabled = false;
-      field.readOnly = false;
-      field.focus();
-    }
+  // widget.js adds its iframe without a title, which leaves screen readers announcing a nameless frame.
+  document.addEventListener("DOMContentLoaded", () => {
+    const frame = widget.querySelector("iframe");
+    if (frame) frame.title = "Early access signup";
   });
 }

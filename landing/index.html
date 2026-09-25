@@ -94,6 +94,7 @@
     <script type="module" src="./main.js"></script>
     <script type="module" src="./hero-visual.js"></script>
     <script type="module" src="./savings-animation.js"></script>
+    <script src="https://getlaunchlist.com/js/widget.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -192,27 +193,7 @@
 
           <div class="access-action" id="early-access">
             <p class="access-offer">Join early access to <strong>lock in $79 at launch.</strong></p>
-            <form class="access-form" id="access-form" novalidate>
-              <label class="sr-only" for="access-email">Your email address</label>
-              <input
-                class="access-input"
-                id="access-email"
-                name="email"
-                type="email"
-                inputmode="email"
-                autocomplete="email"
-                spellcheck="false"
-                maxlength="254"
-                placeholder="you@example.com"
-                required
-              />
-              <div class="access-trap" aria-hidden="true">
-                <label for="access-website">Leave this empty</label>
-                <input id="access-website" name="website" type="text" tabindex="-1" autocomplete="off" />
-              </div>
-              <button class="primary-link" type="submit">Get early access</button>
-            </form>
-            <p class="access-status" id="access-status" role="status"></p>
+            <div class="launchlist-widget" data-key-id="21CSQp"></div>
             <p class="trust-note">30-day free trial when you get access. <span>No credit card.</span></p>
           </div>
         </section>
