@@ -2,11 +2,11 @@
 
 Configured September 20, 2026. The public page is https://www.uncloud.life/.
 
-## Signup events stopped with the LaunchList widget
+## Signup events from the LaunchList widget
 
-As of September 25, 2026 the early-access form is a LaunchList widget (see [README.md](README.md#early-access-signups)), and the page no longer sends `cta_click` or `generate_lead`. The widget is a cross-origin iframe: clicks inside it never reach this page's data layer, its form submits into a new tab on getlaunchlist.com, and the only message it posts back is its own height. Nothing on the page can tell that a signup happened.
+As of September 25, 2026 the early-access form is a LaunchList widget (see [README.md](README.md#early-access-signups)): a cross-origin iframe whose clicks never reach this page's data layer, and whose form submits into a new tab on getlaunchlist.com. The events come from inside it instead. [`launchlist-head.html`](launchlist-head.html), pasted into LaunchList's **Integration → Custom code → Head code**, posts `uncloud:signup_attempt` to the page when the form is submitted and `uncloud:signup_sent` when LaunchList's own checks pass and it sends the address. `main.js` accepts those only from the widget's iframe on `https://getlaunchlist.com` and pushes `cta_click` and `generate_lead`, each at most once per page view. Only the event name crosses; the address never leaves the iframe except to LaunchList.
 
-Until a signup can be observed on an Uncloud page again, the GA4 key event and the **Uncloud - Waitlist signup (GA4)** Ads conversion below record nothing new, and the page_view → cta_click → generate_lead funnel ends at page views. Count signups in LaunchList, which receives the page's query string and so keeps `utm_*` and click IDs with each signup. The GTM tags are unchanged and will fire again if the data layer events come back. The rest of this document describes the setup as it was when the page's own form sent them.
+The head code lives in LaunchList's dashboard, not in any deployment. If it is removed or LaunchList stops loading it, the widget keeps taking signups and both events stop without an error anywhere; a drop to zero leads with signups still arriving in LaunchList means that. GTM and GA4 needed no change.
 
 ## Accounts and implementation
 
@@ -28,8 +28,8 @@ The landing HTML loads GTM only on `uncloud.life` and `www.uncloud.life`. There 
 | --- | --- | --- |
 | `page_view` / sessions | Arrival, with Google Ads auto-tagging and campaign attribution | Diagnostic |
 | GA4 engaged sessions / `user_engagement` | Standard GA4 engagement; use engagement rate and average engagement time | Diagnostic |
-| `cta_click` | First attempt to submit Get early access on that page, including invalid/empty input; Enter key also counts | Diagnostic only |
-| `generate_lead` | Signup endpoint confirms the address was written to the Airtable signup table | Primary business outcome |
+| `cta_click` | First attempt to submit Get early access in the widget on that page, including invalid/empty input; Enter key also counts | Diagnostic only |
+| `generate_lead` | The address passed LaunchList's checks and the widget sent it to LaunchList | Primary business outcome |
 
 `generate_lead` is a GA4 key event, counted once per session, with no default monetary value. This is a waitlist request, not a paid customer, verified email, or activated user.
 
@@ -39,10 +39,10 @@ The event tag includes `landing_version=cloud-subscriptions-v1`, registered as t
 
 ## Counting and data boundaries
 
-- The browser waits for `/api/subscribe` to return `accepted: true`; failed submissions, honeypots, short-window repeats and legacy ambiguous success responses do not generate leads. Mailtrap sandbox mode no longer suppresses the lead: it affects only the notification email, while the Airtable record — the thing `accepted: true` now reports — is written either way.
-- Concurrent/repeated submissions on the same rendered form are blocked. The server's in-memory duplicate guard still lasts ten minutes per warm instance, but the Airtable write upserts on the address, so the table holds one row per person no matter how many sessions or warm instances a repeat crosses. GA4 still counts a lead per session, so the table is the authority on how many people signed up and GA4 is the authority on which campaigns brought them.
-- The signup record carries `utm_source` and the browser's referrer alongside the address, collected at submit time in the page. These go to Airtable only; they are never pushed into the data layer.
-- Email addresses, typed form contents, API response errors, and user IDs are never pushed into the data layer or event parameters.
+- `generate_lead` means the widget sent the address, not that LaunchList confirmed storing it: that answer arrives in a tab the page cannot see. Empty and malformed addresses stop at LaunchList's checks and never count. An address that is already on the list counts again when it is sent from a new session.
+- A page view records at most one lead, however many addresses are sent from it, and GA4 counts one per session. LaunchList is the authority on how many people signed up; GA4 is the authority on which campaigns brought them.
+- The widget passes the page's query string to LaunchList, so each LaunchList signup carries the visit's `utm_*` parameters and click IDs. These go to LaunchList only; they are never pushed into the data layer.
+- Email addresses, typed form contents, validation errors, and user IDs are never pushed into the data layer or event parameters.
 - GA4 email redaction remains enabled. Avoid personal data in campaign parameters or URLs.
 - Google signals and advertising personalization signals are disabled by the page; personalized advertising is disabled on the GA4–Ads link. No enhanced conversions or remarketing audience was configured.
 - Analytics cookies/tag collection follow the existing site behavior; no consent manager is implemented by this change. Evaluate the consent experience before expanding the geographic scope of paid traffic.
