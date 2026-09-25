@@ -192,7 +192,20 @@ h1 span {
   scroll-margin-top: 24px;
 }
 
-.access-offer { margin-bottom: 16px; font-weight: 700; line-height: 1.5; color: var(--blue-strong); }
+.access-offer {
+  margin-bottom: 22px;
+  padding: 18px 24px;
+  border: 1px solid #b9d5fa;
+  border-radius: 16px;
+  background: #eaf3ff;
+  color: var(--ink);
+  font-size: clamp(1.2rem, 2.2vw, 1.65rem);
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -.025em;
+  text-wrap: balance;
+}
+.access-offer strong { color: var(--blue-strong); font-weight: 800; }
 
 .access-form {
   display: flex;
@@ -356,12 +369,6 @@ h1 span {
   text-wrap: balance;
 }
 
-.savings-copy > p:not(.eyebrow) { margin-top: 20px; color: var(--muted); line-height: 1.6; }
-.first-year-savings { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
-.first-year-savings h3 { font-size: 1rem; }
-.first-year-savings p { margin-top: 10px; line-height: 1.5; }
-.first-year-savings strong { color: var(--blue-strong); font-size: 1.35rem; }
-.first-year-savings .regular-savings { margin-top: 5px; color: var(--muted); font-size: .9rem; }
 
 .savings-example { min-width: 0; }
 .subscription-prices { width: 100%; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; }
@@ -379,7 +386,6 @@ h1 span {
 .annual-total { margin-top: 16px; padding: 18px 20px; border-radius: 14px; background: #edf4fc; }
 .annual-total strong { display: block; color: var(--blue-strong); font-size: clamp(2.2rem, 3.5vw, 3.25rem); letter-spacing: -.05em; line-height: 1.15; }
 .annual-total span { display: block; margin-top: 6px; font-size: .85rem; line-height: 1.5; }
-.savings-note { grid-column: 1 / -1; color: var(--muted); font-size: .8rem; line-height: 1.6; }
 
 .pricing {
   padding-bottom: clamp(64px, 8vw, 110px);
@@ -387,7 +393,7 @@ h1 span {
 }
 
 .pricing .section-heading { text-align: center; }
-.pricing .section-heading h2 { margin-top: 0; }
+.pricing .section-heading h2 { margin-top: 16px; }
 
 .pricing-card {
   display: grid;

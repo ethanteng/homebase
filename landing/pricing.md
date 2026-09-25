@@ -7,7 +7,7 @@ Messaging approved for the homepage on September 24, 2026. Prices are USD.
 | Regular price | $99 one-time |
 | Early-access founding price | $79 one-time, locked in at signup for when Uncloud is ready |
 | Trial | 30 days free, no credit card |
-| Household | Up to 6 members |
+| Household | Unlimited household members |
 | Devices | Unlimited |
 | Host | 1 primary host computer |
 | Remote access | Included |
@@ -43,8 +43,8 @@ Calculation in cents:
 - First year after the regular purchase: 50,340 − 9,900 = 40,440 ($404.40).
 - Subsequent years: $503.40 in avoided subscription bills, assuming unchanged prices and no renewals of those subscriptions.
 
-“Cut up to $500 a year in subscription bills” and the hero graphic’s “$500 / year” round down this conditional example. The detailed comparison retains the exact $503.40 annual total. These are not claims of $500 in first-year net savings or of typical household savings. All five plans must be canceled for twelve months; retaining any reduces the result. Electricity, additional drives, backup and tax are excluded and disclosed beside the comparison.
+“Cut up to $500 a year in subscription bills” and the hero graphic’s “$500 / year” round down this conditional example. The detailed comparison retains the exact $503.40 annual total. These are not claims of $500 in first-year net savings or of typical household savings. All five plans must be canceled for twelve months; retaining any reduces the result. Electricity, additional drives, backup and tax are excluded from this calculation. These assumptions are retained here as the pricing source record.
 
-This is a spending comparison, not feature equivalence. Moving files does not replace Evernote note editing, Gmail/Outlook storage, iCloud device backups, or other bundled benefits. Cancel only plans whose other features are no longer needed. The on-page note makes this limitation explicit.
+This is a spending comparison, not feature equivalence. Moving files does not replace Evernote note editing, Gmail/Outlook storage, iCloud device backups, or other bundled benefits. Cancel only plans whose other features are no longer needed. The homepage shows the subscription costs and source links without a disclaimer or first-year savings breakdown.
 
-When changing the example, verify the same country and billing period for every row, then update the hero graphic’s five price labels and monthly/annual totals, the comparison table, both first-year calculations, headline, source date and this record together.
+When changing the example, verify the same country and billing period for every row, then update the hero graphic’s five price labels and monthly/annual totals, the comparison table, headline, source date and this record (including the first-year calculations above) together.
