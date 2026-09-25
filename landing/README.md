@@ -35,6 +35,14 @@ In the Vercel project's Build and Deployment settings, keep **Root Directory** a
 
 Commit and push the configuration to trigger a new Git deployment. Redeploying an older commit will not include it. If the homepage returns 404 after a successful deployment, verify the root directory and that the deployment output contains `index.html` at its top level. The source page lives in `landing/`; it is not an index page at the repository root. The ordinary frontend `build` script builds the local file-browser app, so use `build:landing` for this website.
 
+## Homepage teaser
+
+Each homepage load opens a native, accessible dialog with the Uncloud teaser hosted on YouTube (`oELh5dwlmHs`). `teaser-modal.js` creates the privacy-enhanced embed only when the dialog opens. It requests muted, inline autoplay; visitors with reduced motion enabled get the player ready for manual playback instead. YouTube's controls remain available if the browser blocks autoplay, and a direct YouTube link is provided below the player.
+
+Visitors can dismiss it with Close, Explore Uncloud, Escape, or a click on the backdrop. The dialog contains keyboard focus while open; dismissal removes the player, releases scrolling and background interaction, and returns focus to the homepage. It stays dismissed during in-page navigation and when returning through the browser's back/forward cache, and reopens on a fresh page load. Without JavaScript or native dialog support, the modal stays hidden and the homepage remains usable. Its responsive styles live in `teaser-modal.css`.
+
+Escape uses the browser's native dialog cancellation. YouTube may consume Escape while keyboard focus is inside its cross-origin player; Tab back to a modal control to use Escape, or use either visible dismissal button.
+
 ## Early-access signups
 
 The page's signup form is a [LaunchList](https://getlaunchlist.com/) widget, waitlist key `21CSQp`. `index.html` loads `https://getlaunchlist.com/js/widget.js` and marks the spot with `<div class="launchlist-widget" data-key-id="21CSQp">`; the script fills that element with an iframe served by LaunchList. **The LaunchList waitlist is the list.** The form's fields, button label and colors, validation messages, and the confirmation a visitor sees after signing up are all configured in the LaunchList dashboard, not in this repository, and `styles.css` cannot reach inside the iframe. The widget forwards the page's query string to LaunchList, so `utm_*` parameters and ad click IDs travel with the signup.
