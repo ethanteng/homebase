@@ -19,7 +19,7 @@ There are no monthly storage fees, capacity tiers, or per-member charges in this
 
 The website currently collects early-access email signups. Joining the list locks in the $79 one-time price when the product is ready; it does not activate a trial or take payment. The calls to action, trial note, pricing card, and signup confirmation make that distinction explicit. When trial delivery or checkout becomes available, update the action and confirmation together.
 
-Keep the hero, pricing card, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
+Keep the hero graphic (including its $99 lifetime label and $79 early-access link), pricing card, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
 
 ## Household savings example
 
@@ -47,4 +47,4 @@ Calculation in cents:
 
 This is a spending comparison, not feature equivalence. Moving files does not replace Evernote note editing, Gmail/Outlook storage, iCloud device backups, or other bundled benefits. Cancel only plans whose other features are no longer needed. The on-page note makes this limitation explicit.
 
-When changing the example, verify the same country and billing period for every row, then update the monthly total, annual total, both first-year calculations, headline, source date and this record together.
+When changing the example, verify the same country and billing period for every row, then update the hero graphic’s five price labels and monthly/annual totals, the comparison table, both first-year calculations, headline, source date and this record together.

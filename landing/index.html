@@ -90,7 +90,9 @@
     </script>
     <link rel="icon" type="image/png" href="./uncloud.png" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./hero-visual.css" />
     <script type="module" src="./main.js"></script>
+    <script type="module" src="./hero-visual.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -122,105 +124,96 @@
               Use the computer and storage you already own.
               Set up in minutes. Access your files anywhere.
             </p>
-            <p class="hero-price">
-              <strong>$99 once. No monthly storage fees.</strong>
-              <a href="#pricing">Join early access to lock in $79 at launch <span aria-hidden="true">→</span></a>
-            </p>
-
-            <div class="access-action" id="early-access">
-              <form class="access-form" id="access-form" novalidate>
-                <label class="sr-only" for="access-email">Your email address</label>
-                <input
-                  class="access-input"
-                  id="access-email"
-                  name="email"
-                  type="email"
-                  inputmode="email"
-                  autocomplete="email"
-                  spellcheck="false"
-                  maxlength="254"
-                  placeholder="you@example.com"
-                  required
-                />
-                <div class="access-trap" aria-hidden="true">
-                  <label for="access-website">Leave this empty</label>
-                  <input id="access-website" name="website" type="text" tabindex="-1" autocomplete="off" />
-                </div>
-                <button class="primary-link" type="submit">Get early access</button>
-              </form>
-              <p class="access-status" id="access-status" role="status"></p>
-              <p class="trust-note">30-day free trial when you get access. <span>No credit card.</span></p>
-            </div>
           </div>
 
-          <div class="product-visual" role="img" aria-label="Bring files home from cloud services to a Mac, PC, or Linux computer you already own, then access them from your laptop, phone or tablet. Up to 6 household members, with unlimited devices.">
-            <div class="source-stack visual-stack">
-              <div class="source-card"><span class="provider-mark provider-dropbox"></span><span>Dropbox</span></div>
-              <div class="source-card"><span class="provider-mark provider-drive"></span><span>Google Drive</span></div>
-              <div class="source-card"><span class="provider-mark provider-icloud"></span><span>iCloud</span></div>
-              <div class="source-card"><span class="provider-mark provider-onedrive"></span><span>OneDrive</span></div>
-              <div class="source-card"><span class="provider-mark provider-evernote"></span><span>Evernote</span></div>
-              <div class="source-card source-more"><span>•••</span><span>And more</span></div>
-            </div>
-
-            <div class="flow-label flow-label-in">Bring your files <span>→</span></div>
-
-            <div class="host-card">
-              <div class="host-heading">
-                <span class="host-kicker">Uncloud</span>
-                <strong>Your computer</strong>
-                <span>Use what you already have.</span>
+          <figure class="home-comparison" id="home-comparison" aria-labelledby="comparison-caption">
+            <div class="comparison-stage">
+              <div class="bills-pane">
+                <h2>Five subscriptions.</h2>
+                <ul class="bill-list" role="list">
+                  <li class="bill bill-dropbox">
+                    <span class="bill-mark" aria-hidden="true"></span>
+                    <span class="bill-service">Dropbox <small>Family</small></span>
+                    <span class="bill-cost"><strong>$19.99</strong><small>/mo</small></span>
+                  </li>
+                  <li class="bill bill-evernote">
+                    <span class="bill-mark" aria-hidden="true"></span>
+                    <span class="bill-service">Evernote <small>Starter</small></span>
+                    <span class="bill-cost"><strong>$14.99</strong><small>/mo</small></span>
+                  </li>
+                  <li class="bill bill-drive">
+                    <span class="bill-mark" aria-hidden="true"></span>
+                    <span class="bill-service">Google Drive <small>Basic · 100 GB</small></span>
+                    <span class="bill-cost"><strong>$1.99</strong><small>/mo</small></span>
+                  </li>
+                  <li class="bill bill-icloud">
+                    <span class="bill-mark" aria-hidden="true"></span>
+                    <span class="bill-service">iCloud+ <small>200 GB</small></span>
+                    <span class="bill-cost"><strong>$2.99</strong><small>/mo</small></span>
+                  </li>
+                  <li class="bill bill-onedrive">
+                    <span class="bill-mark" aria-hidden="true"></span>
+                    <span class="bill-service">OneDrive <small>Microsoft 365 Basic</small></span>
+                    <span class="bill-cost"><strong>$1.99</strong><small>/mo</small></span>
+                  </li>
+                </ul>
+                <p class="bills-total"><strong>$503.40</strong><span>/year</span></p>
+                <p class="bills-repeat">$41.95 every month.</p>
               </div>
 
-              <div class="device-shelf" aria-hidden="true">
-                <div class="device device-desktop">
-                  <div class="screen"><img class="device-mark" src="./uncloud.png" width="34" height="34" alt="" /></div>
-                  <div class="stand"></div>
-                  <small>Desktop</small>
+              <div class="transfer-bridge" aria-hidden="true">
+                <span class="transfer-label">Bring it home</span>
+                <svg viewBox="0 0 120 40" fill="none">
+                  <path class="transfer-track" d="M2 20H113M99 6L113 20L99 34" />
+                  <path class="transfer-sweep" d="M2 20H113M99 6L113 20L99 34" pathLength="1" />
+                </svg>
+                <span class="transfer-file"></span>
+              </div>
+
+              <div class="solution-pane">
+                <p class="solution-kicker">One simple solution.</p>
+                <div class="solution-computer" aria-hidden="true">
+                  <div class="solution-screen"><img src="./uncloud.png" width="64" height="64" alt="" /></div>
+                  <div class="solution-base"></div>
                 </div>
-                <div class="device device-tower">
-                  <div class="tower-face"><span></span><span></span></div>
-                  <small>PC</small>
-                </div>
-                <div class="device device-laptop">
-                  <div class="laptop-screen"><img class="device-mark" src="./uncloud.png" width="34" height="34" alt="" /></div>
-                  <div class="laptop-base"></div>
-                  <small>Laptop</small>
-                </div>
-                <div class="device device-mini">
-                  <div class="mini-face"><span></span></div>
-                  <small>Mini PC</small>
-                </div>
-              </div>
-
-              <div class="platform-pills">
-                <span><img src="./icons/apple.svg" width="18" height="18" alt="" />Mac</span>
-                <span><img src="./icons/windows.svg" width="18" height="18" alt="" />PC</span>
-                <span><img src="./icons/linux.svg" width="18" height="18" alt="" />Linux</span>
-              </div>
-              <p class="hardware-note">Your files stay on storage you control.</p>
-            </div>
-
-            <div class="flow-label flow-label-out">Access anywhere <span>→</span></div>
-
-            <div class="access-stack visual-stack">
-              <div class="access-card">
-                <span class="access-icon laptop-icon"></span>
-                <span><strong>Your laptop</strong><small>At home or away</small></span>
-              </div>
-              <div class="access-card">
-                <span class="access-icon phone-icon"></span>
-                <span><strong>Your phone</strong><small>iOS and Android</small></span>
-              </div>
-              <div class="access-card">
-                <span class="access-icon tablet-icon"></span>
-                <span><strong>Your tablet</strong><small>At home or on the go</small></span>
-              </div>
-              <div class="access-card">
-                <span class="access-icon people-icon">•••</span>
-                <span><strong>Your household</strong><small>Up to 6 people</small></span>
+                <h2>Uncloud Home</h2>
+                <p class="solution-price"><strong>$99</strong><span>lifetime</span></p>
+                <p class="solution-promise">No monthly storage fees.</p>
+                <p class="solution-hardware">The computer and storage<br />you already own.</p>
+                <p class="solution-platforms">Mac · PC · Linux</p>
+                <a class="solution-founder" href="#early-access">Lock in $79 with early access <span aria-hidden="true">→</span></a>
               </div>
             </div>
+            <figcaption id="comparison-caption">
+              <span>Example assumes you can cancel all five plans. <a href="#savings">See savings and sources.</a></span>
+              <button class="replay-animation" type="button" aria-label="Replay the subscription-to-Uncloud animation" hidden><span aria-hidden="true">↻</span> Replay</button>
+            </figcaption>
+          </figure>
+
+          <div class="access-action" id="early-access">
+            <p class="access-offer">Join early access to lock in $79 at launch.</p>
+            <form class="access-form" id="access-form" novalidate>
+              <label class="sr-only" for="access-email">Your email address</label>
+              <input
+                class="access-input"
+                id="access-email"
+                name="email"
+                type="email"
+                inputmode="email"
+                autocomplete="email"
+                spellcheck="false"
+                maxlength="254"
+                placeholder="you@example.com"
+                required
+              />
+              <div class="access-trap" aria-hidden="true">
+                <label for="access-website">Leave this empty</label>
+                <input id="access-website" name="website" type="text" tabindex="-1" autocomplete="off" />
+              </div>
+              <button class="primary-link" type="submit">Get early access</button>
+            </form>
+            <p class="access-status" id="access-status" role="status"></p>
+            <p class="trust-note">30-day free trial when you get access. <span>No credit card.</span></p>
           </div>
         </section>
 
