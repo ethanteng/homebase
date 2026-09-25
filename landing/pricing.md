@@ -43,7 +43,7 @@ Calculation in cents:
 - First year after the regular purchase: 50,340 − 9,900 = 40,440 ($404.40).
 - Subsequent years: $503.40 in avoided subscription bills, assuming unchanged prices and no renewals of those subscriptions.
 
-“Cut up to $500 a year in subscription bills” rounds down this conditional example. It is not a claim of $500 in first-year net savings or of typical household savings. All five plans must be canceled for twelve months; retaining any reduces the result. Electricity, additional drives, backup and tax are excluded and disclosed beside the comparison.
+“Cut up to $500 a year in subscription bills” and the hero graphic’s “$500 / year” round down this conditional example. The detailed comparison retains the exact $503.40 annual total. These are not claims of $500 in first-year net savings or of typical household savings. All five plans must be canceled for twelve months; retaining any reduces the result. Electricity, additional drives, backup and tax are excluded and disclosed beside the comparison.
 
 This is a spending comparison, not feature equivalence. Moving files does not replace Evernote note editing, Gmail/Outlook storage, iCloud device backups, or other bundled benefits. Cancel only plans whose other features are no longer needed. The on-page note makes this limitation explicit.
 
