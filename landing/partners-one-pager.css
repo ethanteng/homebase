@@ -1,0 +1,114 @@
+/* The printable partner one-pager: one US Letter sheet, the same content as /partners in brief. */
+
+@page { size: letter; margin: 0; }
+
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #172033;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: #e9edf1; }
+h1, h2, h3, p, ol, ul { margin: 0; }
+a { color: #1a66d8; }
+
+.print-bar { padding: 20px; text-align: center; }
+
+.print-bar button {
+  padding: 10px 16px;
+  border: 1px solid #cfd6df;
+  border-radius: 999px;
+  background: #fff;
+  color: #172033;
+  font: inherit;
+  font-size: .9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  width: 8.5in;
+  min-height: 11in;
+  margin: 0 auto 40px;
+  padding: 0.6in 0.65in;
+  background: #fff;
+  box-shadow: 0 18px 55px rgba(58, 70, 91, 0.12);
+}
+
+.sheet-top { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.sheet-brand { display: flex; align-items: center; gap: 10px; font-size: 18pt; font-weight: 760; letter-spacing: -0.045em; }
+.sheet-brand img { display: block; width: 28px; height: 28px; }
+
+.kicker { color: #667189; font-size: 9pt; font-weight: 750; text-transform: uppercase; letter-spacing: .2em; }
+
+h1 { font-size: 32pt; line-height: 1; letter-spacing: -0.06em; font-weight: 780; text-wrap: balance; }
+h1 span { color: #2a7ff0; }
+
+.tagline { margin-top: 14px; font-size: 14pt; font-weight: 700; letter-spacing: -.02em; line-height: 1.35; }
+.body { margin-top: 8px; color: #4a5568; font-size: 11.5pt; line-height: 1.55; }
+.body.small { font-size: 11pt; line-height: 1.5; }
+
+.two-up { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.reasons { display: grid; align-content: start; gap: 12px; }
+.reasons h3 { font-size: 12pt; font-weight: 700; }
+.reasons p { margin-top: 3px; color: #4a5568; font-size: 11pt; line-height: 1.5; }
+
+.sizes { padding: 16px 18px; border: 1px solid #d1e1f3; border-radius: 14px; background: #edf4fc; }
+.sizes h3 { font-size: 12pt; font-weight: 700; }
+.sizes table { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 11pt; text-align: left; }
+.sizes th, .sizes td { padding: 8px 0; border-bottom: 1px solid #d1e1f3; }
+.sizes thead th { padding: 0 0 6px; color: #667189; font-size: 9pt; font-weight: 400; }
+.sizes thead th:last-child, .sizes td { text-align: right; font-weight: 700; }
+.sizes tbody th { font-weight: 400; }
+.sizes tbody tr:last-child > * { padding-bottom: 0; border-bottom: 0; }
+.sizes .is-highlight td { color: #1a66d8; }
+
+.quote {
+  margin-top: 10px;
+  padding: 12px 16px;
+  border: 1px solid #b9d5fa;
+  border-radius: 12px;
+  background: #eaf3ff;
+  font-size: 14pt;
+  font-weight: 650;
+  letter-spacing: -.02em;
+  line-height: 1.35;
+}
+
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; padding: 0; list-style: none; }
+.steps li { padding: 12px 14px; border: 1px solid #dfe5eb; border-radius: 12px; }
+.steps span { color: #1a66d8; font-size: 11pt; font-weight: 750; }
+.steps h3 { margin-top: 4px; font-size: 11.5pt; font-weight: 700; }
+.steps p { margin-top: 3px; color: #4a5568; font-size: 10.5pt; line-height: 1.45; }
+
+.terms { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 10px; padding: 0; list-style: none; font-size: 10.5pt; font-weight: 700; }
+.terms li::before { content: "✓ "; color: #1a66d8; }
+
+.sheet-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid #dfe5eb;
+  font-size: 11pt;
+}
+
+.sheet-foot span { color: #667189; }
+.sheet-foot span a { color: inherit; text-decoration: none; }
+.sheet-link { font-weight: 700; text-decoration: none; }
+
+@media print {
+  body { background: #fff; }
+  .print-bar { display: none; }
+  .sheet { width: auto; height: 11in; margin: 0; box-shadow: none; overflow: hidden; }
+}
