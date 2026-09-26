@@ -136,13 +136,23 @@ input:focus-visible {
 .site-footer {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 24px;
+  gap: 16px 24px;
   padding: 28px 0 36px;
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: .9rem;
 }
+
+.compare-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.compare-nav a[aria-current="page"] { color: var(--ink); }
+.compare-nav a:hover { color: var(--blue-strong); }
 
 .footer-links {
   display: flex;

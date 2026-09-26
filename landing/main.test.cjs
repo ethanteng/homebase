@@ -5,23 +5,24 @@ const fs = require('node:fs');
 
 const LAUNCHLIST = 'https://getlaunchlist.com';
 
-// The landing page's main.js, with the widget's iframe already in place.
-function page() {
-  const frame = { contentWindow: {} };
-  const widget = { querySelector: (selector) => selector === 'iframe' ? frame : null };
+// The landing page's main.js, with each widget's iframe already in place.
+function page({ widgets = 1 } = {}) {
+  const frames = Array.from({ length: widgets }, () => ({ contentWindow: {} }));
+  const elements = frames.map((frame) => ({ querySelector: (selector) => selector === 'iframe' ? frame : null }));
+  const frame = frames[0];
   const listeners = {};
   const on = (type, fn) => { listeners[type] = fn; };
   const window = { dataLayer: [], matchMedia: () => ({}), addEventListener: on };
   vm.runInNewContext(fs.readFileSync(__dirname + '/main.js', 'utf8'), {
     document: {
-      querySelectorAll: () => [],
-      querySelector: (selector) => selector === '.launchlist-widget' ? widget : null,
+      querySelectorAll: (selector) => selector === '.launchlist-widget' ? elements : [],
       addEventListener: on,
     },
     window,
   });
   return {
     frame,
+    frames,
     events: () => window.dataLayer.map(e => e.event),
     post: (type, { origin = LAUNCHLIST, source = frame.contentWindow, data = { type } } = {}) =>
       listeners.message({ origin, source, data }),
@@ -90,6 +91,20 @@ test('the widget\'s other messages, and anything malformed, are ignored', () => 
   p.post(null, { data: null });
   p.post(null, { data: 'uncloud:signup_sent' });
   assert.deepEqual(p.events(), []);
+});
+
+test('with two widgets on the page, either one counts, still once per event', () => {
+  const p = page({ widgets: 2 });
+  p.post('uncloud:signup_attempt', { source: p.frames[1].contentWindow });
+  p.post('uncloud:signup_sent', { source: p.frames[1].contentWindow });
+  p.post('uncloud:signup_sent', { source: p.frames[0].contentWindow });
+  assert.deepEqual(p.events(), ['cta_click', 'generate_lead']);
+});
+
+test('every widget\'s iframe gets a name', () => {
+  const p = page({ widgets: 2 });
+  p.ready();
+  assert.deepEqual(p.frames.map((f) => f.title), ['Early access signup', 'Early access signup']);
 });
 
 test('the widget\'s iframe gets a name', () => {
