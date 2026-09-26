@@ -34,24 +34,7 @@ textarea { font: inherit; }
   margin-top: 34px;
 }
 
-.partner-actions .primary-link,
-.secondary-link {
-  display: inline-flex;
-  align-items: center;
-  width: auto;
-}
-
-.secondary-link {
-  min-height: 56px;
-  padding: 0 24px;
-  border: 1px solid #cfd6df;
-  border-radius: 12px;
-  background: var(--panel);
-  font-weight: 700;
-  transition: transform .15s ease, border-color .15s ease;
-}
-
-.secondary-link:hover { transform: translateY(-1px); border-color: #b7c0cb; }
+.partner-actions .primary-link { display: inline-flex; align-items: center; width: auto; }
 
 .partner-section { padding: clamp(64px, 8vw, 110px) 0 0; scroll-margin-top: 28px; }
 .partner-section .section-heading { text-align: center; }
