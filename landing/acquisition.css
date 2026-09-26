@@ -54,38 +54,6 @@
 .switch-steps h3 { padding-top: 9px; font-size: 1.15rem; line-height: 1.35; letter-spacing: -.025em; }
 .switch-steps p { margin-top: 8px; color: var(--muted); font-size: .96rem; line-height: 1.6; text-wrap: pretty; }
 
-.video { padding-bottom: clamp(64px, 8vw, 110px); }
-
-.video-card {
-  max-width: 960px;
-  margin: 0 auto;
-  overflow: hidden;
-  border: 1px solid #d1e1f3;
-  border-radius: 24px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
-}
-
-.video-card__header { padding: 22px 28px; background: linear-gradient(120deg, #edf4fc, #fff); }
-.video-card__header .eyebrow { color: var(--blue-strong); font-size: .65rem; letter-spacing: .16em; }
-.video-card__header h2 { margin-top: 6px; font-size: clamp(1.2rem, 3vw, 1.75rem); line-height: 1.2; letter-spacing: -.04em; }
-.video-card__player { aspect-ratio: 16 / 9; background: #0e1a2d; }
-.video-card__player iframe { display: block; width: 100%; height: 100%; border: 0; }
-
-.video-card__footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 20px;
-  padding: 18px 28px;
-  font-size: .85rem;
-  line-height: 1.5;
-}
-
-.video-card__footer p { color: var(--muted); }
-.video-card__footer a { color: var(--blue-strong); text-decoration: underline; text-underline-offset: 3px; }
-
 .cost-table { width: 100%; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; }
 .cost-table caption { padding-bottom: 20px; text-align: left; font-weight: 700; line-height: 1.4; }
 .cost-table caption span { display: block; margin-top: 6px; color: var(--muted); font-size: .8rem; font-weight: 400; }
@@ -158,8 +126,6 @@
 @media (max-width: 620px) {
   .switch { padding: 28px 24px; border-radius: 22px; }
   .switch-steps li { gap: 14px; }
-  .video-card { border-radius: 18px; }
-  .video-card__header, .video-card__footer { padding-inline: 20px; }
   .cost-table th, .cost-table td { padding-right: 10px; }
   .faq .section-heading { text-align: left; }
   .faq-list summary { font-size: 1.02rem; }
