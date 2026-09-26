@@ -462,6 +462,7 @@ h1 span {
 .storage-note { color: var(--muted); font-size: .9rem; line-height: 1.6; }
 
 .video { padding-bottom: clamp(64px, 8vw, 110px); }
+.hero + .video { padding-top: clamp(64px, 8vw, 110px); padding-bottom: 0; }
 
 .video-card {
   max-width: 960px;
