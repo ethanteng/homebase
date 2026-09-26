@@ -3,5 +3,6 @@
   "framework": null,
   "installCommand": "npm --prefix src/homebase-web ci",
   "buildCommand": "npm --prefix src/homebase-web run build:landing",
-  "outputDirectory": "artifacts/landing"
+  "outputDirectory": "artifacts/landing",
+  "cleanUrls": true
 }

@@ -48,3 +48,16 @@ Calculation in cents:
 This is a spending comparison, not feature equivalence. Moving files does not replace Evernote note editing, Gmail/Outlook storage, iCloud device backups, or other bundled benefits. Cancel only plans whose other features are no longer needed. The homepage shows the subscription costs and source links without a disclaimer or first-year savings breakdown.
 
 When changing the example, verify the same country and billing period for every row, then update the hero graphic’s five price labels and annual total, the comparison table, headline, source date and this record (including the first-year calculations above) together.
+
+## Acquisition page comparisons
+
+Checked September 2026 (from the Claude Design handoff; re-verify on the official pages before paid traffic). USD, U.S. consumer plans, monthly billing. The 2 TB family-sized plans are used because the 100–200 GB plans above cost less than $79 over three years.
+
+| Page | Plan | Monthly | Per year | 3 years | 5 years | 5 years minus $79 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Dropbox alternative | Dropbox Family (2 TB) | $19.99 | $239.88 | $719.64 | $1,199.40 | $1,120.40 |
+| Google Drive alternative | Google AI Plus (2 TB) | $9.99 | $119.88 | $359.64 | $599.40 | $520.40 |
+| iCloud alternative | iCloud+ 2 TB | $9.99 | $119.88 | $359.64 | $599.40 | $520.40 |
+| OneDrive alternative | Microsoft 365 Family | $12.99 | $155.88 | $467.64 | $779.40 | $700.40 |
+
+The same spending-not-feature-equivalence caveat applies: each page's FAQ says which bundled benefits (Gmail, Google Photos, iPhone backups, Office apps) Uncloud does not replace. When a price changes, update `monthly` and the price strings in `acquisition-pages.mjs` together; the test checks they agree.

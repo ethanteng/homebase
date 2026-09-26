@@ -77,6 +77,28 @@ The landing Vite config explicitly uses `landing/public/` as its public director
 | `public/sitemap.xml` | `https://www.uncloud.life/sitemap.xml` |
 | `public/social-card.png` | `https://www.uncloud.life/social-card.png` |
 
-The sitemap lists only the canonical homepage. Add URLs when additional public pages actually exist. The social card is a 1200 × 630 PNG, with editable artwork in `social-card.svg`; regenerate the PNG after changing that artwork. Both social metadata and JSON-LD use the absolute PNG URL so sharing crawlers can fetch it without JavaScript.
+The sitemap lists the canonical homepage and the five acquisition pages. Add URLs when additional public pages actually exist. The social card is a 1200 × 630 PNG, with editable artwork in `social-card.svg`; regenerate the PNG after changing that artwork. Both social metadata and JSON-LD use the absolute PNG URL so sharing crawlers can fetch it without JavaScript.
 
 After `build:landing`, check that `index.html` and all three public files exist in `artifacts/landing/`. Run `npm --prefix src/homebase-web run preview:landing` and verify `/`, `/robots.txt`, `/sitemap.xml`, and `/social-card.png` from the preview server. Verify those URLs on the deployment as well; a successful app build alone does not verify the separate landing build.
+
+## Acquisition pages
+
+Five evergreen search landing pages share one template and end on the same early-access form as the homepage:
+
+| URL | Page |
+| --- | --- |
+| `/dropbox-alternative` | Dropbox alternative |
+| `/google-drive-alternative` | Google Drive alternative |
+| `/icloud-alternative` | iCloud alternative |
+| `/onedrive-alternative` | OneDrive alternative |
+| `/uncloud-vs-nextcloud` | Uncloud vs. Nextcloud |
+
+Each has the homepage header, a hero comparing Uncloud Home with that service, the early-access signup, three switching steps, the homepage's setup steps, the teaser video, a price (or side-by-side) comparison, the pricing card, an FAQ, and a closing signup. The footer on every page, including the homepage, links all five.
+
+The copy and per-page SEO (title of 60 characters or fewer, description of 155 or fewer, canonical URL, Open Graph, and WebPage, BreadcrumbList, FAQPage and SoftwareApplication JSON-LD) live in [`acquisition-pages.mjs`](acquisition-pages.mjs). The `<slug>.html` files are generated from it and committed so they build and preview like `index.html`; edit the copy there, then regenerate:
+
+```sh
+node landing/acquisition-pages.mjs
+```
+
+`acquisition-pages.test.cjs` fails if a generated page is stale, a title or description is too long, a price row doesn't add up from the monthly price, or a page is missing from the sitemap or the footer links. Page-only styles are in `acquisition.css`. The landing Vite config builds the homepage plus every slug listed in `acquisition-pages.mjs`, and `vercel.json` sets `cleanUrls` so `/dropbox-alternative.html` is served at `/dropbox-alternative`. Price sources are recorded in [pricing.md](pricing.md#acquisition-page-comparisons). Every page carries the widget twice; `main.js` measures signups from either one, still once per page view.

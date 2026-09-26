@@ -29,18 +29,19 @@ if (names.length > 1) {
 
 // The signup form is LaunchList's widget, an iframe from another origin. The head code kept in
 // launchlist-head.html runs inside it and posts an event name here; nothing typed ever crosses.
-const widget = document.querySelector(".launchlist-widget");
+// Acquisition pages carry the widget twice, at the top and at the close; either one counts.
+const widgets = [...document.querySelectorAll(".launchlist-widget")];
 
-if (widget) {
+if (widgets.length) {
   const events = new Map([
     ["uncloud:signup_attempt", "cta_click"],
     ["uncloud:signup_sent", "generate_lead"],
   ]);
   const measured = new Set();
+  const frames = () => widgets.map((widget) => widget.querySelector("iframe")).filter(Boolean);
 
   window.addEventListener("message", (message) => {
-    const frame = widget.querySelector("iframe");
-    if (message.origin !== "https://getlaunchlist.com" || !frame || message.source !== frame.contentWindow) return;
+    if (message.origin !== "https://getlaunchlist.com" || !frames().some((frame) => message.source === frame.contentWindow)) return;
     const event = events.get(message.data && message.data.type);
     // The widget stays after a signup, so a second address is possible; count each event once.
     if (!event || measured.has(event)) return;
@@ -51,7 +52,6 @@ if (widget) {
 
   // widget.js adds its iframe without a title, which leaves screen readers announcing a nameless frame.
   document.addEventListener("DOMContentLoaded", () => {
-    const frame = widget.querySelector("iframe");
-    if (frame) frame.title = "Early access signup";
+    for (const frame of frames()) frame.title = "Early access signup";
   });
 }
