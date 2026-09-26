@@ -51,13 +51,15 @@ When changing the example, verify the same country and billing period for every 
 
 ## Acquisition page comparisons
 
-Checked September 2026 (from the Claude Design handoff; re-verify on the official pages before paid traffic). USD, U.S. consumer plans, monthly billing. The 2 TB family-sized plans are used because the 100–200 GB plans above cost less than $79 over three years.
+Checked September 26, 2026 by web search (the official pricing pages were not reachable from the build environment; spot-check them before paid traffic). USD, U.S. consumer plans, monthly billing. The 2 TB family-sized plans are used because the 100–200 GB plans above cost less than $79 over three years.
 
 | Page | Plan | Monthly | Per year | 3 years | 5 years | 5 years minus $79 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | Dropbox alternative | Dropbox Family (2 TB) | $19.99 | $239.88 | $719.64 | $1,199.40 | $1,120.40 |
-| Google Drive alternative | Google AI Plus (2 TB) | $9.99 | $119.88 | $359.64 | $599.40 | $520.40 |
+| Google Drive alternative | Google One 2 TB | $9.99 | $119.88 | $359.64 | $599.40 | $520.40 |
 | iCloud alternative | iCloud+ 2 TB | $9.99 | $119.88 | $359.64 | $599.40 | $520.40 |
-| OneDrive alternative | Microsoft 365 Family | $12.99 | $155.88 | $467.64 | $779.40 | $700.40 |
+| OneDrive alternative | Microsoft 365 Family (6 × 1 TB) | $12.99 | $155.88 | $467.64 | $779.40 | $700.40 |
+
+The pages say "Google One · 2 TB", not "Google AI Plus": Google has relabeled its $9.99 2 TB tier under the AI Plus name, but since June 2026 "Google AI Plus" is also sold as a separate $4.99, 400 GB plan, so that label would pair the wrong plan with the price. Microsoft 365 Family is $129.99 billed yearly; the monthly-billing price is used for consistency with the other rows. Dropbox Family's yearly-billing equivalent ($16.99) must not be substituted, as above.
 
 The same spending-not-feature-equivalence caveat applies: each page's FAQ says which bundled benefits (Gmail, Google Photos, iPhone backups, Office apps) Uncloud does not replace. When a price changes, update `monthly` and the price strings in `acquisition-pages.mjs` together; the test checks they agree.

@@ -58,14 +58,14 @@ export const PAGES = {
     lede: "Your files on your own computer. Reachable from any browser.",
     detail: "Bring your Drive home, give everyone their own private space, and stop renting storage by the month.",
     monthly: 999,
-    hero: { aria: "Uncloud Home compared with a Google One 2 TB plan", kicker: "One price. Yours to keep.", heading: "Google One 2 TB, every year.", rows: yearRows("Google Drive", "Google AI Plus · 2 TB", "$119.88", "drive"), totalBig: "$359.64", totalSmall: "over three years" },
+    hero: { aria: "Uncloud Home compared with a Google One 2 TB plan", kicker: "One price. Yours to keep.", heading: "Google One 2 TB, every year.", rows: yearRows("Google Drive", "Google One · 2 TB", "$119.88", "drive"), totalBig: "$359.64", totalSmall: "over three years" },
     sw: { eyebrow: "Bring your files home", heading: "Move from Google Drive in three steps.", intro: "Uncloud brings Drive home through the folder the Google Drive app keeps on your computer. Nothing is deleted from Google.",
       steps: [
         { title: "Mirror Drive to the host", body: "On the computer that runs Uncloud, install Google Drive for desktop and set it to mirror your files, so they’re stored on the drive." },
         { title: "Add the Drive folder", body: "In Uncloud, click Add files, choose This computer, and pick the Google Drive folder. Add all of it or just what you need." },
         { title: "Your copy is yours", body: "Files are copied into your own space and the originals stay put. Adding the folder again later only brings what’s new." },
       ] },
-    cmp: { eyebrow: "How the savings add up", heading: "Stop renting storage by the month.", intro: "A Google One 2 TB plan renews every month. Uncloud Home is a single purchase, and your storage is whatever your computer and drives can hold.", caption: "Google One 2 TB vs. Uncloud Home", captionSub: SRC, colA: "Google AI Plus · 2 TB", colB: "Uncloud Home", align: "right", rows: priceRows("$119.88", "$359.64", "$599.40"), boxBig: "$520.40", boxSmall: "kept over five years at the $79 early-access price" },
+    cmp: { eyebrow: "How the savings add up", heading: "Stop renting storage by the month.", intro: "A Google One 2 TB plan renews every month. Uncloud Home is a single purchase, and your storage is whatever your computer and drives can hold.", caption: "Google One 2 TB vs. Uncloud Home", captionSub: SRC, colA: "Google One · 2 TB", colB: "Uncloud Home", align: "right", rows: priceRows("$119.88", "$359.64", "$599.40"), boxBig: "$520.40", boxSmall: "kept over five years at the $79 early-access price" },
     faqHeading: "Switching from Google Drive",
     faq: [
       { q: "How do I move my files from Google Drive to Uncloud?", a: "Install Google Drive for desktop on the computer that runs Uncloud and set it to mirror your files. Then click Add files, choose This computer, and add the Google Drive folder. Files are copied, never moved." },
