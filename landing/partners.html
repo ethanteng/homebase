@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Only the public landing site sends measurement. Local/preview builds stay quiet. -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() { dataLayer.push(arguments); }
+      gtag('set', { allow_google_signals: false, allow_ad_personalization_signals: false });
+      if (new URLSearchParams(location.search).get('measurement_debug') === '1') {
+        gtag('set', { debug_mode: true });
+      }
+      if (['uncloud.life', 'www.uncloud.life'].includes(location.hostname)) {
+        (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+        new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+        j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+        'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+        })(window,document,'script','dataLayer','GTM-KS2XST5Z');
+      }
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7fafd" />
+    <title>Uncloud for Storage Partners</title>
+    <meta
+      name="description"
+      content="Uncloud turns a computer someone already owns into their family’s private cloud, and gives consumers a new reason to buy local storage. Run a small test with us."
+    />
+    <meta property="og:title" content="Uncloud for Storage Partners" />
+    <meta
+      property="og:description"
+      content="Uncloud turns a computer someone already owns into their family’s private cloud, and gives consumers a new reason to buy local storage. Run a small test with us."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Uncloud" />
+    <meta property="og:url" content="https://www.uncloud.life/partners" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content="https://www.uncloud.life/social-card.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Uncloud — private cloud storage on a computer you already own." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Uncloud for Storage Partners" />
+    <meta name="twitter:description" content="Uncloud gives consumers a new reason to buy local storage. Run a small test with us." />
+    <meta name="twitter:image" content="https://www.uncloud.life/social-card.png" />
+    <link rel="canonical" href="https://www.uncloud.life/partners" />
+    <link rel="icon" type="image/png" href="./uncloud.png" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./partners.css" />
+    <script type="module" src="./partners.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="page">
+      <header class="site-header partner-header">
+        <div class="partner-brand">
+          <a class="wordmark" href="/" aria-label="Uncloud home">
+            <img src="./uncloud.png" width="32" height="32" alt="" />
+            Uncloud
+          </a>
+          <span class="partner-badge">Partners</span>
+        </div>
+        <a class="header-cta" href="#interest">Propose a test</a>
+      </header>
+
+      <main id="main">
+        <section class="partner-hero" aria-labelledby="hero-heading">
+          <p class="eyebrow">Uncloud for storage partners</p>
+          <h1 id="hero-heading">
+            Uncloud gives consumers
+            <span>a new reason to buy local storage.</span>
+          </h1>
+          <p class="hero-detail">I’m building Uncloud, software that turns a Mac, PC, or Linux computer someone already owns into private cloud storage for their household. We’re early, and I’m looking for a few storage companies to run a small, simple test with.</p>
+          <div class="partner-actions">
+            <a class="primary-link" href="#interest">Propose a test</a>
+            <a class="secondary-link" href="#video">Watch the demo</a>
+          </div>
+        </section>
+
+        <section class="video partner-section" id="video" aria-labelledby="video-heading">
+          <div class="video-card">
+            <div class="video-card__header">
+              <p class="eyebrow">Your files. Your home.</p>
+              <h2 id="video-heading">Meet Uncloud Home</h2>
+            </div>
+            <div class="video-card__player">
+              <iframe src="https://www.youtube-nocookie.com/embed/oELh5dwlmHs?rel=0&amp;playsinline=1" title="Uncloud Home teaser video" loading="lazy" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+            </div>
+            <div class="video-card__footer">
+              <p>A first look at your family’s private cloud.</p>
+              <a href="https://www.youtube.com/watch?v=oELh5dwlmHs" target="_blank" rel="noopener noreferrer">Watch on YouTube <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
+            </div>
+          </div>
+        </section>
+
+        <section class="partner-section" aria-labelledby="problem-heading">
+          <div class="partner-problem">
+            <div>
+              <p class="eyebrow">The problem</p>
+              <h2 id="problem-heading">Families keep accumulating cloud subscriptions.</h2>
+              <p class="partner-lede">Every person and every service adds another plan, and storage tiers climb as the photo and video library grows. Most of those households already own a computer that could hold all of it.</p>
+            </div>
+            <div class="partner-example">
+              <table class="partner-bills">
+                <caption>An example household’s subscriptions <span>U.S. prices · USD · billed monthly</span></caption>
+                <thead class="sr-only"><tr><th scope="col">Plan</th><th scope="col">Per month</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">Dropbox <small>Family</small></th><td>$19.99</td></tr>
+                  <tr><th scope="row">Evernote <small>Starter</small></th><td>$14.99</td></tr>
+                  <tr><th scope="row">Google Drive <small>100 GB</small></th><td>$1.99</td></tr>
+                  <tr><th scope="row">iCloud+ <small>200 GB</small></th><td>$2.99</td></tr>
+                  <tr><th scope="row">OneDrive <small>100 GB</small></th><td>$1.99</td></tr>
+                </tbody>
+              </table>
+              <p class="annual-total"><strong>$503.40</strong> <span>per year in subscription storage costs</span></p>
+            </div>
+          </div>
+        </section>
+
+        <section class="partner-section" aria-labelledby="why-heading">
+          <div class="section-heading">
+            <p class="eyebrow">Why it matters to you</p>
+            <h2 id="why-heading">Every Uncloud home starts with a storage decision.</h2>
+          </div>
+          <div class="partner-why">
+            <div class="partner-cards">
+              <div class="partner-card">
+                <h3>No storage tiers</h3>
+                <p>A household can store as much as its computer and connected drives can hold. More space means buying a drive, not upgrading a plan.</p>
+              </div>
+              <div class="partner-card">
+                <h3>Libraries come home</h3>
+                <p>Families move years of photos and video out of Dropbox, Google Drive and iCloud. That usually means adding 4TB, 8TB or more.</p>
+              </div>
+              <div class="partner-card">
+                <h3>A natural moment to recommend you</h3>
+                <p>Choosing where files live is part of setup, which is exactly when someone decides whether they need a new drive.</p>
+              </div>
+            </div>
+            <div class="partner-sizes">
+              <h3>Add as much storage as you need.</h3>
+              <table>
+                <thead><tr><th scope="col">Your household</th><th scope="col">Suggested storage</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">Documents + photos</th><td>2 TB</td></tr>
+                  <tr><th scope="row">Family photo/video library</th><td>4 TB</td></tr>
+                  <tr class="is-highlight"><th scope="row">Large family library</th><td>8 TB</td></tr>
+                  <tr><th scope="row">Serious photo/video collection</th><td>16 TB+</td></tr>
+                </tbody>
+              </table>
+              <p>Uncloud works with the computer’s own drive or any connected drive, on Mac, PC and Linux.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="partner-section" aria-labelledby="product-heading">
+          <div class="section-heading">
+            <p class="eyebrow">The product</p>
+            <h2 id="product-heading">What your customers see.</h2>
+          </div>
+          <!--
+            Screenshot placeholders. To add one, replace a .partner-shot__placeholder div with
+            <img src="./partners/storage.png" width="1600" height="1000" alt="…" />
+            (any 16:10 image in landing/partners/; Vite fingerprints it on build).
+          -->
+          <div class="partner-shots">
+            <figure class="partner-shot">
+              <div class="partner-shot__placeholder" aria-hidden="true">Screenshot: choosing a storage drive</div>
+              <figcaption>Choose where your files live</figcaption>
+            </figure>
+            <figure class="partner-shot">
+              <div class="partner-shot__placeholder" aria-hidden="true">Screenshot: household members</div>
+              <figcaption>Invite the whole household</figcaption>
+            </figure>
+            <figure class="partner-shot">
+              <div class="partner-shot__placeholder" aria-hidden="true">Screenshot: moving files from Dropbox / Drive</div>
+              <figcaption>Bring files home from other clouds</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section class="partner-section partner-centered" aria-labelledby="proposal-heading">
+          <div class="section-heading">
+            <p class="eyebrow">What I’m proposing</p>
+            <h2 id="proposal-heading">A simple bundle or co-marketing test.</h2>
+          </div>
+          <p class="partner-quote">“Add <span data-partner-article>a</span> drive to the computer you already own and turn it into your private cloud.”</p>
+          <p class="partner-lede">We’re early, so I’m not proposing anything complicated. Even a landing-page or customer-education test would be interesting.</p>
+          <div class="partner-grid">
+            <div class="partner-card">
+              <h3>Bundle</h3>
+              <p>Pair Uncloud with one of your drives as a single offer.</p>
+            </div>
+            <div class="partner-card">
+              <h3>Co-marketing page</h3>
+              <p>A joint landing page that recommends your drives for an Uncloud home.</p>
+            </div>
+            <div class="partner-card">
+              <h3>Customer education</h3>
+              <p>A guide, email or post showing your customers a new use for the drives they buy.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="partner-section partner-centered" aria-labelledby="pilot-heading">
+          <div class="section-heading">
+            <p class="eyebrow">How the test works</p>
+            <h2 id="pilot-heading">Cheap to try. Easy to stop.</h2>
+          </div>
+          <ol class="partner-grid" role="list">
+            <li class="partner-card">
+              <span class="step-number" aria-hidden="true">1</span>
+              <h3>Pick one test</h3>
+              <p>We agree on a single, small experiment and a time window.</p>
+            </li>
+            <li class="partner-card">
+              <span class="step-number" aria-hidden="true">2</span>
+              <h3>Get your own link</h3>
+              <p>Your test gets a dedicated referral code, so every install is attributed to you.</p>
+            </li>
+            <li class="partner-card">
+              <span class="step-number" aria-hidden="true">3</span>
+              <h3>Review results together</h3>
+              <p>I share the full funnel with you, and we decide whether to keep going.</p>
+            </li>
+          </ol>
+          <ol class="partner-funnel" role="list" aria-label="The funnel we measure">
+            <li><span>Step 1</span>Partner page</li>
+            <li><span>Step 2</span>Download</li>
+            <li><span>Step 3</span>Host installed</li>
+            <li><span>Step 4</span>Household activated</li>
+          </ol>
+          <ul class="partner-terms" role="list">
+            <li>No exclusivity</li>
+            <li>No integration work</li>
+            <li>No minimums</li>
+            <li>Stop anytime</li>
+          </ul>
+        </section>
+
+        <section class="partner-section partner-interest" id="interest" aria-labelledby="interest-heading">
+          <div class="partner-interest__card">
+            <div>
+              <p class="eyebrow">Next step</p>
+              <h2 id="interest-heading">Interested in running a test?</h2>
+              <p class="partner-lede">Tell me a little about what you’d want to try. I’ll reply personally with a short plan.</p>
+              <div class="partner-founder">
+                <img src="./uncloud.png" width="40" height="40" alt="" />
+                <div>
+                  <strong>Ethan</strong>
+                  <span>Founder, Uncloud</span>
+                  <a href="mailto:ethan@uncloud.life">ethan@uncloud.life</a>
+                </div>
+              </div>
+            </div>
+
+            <form class="partner-form" id="partner-form" novalidate>
+              <div class="partner-form__row">
+                <label>Your name
+                  <input name="name" autocomplete="name" required maxlength="120" />
+                </label>
+                <label>Company
+                  <input name="company" autocomplete="organization" maxlength="120" />
+                </label>
+              </div>
+              <label>Work email
+                <input name="email" type="email" autocomplete="email" required maxlength="254" />
+              </label>
+              <fieldset class="partner-chips">
+                <legend>What would you want to test?</legend>
+                <div>
+                  <button type="button" aria-pressed="false" value="Bundle">Bundle</button>
+                  <button type="button" aria-pressed="false" value="Co-marketing page">Co-marketing page</button>
+                  <button type="button" aria-pressed="false" value="Customer education">Customer education</button>
+                  <button type="button" aria-pressed="false" value="Not sure yet">Not sure yet</button>
+                </div>
+              </fieldset>
+              <label><span>Anything else? <span class="partner-optional">Optional</span></span>
+                <textarea name="note" rows="3" maxlength="2000"></textarea>
+              </label>
+              <!-- Bots fill in every field; people never see this one. -->
+              <label class="partner-honeypot" aria-hidden="true">Website
+                <input name="website" tabindex="-1" autocomplete="off" />
+              </label>
+              <p class="partner-error" role="alert" hidden></p>
+              <button class="primary-link" type="submit">Send</button>
+            </form>
+
+            <div class="partner-thanks" hidden tabindex="-1">
+              <div class="partner-thanks__mark" aria-hidden="true">✓</div>
+              <h3>Thanks, <span data-first-name>there</span>.</h3>
+              <p>I’ll be in touch within a day or two.</p>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <p>© 2026 Uncloud</p>
+        <a class="partner-footer-link" href="/">uncloud.life</a>
+      </footer>
+    </div>
+  </body>
+</html>

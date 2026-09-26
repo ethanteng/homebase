@@ -98,3 +98,13 @@ node landing/acquisition-pages.mjs
 ```
 
 `acquisition-pages.test.cjs` fails if a generated page is stale, a title or description is too long, a price row doesn't add up from the monthly price, or a page is missing from the sitemap or the footer links. Page-only styles are in `acquisition.css`. The landing Vite config builds the homepage plus every slug listed in `acquisition-pages.mjs`, and `vercel.json` sets `cleanUrls` so `/dropbox-alternative.html` is served at `/dropbox-alternative`. Price sources are recorded in [pricing.md](pricing.md#acquisition-page-comparisons). Every page carries the widget twice; `main.js` measures signups from either one, still once per page view.
+
+## Partner pitch page
+
+`/partners` is a founder-written pitch to storage companies (OWC first) for a small bundle, co-marketing, or customer-education test. It shares `styles.css` with the homepage; its own styles are in `partners.css` and its form script in `partners.js`. It is in the sitemap but deliberately not in the site header or footer navigation.
+
+- **Personalised links.** `/partners?partner=OWC` names the company in the proposal line (“Add an OWC drive…”) and pre-fills the form's Company field.
+- **Screenshots.** The three “What your customers see” slots are placeholders. Put 16:10 images in `landing/partners/` and replace each `.partner-shot__placeholder` div with an `<img>`; the HTML comment above them shows the markup.
+- **Interest form.** It posts JSON to `/api/partner-interest` ([`api/partner-interest.js`](../api/partner-interest.js)), which emails each submission through Mailtrap with Reply-To set to the sender. It reads the same Vercel variables the retired early-access function used: `MAILTRAP_TOKEN`, `MAILTRAP_FROM` (a sender on a Mailtrap-verified domain; defaults to `partners@uncloud.life`), and `PARTNER_NOTIFY_TO`, falling back to `SIGNUP_NOTIFY_TO`. Set `MAILTRAP_INBOX_ID` to capture mail in Mailtrap's sandbox instead of delivering it. A successful send pushes `partner_interest` to the dataLayer; it is not `generate_lead`, so partner leads stay out of the early-access conversion.
+
+`/partners-one-pager` is the printable US Letter version (marked `noindex`). Open it and use **Print or save as PDF**; it fits on one page.
