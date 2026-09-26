@@ -145,3 +145,19 @@ after adding the IDs. No GTM or GA4 configuration changes are required.
 
 References: [GA4 enhanced measurement parameters](https://support.google.com/analytics/answer/9216061?hl=en),
 [built-in Link ID dimension](https://developers.google.com/analytics/devguides/reporting/data/v1/api-schema).
+
+## YouTube channel link clicks (September 26, 2026)
+
+The YouTube channel icons sit to the left of the GitHub icons and are measured
+the same way: GA4's automatic outbound **`click`**, with no new tag or emitter.
+Validate and report them as above, filtering Link URL to the channel instead.
+
+| Parameter | Header | Footer |
+| --- | --- | --- |
+| `link_id` | `youtube-header` | `youtube-footer` |
+| `link_url` | `https://www.youtube.com/@Uncloud-life` | Same |
+| `link_classes` | `youtube-link` | Same |
+
+Below 351px wide the header has no room for both icons, so the header YouTube
+icon is hidden there; the footer icon remains. The GitHub anchors are unchanged,
+so their parameters and existing reports are unaffected.

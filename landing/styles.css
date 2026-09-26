@@ -121,7 +121,8 @@ input:focus-visible {
 
 .pricing-link:hover { color: var(--blue-strong); }
 
-.github-link {
+.github-link,
+.youtube-link {
   display: inline-flex;
   padding: 8px;
   border-radius: 999px;
@@ -129,7 +130,8 @@ input:focus-visible {
   transition: color .15s ease;
 }
 
-.github-link:hover { color: var(--ink); }
+.github-link:hover,
+.youtube-link:hover { color: var(--ink); }
 
 .site-footer {
   display: flex;
@@ -140,6 +142,12 @@ input:focus-visible {
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: .9rem;
+}
+
+.footer-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .hero {
@@ -491,8 +499,14 @@ h1 span {
 @media (max-width: 380px) {
   .site-header { gap: 8px; }
   .header-actions { gap: 2px; }
-  .header-actions .github-link { padding: 6px; }
+  .header-actions .github-link,
+  .header-actions .youtube-link { padding: 6px; }
   .header-cta { padding: 9px 10px; }
+}
+
+/* Too narrow for both header icons without wrapping the CTA; the footer keeps YouTube. */
+@media (max-width: 350px) {
+  .header-actions .youtube-link { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
