@@ -91,33 +91,11 @@
     <link rel="icon" type="image/png" href="./uncloud.png" />
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./hero-visual.css" />
-    <link rel="stylesheet" href="./teaser-modal.css" />
     <script type="module" src="./main.js"></script>
     <script type="module" src="./savings-animation.js"></script>
-    <script type="module" src="./teaser-modal.js"></script>
     <script src="https://getlaunchlist.com/js/widget.js" defer></script>
   </head>
   <body>
-    <dialog class="teaser-modal" id="teaser-modal" aria-labelledby="teaser-title" aria-describedby="teaser-description">
-      <header class="teaser-modal__header">
-        <div>
-          <p class="eyebrow">Your files. Your home.</p>
-          <h2 id="teaser-title">Meet Uncloud Home</h2>
-        </div>
-        <button class="teaser-modal__close" type="button" data-teaser-close aria-label="Close teaser video" autofocus>
-          <span>Close</span>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18" /></svg>
-        </button>
-      </header>
-      <div class="teaser-modal__video" data-teaser-player></div>
-      <footer class="teaser-modal__footer">
-        <div>
-          <p id="teaser-description">A first look at your family’s private cloud.</p>
-          <a href="https://www.youtube.com/watch?v=oELh5dwlmHs" target="_blank" rel="noopener noreferrer">Watch on YouTube <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
-        </div>
-        <button class="teaser-modal__continue" type="button" data-teaser-close>Explore Uncloud <span aria-hidden="true">→</span></button>
-      </footer>
-    </dialog>
     <a class="skip-link" href="#main">Skip to content</a>
     <div class="page">
       <header class="site-header">
@@ -237,6 +215,22 @@
               <p>Move files from Dropbox, Google Drive and more.</p>
             </li>
           </ol>
+        </section>
+
+        <section class="video" id="video" aria-labelledby="video-heading">
+          <div class="video-card">
+            <div class="video-card__header">
+              <p class="eyebrow">Your files. Your home.</p>
+              <h2 id="video-heading">Meet Uncloud Home</h2>
+            </div>
+            <div class="video-card__player">
+              <iframe src="https://www.youtube-nocookie.com/embed/oELh5dwlmHs?rel=0&amp;playsinline=1" title="Uncloud Home teaser video" loading="lazy" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+            </div>
+            <div class="video-card__footer">
+              <p>A first look at your family’s private cloud.</p>
+              <a href="https://www.youtube.com/watch?v=oELh5dwlmHs" target="_blank" rel="noopener noreferrer">Watch on YouTube <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
+            </div>
+          </div>
         </section>
 
         <section class="savings" id="savings" aria-labelledby="savings-heading">
