@@ -41,5 +41,5 @@ test('the page is canonical at /hardware, in the sitemap, and linked from every 
   const { SLUGS, render } = await import('./acquisition-pages.mjs');
   const footer = (page) => page.slice(page.indexOf('<footer class="site-footer">'));
   const pages = { index: fs.readFileSync(__dirname + '/index.html', 'utf8'), ...Object.fromEntries(SLUGS.map((s) => [s, render(s)])) };
-  for (const [name, page] of Object.entries(pages)) assert.ok(footer(page).includes('href="/hardware">Storage</a>'), `${name} footer lacks /hardware`);
+  for (const [name, page] of Object.entries(pages)) assert.ok(footer(page).includes('href="/hardware">Buy storage</a>'), `${name} footer lacks /hardware`);
 });
