@@ -470,6 +470,7 @@ ${indent(ACCESS, 12)}
         <p>© 2026 Uncloud</p>
 ${indent(compareNav(slug), 8)}
         <div class="footer-links">
+          <a class="partners-link" href="/partners">For Partners</a>
           <a id="youtube-footer" class="youtube-link" href="https://www.youtube.com/@Uncloud-life" aria-label="Uncloud on YouTube">
             ${YOUTUBE}
           </a>

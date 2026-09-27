@@ -133,6 +133,9 @@ input:focus-visible {
 .github-link:hover,
 .youtube-link:hover { color: var(--ink); }
 
+.partners-link { margin-right: 12px; padding: 8px 0; }
+.partners-link:hover { color: var(--blue-strong); }
+
 .site-footer {
   display: flex;
   align-items: center;

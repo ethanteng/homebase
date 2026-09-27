@@ -53,3 +53,11 @@ test('price comparisons add up from the monthly price', async () => {
     for (const row of p.hero.rows) assert.equal(row.value, dollars(year), slug);
   }
 });
+
+test('the homepage and every acquisition page link to /partners in the footer', async () => {
+  const { SLUGS, render } = await load();
+  const footer = (html) => html.slice(html.indexOf('<footer class="site-footer">'));
+  const home = fs.readFileSync(__dirname + '/index.html', 'utf8');
+  assert.ok(footer(home).includes('href="/partners">For Partners</a>'), 'homepage footer lacks /partners');
+  for (const slug of SLUGS) assert.ok(footer(render(slug)).includes('href="/partners">For Partners</a>'), `${slug} footer lacks /partners`);
+});
