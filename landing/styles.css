@@ -160,6 +160,12 @@ input:focus-visible {
   gap: 4px;
 }
 
+.site-verification {
+  flex-basis: 100%;
+  color: #c3cad4;
+  font-size: .625rem;
+}
+
 .hero {
   padding: clamp(40px, 5vw, 72px) 0 0;
 }
