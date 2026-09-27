@@ -110,7 +110,7 @@ node landing/acquisition-pages.mjs
 
 ## Storage page
 
-`/hardware` helps a household size its storage and pick a drive, before Uncloud has any hardware partner. Its own styles are in `hardware.css` and its script in `hardware.js`; it is in the sitemap, and every page's footer links to it as “Buy storage”.
+`/hardware` helps a household size its storage and pick a drive, before Uncloud has any hardware partner. Its own styles are in `hardware.css` and its script in `hardware.js`; it is in the sitemap, and every page's footer links to it as “Buy more storage”.
 
 - **Step 1** suggests a capacity per household: documents and photos 2 TB, a family photo/video library 4 TB, a large family library 8 TB, a serious photo/video collection 16 TB+. The page opens on 8 TB.
 - **Step 2** recommends three drives, all sold by Newegg: Samsung T7 Shield (portable SSD, 1/2/4 TB), Seagate Expansion Desktop (4/8/16 TB), and WD Elements Desktop (16/20/24 TB). The card that fits the chosen household is marked “Best fit for you”, and each card preselects the smallest size that holds the suggestion. The largest size is one drive rather than a two-drive RAID box: the common two-bay consumer boxes ship striped (RAID 0), which loses everything if either drive fails.
