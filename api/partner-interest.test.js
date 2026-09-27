@@ -76,7 +76,7 @@ test("a submission reaches Mailtrap addressed to the notify inbox, replying to t
   assert.deepEqual(sent.to, [{ email: "ethan@example.com" }]);
   assert.deepEqual(sent.headers, { "Reply-To": "ada@owc.example" });
   assert.equal(sent.subject, "Partner interest: Ada Lovelace, OWC");
-  assert.match(sent.text, /Wants to test: Bundle, Customer education/);
+  assert.match(sent.text, /Interested in: Bundle, Customer education/);
   assert.match(sent.text, /Interested in a holiday bundle\./);
 });
 

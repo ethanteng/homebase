@@ -34,7 +34,7 @@ textarea { font: inherit; }
   margin-top: 34px;
 }
 
-.partner-actions .primary-link { display: inline-flex; align-items: center; width: auto; }
+.partner-actions .primary-link { display: inline-flex; align-items: center; width: auto; min-height: 64px; padding: 0 40px; border-radius: 14px; font-size: 1.15rem; }
 
 .partner-section { padding: clamp(64px, 8vw, 110px) 0 0; scroll-margin-top: 28px; }
 .partner-section .section-heading { text-align: center; }

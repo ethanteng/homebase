@@ -84,7 +84,7 @@ function message(s) {
     `Name: ${s.name}`,
     `Company: ${s.company || "—"}`,
     `Email: ${s.email}`,
-    `Wants to test: ${s.tests.length ? s.tests.join(", ") : "—"}`,
+    `Interested in: ${s.tests.length ? s.tests.join(", ") : "—"}`,
     ...(s.partner ? [`Page personalised for: ${s.partner}`] : []),
     "",
     s.note || "(No note.)",
