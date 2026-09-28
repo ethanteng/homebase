@@ -50,8 +50,9 @@
 .drive-table tbody tr:last-child > * { border-bottom: 0; }
 .drive-table thead th { background: #f0f6fd; font-size: .85rem; font-weight: 700; }
 .drive-table thead th span { display: block; margin-top: 2px; color: var(--muted); font-size: .75rem; font-weight: 500; }
-.drive-table tbody th { width: 30%; font-size: 1.15rem; font-weight: 750; white-space: nowrap; }
+.drive-table tbody th { width: 24%; font-size: 1.15rem; font-weight: 750; white-space: nowrap; }
 .drive-table tbody th span { display: block; margin-top: 4px; color: var(--muted); font-size: .8rem; font-weight: 500; line-height: 1.4; white-space: normal; }
+.drive-table td ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .drive-table td a { color: var(--blue-strong); font-weight: 650; text-decoration: underline; text-decoration-color: #b9d5fa; text-underline-offset: 4px; }
 .drive-table td a:hover { text-decoration-color: currentColor; }
 .drive-none { color: #b7c0cb; }
@@ -66,7 +67,7 @@
   margin: 32px auto 0;
 }
 
-.drive-filters[hidden] { display: none; }
+.drive-filters[hidden], .drive-table[hidden] { display: none; }
 .drive-filters fieldset { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 0; border: 0; }
 .drive-filters legend { float: left; margin-right: 4px; color: var(--muted); font-size: .8rem; font-weight: 650; }
 .drive-filters label { position: relative; cursor: pointer; }
@@ -90,8 +91,9 @@
 .drive-count { min-height: 1.5em; margin-top: 14px; color: var(--muted); font-size: .85rem; text-align: center; }
 .drive-table-wrap { margin-top: 14px; }
 
-.drive-table[data-type="ssd"] .col-desktop,
-.drive-table[data-type="desktop"] .col-ssd { display: none; }
+.drive-table[data-type="ssd"] :is(.col-portable, .col-desktop),
+.drive-table[data-type="portable"] :is(.col-ssd, .col-desktop),
+.drive-table[data-type="desktop"] :is(.col-ssd, .col-portable) { display: none; }
 
 .drive-empty { padding: 28px 24px; color: var(--muted); text-align: center; }
 
@@ -125,9 +127,18 @@
 @media (max-width: 620px) {
   .hardware-join { border-radius: 22px; }
   .drive-table-wrap { border-radius: 18px; }
-  .drive-table th, .drive-table td { padding: 14px 12px; }
-  .drive-table tbody th { font-size: 1rem; }
-  .drive-table td a { font-size: .9rem; }
+  /* Too narrow for four columns: each size becomes a block, and each type a labelled line. */
+  .drive-table thead { display: none; }
+  .drive-table, .drive-table tbody, .drive-table tr, .drive-table th, .drive-table td { display: block; }
+  .drive-table tr[hidden] { display: none; }
+  .drive-table tbody tr { padding: 16px; border-bottom: 1px solid var(--soft-line); }
+  .drive-table tbody tr:last-child { border-bottom: 0; }
+  .drive-table tbody th, .drive-table td { width: auto; padding: 0; border: 0; }
+  .drive-table tbody th span { display: inline; margin-left: 8px; }
+  .drive-table td { margin-top: 10px; }
+  .drive-table td::before { content: attr(data-label); display: block; margin-bottom: 4px; color: var(--muted); font-size: .75rem; font-weight: 650; }
+  .drive-table td.drive-none { display: none; }
+  .drive-table td a { font-size: .92rem; }
   .drive-filters { justify-content: flex-start; }
   .drive-filters fieldset { gap: 6px; }
   .drive-filters legend { width: 100%; margin: 0 0 2px; }

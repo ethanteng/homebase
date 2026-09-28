@@ -27,7 +27,7 @@ test('each row names its size and the types it has, for the filters', () => {
   for (const row of rows) {
     const tb = row.match(/<th scope="row">(\d+) TB/)[1];
     assert.equal(attr(row, 'data-tb'), tb);
-    const linked = ['ssd', 'desktop'].filter((type) => new RegExp(`<td class="col-${type}"><a `).test(row));
+    const linked = ['ssd', 'portable', 'desktop'].filter((type) => new RegExp(`<td class="col-${type}"[^>]*><ul`).test(row));
     assert.deepEqual(attr(row, 'data-types').split(' '), linked, `${tb} TB row's data-types`);
   }
 });
