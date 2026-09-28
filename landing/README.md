@@ -110,10 +110,14 @@ node landing/acquisition-pages.mjs
 
 ## Storage page
 
-`/hardware` helps a household size its storage and pick a drive, before Uncloud has any hardware partner. Its own styles are in `hardware.css` and its script in `hardware.js`; it is in the sitemap, and every page's footer links to it as “Buy more storage”.
+`/hardware` lists drives for Uncloud by size and type, before Uncloud has any hardware partner. Its own styles are in `hardware.css`, and `hardware.js` adds filters by type (which hides the other column) and minimum size (which hides smaller rows). The filters ship hidden, so without JavaScript the page is the whole table. It is in the sitemap, and every page's footer links to it as “Buy more storage”.
 
-- **Step 1** suggests a capacity per household: documents and photos 2 TB, a family photo/video library 4 TB, a large family library 8 TB, a serious photo/video collection 16 TB+. The page opens on 8 TB.
-- **Step 2** recommends three drives, all sold by Newegg: Samsung T7 Shield (portable SSD, 1/2/4 TB), Seagate Expansion Desktop (4/8/16 TB), and WD Elements Desktop (16/20/24 TB). The card that fits the chosen household is marked “Best fit for you”, and each card preselects the smallest size that holds the suggestion. The largest size is one drive rather than a two-drive RAID box: the common two-bay consumer boxes ship striped (RAID 0), which loses everything if either drive fails.
-- **Backup** suggests a second Seagate Expansion Desktop of the same size for Time Machine or other backup.
+One table has a row per size (1 to 26 TB, with a short hint such as “A large family library” at 2, 4, 8 and 16 TB) and a column per type, each cell listing every drive of that type and size:
 
-The drives, sizes and Newegg URLs live only in `hardware.html` (`data-url` on each size button); `hardware.js` reads them from the markup, so the page works without JavaScript at the 8 TB default. Sizes without a verified Newegg-sold product page link to a Newegg search for that model and size. When a listing changes, edit the URL in the HTML; `hardware.test.cjs` checks that every link is Newegg's and that each card's default link matches its checked size. The copy says “recommend”, not “tested”: once a drive has been run as an Uncloud host's storage, the ✓ line on its card is the place to say so. Click measurement is in [measurement.md](measurement.md#storage-page-clicks).
+| Type | Drives |
+| --- | --- |
+| Portable SSD | Samsung T7 Shield (1–4 TB), SanDisk Extreme (1–8 TB) |
+| Portable hard drive | WD My Passport (1–5 TB), Seagate Portable (1–5 TB) |
+| Desktop drive | Seagate Expansion Desktop (4–26 TB), WD My Book (4–16 TB), WD Elements Desktop (16–24 TB) |
+
+Crucial drives are left out: Micron ended the Crucial consumer brand in February 2026. On phones the table stacks, one block per size with a labelled line per type. All are sold by Newegg. Sizes without a verified Newegg-sold product page link to a Newegg search for that model and size; when a listing changes, edit its URL in `hardware.html`. Each row's `data-tb` and `data-types` drive the filters; `hardware.test.cjs` checks that they match the row's cells, and that every link is Newegg's and tagged with the size of its row. The copy says nothing about testing; say so only once a drive has actually been run as an Uncloud host's storage. Click measurement is in [measurement.md](measurement.md#storage-page-clicks).
