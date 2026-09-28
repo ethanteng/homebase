@@ -11,9 +11,7 @@
 .hardware-hero h1 { margin-top: 20px; font-size: clamp(2.6rem, 4.8vw, 4.5rem); }
 .hardware-hero .hero-detail { max-width: 700px; margin: 24px auto 0; }
 
-.hardware-section { padding: clamp(56px, 7vw, 96px) 0 0; scroll-margin-top: 28px; }
-#drives .section-heading { text-align: center; }
-#drives .hardware-lede { max-width: 620px; margin: 18px auto 0; }
+.hardware-section { padding: clamp(24px, 3vw, 40px) 0 0; scroll-margin-top: 28px; }
 
 .hardware-section h2,
 .hardware-join h2 {
@@ -25,15 +23,6 @@
 }
 
 .hardware-join h2 { font-size: clamp(2rem, 3.4vw, 3rem); }
-
-.hardware-lede {
-  max-width: 46ch;
-  margin-top: 20px;
-  color: var(--muted);
-  font-size: 1.02rem;
-  line-height: 1.65;
-  text-wrap: pretty;
-}
 
 /* The drives, by size (rows) and type (columns). */
 .drive-table-wrap {
