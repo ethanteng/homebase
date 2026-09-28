@@ -9,7 +9,6 @@
 
 const rows = [...document.querySelectorAll("[data-household]")];
 const cards = [...document.querySelectorAll("[data-drive]")];
-const backup = document.querySelector("[data-backup]");
 const picks = {};
 let household = Math.max(0, rows.findIndex((row) => row.getAttribute("aria-checked") === "true"));
 
@@ -65,14 +64,6 @@ function render() {
     cta.href = link(chosen.dataset.url, drive, picked, "card", tb);
     cta.querySelector("[data-cta-label]").textContent = `View ${picked} TB at Newegg`;
     card.querySelector("[data-note]").textContent = note(caps, picked, tb);
-  }
-
-  if (backup) {
-    const source = document.querySelector(`[data-drive="${backup.dataset.backup}"]`);
-    const size = fit(sizes(source), tb);
-    const button = source.querySelector(`[data-tb="${size}"]`);
-    backup.href = link(button.dataset.url, backup.dataset.backup, size, "backup", tb);
-    for (const el of document.querySelectorAll("[data-backup-tb]")) el.textContent = `${size} TB`;
   }
 }
 

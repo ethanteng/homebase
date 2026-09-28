@@ -168,9 +168,9 @@ The goal of `/hardware` is to learn whether Uncloud drives storage purchases, an
 
 | Parameter | Value |
 | --- | --- |
-| `link_id` | `hardware-t7-shield`, `hardware-seagate-expansion`, `hardware-wd-elements`, or `hardware-backup` |
+| `link_id` | `hardware-t7-shield`, `hardware-seagate-expansion`, or `hardware-wd-elements` |
 | `link_domain` | `www.newegg.com` |
-| `utm_content` (in Link URL) | `<drive>-<capacity>tb-<card or backup>`, e.g. `seagate-expansion-8tb-card` |
+| `utm_content` (in Link URL) | `<drive>-<capacity>tb-card`, e.g. `seagate-expansion-8tb-card` |
 | `utm_term` (in Link URL) | the suggested capacity for the household picked, e.g. `need-8tb` |
 
 The other parameters are `utm_source=uncloud`, `utm_medium=hardware_page`, `utm_campaign=hardware_v1`. `hardware.js` rewrites the link before the visitor clicks, so the URL always reflects the size shown on the button.
