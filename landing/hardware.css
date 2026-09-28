@@ -56,6 +56,45 @@
 .drive-table td a:hover { text-decoration-color: currentColor; }
 .drive-none { color: #b7c0cb; }
 
+/* Filters above the table. Hidden columns follow the table's data-type. */
+.drive-filters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px 32px;
+  max-width: 980px;
+  margin: 32px auto 0;
+}
+
+.drive-filters[hidden] { display: none; }
+.drive-filters fieldset { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 0; border: 0; }
+.drive-filters legend { float: left; margin-right: 4px; color: var(--muted); font-size: .8rem; font-weight: 650; }
+.drive-filters label { position: relative; cursor: pointer; }
+.drive-filters input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+
+.drive-filters label span {
+  display: inline-block;
+  padding: 8px 14px;
+  border: 1px solid #cfd6df;
+  border-radius: 999px;
+  background: #fff;
+  font-size: .88rem;
+  font-weight: 700;
+  transition: background .15s ease, border-color .15s ease;
+}
+
+.drive-filters label:hover span { border-color: #82b5f6; }
+.drive-filters input:checked + span { border-color: var(--accent); background: var(--accent); color: #fff; }
+.drive-filters input:focus-visible + span { outline: 3px solid rgba(42, 127, 240, 0.5); outline-offset: 3px; }
+
+.drive-count { min-height: 1.5em; margin-top: 14px; color: var(--muted); font-size: .85rem; text-align: center; }
+.drive-table-wrap { margin-top: 14px; }
+
+.drive-table[data-type="ssd"] .col-desktop,
+.drive-table[data-type="desktop"] .col-ssd { display: none; }
+
+.drive-empty { padding: 28px 24px; color: var(--muted); text-align: center; }
+
 .drive-disclosure {
   max-width: 720px;
   margin: 24px auto 0;
@@ -89,4 +128,8 @@
   .drive-table th, .drive-table td { padding: 14px 12px; }
   .drive-table tbody th { font-size: 1rem; }
   .drive-table td a { font-size: .9rem; }
+  .drive-filters { justify-content: flex-start; }
+  .drive-filters fieldset { gap: 6px; }
+  .drive-filters legend { width: 100%; margin: 0 0 2px; }
+  .drive-filters label span { padding: 7px 11px; font-size: .82rem; }
 }

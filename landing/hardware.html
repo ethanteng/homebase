@@ -41,6 +41,7 @@
     <link rel="icon" type="image/png" href="./uncloud.png" />
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./hardware.css" />
+    <script type="module" src="./hardware.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -77,53 +78,71 @@
             <h2 id="drives-heading">Drives by size and type.</h2>
             <p class="hardware-lede">A portable SSD is small and silent, for up to 4 TB. A desktop drive holds the most for the money. Add up what your family keeps in Dropbox, Google Drive and iCloud today, then leave room to grow.</p>
           </div>
+          <form class="drive-filters" data-filters hidden aria-label="Filter drives">
+            <fieldset>
+              <legend>Type</legend>
+              <label><input type="radio" name="type" value="all" checked /><span>All</span></label>
+              <label><input type="radio" name="type" value="ssd" /><span>Portable SSD</span></label>
+              <label><input type="radio" name="type" value="desktop" /><span>Desktop drive</span></label>
+            </fieldset>
+            <fieldset>
+              <legend>Space</legend>
+              <label><input type="radio" name="min" value="0" checked /><span>Any</span></label>
+              <label><input type="radio" name="min" value="2" /><span>2 TB+</span></label>
+              <label><input type="radio" name="min" value="4" /><span>4 TB+</span></label>
+              <label><input type="radio" name="min" value="8" /><span>8 TB+</span></label>
+              <label><input type="radio" name="min" value="16" /><span>16 TB+</span></label>
+            </fieldset>
+          </form>
+          <p class="drive-count" data-count aria-live="polite"></p>
           <div class="drive-table-wrap">
             <table class="drive-table">
               <thead>
                 <tr>
                   <th scope="col">Space</th>
-                  <th scope="col">Portable SSD <span>USB-C</span></th>
-                  <th scope="col">Desktop drive <span>USB 3.0, plugs into power</span></th>
+                  <th scope="col" class="col-ssd">Portable SSD <span>USB-C</span></th>
+                  <th scope="col" class="col-desktop">Desktop drive <span>USB 3.0, plugs into power</span></th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
+                <tr data-tb="1" data-types="ssd">
                   <th scope="row">1 TB</th>
-                  <td><a href="https://www.newegg.com/samsung-t7-shield-1tb-usb-3-2-gen-2/p/N82E16820147833?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=t7-shield-1tb" target="_blank" rel="noopener">Samsung T7 Shield <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
-                  <td class="drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
+                  <td class="col-ssd"><a href="https://www.newegg.com/samsung-t7-shield-1tb-usb-3-2-gen-2/p/N82E16820147833?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=t7-shield-1tb" target="_blank" rel="noopener">Samsung T7 Shield <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
+                  <td class="col-desktop drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
                 </tr>
-                <tr>
+                <tr data-tb="2" data-types="ssd">
                   <th scope="row">2 TB<span>Documents and photos</span></th>
-                  <td><a href="https://www.newegg.com/samsung-t7-shield-2tb-usb-3-2-gen-2/p/N82E16820147834?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=t7-shield-2tb" target="_blank" rel="noopener">Samsung T7 Shield <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
-                  <td class="drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
+                  <td class="col-ssd"><a href="https://www.newegg.com/samsung-t7-shield-2tb-usb-3-2-gen-2/p/N82E16820147834?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=t7-shield-2tb" target="_blank" rel="noopener">Samsung T7 Shield <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
+                  <td class="col-desktop drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
                 </tr>
-                <tr>
+                <tr data-tb="4" data-types="ssd desktop">
                   <th scope="row">4 TB<span>A family photo and video library</span></th>
-                  <td><a href="https://www.newegg.com/samsung-t7-shield-4tb-usb-3-2/p/N82E16820147866?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=t7-shield-4tb" target="_blank" rel="noopener">Samsung T7 Shield <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
-                  <td><a href="https://www.newegg.com/p/pl?d=Seagate+Expansion+Desktop+STKP4000400&amp;utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=seagate-expansion-4tb" target="_blank" rel="noopener">Seagate Expansion Desktop <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
+                  <td class="col-ssd"><a href="https://www.newegg.com/samsung-t7-shield-4tb-usb-3-2/p/N82E16820147866?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=t7-shield-4tb" target="_blank" rel="noopener">Samsung T7 Shield <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
+                  <td class="col-desktop"><a href="https://www.newegg.com/p/pl?d=Seagate+Expansion+Desktop+STKP4000400&amp;utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=seagate-expansion-4tb" target="_blank" rel="noopener">Seagate Expansion Desktop <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
                 </tr>
-                <tr>
+                <tr data-tb="8" data-types="desktop">
                   <th scope="row">8 TB<span>A large family library</span></th>
-                  <td class="drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
-                  <td><a href="https://www.newegg.com/seagate-expansion-8tb-black-usb-3-0/p/N82E16822184955?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=seagate-expansion-8tb" target="_blank" rel="noopener">Seagate Expansion Desktop <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
+                  <td class="col-ssd drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
+                  <td class="col-desktop"><a href="https://www.newegg.com/seagate-expansion-8tb-black-usb-3-0/p/N82E16822184955?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=seagate-expansion-8tb" target="_blank" rel="noopener">Seagate Expansion Desktop <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
                 </tr>
-                <tr>
+                <tr data-tb="16" data-types="desktop">
                   <th scope="row">16 TB<span>A serious photo and video collection</span></th>
-                  <td class="drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
-                  <td><a href="https://www.newegg.com/seagate-expansion-16tb-black-usb-3-0/p/N82E16822184959?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=seagate-expansion-16tb" target="_blank" rel="noopener">Seagate Expansion Desktop <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
+                  <td class="col-ssd drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
+                  <td class="col-desktop"><a href="https://www.newegg.com/seagate-expansion-16tb-black-usb-3-0/p/N82E16822184959?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=seagate-expansion-16tb" target="_blank" rel="noopener">Seagate Expansion Desktop <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
                 </tr>
-                <tr>
+                <tr data-tb="20" data-types="desktop">
                   <th scope="row">20 TB</th>
-                  <td class="drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
-                  <td><a href="https://www.newegg.com/p/pl?d=WD+Elements+Desktop+20TB&amp;utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=wd-elements-20tb" target="_blank" rel="noopener">WD Elements Desktop <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
+                  <td class="col-ssd drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
+                  <td class="col-desktop"><a href="https://www.newegg.com/p/pl?d=WD+Elements+Desktop+20TB&amp;utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=wd-elements-20tb" target="_blank" rel="noopener">WD Elements Desktop <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
                 </tr>
-                <tr>
+                <tr data-tb="24" data-types="desktop">
                   <th scope="row">24 TB</th>
-                  <td class="drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
-                  <td><a href="https://www.newegg.com/wd-elements-24tb-black/p/N82E16822234576?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=wd-elements-24tb" target="_blank" rel="noopener">WD Elements Desktop <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
+                  <td class="col-ssd drive-none"><span aria-hidden="true">—</span><span class="sr-only">None</span></td>
+                  <td class="col-desktop"><a href="https://www.newegg.com/wd-elements-24tb-black/p/N82E16822234576?utm_source=uncloud&amp;utm_medium=hardware_page&amp;utm_campaign=hardware_v1&amp;utm_content=wd-elements-24tb" target="_blank" rel="noopener">WD Elements Desktop <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a></td>
                 </tr>
               </tbody>
             </table>
+            <p class="drive-empty" data-empty hidden>No drive of that type holds that much. Try a desktop drive or a smaller size.</p>
           </div>
           <p class="drive-disclosure">Links go to Newegg. We don’t sell drives, and any drive with enough room works.</p>
         </section>

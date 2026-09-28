@@ -7,7 +7,7 @@ const attr = (tag, name) => (tag.match(new RegExp(`${name}="([^"]*)"`)) || [])[1
 const unescape = (s) => s.replaceAll('&amp;', '&');
 
 test('every drive in the table links to Newegg, tagged with its drive and size', () => {
-  const rows = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>')).split('<tr>').slice(1);
+  const rows = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>')).split('<tr ').slice(1);
   assert.ok(rows.length >= 5, 'a row per size');
   let links = 0;
   for (const row of rows) {
@@ -20,6 +20,16 @@ test('every drive in the table links to Newegg, tagged with its drive and size',
     }
   }
   assert.ok(links >= rows.length, 'every size has at least one drive');
+});
+
+test('each row names its size and the types it has, for the filters', () => {
+  const rows = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>')).split('<tr ').slice(1);
+  for (const row of rows) {
+    const tb = row.match(/<th scope="row">(\d+) TB/)[1];
+    assert.equal(attr(row, 'data-tb'), tb);
+    const linked = ['ssd', 'desktop'].filter((type) => new RegExp(`<td class="col-${type}"><a `).test(row));
+    assert.deepEqual(attr(row, 'data-types').split(' '), linked, `${tb} TB row's data-types`);
+  }
 });
 
 test('the page is canonical at /hardware, in the sitemap, and linked from every footer', async () => {
