@@ -7,9 +7,11 @@
 #
 # On a Mac it also signs the app and puts it in a disk image, artifacts/Uncloud-<runtime>.dmg.
 # With UNCLOUD_SIGN_IDENTITY set to a "Developer ID Application: …" identity it signs for
-# distribution, and with UNCLOUD_NOTARY_PROFILE set to a notarytool keychain profile it notarizes
-# and staples the disk image too. Without them it signs ad hoc, which runs on the Mac that built it
-# and needs confirming in System Settings anywhere else.
+# distribution. It notarizes and staples the disk image too with UNCLOUD_NOTARY_PROFILE set to a
+# notarytool keychain profile, or with an App Store Connect API key: UNCLOUD_NOTARY_KEY (the .p8
+# file), UNCLOUD_NOTARY_KEY_ID and UNCLOUD_NOTARY_ISSUER, which is how CI does it. Without them it
+# signs ad hoc, which runs on the Mac that built it and needs confirming in System Settings
+# anywhere else.
 set -euo pipefail
 cd -- "$(dirname -- "$0")/.."
 runtime="${1:-osx-arm64}"
@@ -90,10 +92,30 @@ done
 iconutil -c icns "$icons" -o "$app/Contents/Resources/Uncloud.icns"
 
 identity="${UNCLOUD_SIGN_IDENTITY:--}"
+# Who notarizes: a notarytool keychain profile on a Mac somebody set up, or an API key in CI.
+notary=()
+if [[ -n "${UNCLOUD_NOTARY_PROFILE:-}" ]]; then
+  notary=(--keychain-profile "$UNCLOUD_NOTARY_PROFILE")
+elif [[ -n "${UNCLOUD_NOTARY_KEY:-}" ]]; then
+  notary=(--key "$UNCLOUD_NOTARY_KEY" --key-id "${UNCLOUD_NOTARY_KEY_ID:?Set UNCLOUD_NOTARY_KEY_ID too.}"
+    --issuer "${UNCLOUD_NOTARY_ISSUER:?Set UNCLOUD_NOTARY_ISSUER too.}")
+fi
+if ((${#notary[@]})) && [[ "$identity" == "-" ]]; then
+  echo "Apple won't notarize an ad hoc signature. Set UNCLOUD_SIGN_IDENTITY too." >&2
+  exit 1
+fi
 # An ad hoc signature ("-") can't carry a trusted timestamp; a Developer ID one must, to notarize.
 timestamp=--timestamp=none
 if [[ "$identity" != "-" ]]; then timestamp=--timestamp; fi
-sign() { codesign --force "$timestamp" --options runtime --entitlements src/Uncloud.Desktop/Uncloud.entitlements -s "$identity" "$@"; }
+# Apple's timestamp server now and then answers that it isn't available; a moment later it is.
+sign() {
+  local attempt
+  for attempt in 1 2 3; do
+    codesign --force "$timestamp" --options runtime --entitlements src/Uncloud.Desktop/Uncloud.entitlements -s "$identity" "$@" && return
+    if ((attempt == 3)); then return 1; fi
+    sleep 5
+  done
+}
 # Inside out, or the bundle's seal is broken. codesign counts everything in Contents/MacOS as
 # nested code — .NET's managed .dll files and the server's web pages included — so every file
 # there is signed, except the app's own executable, which signing the bundle signs.
@@ -122,18 +144,45 @@ if [[ "$identity" != "-" ]]; then codesign --force --timestamp -s "$identity" "$
 
 # The copy inside is the one people run. .NET's .dll files carry their signatures in extended
 # attributes, which a copy that dropped them would break, so the app is checked as it is there.
-mounted="$(mktemp -d)"
-hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mounted" >/dev/null
-verified=true
-codesign --verify --deep --strict "$mounted/Uncloud.app" || verified=false
-hdiutil detach "$mounted" >/dev/null
-if [[ "$verified" != true ]]; then
+check_inside() {
+  local mounted ok=true
+  mounted="$(mktemp -d)"
+  hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mounted" >/dev/null
+  "$@" "$mounted/Uncloud.app" || ok=false
+  hdiutil detach "$mounted" >/dev/null
+  [[ "$ok" == true ]]
+}
+if ! check_inside codesign --verify --deep --strict; then
   echo "The app in $dmg doesn't pass codesign --verify." >&2
   exit 1
 fi
 
-if [[ -n "${UNCLOUD_NOTARY_PROFILE:-}" && "$identity" != "-" ]]; then
-  xcrun notarytool submit "$dmg" --keychain-profile "$UNCLOUD_NOTARY_PROFILE" --wait
-  xcrun stapler staple "$dmg"
+# Notarized, macOS opens it without anybody allowing it in System Settings first. Apple checks the
+# disk image and everything in it, and the ticket it hands back is stapled to the disk image, so a
+# Mac opening it has the answer with it.
+if ((${#notary[@]})); then
+  submission="$(mktemp)"
+  # What Apple decided is read from its answer rather than notarytool's exit status, so that a
+  # rejection can fetch the log that says why.
+  xcrun notarytool submit "$dmg" "${notary[@]}" --wait --output-format json >"$submission" || true
+  status="$(plutil -extract status raw -o - "$submission" 2>/dev/null || true)"
+  if [[ "$status" != Accepted ]]; then
+    echo "Apple didn't notarize $dmg (${status:-no answer}): $(cat "$submission")" >&2
+    # Apple's log names each file it objected to, and why.
+    id="$(plutil -extract id raw -o - "$submission" 2>/dev/null || true)"
+    if [[ -n "$id" ]]; then xcrun notarytool log "$id" "${notary[@]}" >&2 || true; fi
+    exit 1
+  fi
+  # The ticket can take a moment to be there to fetch after Apple accepts the submission.
+  for attempt in 1 2 3; do
+    xcrun stapler staple "$dmg" && break
+    if ((attempt == 3)); then exit 1; fi
+    sleep 15
+  done
+  # Gatekeeper's own verdict, which is what a Mac that downloaded it will go by.
+  if ! check_inside spctl --assess --type execute --verbose=2; then
+    echo "Gatekeeper rejects the app in $dmg, though Apple notarized it." >&2
+    exit 1
+  fi
 fi
 echo "Built $dmg ($(du -h "$dmg" | cut -f1))"

@@ -609,11 +609,14 @@ On a Mac this produces `artifacts/Uncloud-osx-arm64.dmg`: the app beside a short
 Applications, compressed with LZMA (`ULMO`): 59 MB for Apple silicon and 67 MB for Intel, against 76 and 81 MB
 zipped. The
 script mounts it and checks the app's signature as it is inside, since the managed `.dll` files
-carry theirs in extended attributes that a careless copy drops. Signed ad hoc, it runs on the Mac that
-built it and has to be confirmed the first time on any other, as the README describes. For distribution, set
-`UNCLOUD_SIGN_IDENTITY` to a "Developer ID Application" identity, and `UNCLOUD_NOTARY_PROFILE` to a
-`notarytool` keychain profile to notarize and staple the disk image too. CI builds the app for Apple silicon and
-Intel on every run and keeps both as the run's **Artifacts**. Every push to `main` that passes also
+carry theirs in extended attributes that a careless copy drops. Signed ad hoc, as it is by default, it runs on
+the Mac that built it and has to be allowed in System Settings on any other. For distribution, set
+`UNCLOUD_SIGN_IDENTITY` to a "Developer ID Application" identity, and either `UNCLOUD_NOTARY_PROFILE` to a
+`notarytool` keychain profile or `UNCLOUD_NOTARY_KEY`, `UNCLOUD_NOTARY_KEY_ID` and `UNCLOUD_NOTARY_ISSUER` to
+an App Store Connect API key, to notarize and staple the disk image too. Notarized, the script also asks
+Gatekeeper (`spctl`) whether it would open the app, and fails if not. CI builds the app for Apple silicon and
+Intel on every run and keeps both as the run's **Artifacts**; see [Signing the app](#signing-the-app) for
+which of those are signed. Every push to `main` that passes also
 updates the `mac-latest` release with them (never deleting it, and without being cancelled part way), so
 `https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.dmg` (and
 `…-osx-x64.dmg`) always serve the latest build; the README links there. The zips the app was first
@@ -628,6 +631,45 @@ references the ASP.NET Core framework for that reason alone, so both publish ide
 files; the packaging script stops if any file the two share differs. Trimming would shrink each
 further, but trimmed copies differ, so they couldn't share. The app logs to
 `~/Library/Application Support/Uncloud/uncloud.log`, including anything that stops it.
+
+### Signing the app
+
+CI signs the app with the project's Developer ID and has Apple notarize it on every push to
+`main`, and on any run started by hand from the **Actions** tab, which is how to try a change to
+signing on a branch before it reaches `main`. Pull request builds stay signed ad hoc: they never
+publish, and notarizing each push would only slow them down. A run that should sign and can't find
+the secrets fails, rather than publishing an app macOS stops.
+
+It needs five repository secrets, under **Settings → Secrets and variables → Actions**:
+
+| Secret | What it is |
+| --- | --- |
+| `MACOS_CERTIFICATE_P12` | The Developer ID Application certificate and its private key, exported from Keychain Access as a `.p12`, base64-encoded: `base64 -i DeveloperID.p12 \| pbcopy`. |
+| `MACOS_CERTIFICATE_PASSWORD` | The password the `.p12` was exported with. |
+| `APPLE_NOTARY_KEY` | The whole text of the App Store Connect API key's `AuthKey_….p8` file. |
+| `APPLE_NOTARY_KEY_ID` | That key's ID. |
+| `APPLE_NOTARY_ISSUER_ID` | The issuer ID shown above the list of team keys. |
+
+To make them, as the Apple Developer account holder:
+
+1. **The certificate.** On a Mac, open Keychain Access and choose **Keychain Access → Certificate
+   Assistant → Request a Certificate From a Certificate Authority**. Enter your e-mail, choose
+   **Saved to disk**, and save the `.certSigningRequest`. At
+   [developer.apple.com → Certificates](https://developer.apple.com/account/resources/certificates/list),
+   click **+**, choose **Developer ID Application** and the **G2 Sub-CA**, and upload the request.
+   Download the certificate and double-click it to add it to Keychain Access. (Xcode's **Settings →
+   Accounts → Manage Certificates → + → Developer ID Application** does the same in one step.)
+2. **The `.p12`.** In Keychain Access, under **My Certificates**, right-click **Developer ID
+   Application: …** (it has a key under it) and choose **Export**. Save it as a `.p12` with a
+   strong password. Keep a copy somewhere safe: Apple can't give the private key back, and anybody
+   with it can sign apps as you.
+3. **The API key.** In [App Store Connect](https://appstoreconnect.apple.com/access/integrations/api),
+   open **Users and Access → Integrations → App Store Connect API** (click **Request Access** the
+   first time), then **Team Keys → +**. Name it for notarizing and give it the **Developer** role.
+   Download the `.p8` (Apple lets you download it once) and note its key ID and the issuer ID.
+
+Notarizing fails until the account holder has accepted any new agreement waiting at
+developer.apple.com, which Apple adds from time to time.
 
 ### Desktop packaging
 
