@@ -6,28 +6,20 @@ const html = fs.readFileSync(__dirname + '/hardware.html', 'utf8');
 const attr = (tag, name) => (tag.match(new RegExp(`${name}="([^"]*)"`)) || [])[1];
 const unescape = (s) => s.replaceAll('&amp;', '&');
 
-test('every drive size links to a Newegg page over https', () => {
-  const urls = [...html.matchAll(/data-url="([^"]*)"/g)].map((m) => new URL(unescape(m[1])));
-  assert.ok(urls.length >= 9, 'three sizes per drive');
-  for (const url of urls) assert.equal(url.origin, 'https://www.newegg.com', url.href);
-});
-
-test('without JavaScript, each card links to its checked size, tagged for the 8 TB default', () => {
-  const cards = html.split('<article').slice(1);
-  assert.equal(cards.length, 3);
-  for (const card of cards) {
-    const drive = attr(card, 'data-drive');
-    const checked = card.match(/<button[^>]*aria-checked="true"[^>]*>/g);
-    assert.equal(checked.length, 1, `${drive} has one checked size`);
-    const tb = attr(checked[0], 'data-tb');
-    const cta = new URL(unescape(attr(card.match(/<a [^>]*data-cta[^>]*>/)[0], 'href')));
-    const url = new URL(unescape(attr(checked[0], 'data-url')));
-    for (const key of cta.searchParams.keys()) if (key.startsWith('utm_')) url.searchParams.set(key, cta.searchParams.get(key));
-    assert.equal(cta.href, url.href, `${drive} CTA is its checked size's URL`);
-    assert.equal(cta.searchParams.get('utm_content'), `${drive}-${tb}tb-card`);
-    assert.equal(cta.searchParams.get('utm_term'), 'need-8tb');
-    assert.ok(card.includes(`View ${tb} TB at Newegg`), `${drive} CTA names ${tb} TB`);
+test('every drive in the table links to Newegg, tagged with its drive and size', () => {
+  const rows = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>')).split('<tr>').slice(1);
+  assert.ok(rows.length >= 5, 'a row per size');
+  let links = 0;
+  for (const row of rows) {
+    const tb = row.match(/<th scope="row">(\d+) TB/)[1];
+    for (const tag of row.match(/<a [^>]*>/g) || []) {
+      const url = new URL(unescape(attr(tag, 'href')));
+      assert.equal(url.origin, 'https://www.newegg.com', url.href);
+      assert.match(url.searchParams.get('utm_content'), new RegExp(`^[a-z0-9-]+-${tb}tb$`), `${tb} TB row links to a ${tb} TB drive`);
+      links++;
+    }
   }
+  assert.ok(links >= rows.length, 'every size has at least one drive');
 });
 
 test('the page is canonical at /hardware, in the sitemap, and linked from every footer', async () => {

@@ -164,15 +164,6 @@ so their parameters and existing reports are unaffected.
 
 ## Storage page clicks
 
-The goal of `/hardware` is to learn whether Uncloud drives storage purchases, and at what capacity. Like the GitHub links, clicks to Newegg reuse GA4 enhanced measurement's outbound **`click`** event; there is no custom event or GTM tag, and none should be added (it would count each click twice). Every outbound link carries the details in its URL, which GA4 records as **Link URL**:
+The goal of `/hardware` is to learn whether Uncloud drives storage purchases, and at what capacity. Like the GitHub links, clicks to Newegg reuse GA4 enhanced measurement's outbound **`click`** event; there is no custom event or GTM tag, and none should be added (it would count each click twice). Every outbound link carries the drive and size in its URL, which GA4 records as **Link URL**: `utm_content=<drive>-<capacity>tb`, e.g. `seagate-expansion-8tb`, alongside `utm_source=uncloud`, `utm_medium=hardware_page`, `utm_campaign=hardware_v1`. `link_domain` is `www.newegg.com`.
 
-| Parameter | Value |
-| --- | --- |
-| `link_id` | `hardware-t7-shield`, `hardware-seagate-expansion`, or `hardware-wd-elements` |
-| `link_domain` | `www.newegg.com` |
-| `utm_content` (in Link URL) | `<drive>-<capacity>tb-card`, e.g. `seagate-expansion-8tb-card` |
-| `utm_term` (in Link URL) | the suggested capacity for the household picked, e.g. `need-8tb` |
-
-The other parameters are `utm_source=uncloud`, `utm_medium=hardware_page`, `utm_campaign=hardware_v1`. `hardware.js` rewrites the link before the visitor clicks, so the URL always reflects the size shown on the button.
-
-For reporting, build an Exploration with **Event count** and **Total users** by **Link URL** and **Link ID**, filtered to Event name `click` and Link domain `www.newegg.com`; divide by `/hardware` page views for the click-through rate, and read capacity from `utm_content`. This measures clicks through to Newegg, not purchases: Newegg reports nothing back without an affiliate program, and the UTM parameters only help if Newegg ever shares its referral data.
+For reporting, build an Exploration with **Event count** and **Total users** by **Link URL**, filtered to Event name `click` and Link domain `www.newegg.com`; divide by `/hardware` page views for the click-through rate, and read capacity from `utm_content`. This measures clicks through to Newegg, not purchases: Newegg reports nothing back without an affiliate program, and the UTM parameters only help if Newegg ever shares its referral data.
