@@ -51,8 +51,7 @@ plugged into it.
 
 - **No uploading, renaming or deleting in the browser.** Files get in by importing or syncing a
   computer.
-- **The app isn't signed by Apple yet**, so macOS asks you to confirm it the first time you open
-  it ([how](#get-the-app)). It's Mac only for now.
+- **The app is Mac only for now.**
 - **The host has to stay on and awake.** On a Mac, turn off sleep in System Settings, and tick
   **Open at Login** in the Uncloud menu so it starts again after a restart.
 - **No sharing of files inside Uncloud** between people, and no storage limits per person. (A folder
@@ -74,11 +73,8 @@ Macs in sync with it.
    - **[Intel](https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-x64.dmg)**
 2. Open the download, and drag **Uncloud** onto the **Applications** folder beside it. Then eject
    the **Uncloud** disk in Finder's sidebar.
-3. Open it. Uncloud isn't signed by Apple yet, so the first time macOS stops it:
-   - **macOS 15 Sequoia and later:** click **Done**, then open **System Settings → Privacy &
-     Security**, scroll down to the message about Uncloud, and click **Open Anyway**.
-   - **Earlier macOS:** right-click (or Control-click) Uncloud in Applications, choose **Open**,
-     then **Open** again.
+3. Open it. The first time, macOS asks whether you're sure, because it came from the internet:
+   click **Open**. Uncloud is signed and checked by Apple, so that's all it asks.
 
    After that it opens normally. Uncloud lives in the menu bar at the top of the screen, as a
    **U**, not in the Dock.
@@ -338,8 +334,8 @@ step 2 is still open, and start it again if the computer restarted.
 date, syncing, paused, or can't reach Uncloud. If it can't, check that the host is on, and that
 the laptop can open Uncloud's address in a browser.
 
-**macOS says Uncloud can't be opened.** It isn't signed by Apple yet. See
-[Get the app](#get-the-app) for how to open it the first time.
+**macOS says Uncloud can't be opened.** Older downloads weren't signed by Apple. Download it again
+from [Get the app](#get-the-app) and drag it onto Applications, replacing the old one.
 
 **Dropbox sign-in fails.** If you are using your own Dropbox app, the redirect URI registered with
 Dropbox has to match the one Uncloud shows now. It changes if you turn on remote access after

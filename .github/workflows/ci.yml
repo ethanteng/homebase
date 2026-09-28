@@ -56,12 +56,12 @@ jobs:
       - run: ./scripts/fetch-syncthing.sh "$RUNNER_TEMP/syncthing" && "$RUNNER_TEMP/syncthing/syncthing" --version
 
   # The Mac app: the menu-bar app with the server, Syncthing and the tunnel inside it, for Apple
-  # Silicon and Intel. Built on a Mac because only a Mac can make the icon and sign it; signed ad
-  # hoc until there is a Developer ID, so macOS asks people to confirm it the first time.
+  # Silicon and Intel. Built on a Mac because only a Mac can make the icon and sign it.
   app:
     name: app (${{ matrix.runtime }})
     runs-on: macos-latest
-    timeout-minutes: 30
+    # Notarizing is Apple's queue, usually a few minutes, now and then many more.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -85,6 +85,57 @@ jobs:
         with:
           go-version: '1.24'
           cache-dependency-path: tools/uncloud-tunnel/go.sum
+
+      # Signed with the Developer ID and notarized by Apple, so macOS opens it without anybody
+      # allowing it in System Settings first. That's every build that can be published, and runs
+      # started by hand, which is how a change to signing gets tried on a branch. Pull requests
+      # build ad hoc: they never publish, and notarizing every push would only slow them down.
+      # Without the secrets this fails, rather than main publishing an app macOS stops.
+      - name: Set up the Developer ID
+        if: github.event_name != 'pull_request'
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          for secret in CERTIFICATE CERTIFICATE_PASSWORD NOTARY_KEY NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+            if [[ -z "${!secret}" ]]; then
+              echo "::error::Signing needs the MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD, APPLE_NOTARY_KEY, APPLE_NOTARY_KEY_ID and APPLE_NOTARY_ISSUER_ID secrets. See docs/technical.md."
+              exit 1
+            fi
+          done
+          # A keychain of its own for this run, which codesign can use without asking anybody.
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          # Apple's Developer ID intermediate, which a certificate exported from Keychain Access
+          # doesn't usually carry and without which it isn't a valid identity. If the export did
+          # carry it, it's already there; either way the identity is checked below.
+          curl -fsSL --retry 3 https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain" || true
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          # shellcheck disable=SC2046 # one path per word, and none has a space
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/"Developer ID Application: /{print $2; exit}')"
+          if [[ -z "$identity" ]]; then
+            echo "::error::MACOS_CERTIFICATE_P12 has no valid Developer ID Application certificate with its private key. This is what it has:"
+            security find-identity -p codesigning "$keychain"
+            exit 1
+          fi
+          printf '%s\n' "$NOTARY_KEY" > "$RUNNER_TEMP/notary.p8"
+          {
+            echo "UNCLOUD_SIGN_IDENTITY=$identity"
+            echo "UNCLOUD_NOTARY_KEY=$RUNNER_TEMP/notary.p8"
+            echo "UNCLOUD_NOTARY_KEY_ID=$NOTARY_KEY_ID"
+            echo "UNCLOUD_NOTARY_ISSUER=$NOTARY_ISSUER_ID"
+          } >> "$GITHUB_ENV"
 
       - run: ./scripts/package-macos-app.sh ${{ matrix.runtime }}
 
@@ -125,7 +176,7 @@ jobs:
           - **Uncloud-osx-arm64.dmg**: Macs with Apple silicon (M1 and later).
           - **Uncloud-osx-x64.dmg**: Macs with an Intel processor.
 
-          Open it and drag Uncloud onto Applications. It isn't signed by Apple yet, so macOS asks you to confirm it the first time you open it. See the README for how."
+          Open it and drag Uncloud onto Applications. It's signed and notarized by Apple: the first time you open it, macOS asks whether you're sure, and you click Open."
           if ! gh release view mac-latest >/dev/null 2>&1; then
             gh release create mac-latest dist/Uncloud-osx-arm64.dmg dist/Uncloud-osx-x64.dmg \
               --target "$GITHUB_SHA" --title "Uncloud for Mac (latest)" --notes "$notes"
