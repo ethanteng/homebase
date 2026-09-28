@@ -60,8 +60,10 @@ jobs:
   app:
     name: app (${{ matrix.runtime }})
     runs-on: macos-latest
-    # Notarizing is Apple's queue, usually a few minutes, now and then many more.
-    timeout-minutes: 45
+    # Signing takes under a minute; notarizing is Apple's queue, which took 24 and 40 minutes for
+    # the first two submissions. Timing out only means main keeps the previous download, but a
+    # build Apple would have accepted shouldn't be thrown away for waiting.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
