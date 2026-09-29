@@ -471,6 +471,10 @@ h1 span {
 
 .video-card {
   max-width: 960px;
+  /* As wide as the page, but short enough that the whole card fits in the window: its header and
+     footer take about 160px, and 30px more leaves some room around it. Never narrower than 960px,
+     which on a short window is the page's width anyway. */
+  max-width: max(960px, calc((100svh - 190px) * 16 / 9));
   margin: 0 auto;
   overflow: hidden;
   border: 1px solid #d1e1f3;
