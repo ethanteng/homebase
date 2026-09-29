@@ -13,8 +13,9 @@ function mockResponse() {
     headers: {},
     statusCode: 200,
     ended: false,
+    body: undefined,
     setHeader(name, value) { this.headers[name] = value; },
-    end() { this.ended = true; }
+    end(body) { this.ended = true; this.body = body; }
   };
 }
 
@@ -146,4 +147,106 @@ test("only GET and HEAD are answered", async () => {
   assert.equal(post.response.statusCode, 405);
   assert.equal(post.response.headers.Allow, "GET, HEAD");
   assert.equal(post.response.headers.Location, undefined);
+});
+
+const MP4 = "https://store.public.blob.vercel-storage.com/teaser-2026-09.mp4";
+const POSTER = "https://store.public.blob.vercel-storage.com/teaser-2026-09.jpg";
+const CAPTIONS = "https://store.public.blob.vercel-storage.com/teaser-2026-09.vtt";
+const VTT = "WEBVTT\n\n00:00.000 --> 00:02.000\nYour files. Your home.\n";
+
+/** Global Config answers with `item`; any other address answers with `files[address]`, or 404. */
+function serving(item, files = {}) {
+  return (to) => {
+    const address = String(to);
+    if (address.includes("global-config.vercel.com")) return Response.json(item);
+    return address in files ? new Response(files[address]) : new Response("", { status: 404 });
+  };
+}
+
+test("an mp4 link gets our own player, and the link opens the file", async () => {
+  const embed = await request("/video/embed", { connection: CONNECTION, answer: serving(MP4) });
+  assert.equal(embed.response.statusCode, 200);
+  assert.match(embed.response.headers["Content-Type"], /^text\/html/);
+  assert.match(embed.response.body, new RegExp(`<source src="${MP4}" type="video/mp4">`));
+  assert.match(embed.response.body, /<video controls playsinline preload="metadata">/);
+  assert.doesNotMatch(embed.response.body, /<track|poster=/);
+
+  const watch = await request("/video", { connection: CONNECTION, answer: serving(MP4) });
+  assert.equal(watch.response.statusCode, 302);
+  assert.equal(watch.response.headers.Location, MP4);
+});
+
+test("a poster holds the download until Play, and captions come from this site", async () => {
+  const item = { mp4: MP4, poster: POSTER, captions: CAPTIONS };
+  const { response } = await request("/video/embed", { connection: CONNECTION, answer: serving(item) });
+  assert.match(response.body, new RegExp(`preload="none" poster="${POSTER}"`));
+  assert.match(response.body, /<track kind="captions" src="\/video\/captions" srclang="en" label="English">/);
+  assert.doesNotMatch(response.body, /crossorigin/);
+});
+
+test("the player page loads nothing but its media and can only be framed here", async () => {
+  const { response } = await request("/video/embed", { connection: CONNECTION, answer: serving(MP4) });
+  const policy = response.headers["Content-Security-Policy"];
+  assert.match(policy, /default-src 'none'/);
+  assert.match(policy, /frame-ancestors 'self'/);
+  assert.doesNotMatch(response.body, /<script/);
+});
+
+test("captions are relayed from the file host as WebVTT", async () => {
+  const item = { mp4: MP4, captions: CAPTIONS };
+  const { response, asked } = await request("/video/captions", {
+    connection: CONNECTION, answer: serving(item, { [CAPTIONS]: VTT })
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers["Content-Type"], "text/vtt; charset=utf-8");
+  assert.equal(response.body, VTT);
+  assert.equal(asked[1].to, CAPTIONS);
+  // Also reached through the rewrite's query.
+  const viaQuery = await request("/api/video?captions=1", {
+    connection: CONNECTION, answer: serving(item, { [CAPTIONS]: `\uFEFF${VTT}` })
+  });
+  assert.equal(viaQuery.response.statusCode, 200);
+});
+
+test("captions that aren't there, or aren't WebVTT, are a 404", async () => {
+  const cases = {
+    "a YouTube video": serving(OTHER),
+    "a file with no captions": serving(MP4),
+    "captions missing from the host": serving({ mp4: MP4, captions: CAPTIONS }),
+    "an error page instead": serving({ mp4: MP4, captions: CAPTIONS }, { [CAPTIONS]: "<html>Not found</html>" })
+  };
+  for (const [name, answer] of Object.entries(cases)) {
+    const { response } = await request("/video/captions", { connection: CONNECTION, answer });
+    assert.equal(response.statusCode, 404, name);
+  }
+});
+
+test("a video file that isn't a plain https address falls back to the default", async () => {
+  for (const value of [
+    "http://store.example/teaser.mp4",
+    "javascript:alert(1)//.mp4",
+    "https://user:pass@store.example/teaser.mp4",
+    "https://store.example/teaser.mov",
+    { mp4: "http://store.example/teaser.mp4" },
+    { poster: POSTER },
+    [MP4]
+  ]) {
+    const { response } = await request("/video/embed", { connection: CONNECTION, answer: serving(value) });
+    assert.equal(response.statusCode, 302, JSON.stringify(value));
+    assert.equal(response.headers.Location, embedOf(DEFAULT_VIDEO), JSON.stringify(value));
+  }
+});
+
+test("an extra that isn't https is left out, and the video still plays", async () => {
+  const item = { mp4: MP4, poster: "http://store.example/poster.jpg", captions: "not a link" };
+  const { response } = await request("/video/embed", { connection: CONNECTION, answer: serving(item) });
+  assert.equal(response.statusCode, 200);
+  assert.doesNotMatch(response.body, /poster=|<track/);
+});
+
+test("nothing in a configured address can break out of its attribute", async () => {
+  const item = { mp4: `${MP4}?a=1&b="><script>alert(1)</script>`, poster: `${POSTER}?"onerror="x` };
+  const { response } = await request("/video/embed", { connection: CONNECTION, answer: serving(item) });
+  assert.doesNotMatch(response.body, /<script|"onerror/);
+  assert.match(response.body, /\?a=1&amp;b=%22%3E%3Cscript%3E/);
 });

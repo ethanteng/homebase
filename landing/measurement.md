@@ -172,4 +172,4 @@ The goal of `/hardware` is to learn whether Uncloud drives storage purchases, an
 
 ## Teaser video link
 
-Since September 28, 2026, “Watch on YouTube” under the teaser video opens `/video`, which redirects to the current video (see [README.md](README.md#changing-the-video-without-a-deploy)). The link is on the site's own domain now, so GA4 no longer records it as an outbound `click`. Video engagement measurement is off, so the embedded player itself was never measured.
+Since September 28, 2026, the link under the teaser video reads “Watch in a new tab” (it was “Watch on YouTube”) and opens `/video`, which redirects to the current video on YouTube or to the self-hosted file (see [README.md](README.md#changing-the-video-without-a-deploy)). The link is on the site's own domain now, so GA4 no longer records it as an outbound `click`. Video engagement measurement is off, and it only ever covered YouTube embeds, so plays in either player are not measured.

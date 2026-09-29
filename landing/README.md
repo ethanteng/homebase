@@ -37,17 +37,33 @@ Commit and push the configuration to trigger a new Git deployment. Redeploying a
 
 ## Homepage teaser
 
-The homepage shows the inline “Meet Uncloud Home” video card after the early-access signup and before “Set up in minutes.” The acquisition pages use the same card after their setup steps and before the savings comparison. The responsive, lazy-loaded YouTube privacy-enhanced embed plays only when a visitor chooses Play. A direct YouTube link is available below it. The card styles live in the shared `styles.css`; the homepage has no video modal, automatic playback, focus capture, or scroll lock.
+The homepage shows the inline “Meet Uncloud Home” video card after the early-access signup and before “Set up in minutes.” The acquisition pages use the same card after their setup steps and before the savings comparison. The responsive, lazy-loaded player plays only when a visitor chooses Play, and “Watch in a new tab” below it opens the same video on its own. The video is either a YouTube privacy-enhanced embed or a self-hosted MP4 (see below). The card styles live in the shared `styles.css`; the homepage has no video modal, automatic playback, focus capture, or scroll lock.
 
 ### Changing the video without a deploy
 
-The pages don't name a video. The player loads `/video/embed` and “Watch on YouTube” opens `/video`; `vercel.json` rewrites both to [`api/video.js`](../api/video.js), which redirects to YouTube. The video is the **`video`** item in the Vercel Global Config (formerly Edge Config) connected to the project. Edit it in the dashboard and visitors get the new video within a minute or two — the CDN holds each answer for 60 seconds. The value can be a video ID (`oELh5dwlmHs`) or any YouTube link to the video (watch, youtu.be, embed, shorts, or live).
+The pages don't name a video. The player loads `/video/embed` and “Watch in a new tab” opens `/video`; `vercel.json` rewrites both, and `/video/captions`, to [`api/video.js`](../api/video.js). The video is the **`video`** item in the Vercel Global Config (formerly Edge Config) connected to the project. Edit it in the dashboard and visitors get the new video within a minute or two — the CDN holds each answer for 60 seconds. The item is one of:
 
-If Global Config isn't connected, the item is missing, or the value isn't a YouTube video, the function falls back to `DEFAULT_VIDEO` in `api/video.js` (currently `oELh5dwlmHs`), so a typo can't leave the player empty. The card's heading and caption stay in the HTML. If the new video needs different words, that is still a deploy.
+| Value | What visitors get |
+| --- | --- |
+| `"oELh5dwlmHs"`, or any YouTube link (watch, youtu.be, embed, shorts, live) | YouTube's player; the link opens YouTube |
+| `"https://…/teaser.mp4"` | Our own player page, a plain `<video>`; the link opens the file |
+| `{ "mp4": "https://…", "poster": "https://…", "captions": "https://…" }` | The same, with a poster frame and WebVTT captions (both optional) |
+
+If Global Config isn't connected, the item is missing, or the value is none of those, the function falls back to `DEFAULT_VIDEO` in `api/video.js` (currently `oELh5dwlmHs`), so a typo can't leave the player empty. A poster or captions address that isn't https is left out and the video still plays. The card's heading and caption stay in the HTML. If the new video needs different words, that is still a deploy.
 
 One-time setup: in the `homebase` project, open **Storage**, choose **Create Database** (the docs call it **Create Storage**), pick **Global Config**, and create a store. Creating it from the project connects it and adds the `GLOBAL_CONFIG` variable. Under **Items**, add `"video": "<ID or link>"` and save, then redeploy once so the functions see the variable. After that, only the item changes. A store connected before the rename, as `EDGE_CONFIG`, works too. `/video` is also a stable link to share: it always goes to whichever video is current.
 
 `dev:landing` and `preview:landing` answer `/video` with the same function, without Global Config, so they always play the default.
+
+### Self-hosting the video
+
+Video files live in a **public** Vercel Blob store (Storage → Create Database → Blob; public or private is fixed when the store is created), never in this repository, where every swap would be a deploy. Upload the MP4, and optionally a poster image and a `.vtt` captions file, in the store's file browser, then put their URLs in the `video` item.
+
+- **Give each version a new filename** (`teaser-2026-10.mp4`). Browsers and Vercel's CDN keep a public blob for up to a month, so a file replaced under the same name keeps playing the old version for returning visitors.
+- **Encode for the web:** H.264 video and AAC audio in an MP4, with the index at the front so playback starts before the download finishes. For example, `ffmpeg -i teaser.mov -c:v libx264 -crf 23 -preset slow -vf "scale=-2:1080" -c:a aac -b:a 128k -movflags +faststart teaser-2026-10.mp4`. One file serves every connection, so keep it lean. A still from the video makes a good poster: `ffmpeg -ss 2 -i teaser-2026-10.mp4 -frames:v 1 -q:v 3 teaser-2026-10.jpg`.
+- **With a poster, nothing downloads until somebody presses Play**, so Blob Data Transfer is roughly file size × plays. Without one, browsers fetch enough for a first frame.
+- **Captions are relayed** through `/video/captions`, so the player loads them from this site and they never depend on the file host's CORS headers. A file that doesn't start with `WEBVTT` isn't served.
+- The player page has no script and a Content Security Policy that lets it load only https media and images and be framed only by this site.
 
 ## Early-access signups
 

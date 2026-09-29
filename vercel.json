@@ -7,6 +7,7 @@
   "cleanUrls": true,
   "rewrites": [
     { "source": "/video", "destination": "/api/video" },
-    { "source": "/video/embed", "destination": "/api/video?embed=1" }
+    { "source": "/video/embed", "destination": "/api/video?embed=1" },
+    { "source": "/video/captions", "destination": "/api/video?captions=1" }
   ]
 }
