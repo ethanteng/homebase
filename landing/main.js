@@ -55,3 +55,19 @@ if (widgets.length) {
     for (const frame of frames()) frame.title = "Early access signup";
   });
 }
+
+// The teaser starts by itself, muted, the first time half of it is on screen, so nobody scrolls
+// down to find it already halfway through. The page loads the plain player; this swaps in
+// /video/embed?autoplay=1 then, and api/video.js makes that a muted autoplay, since no browser lets
+// a page start sound on its own. Skipped for anyone who asks for reduced motion or to save data,
+// and without JavaScript the player simply waits for Play.
+const teaser = document.querySelector(".video-card__player iframe");
+
+if (teaser && window.IntersectionObserver && !reducedMotion.matches && !window.navigator?.connection?.saveData) {
+  const watcher = new window.IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting)) return;
+    watcher.disconnect();
+    teaser.src = "/video/embed?autoplay=1";
+  }, { threshold: 0.5 });
+  watcher.observe(teaser);
+}

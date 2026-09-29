@@ -37,7 +37,7 @@ Commit and push the configuration to trigger a new Git deployment. Redeploying a
 
 ## Homepage teaser
 
-The homepage shows the inline “Meet Uncloud Home” video card after the early-access signup and before “Set up in minutes.” The acquisition pages use the same card after their setup steps and before the savings comparison. The responsive, lazy-loaded player plays only when a visitor chooses Play, and “Watch in a new tab” below it opens the same video on its own. The video is either a YouTube privacy-enhanced embed or a self-hosted MP4 (see below). The card styles live in the shared `styles.css`; the homepage has no video modal, automatic playback, focus capture, or scroll lock.
+The homepage shows the inline “Meet Uncloud Home” video card after the early-access signup and before “Set up in minutes.” The acquisition pages use the same card after their setup steps and before the savings comparison. The player starts by itself, muted, the first time half of it is on screen: `main.js` swaps the iframe to `/video/embed?autoplay=1` then, so nobody scrolls down to find it already partway through. Browsers only allow muted autoplay, so visitors unmute with the player's own control. Visitors who ask for reduced motion or to save data, and anyone without JavaScript, get the player waiting for Play. “Watch in a new tab” below it opens the same video on its own. The video is either a YouTube privacy-enhanced embed or a self-hosted MP4 (see below). The card styles live in the shared `styles.css`; the homepage has no video modal, focus capture, or scroll lock.
 
 ### Changing the video without a deploy
 
@@ -61,7 +61,7 @@ Video files live in a **public** Vercel Blob store (Storage → Create Database 
 
 - **Give each version a new filename** (`teaser-2026-10.mp4`). Browsers and Vercel's CDN keep a public blob for up to a month, so a file replaced under the same name keeps playing the old version for returning visitors.
 - **Encode for the web:** H.264 video and AAC audio in an MP4, with the index at the front so playback starts before the download finishes. For example, `ffmpeg -i teaser.mov -c:v libx264 -crf 23 -preset slow -vf "scale=-2:1080" -c:a aac -b:a 128k -movflags +faststart teaser-2026-10.mp4`. One file serves every connection, so keep it lean. A still from the video makes a good poster: `ffmpeg -ss 2 -i teaser-2026-10.mp4 -frames:v 1 -q:v 3 teaser-2026-10.jpg`.
-- **With a poster, nothing downloads until somebody presses Play**, so Blob Data Transfer is roughly file size × plays. Without one, browsers fetch enough for a first frame.
+- **The file downloads when the player scrolls into view and starts**, so Blob Data Transfer is roughly file size × visitors who reach the video, not only those who would have pressed Play. Keep the file lean. The poster shows while it loads, and where the player waits for Play, nothing downloads until then.
 - **Captions are relayed** through `/video/captions`, so the player loads them from this site and they never depend on the file host's CORS headers. A file that doesn't start with `WEBVTT` isn't served.
 - The player page has no script and a Content Security Policy that lets it load only https media and images and be framed only by this site.
 
