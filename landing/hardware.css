@@ -80,9 +80,9 @@
 .drive-count { min-height: 1.5em; margin-top: 14px; color: var(--muted); font-size: .85rem; text-align: center; }
 .drive-table-wrap { margin-top: 14px; }
 
-.drive-table[data-type="ssd"] :is(.col-portable, .col-desktop),
-.drive-table[data-type="portable"] :is(.col-ssd, .col-desktop),
-.drive-table[data-type="desktop"] :is(.col-ssd, .col-portable) { display: none; }
+.drive-table[data-type="ssd"] :is(.col-desktop, .col-dual),
+.drive-table[data-type="desktop"] :is(.col-ssd, .col-dual),
+.drive-table[data-type="dual"] :is(.col-ssd, .col-desktop) { display: none; }
 
 .drive-empty { padding: 28px 24px; color: var(--muted); text-align: center; }
 
