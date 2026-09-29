@@ -5,22 +5,39 @@ const fs = require('node:fs');
 
 const LAUNCHLIST = 'https://getlaunchlist.com';
 
-// The landing page's main.js, with each widget's iframe already in place.
-function page({ widgets = 1 } = {}) {
+// The landing page's main.js, with each widget's iframe already in place, and the teaser's player
+// when `teaser` is given. `observers` collects each IntersectionObserver main.js makes.
+function page({ widgets = 1, teaser = null, reducedMotion = false, saveData = false, observing = true } = {}) {
   const frames = Array.from({ length: widgets }, () => ({ contentWindow: {} }));
   const elements = frames.map((frame) => ({ querySelector: (selector) => selector === 'iframe' ? frame : null }));
   const frame = frames[0];
   const listeners = {};
   const on = (type, fn) => { listeners[type] = fn; };
-  const window = { dataLayer: [], matchMedia: () => ({}), addEventListener: on };
+  const observers = [];
+  class IntersectionObserver {
+    constructor(callback, options) { Object.assign(this, { callback, options, targets: [], disconnected: false }); observers.push(this); }
+    observe(target) { this.targets.push(target); }
+    disconnect() { this.disconnected = true; }
+  }
+  const window = {
+    dataLayer: [],
+    matchMedia: () => ({ matches: reducedMotion, addEventListener() {} }),
+    addEventListener: on,
+    navigator: { connection: { saveData } },
+    ...(observing ? { IntersectionObserver } : {}),
+  };
   vm.runInNewContext(fs.readFileSync(__dirname + '/main.js', 'utf8'), {
     document: {
       querySelectorAll: (selector) => selector === '.launchlist-widget' ? elements : [],
+      querySelector: (selector) => selector === '.video-card__player iframe' ? teaser : null,
       addEventListener: on,
     },
     window,
   });
   return {
+    observers,
+    /** Tells main.js's observer the teaser is (or isn't) half on screen. */
+    see: (isIntersecting = true) => observers[0].callback([{ isIntersecting, target: teaser }]),
     frame,
     frames,
     events: () => window.dataLayer.map(e => e.event),
@@ -111,6 +128,32 @@ test('the widget\'s iframe gets a name', () => {
   const p = page();
   p.ready();
   assert.equal(p.frame.title, 'Early access signup');
+});
+
+test('the teaser starts, muted, once half of it is on screen', () => {
+  const teaser = { src: '/video/embed' };
+  const p = page({ teaser });
+  assert.equal(p.observers.length, 1);
+  assert.equal(p.observers[0].options.threshold, 0.5);
+  assert.deepEqual(p.observers[0].targets, [teaser]);
+  p.see(false);
+  assert.equal(teaser.src, '/video/embed');
+  p.see();
+  assert.equal(teaser.src, '/video/embed?autoplay=1');
+  assert.ok(p.observers[0].disconnected);
+});
+
+test('the teaser waits for Play for anyone who asks for less motion or data', () => {
+  for (const options of [{ reducedMotion: true }, { saveData: true }, { observing: false }]) {
+    const teaser = { src: '/video/embed' };
+    const p = page({ teaser, ...options });
+    assert.equal(p.observers.length, 0, JSON.stringify(options));
+    assert.equal(teaser.src, '/video/embed');
+  }
+});
+
+test('a page without the teaser watches for nothing', () => {
+  assert.equal(page().observers.length, 0);
 });
 
 test('the head code announces an attempt before LaunchList validates it', () => {

@@ -391,7 +391,7 @@ ${indent(steps, 12)}
               <h2 id="video-heading">Meet Uncloud Home</h2>
             </div>
             <div class="video-card__player">
-              <iframe src="/video/embed" title="Uncloud Home teaser video" loading="lazy" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+              <iframe src="/video/embed" title="Uncloud Home teaser video" loading="lazy" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
             </div>
             <div class="video-card__footer">
               <p>A first look at your family’s private cloud.</p>

@@ -3,7 +3,8 @@
 // The teaser video on the homepage and the acquisition pages, swappable without a deploy.
 //
 // The pages don't name a video. The player loads /video/embed and "Watch in a new tab" opens
-// /video, both rewritten here by vercel.json. Which video is the `video` item in the Vercel
+// /video, both rewritten here by vercel.json. main.js swaps the player to /video/embed?autoplay=1
+// once it is on screen, which starts it muted: no browser lets a page start sound by itself. Which video is the `video` item in the Vercel
 // Global Config (formerly Edge Config) connected to this project: an item can be changed in the
 // dashboard and is read on the next request, where an environment variable only reaches
 // deployments made after it changed. The item is one of:
@@ -107,25 +108,31 @@ async function configured(env) {
   }
 }
 
-/** Which of the three addresses this is: "embed" (the player), "captions", or "watch" (the link). */
-function routeOf(rawUrl) {
+/**
+ * Which of the three addresses this is — "embed" (the player), "captions", or "watch" (the link) —
+ * and whether the player should start by itself.
+ */
+function requestOf(rawUrl) {
   // The base is only to satisfy the parser; `request.url` is a path. A rewrite may show either
   // the query it added or the address the browser asked for, so both are recognised.
   const url = new URL(rawUrl || "/", "http://video.invalid");
-  if (url.searchParams.has("embed") || url.pathname.endsWith("/embed")) return "embed";
-  if (url.searchParams.has("captions") || url.pathname.endsWith("/captions")) return "captions";
-  return "watch";
+  const autoplay = url.searchParams.get("autoplay") === "1";
+  if (url.searchParams.has("embed") || url.pathname.endsWith("/embed")) return { route: "embed", autoplay };
+  if (url.searchParams.has("captions") || url.pathname.endsWith("/captions")) return { route: "captions", autoplay };
+  return { route: "watch", autoplay };
 }
 
 const attribute = (value) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
 /**
  * The page the iframe shows for a video file. Nothing but a <video>: native controls, fullscreen
- * through the iframe's `allowfullscreen`, and the card's own background around it. With a poster
- * nothing is downloaded until somebody presses Play; without one, just enough for a first frame.
+ * through the iframe's `allowfullscreen`, and the card's own background around it. Autoplay starts
+ * it muted. Otherwise, with a poster nothing is downloaded until somebody presses Play; without one,
+ * just enough for a first frame.
  */
-function playerPage({ mp4, poster, captions }) {
+function playerPage({ mp4, poster, captions }, autoplay) {
   const posterAttribute = poster ? ` poster="${attribute(poster)}"` : "";
+  const start = autoplay ? "autoplay muted" : `preload="${poster ? "none" : "metadata"}"`;
   // Same-origin, relayed by this function, so the captions never depend on the file host's CORS.
   const track = captions ? '\n  <track kind="captions" src="/video/captions" srclang="en" label="English">' : "";
   return `<!doctype html>
@@ -141,7 +148,7 @@ function playerPage({ mp4, poster, captions }) {
 </style>
 </head>
 <body>
-<video controls playsinline preload="${poster ? "none" : "metadata"}"${posterAttribute}>
+<video controls playsinline ${start}${posterAttribute}>
   <source src="${attribute(mp4)}" type="video/mp4">${track}
 </video>
 </body>
@@ -189,7 +196,7 @@ module.exports = async function handler(request, response) {
     return response.end();
   }
   const video = choose(await configured(process.env)) ?? { youtube: DEFAULT_VIDEO };
-  const route = routeOf(request.url);
+  const { route, autoplay } = requestOf(request.url);
 
   if (route === "captions") {
     const text = video.captions ? await fetchCaptions(video.captions) : null;
@@ -197,13 +204,14 @@ module.exports = async function handler(request, response) {
     return page(response, 200, "text/vtt; charset=utf-8", text);
   }
   if (video.youtube) {
+    const start = autoplay ? "&autoplay=1&mute=1" : "";
     return redirect(response, route === "embed"
-      ? `https://www.youtube-nocookie.com/embed/${video.youtube}?rel=0&playsinline=1`
+      ? `https://www.youtube-nocookie.com/embed/${video.youtube}?rel=0&playsinline=1${start}`
       : `https://www.youtube.com/watch?v=${video.youtube}`);
   }
   if (route === "watch") return redirect(response, video.mp4);
   response.setHeader("Content-Security-Policy", PLAYER_POLICY);
-  return page(response, 200, "text/html; charset=utf-8", playerPage(video));
+  return page(response, 200, "text/html; charset=utf-8", playerPage(video, autoplay));
 };
 
 // Exported for the tests.

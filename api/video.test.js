@@ -250,3 +250,21 @@ test("nothing in a configured address can break out of its attribute", async () 
   assert.doesNotMatch(response.body, /<script|"onerror/);
   assert.match(response.body, /\?a=1&amp;b=%22%3E%3Cscript%3E/);
 });
+
+test("autoplay starts the YouTube player muted, and only the player", async () => {
+  const embed = await request("/video/embed?autoplay=1", { connection: CONNECTION, answer: OTHER });
+  assert.equal(embed.response.headers.Location, `${embedOf(OTHER)}&autoplay=1&mute=1`);
+  const viaQuery = await request("/api/video?embed=1&autoplay=1", { connection: CONNECTION, answer: OTHER });
+  assert.equal(viaQuery.response.headers.Location, `${embedOf(OTHER)}&autoplay=1&mute=1`);
+  const watch = await request("/video?autoplay=1", { connection: CONNECTION, answer: OTHER });
+  assert.equal(watch.response.headers.Location, watchOf(OTHER));
+  const otherValue = await request("/video/embed?autoplay=yes", { connection: CONNECTION, answer: OTHER });
+  assert.equal(otherValue.response.headers.Location, embedOf(OTHER));
+});
+
+test("autoplay starts our own player muted, poster and all", async () => {
+  const item = { mp4: MP4, poster: POSTER };
+  const { response } = await request("/video/embed?autoplay=1", { connection: CONNECTION, answer: serving(item) });
+  assert.match(response.body, new RegExp(`<video controls playsinline autoplay muted poster="${POSTER}">`));
+  assert.doesNotMatch(response.body, /preload=/);
+});
