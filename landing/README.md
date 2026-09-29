@@ -41,13 +41,13 @@ The homepage shows the inline “Meet Uncloud Home” video card after the early
 
 ### Changing the video without a deploy
 
-The pages don't name a video. The player loads `/video/embed` and “Watch on YouTube” opens `/video`; `vercel.json` rewrites both to [`api/video.js`](../api/video.js), which redirects to YouTube. The video is the **`video`** item in the Vercel Edge Config connected to the project. Edit it in the dashboard and visitors get the new video within a minute or two — the CDN holds each answer for 60 seconds. The value can be a video ID (`oELh5dwlmHs`) or any YouTube link to the video (watch, youtu.be, embed, shorts, or live).
+The pages don't name a video. The player loads `/video/embed` and “Watch on YouTube” opens `/video`; `vercel.json` rewrites both to [`api/video.js`](../api/video.js), which redirects to YouTube. The video is the **`video`** item in the Vercel Global Config (formerly Edge Config) connected to the project. Edit it in the dashboard and visitors get the new video within a minute or two — the CDN holds each answer for 60 seconds. The value can be a video ID (`oELh5dwlmHs`) or any YouTube link to the video (watch, youtu.be, embed, shorts, or live).
 
-If Edge Config isn't connected, the item is missing, or the value isn't a YouTube video, the function falls back to `DEFAULT_VIDEO` in `api/video.js` (currently `oELh5dwlmHs`), so a typo can't leave the player empty. The card's heading and caption stay in the HTML. If the new video needs different words, that is still a deploy.
+If Global Config isn't connected, the item is missing, or the value isn't a YouTube video, the function falls back to `DEFAULT_VIDEO` in `api/video.js` (currently `oELh5dwlmHs`), so a typo can't leave the player empty. The card's heading and caption stay in the HTML. If the new video needs different words, that is still a deploy.
 
-One-time setup: in the Vercel project, **Storage → Create → Edge Config**, connect it to the `homebase` project (this adds the `EDGE_CONFIG` variable), add a `video` item, and redeploy once so the functions see the variable. After that, only the item changes. `/video` is also a stable link to share: it always goes to whichever video is current.
+One-time setup: in the `homebase` project, open **Storage**, choose **Create Database** (the docs call it **Create Storage**), pick **Global Config**, and create a store. Creating it from the project connects it and adds the `GLOBAL_CONFIG` variable. Under **Items**, add `"video": "<ID or link>"` and save, then redeploy once so the functions see the variable. After that, only the item changes. A store connected before the rename, as `EDGE_CONFIG`, works too. `/video` is also a stable link to share: it always goes to whichever video is current.
 
-`dev:landing` and `preview:landing` answer `/video` with the same function, without Edge Config, so they always play the default.
+`dev:landing` and `preview:landing` answer `/video` with the same function, without Global Config, so they always play the default.
 
 ## Early-access signups
 

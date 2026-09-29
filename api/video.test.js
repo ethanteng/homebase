@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const handler = require("./video.js");
 const { videoId, DEFAULT_VIDEO } = handler;
 
-const CONNECTION = "https://edge-config.vercel.com/ecfg_test?token=read-token";
+const CONNECTION = "https://global-config.vercel.com/ecfg_test?token=read-token";
 const OTHER = "dQw4w9WgXcQ";
 
 function mockResponse() {
@@ -18,30 +18,34 @@ function mockResponse() {
   };
 }
 
+const VARIABLES = ["GLOBAL_CONFIG", "EDGE_CONFIG"];
+
 /**
- * Runs the function with EDGE_CONFIG set to `connection` and Edge Config answering with
- * `answer` — a function from the request to a Response, or a value to send as JSON.
- * Returns the response and every request Edge Config received.
+ * Runs the function with `variable` (GLOBAL_CONFIG unless given) set to `connection` and Global
+ * Config answering with `answer` — a function from the request to a Response, or a value to send
+ * as JSON. Returns the response and every request Global Config received.
  */
-async function request(url, { connection, answer, method = "GET" } = {}) {
+async function request(url, { connection, answer, method = "GET", variable = "GLOBAL_CONFIG" } = {}) {
   const asked = [];
   const originalFetch = globalThis.fetch;
-  const originalConnection = process.env.EDGE_CONFIG;
+  const original = Object.fromEntries(VARIABLES.map((name) => [name, process.env[name]]));
   globalThis.fetch = async (to, init) => {
     asked.push({ to: String(to), init });
     if (typeof answer === "function") return answer(to, init);
     return new Response(JSON.stringify(answer), { headers: { "Content-Type": "application/json" } });
   };
-  if (connection === undefined) delete process.env.EDGE_CONFIG;
-  else process.env.EDGE_CONFIG = connection;
+  for (const name of VARIABLES) delete process.env[name];
+  if (connection !== undefined) process.env[variable] = connection;
   try {
     const response = mockResponse();
     await handler({ method, url }, response);
     return { response, asked };
   } finally {
     globalThis.fetch = originalFetch;
-    if (originalConnection === undefined) delete process.env.EDGE_CONFIG;
-    else process.env.EDGE_CONFIG = originalConnection;
+    for (const name of VARIABLES) {
+      if (original[name] === undefined) delete process.env[name];
+      else process.env[name] = original[name];
+    }
   }
 }
 
@@ -63,14 +67,22 @@ test("the embed is recognised whether the rewrite shows the query or the origina
   assert.equal(response.headers.Location, embedOf(OTHER));
 });
 
-test("Edge Config is asked for the video item with the connection's token", async () => {
+test("Global Config is asked for the video item with the connection's token", async () => {
   const { asked } = await request("/api/video", { connection: CONNECTION, answer: OTHER });
   assert.equal(asked.length, 1);
-  assert.equal(asked[0].to, "https://edge-config.vercel.com/ecfg_test/item/video");
+  assert.equal(asked[0].to, "https://global-config.vercel.com/ecfg_test/item/video");
   assert.equal(asked[0].init.headers.Authorization, "Bearer read-token");
 });
 
-test("without an Edge Config the default video plays and nothing is fetched", async () => {
+test("a store connected as EDGE_CONFIG, before the rename, still works", async () => {
+  const connection = "https://edge-config.vercel.com/ecfg_old?token=old-token";
+  const { response, asked } = await request("/api/video", { connection, answer: OTHER, variable: "EDGE_CONFIG" });
+  assert.equal(response.headers.Location, watchOf(OTHER));
+  assert.equal(asked[0].to, "https://edge-config.vercel.com/ecfg_old/item/video");
+  assert.equal(asked[0].init.headers.Authorization, "Bearer old-token");
+});
+
+test("without a Global Config the default video plays and nothing is fetched", async () => {
   const { response, asked } = await request("/api/video?embed=1");
   assert.equal(response.headers.Location, embedOf(DEFAULT_VIDEO));
   assert.equal(asked.length, 0);
@@ -82,8 +94,8 @@ test("anything short of a readable video falls back to the default", async () =>
     "not a YouTube video": "https://vimeo.com/123456",
     "a typo": "oELh5dwlmH",
     "not a string": { id: OTHER },
-    "Edge Config unreachable": () => { throw new TypeError("fetch failed"); },
-    "Edge Config answering nonsense": () => new Response("<html>", { status: 200 })
+    "Global Config unreachable": () => { throw new TypeError("fetch failed"); },
+    "Global Config answering nonsense": () => new Response("<html>", { status: 200 })
   };
   for (const [name, answer] of Object.entries(failures)) {
     const { response } = await request("/api/video", { connection: CONNECTION, answer });

@@ -4,12 +4,12 @@
 //
 // The pages don't name a video. The player loads /video/embed and "Watch on YouTube" opens
 // /video, both rewritten here by vercel.json, and this sends each on to YouTube. Which video is
-// the `video` item in the Vercel Edge Config connected to this project: an item can be changed
-// in the dashboard and is read on the next request, where an environment variable only reaches
-// deployments made after it changed.
+// the `video` item in the Vercel Global Config (formerly Edge Config) connected to this project:
+// an item can be changed in the dashboard and is read on the next request, where an environment
+// variable only reaches deployments made after it changed.
 //
-// Anything that stops a video being read — no Edge Config connected, no `video` item, a value
-// that isn't a YouTube video, Edge Config slow or down — sends visitors to DEFAULT_VIDEO, so a
+// Anything that stops a video being read — no Global Config connected, no `video` item, a value
+// that isn't a YouTube video, Global Config slow or down — sends visitors to DEFAULT_VIDEO, so a
 // typo in the dashboard can't leave the player empty.
 
 const DEFAULT_VIDEO = "oELh5dwlmHs";
@@ -44,14 +44,15 @@ function videoId(value) {
 }
 
 /**
- * The `video` item, read over Edge Config's REST API with the connection string Vercel puts in
- * EDGE_CONFIG (`https://edge-config.vercel.com/<id>?token=<token>`). Read by hand rather than
- * through @vercel/edge-config because nothing is installed for these functions.
+ * The `video` item, read over Global Config's REST API with the connection string Vercel puts in
+ * GLOBAL_CONFIG (`https://global-config.vercel.com/<id>?token=<token>`), or in EDGE_CONFIG for a
+ * store connected before Edge Config was renamed. Read by hand rather than through
+ * @vercel/global-config because nothing is installed for these functions.
  */
 async function configured(env) {
   let connection;
   try {
-    connection = new URL(env.EDGE_CONFIG);
+    connection = new URL(env.GLOBAL_CONFIG || env.EDGE_CONFIG);
   } catch {
     return undefined;
   }

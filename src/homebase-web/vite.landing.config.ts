@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL("../../landing", import.meta.url));
 const pages = ["index", ...SLUGS, "hardware", "partners", "partners-one-pager"];
 
 // On Vercel, /video and /video/embed are rewrites to api/video.js. This answers them with the same
-// function here, so the teaser video plays in dev and preview; with no Edge Config connected it
+// function here, so the teaser video plays in dev and preview; with no Global Config connected it
 // sends the player to the default video.
 const video: Connect.NextHandleFunction = createRequire(import.meta.url)("../../api/video.js");
 const answerVideo: Connect.NextHandleFunction = (request, response, next) => {
