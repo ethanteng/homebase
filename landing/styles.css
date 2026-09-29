@@ -520,8 +520,9 @@ h1 span {
 }
 
 @media (max-width: 620px) {
-  .video-card { border-radius: 18px; }
-  .video-card__header, .video-card__footer { padding-inline: 20px; }
+  /* Edge to edge: out through the page's 16px gutters, with no side borders or corners to round. */
+  .video-card { margin-inline: -16px; border-inline: 0; border-radius: 0; }
+  .video-card__header, .video-card__footer { padding-inline: 16px; }
   .page { padding: 0 16px; }
   .site-header { min-height: 72px; }
   .header-cta { padding: 9px 12px; font-size: .82rem; }
