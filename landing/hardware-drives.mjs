@@ -4,15 +4,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// Uncloud's Impact tracking link for OWC, without a query string, e.g.
-// "https://owc.pxf.io/c/1234567/123456/12345". Every drive link goes through it with the
-// OWC page as `u` and the drive and size as `subId1`, so Impact reports sales by drive and size.
+// Uncloud's Impact tracking link for OWC (partner 7852392, OWC's default tracking ad, campaign
+// 50228), without a query string. Every drive link goes through it with the OWC page as `u` and
+// the drive and size as `subId1`, so Impact reports sales by drive and size.
 // While it is empty, links go straight to OWC.
-export const IMPACT = "";
+export const IMPACT = "https://otherworldcomputing.pxf.io/c/7852392/3834135/50228";
 
-const STORE = "https://eshop.macsales.com";
-const item = (sku) => `${STORE}/item/OWC/${sku}/`;
-const shop = (path) => `${STORE}/shop/${path}`;
+const item = (sku) => `https://eshop.macsales.com/item/OWC/${sku}/`;
 
 export const TYPES = [
   { id: "ssd", label: "Portable SSD", detail: "USB-C, fast and silent, no power cable" },
@@ -20,17 +18,16 @@ export const TYPES = [
   { id: "dual", label: "Two-drive desktop", detail: "Can mirror its drives, then holds half" },
 ];
 
-// Sizes whose own product page we have confirmed link to it; the rest link to the product family,
-// where the visitor picks the size.
+// Each size links to its own OWC product page.
 export const DRIVES = [
   { id: "envoy-pro-elektron", type: "ssd", name: "Envoy Pro Elektron", sizes: { 1: item("ENVPK01"), 2: item("ENVPK02"), 4: item("ENVPK04") } },
   { id: "mercury-elite-pro", type: "desktop", name: "Mercury Elite Pro", sizes: {
-    2: item("ME3NH7T02"), 4: shop("owc-mercury-elite-pro"), 8: item("ME3NH7T08"), 12: item("ME3NH7T12"),
-    16: shop("owc-mercury-elite-pro"), 20: shop("owc-mercury-elite-pro"), 24: item("ME3NH7T24"),
+    2: item("ME3NH7T02"), 4: item("ME3NH7T04"), 8: item("ME3NH7T08"), 12: item("ME3NH7T12"),
+    16: item("ME3NH7T16"), 20: item("ME3NH7T20"), 24: item("ME3NH7T24"),
   } },
   { id: "mercury-elite-pro-dual", type: "dual", name: "Mercury Elite Pro Dual", sizes: {
-    8: item("MEDCH7T08"), 16: shop("owc-mercury-elite-pro-dual"), 24: shop("owc-mercury-elite-pro-dual"),
-    28: item("MEDCH7T28"), 32: item("MEDCH7T32"), 40: item("MEDCH7T40"), 48: item("MEDCH7T48"),
+    8: item("MEDCH7T08"), 16: item("MEDCH7T16"), 24: item("MEDCH7T24"),
+    32: item("MEDCH7T32"), 40: item("MEDCH7T40"), 48: item("MEDCH7T48"),
   } },
 ];
 
