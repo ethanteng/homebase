@@ -110,14 +110,18 @@ node landing/acquisition-pages.mjs
 
 ## Storage page
 
-`/hardware` lists drives for Uncloud by size and type, before Uncloud has any hardware partner. Its own styles are in `hardware.css`, and `hardware.js` adds filters by type (which hides the other column) and minimum size (which hides smaller rows). The filters ship hidden, so without JavaScript the page is the whole table. It is in the sitemap, and every page's footer links to it as “Buy more storage”.
+`/hardware` recommends OWC drives, by size and type; Uncloud is an OWC affiliate (through Impact), and the page says so under the table. Its own styles are in `hardware.css`, and `hardware.js` adds filters by type (which hides the other columns) and minimum size (which hides smaller rows). The filters ship hidden, so without JavaScript the page is the whole table.
 
-One table has a row per size (1 to 26 TB, with a short hint such as “A large family library” at 2, 4, 8 and 16 TB) and a column per type, each cell listing every drive of that type and size:
+The table is generated. The drives, their sizes and OWC pages, and the Impact tracking link live in [`hardware-drives.mjs`](hardware-drives.mjs); edit them there, then regenerate:
 
-| Type | Drives |
-| --- | --- |
-| Portable SSD | Samsung T7 Shield (1–4 TB), SanDisk Extreme (1–8 TB) |
-| Portable hard drive | WD My Passport (1–5 TB), Seagate Portable (1–5 TB) |
-| Desktop drive | Seagate Expansion Desktop (4–26 TB), WD My Book (4–16 TB), WD Elements Desktop (16–24 TB) |
+```sh
+node landing/hardware-drives.mjs
+```
 
-Crucial drives are left out: Micron ended the Crucial consumer brand in February 2026. On phones the table stacks, one block per size with a labelled line per type. All are sold by Newegg. Sizes without a verified Newegg-sold product page link to a Newegg search for that model and size; when a listing changes, edit its URL in `hardware.html`. Each row's `data-tb` and `data-types` drive the filters; `hardware.test.cjs` checks that they match the row's cells, and that every link is Newegg's and tagged with the size of its row. The copy says nothing about testing; say so only once a drive has actually been run as an Uncloud host's storage. Click measurement is in [measurement.md](measurement.md#storage-page-clicks).
+| Type | Drive | Sizes |
+| --- | --- | --- |
+| Portable SSD | Envoy Pro Elektron | 1, 2, 4 TB |
+| Desktop drive | Mercury Elite Pro | 2–24 TB |
+| Two-drive desktop | Mercury Elite Pro Dual | 8–48 TB (half that when mirrored) |
+
+Sizes with a confirmed OWC product page link to it; the rest link to the product family page, where the visitor picks the size. With `IMPACT` set, every link goes through Uncloud's Impact tracking link with the OWC page as `u` and `<drive>-<size>tb` as `subId1`, so Impact reports sales by drive and size; while it is empty, links go straight to OWC. `hardware.test.cjs` fails if `hardware.html` is stale, if a link leaves OWC or lacks its drive-and-size tag, if a row's filter data disagrees with its cells, or if the affiliate disclosure is missing. Click measurement is in [measurement.md](measurement.md#storage-page-clicks).
