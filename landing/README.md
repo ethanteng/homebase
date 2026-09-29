@@ -37,7 +37,17 @@ Commit and push the configuration to trigger a new Git deployment. Redeploying a
 
 ## Homepage teaser
 
-The homepage shows the inline “Meet Uncloud Home” video card after the early-access signup and before “Set up in minutes.” The acquisition pages use the same card after their setup steps and before the savings comparison. The responsive, lazy-loaded YouTube privacy-enhanced embed (`oELh5dwlmHs`) plays only when a visitor chooses Play. A direct YouTube link is available below it. The card styles live in the shared `styles.css`; the homepage has no video modal, automatic playback, focus capture, or scroll lock.
+The homepage shows the inline “Meet Uncloud Home” video card after the early-access signup and before “Set up in minutes.” The acquisition pages use the same card after their setup steps and before the savings comparison. The responsive, lazy-loaded YouTube privacy-enhanced embed plays only when a visitor chooses Play. A direct YouTube link is available below it. The card styles live in the shared `styles.css`; the homepage has no video modal, automatic playback, focus capture, or scroll lock.
+
+### Changing the video without a deploy
+
+The pages don't name a video. The player loads `/video/embed` and “Watch on YouTube” opens `/video`; `vercel.json` rewrites both to [`api/video.js`](../api/video.js), which redirects to YouTube. The video is the **`video`** item in the Vercel Global Config (formerly Edge Config) connected to the project. Edit it in the dashboard and visitors get the new video within a minute or two — the CDN holds each answer for 60 seconds. The value can be a video ID (`oELh5dwlmHs`) or any YouTube link to the video (watch, youtu.be, embed, shorts, or live).
+
+If Global Config isn't connected, the item is missing, or the value isn't a YouTube video, the function falls back to `DEFAULT_VIDEO` in `api/video.js` (currently `oELh5dwlmHs`), so a typo can't leave the player empty. The card's heading and caption stay in the HTML. If the new video needs different words, that is still a deploy.
+
+One-time setup: in the `homebase` project, open **Storage**, choose **Create Database** (the docs call it **Create Storage**), pick **Global Config**, and create a store. Creating it from the project connects it and adds the `GLOBAL_CONFIG` variable. Under **Items**, add `"video": "<ID or link>"` and save, then redeploy once so the functions see the variable. After that, only the item changes. A store connected before the rename, as `EDGE_CONFIG`, works too. `/video` is also a stable link to share: it always goes to whichever video is current.
+
+`dev:landing` and `preview:landing` answer `/video` with the same function, without Global Config, so they always play the default.
 
 ## Early-access signups
 
@@ -110,7 +120,7 @@ node landing/acquisition-pages.mjs
 
 ## Storage page
 
-`/hardware` recommends OWC drives, by size and type; Uncloud is an OWC affiliate (through Impact), and the page says so under the table. Its own styles are in `hardware.css`, and `hardware.js` adds filters by type (which hides the other columns) and minimum size (which hides smaller rows). The filters ship hidden, so without JavaScript the page is the whole table.
+`/hardware` recommends OWC drives, by size and type; Uncloud is an OWC affiliate (through Impact), and the page says so under the table. The homepage and acquisition-page headers link to it as “Need more space?” (hidden at 700px and narrower, where it would wrap the header), and every footer links to it as “Buy more storage.” Its own styles are in `hardware.css`, and `hardware.js` adds filters by type (which hides the other columns) and minimum size (which hides smaller rows). The filters ship hidden, so without JavaScript the page is the whole table.
 
 The table is generated. The drives, their sizes and OWC pages, and the Impact tracking link live in [`hardware-drives.mjs`](hardware-drives.mjs); edit them there, then regenerate:
 

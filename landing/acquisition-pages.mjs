@@ -292,6 +292,7 @@ ${indent(jsonLd(structuredData(slug, p)), 6)}
           <a id="github-header" class="github-link" href="https://github.com/ethanteng/homebase" aria-label="Uncloud on GitHub">
             ${GITHUB}
           </a>
+          <a class="space-link" href="/hardware">Need more space?</a>
           <a class="pricing-link" href="#pricing">Pricing</a>
           <a class="header-cta" href="#early-access">Get early access</a>
         </div>
@@ -390,11 +391,11 @@ ${indent(steps, 12)}
               <h2 id="video-heading">Meet Uncloud Home</h2>
             </div>
             <div class="video-card__player">
-              <iframe src="https://www.youtube-nocookie.com/embed/oELh5dwlmHs?rel=0&amp;playsinline=1" title="Uncloud Home teaser video" loading="lazy" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+              <iframe src="/video/embed" title="Uncloud Home teaser video" loading="lazy" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
             </div>
             <div class="video-card__footer">
               <p>A first look at your family’s private cloud.</p>
-              <a href="https://www.youtube.com/watch?v=oELh5dwlmHs" target="_blank" rel="noopener noreferrer">Watch on YouTube <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
+              <a href="/video" target="_blank" rel="noopener noreferrer">Watch on YouTube <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
             </div>
           </div>
         </section>
