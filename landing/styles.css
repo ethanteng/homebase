@@ -113,13 +113,15 @@ input:focus-visible {
   gap: 14px;
 }
 
-.pricing-link {
+.pricing-link,
+.space-link {
   padding: 10px 4px;
   font-size: .9rem;
   font-weight: 650;
 }
 
-.pricing-link:hover { color: var(--blue-strong); }
+.pricing-link:hover,
+.space-link:hover { color: var(--blue-strong); }
 
 .github-link,
 .youtube-link {
@@ -506,6 +508,11 @@ h1 span {
   .setup-steps { gap: 12px; }
   .setup-steps li { padding: 24px 20px; }
 
+}
+
+/* Too narrow for it without wrapping the CTA; the footer keeps "Buy more storage". */
+@media (max-width: 700px) {
+  .space-link { display: none; }
 }
 
 @media (max-width: 620px) {

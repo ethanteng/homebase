@@ -4,5 +4,9 @@
   "installCommand": "npm --prefix src/homebase-web ci",
   "buildCommand": "npm --prefix src/homebase-web run build:landing",
   "outputDirectory": "artifacts/landing",
-  "cleanUrls": true
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/video", "destination": "/api/video" },
+    { "source": "/video/embed", "destination": "/api/video?embed=1" }
+  ]
 }

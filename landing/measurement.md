@@ -166,5 +166,10 @@ so their parameters and existing reports are unaffected.
 
 The goal of `/hardware` is to learn whether Uncloud drives storage purchases, and at what capacity. Two sources answer it:
 
+- **Arrivals (GA4).** The header's “Need more space?” and the footer's “Buy more storage” are links within the site, so enhanced measurement records them as `/hardware` page views, not `click` events. Use **Page referrer** on those page views to see which page sent the visitor.
 - **Clicks (GA4).** Like the GitHub links, clicks to OWC reuse GA4 enhanced measurement's outbound **`click`** event; there is no custom event or GTM tag, and none should be added (it would count each click twice). Build an Exploration with **Event count** and **Total users** by **Link URL**, filtered to Event name `click` on `/hardware`, and divide by `/hardware` page views for the click-through rate. The drive and size are in the link as `subId1=<drive>-<size>tb`.
 - **Sales (Impact).** Links through Uncloud's Impact tracking link carry the same `<drive>-<size>tb` as Sub ID 1. Impact's performance reports, grouped by Sub ID 1, show clicks, sales and commission per drive and size, which is the purchase rate and median capacity to show a partner. OWC's contract pays 3% of the order and credits the last click within 45 days, so a sale can land weeks after the click.
+
+## Teaser video link
+
+Since September 28, 2026, “Watch on YouTube” under the teaser video opens `/video`, which redirects to the current video (see [README.md](README.md#changing-the-video-without-a-deploy)). The link is on the site's own domain now, so GA4 no longer records it as an outbound `click`. Video engagement measurement is off, so the embedded player itself was never measured.
