@@ -471,6 +471,10 @@ h1 span {
 
 .video-card {
   max-width: 960px;
+  /* As wide as the page, but short enough that the whole card fits in the window: its header and
+     footer take about 160px, and 30px more leaves some room around it. Never narrower than 960px,
+     which on a short window is the page's width anyway. */
+  max-width: max(960px, calc((100svh - 190px) * 16 / 9));
   margin: 0 auto;
   overflow: hidden;
   border: 1px solid #d1e1f3;
@@ -516,8 +520,9 @@ h1 span {
 }
 
 @media (max-width: 620px) {
-  .video-card { border-radius: 18px; }
-  .video-card__header, .video-card__footer { padding-inline: 20px; }
+  /* Edge to edge: out through the page's 16px gutters, with no side borders or corners to round. */
+  .video-card { margin-inline: -16px; border-inline: 0; border-radius: 0; }
+  .video-card__header, .video-card__footer { padding-inline: 16px; }
   .page { padding: 0 16px; }
   .site-header { min-height: 72px; }
   .header-cta { padding: 9px 12px; font-size: .82rem; }
