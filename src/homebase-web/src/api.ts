@@ -70,6 +70,29 @@ export interface DirectoryListing {
   indexedAt: string;
 }
 
+/// Something deleted from My files, which can be put back until it expires.
+export interface BinEntry {
+  id: string;
+  name: string;
+  // Where it was, which is where putting it back returns it.
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  deletedAt: string;
+  expiresAt: string;
+}
+export interface BinListing {
+  entries: BinEntry[];
+  bytes: number;
+}
+
+export type EditAction = "copy" | "move" | "rename" | "delete";
+/// Where one copied or moved item ended up: a different name when its own was taken there.
+export interface EditedEntry {
+  from: string;
+  to: string;
+}
+
 export interface StorageReport {
   // The volume is shared by everyone on this host; the usage is the signed-in account's own.
   freeBytes: number | null;

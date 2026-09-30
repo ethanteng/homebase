@@ -23,6 +23,23 @@ public static class Storage
         }
     }
 
+    /// <summary>
+    /// The most room to leave alone on the drive. Filling a disk to the last byte breaks far more
+    /// than whatever filled it — the metadata index lives on the same disk and needs somewhere to write.
+    /// </summary>
+    public const long Headroom = 256L * 1024 * 1024;
+
+    /// <summary>
+    /// Whether this much can be written without running the drive down to nothing. The room held
+    /// back shrinks with the space left, so a drive that is already tight still takes a small file
+    /// rather than refusing everything on principle.
+    /// </summary>
+    public static bool Fits(long needed, long? free, long headroom = Headroom)
+    {
+        if (needed == 0 || free is null) return true;
+        return needed <= free.Value - Math.Min(headroom, free.Value / 10);
+    }
+
     /// <summary>Bytes as a person reads them, matching what the interface shows.</summary>
     public static string Describe(long bytes)
     {

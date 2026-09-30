@@ -520,6 +520,61 @@ app.MapGet("/api/files/download", async (string path, CurrentUser user, UserWork
     return Results.File(stream, "application/octet-stream", name, enableRangeProcessing: true);
 });
 
+// Copying, moving and deleting inside this account's own folder, which is the only one a request
+// can name. The folders it syncs with its computers are Syncthing's to keep, so they are passed
+// along to be left where they are.
+static IReadOnlyCollection<string> Synced(SyncOwnership ownership, CurrentUser user) =>
+    ownership.Folders(user.Id).Select(folder => folder.Path).ToArray();
+
+app.MapPost("/api/files/copy", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, UsageService usage, CancellationToken cancellationToken) =>
+{
+    var workspace = workspaces.For(user.Account);
+    var copied = await workspace.Library.CopyAsync(request.Paths, request.Destination, cancellationToken);
+    usage.Invalidate(workspace.Root);
+    return Results.Ok(new { items = copied });
+});
+
+app.MapPost("/api/files/move", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, CancellationToken cancellationToken) =>
+    Results.Ok(new
+    {
+        items = await workspaces.For(user.Account).Library.MoveAsync(
+            request.Paths, request.Destination, Synced(ownership, user), cancellationToken)
+    }));
+
+app.MapPost("/api/files/rename", async (RenameFile request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, CancellationToken cancellationToken) =>
+    Results.Ok(await workspaces.For(user.Account).Library.RenameAsync(
+        request.Path, request.Name, Synced(ownership, user), cancellationToken)));
+
+// Deleting moves things into the bin, which is still this account's folder and still takes room,
+// so nothing is freed until the bin lets go of it.
+app.MapPost("/api/files/delete", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, CancellationToken cancellationToken) =>
+    Results.Ok(new
+    {
+        deleted = await workspaces.For(user.Account).Library.DeleteAsync(request.Paths, Synced(ownership, user), cancellationToken)
+    }));
+
+app.MapGet("/api/bin", async (CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+    Results.Ok(await workspaces.For(user.Account).Library.BinAsync(cancellationToken)));
+
+app.MapPost("/api/bin/restore", async (BinItems request, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+    Results.Ok(new { items = await workspaces.For(user.Account).Library.RestoreAsync(request.Ids, cancellationToken) }));
+
+app.MapPost("/api/bin/delete", async (BinItems request, CurrentUser user, UserWorkspaces workspaces, UsageService usage, CancellationToken cancellationToken) =>
+{
+    var workspace = workspaces.For(user.Account);
+    var deleted = await workspace.Library.DeleteFromBinAsync(request.Ids, cancellationToken);
+    usage.Invalidate(workspace.Root);
+    return Results.Ok(new { deleted });
+});
+
+app.MapPost("/api/bin/empty", async (CurrentUser user, UserWorkspaces workspaces, UsageService usage, CancellationToken cancellationToken) =>
+{
+    var workspace = workspaces.For(user.Account);
+    var deleted = await workspace.Library.EmptyBinAsync(cancellationToken);
+    usage.Invalidate(workspace.Root);
+    return Results.Ok(new { deleted });
+});
+
 app.MapGet("/api/providers/dropbox", (CurrentUser user, UserWorkspaces workspaces) =>
 {
     var dropbox = workspaces.For(user.Account).Dropbox;
@@ -1031,6 +1086,11 @@ finally
 }
 
 public sealed record SelectRoot(string Path);
+/// <param name="Destination">The folder to copy or move into; unused by a delete. Empty is the top of My files.</param>
+public sealed record EditFiles(IReadOnlyList<string>? Paths, string? Destination);
+public sealed record RenameFile(string? Path, string? Name);
+/// <param name="Ids">Things in the bin, by the ids it lists them with.</param>
+public sealed record BinItems(IReadOnlyList<string>? Ids);
 public sealed record ReachFromAnywhere(bool Enabled);
 public sealed record SignIn(string? Username, string? Password);
 public sealed record CreateUser(string? Username, string? DisplayName, string? Password, bool IsAdmin = false);

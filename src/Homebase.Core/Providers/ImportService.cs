@@ -20,11 +20,8 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
     /// </summary>
     public int MaxEntries { get; init; } = 20000;
 
-    /// <summary>
-    /// The most room to leave alone on the drive. Filling a disk to the last byte breaks far more
-    /// than this import — the metadata index lives on the same disk and needs somewhere to write.
-    /// </summary>
-    public long Headroom { get; init; } = 256L * 1024 * 1024;
+    /// <summary>The most room to leave alone on the drive; see <see cref="Storage.Headroom"/>.</summary>
+    public long Headroom { get; init; } = Storage.Headroom;
 
     /// <summary>Free space on the library's drive; replaced in tests.</summary>
     public Func<string, StorageReport?> Space { get; init; } = Storage.For;
@@ -53,6 +50,9 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             throw new LibraryException("Uncloud is already importing. Let that finish first.", "busy");
         try
         {
+            // Copying, moving and deleting keep out of where this writes until it is done, and one
+            // already under way there is waited for rather than raced.
+            await library.BeginImportAsync(source.DestinationPrefix, cancellationToken);
             var root = RequireRoot();
             var entry = await source.GetMetadataAsync(remotePath, cancellationToken);
             var imported = new List<ImportedItem>();
@@ -93,7 +93,11 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             progress?.Report(new ImportProgress(collected.Count, done, bytes, null));
             return new ImportResult(imported, skipped, bytes);
         }
-        finally { _gate.Release(); }
+        finally
+        {
+            library.EndImport();
+            _gate.Release();
+        }
     }
 
     /// <summary>
@@ -150,16 +154,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         }
     }
 
-    /// <summary>
-    /// Whether this much can be brought home without running the drive down to nothing. The room
-    /// held back shrinks with the space left, so a drive that is already tight still takes a small
-    /// file rather than refusing everything on principle.
-    /// </summary>
-    private bool Fits(long needed, long? free)
-    {
-        if (needed == 0 || free is null) return true;
-        return needed <= free.Value - Math.Min(Headroom, free.Value / 10);
-    }
+    private bool Fits(long needed, long? free) => Storage.Fits(needed, free, Headroom);
 
     /// <summary>
     /// Refuses before a single byte is downloaded when the files can't fit. Running a drive out of
