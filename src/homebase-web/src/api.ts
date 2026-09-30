@@ -247,6 +247,8 @@ export interface ImportResult {
   imported: ImportedItem[];
   skipped: SkippedItem[];
   bytes: number;
+  // Passed over because they were already here: counted rather than listed.
+  alreadyHere: number;
   importedCount: number;
   skippedCount: number;
 }

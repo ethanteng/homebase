@@ -17,8 +17,8 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
     /// <summary>
     /// A folder import walks the remote tree; the cap guards against a pathological account
     /// rather than expressing a considered limit. Reaching it is always reported, never silent.
-    /// Only files the import would fetch count towards it, so adding the same folder again picks up
-    /// where the last one stopped rather than stopping at the same place every time.
+    /// Files already here don't count towards it, so adding the same folder again picks up where
+    /// the last one stopped rather than stopping at the same place every time.
     /// </summary>
     public int MaxEntries { get; init; } = 20000;
 
@@ -70,7 +70,8 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             var imported = new List<ImportedItem>();
             long bytes = 0;
 
-            var collected = await CollectAsync(source, chosen, WouldFetch(source, root), skipped, cancellationToken);
+            var walked = await CollectAsync(source, chosen, AlreadyHome(source, root), skipped, cancellationToken);
+            var collected = walked.Files;
             RequireRoomFor(source, root, collected);
             // Read once for the whole import rather than per file: what another place already
             // brought home cannot change while this holds the gate.
@@ -102,7 +103,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
                 done++;
             }
             progress?.Report(new ImportProgress(collected.Count, done, bytes, null));
-            return new ImportResult(imported, skipped, bytes);
+            return new ImportResult(imported, skipped, bytes, walked.HomeFiles);
         }
         finally
         {
@@ -119,12 +120,13 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
     {
         var root = RequireRoot();
         var entry = await source.GetMetadataAsync(remotePath, cancellationToken);
-        var files = await CollectAsync(source, [entry], WouldFetch(source, root), [], cancellationToken);
-        var arriving = Arriving(source, root, files);
+        var walked = await CollectAsync(source, [entry], AlreadyHome(source, root), [], cancellationToken);
+        var arriving = Arriving(source, root, walked.Files);
         var newBytes = arriving.Sum(file => file.Size ?? 0);
         var free = Space(root)?.FreeBytes;
         return new ImportEstimate(
-            files.Count, files.Sum(file => file.Size ?? 0), arriving.Count, newBytes, free, Fits(newBytes, free));
+            walked.Files.Count + walked.HomeFiles, walked.Files.Sum(file => file.Size ?? 0) + walked.HomeBytes,
+            arriving.Count, newBytes, free, Fits(newBytes, free));
     }
 
     /// <summary>
@@ -132,18 +134,45 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
     /// taken by something Uncloud didn't write, is passed over without downloading, so counting it
     /// would hold a folder back over room it was never going to need.
     /// </summary>
-    private IReadOnlyList<SourceEntry> Arriving(IImportSource source, string root, IReadOnlyList<SourceEntry> files) =>
-        files.Where(WouldFetch(source, root)).ToArray();
+    private IReadOnlyList<SourceEntry> Arriving(IImportSource source, string root, IReadOnlyList<SourceEntry> files)
+    {
+        var home = AlreadyHome(source, root);
+        return files.Where(file => !home(file) && !Occupied(source, root, file)).ToArray();
+    }
 
-    private Func<SourceEntry, bool> WouldFetch(IImportSource source, string root)
+    /// <summary>
+    /// Whether a file is already here: brought in from this place before, or put in the same spot
+    /// by another place that writes there too. An import passes either over as the ordinary
+    /// outcome, so a walk counts them rather than carrying them — adding a large folder again would
+    /// otherwise carry every file it already brought, however many that is.
+    /// </summary>
+    private Func<SourceEntry, bool> AlreadyHome(IImportSource source, string root)
     {
         // Exactly how the log compares them. The log is SQLite, whose default text comparison is
         // case-sensitive, so matching case-insensitively here made the two disagree: a file the
         // estimate wrote off as already home was one the import then went and fetched, over room
         // the drive was never checked for. Dropbox hands back lowercased paths either way.
-        var home = log.List(root).Where(file => file.Provider == source.ProviderId)
+        var fromHere = log.List(root).Where(file => file.Provider == source.ProviderId)
             .Select(file => file.RemotePath).ToHashSet(StringComparer.Ordinal);
-        return file => !home.Contains(file.Path) && !Occupied(source, root, file);
+        var arrived = log.LocalPaths(root);
+        return file => fromHere.Contains(file.Path) || ArrivedFromElsewhere(source, root, arrived, file);
+    }
+
+    /// <summary>The same test <see cref="ImportOneAsync"/> makes before calling a file already home.</summary>
+    private static bool ArrivedFromElsewhere(IImportSource source, string root, IReadOnlySet<string> arrived, SourceEntry file)
+    {
+        try
+        {
+            var local = DestinationFor(source, file);
+            if (!arrived.Contains(local)) return false;
+            var full = PathPolicy.Resolve(root, local);
+            return File.Exists(full) || Directory.Exists(full);
+        }
+        catch (LibraryException)
+        {
+            // Refused for its own reasons, which the import reports when it gets there.
+            return false;
+        }
     }
 
     private static bool Occupied(IImportSource source, string root, SourceEntry file)
@@ -186,7 +215,10 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
 
     /// <summary>
     /// What each thing asked for is. One thing that can't be found fails the import, as it always
-    /// has; among several chosen together, it is passed over so the rest still arrive.
+    /// has; among several chosen together, one that has gone or is refused by name is passed over
+    /// so the rest still arrive. Anything that isn't about that one item — an expired connection,
+    /// Dropbox being unreachable — fails the import all the same, rather than finishing it with
+    /// nothing brought and nothing said.
     /// </summary>
     private async Task<IReadOnlyList<SourceEntry>> DescribeAsync(
         IImportSource source, IReadOnlyList<string> remotePaths, List<SkippedItem> skipped,
@@ -201,24 +233,41 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             {
                 entries.Add(await source.GetMetadataAsync(path, cancellationToken));
             }
-            catch (Exception failure) when (Recoverable(failure, cancellationToken))
+            catch (LibraryException failure) when (failure.Code is "not_found" or "invalid_path")
             {
-                skipped.Add(new SkippedItem(path, Reason(failure)));
+                skipped.Add(new SkippedItem(path, failure.Message));
             }
         return entries;
     }
 
+    /// <summary>What a walk found: the files to go through, and how much was already here.</summary>
+    private sealed record Collected(IReadOnlyList<SourceEntry> Files, int HomeFiles, long HomeBytes);
+
     /// <summary>Flattens files and folders into the ordinary files worth importing.</summary>
-    private async Task<IReadOnlyList<SourceEntry>> CollectAsync(
-        IImportSource source, IReadOnlyList<SourceEntry> chosen, Func<SourceEntry, bool> wouldFetch,
+    private async Task<Collected> CollectAsync(
+        IImportSource source, IReadOnlyList<SourceEntry> chosen, Func<SourceEntry, bool> alreadyHome,
         List<SkippedItem> skipped, CancellationToken cancellationToken)
     {
         var files = new List<SourceEntry>();
-        var fetching = 0;
-        // Stopping quietly at the cap would read as a complete import. Say what was left.
-        bool Full(SourceEntry file)
+        var homeFiles = 0;
+        long homeBytes = 0;
+        Collected Done() => new(files, homeFiles, homeBytes);
+        // Takes one file in, or says to stop here. A file already here is counted rather than kept,
+        // and doesn't count towards the cap, which is what lets adding the same again carry on past
+        // it. Stopping quietly at the cap would read as a complete import, so what was left is said.
+        bool StopAt(SourceEntry file)
         {
-            if (!wouldFetch(file) || ++fetching <= MaxEntries) return false;
+            if (alreadyHome(file))
+            {
+                homeFiles++;
+                homeBytes += file.Size ?? 0;
+                return false;
+            }
+            if (files.Count < MaxEntries)
+            {
+                files.Add(file);
+                return false;
+            }
             logger.LogWarning("{Provider} import has more than {MaxEntries} new files, so it stopped at {RemotePath}",
                 source.ProviderId, MaxEntries, file.DisplayPath);
             skipped.Add(new SkippedItem(file.DisplayPath,
@@ -231,8 +280,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         {
             // A file chosen by itself is fetched as asked; a hidden one is refused on the way in.
             if (entry.IsFolder) folders.Enqueue(entry.Path);
-            else if (Full(entry)) return files;
-            else files.Add(entry);
+            else if (StopAt(entry)) return Done();
         }
         while (folders.Count > 0)
         {
@@ -266,11 +314,10 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
                     folders.Enqueue(child.Path);
                     continue;
                 }
-                if (Full(child)) return files;
-                files.Add(child);
+                if (StopAt(child)) return Done();
             }
         }
-        return files;
+        return Done();
     }
 
     /// <summary>

@@ -437,9 +437,11 @@ when the import finishes and written to the log rather than left to be noticed.
 
 `POST /api/imports` takes `remotePaths`, several files and folders side by side (or `remotePath`,
 one), and brings them as one import: one walk, one room check for all of them together, one result.
-Among several, one that has gone since it was listed is skipped rather than failing the rest. The top
-of a Dropbox account can be added whole — Dropbox won't describe its own root, so Uncloud doesn't
-ask. One import collects at most 20,000 files, counting only those it would actually fetch, so adding
+Among several, one that has gone since it was listed (or is refused by name) is skipped rather than
+failing the rest; anything wider, like an expired Dropbox connection, fails the import as it would
+for one. The top of a Dropbox account can be added whole — Dropbox won't describe its own root, so
+Uncloud doesn't ask. Files already here are counted (`alreadyHere` in the result) rather than carried
+through the import, and don't count towards the 20,000 files one import collects at most, so adding
 the same thing again after reaching the limit carries on from where the last one stopped.
 
 An import runs on its own rather than inside the request that started it, so **My files** shows how

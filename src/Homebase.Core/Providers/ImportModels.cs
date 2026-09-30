@@ -22,10 +22,15 @@ public sealed record ImportedItem(string LocalPath, string RemotePath, long Size
 /// </summary>
 public sealed record SkippedItem(string RemotePath, string Reason, bool Expected = false);
 
+/// <param name="AlreadyHere">
+/// Files passed over because they were already here. Counted rather than listed: adding a large
+/// folder again would otherwise answer with a line for every file it brought last time.
+/// </param>
 public sealed record ImportResult(
     IReadOnlyList<ImportedItem> Imported,
     IReadOnlyList<SkippedItem> Skipped,
-    long Bytes)
+    long Bytes,
+    int AlreadyHere = 0)
 {
     public int ImportedCount => Imported.Count;
     public int SkippedCount => Skipped.Count;
