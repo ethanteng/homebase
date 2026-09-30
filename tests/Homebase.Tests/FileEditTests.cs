@@ -228,5 +228,42 @@ public sealed class FileEditTests : IDisposable
         Assert.False(File.Exists(Path.Combine(root, "Work copy", "Diaries", ".stignore")));
     }
 
+    [Fact]
+    public async Task The_folder_an_import_is_still_writing_into_is_left_alone_until_it_finishes()
+    {
+        var dropbox = new StubDropbox { Gated = true };
+        dropbox.AddFolder("/work");
+        dropbox.Add("/work/first.txt", "rev1", "First.");
+        using var app = new TestHost(_config, _ => dropbox);
+        using var client = await app.SignUpAsync();
+        await TestHost.SetHostRootAsync(client, _host);
+        var root = await TestHost.UserRootAsync(client);
+        await WriteAsync(root, "Elsewhere/mine.txt", "mine");
+
+        (await client.PostAsJsonAsync("/api/imports", new { remotePath = "/work" })).EnsureSuccessStatusCode();
+        await dropbox.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        // The import makes the folders it needs as it goes, so a move or delete here would be put
+        // back file by file, and a copy would catch it half full.
+        Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "move", ["Dropbox"], "Elsewhere")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "delete", ["Dropbox/work"])).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "copy", ["Dropbox"], "")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "move", ["Elsewhere/mine.txt"], "Dropbox/work")).StatusCode);
+        // Everywhere else is still anybody's to change.
+        (await EditAsync(client, "move", ["Elsewhere/mine.txt"], "")).EnsureSuccessStatusCode();
+
+        dropbox.Gate.TrySetResult();
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while ((await client.GetFromJsonAsync<JsonElement>("/api/imports/job")).GetProperty("job").GetProperty("running").GetBoolean())
+        {
+            Assert.True(DateTimeOffset.UtcNow < deadline, "The import never finished.");
+            await Task.Delay(15);
+        }
+
+        Assert.Equal([("Dropbox", "Elsewhere/Dropbox")], await ItemsAsync(await EditAsync(client, "move", ["Dropbox"], "Elsewhere")));
+        Assert.Equal("First.", await File.ReadAllTextAsync(Path.Combine(root, "Elsewhere", "Dropbox", "work", "first.txt")));
+        Assert.False(Directory.Exists(Path.Combine(root, "Dropbox")));
+    }
+
     public void Dispose() => Directory.Delete(_temporary, recursive: true);
 }

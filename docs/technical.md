@@ -38,7 +38,8 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   arrives as `name copy` or `name 2`. A copy checks the drive has room, is built under `.homebase/`
   and moved into place whole, and leaves hidden entries and links behind. A folder that syncs with
   a computer, or holds one that does, can't be moved or deleted, since Syncthing would stop that
-  folder with its marker gone. Deleting is immediate; there is no bin.
+  folder with its marker gone. Nor can the folder an import is still writing into, until it
+  finishes. Deleting is immediate; there is no bin.
 
 **Bringing files in** — two sources, one import engine
 

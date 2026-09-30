@@ -5,7 +5,11 @@ namespace Homebase.Core;
 /// authenticated with, so no caller can point it at somebody else's folder. Each account gets
 /// its own instance and its own gate, so one person browsing never holds up another.
 /// </summary>
-public sealed class LibraryService(string root, MetadataIndex index) : IDisposable
+/// <param name="arrivingIn">
+/// Where an import running for this account is writing, relative to the root, or null when none
+/// is. Edits keep out of it; see <see cref="AwayFromImport"/>.
+/// </param>
+public sealed class LibraryService(string root, MetadataIndex index, Func<string?>? arrivingIn = null) : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     // Copying, moving and deleting take turns with each other but not with browsing: a large copy
@@ -82,6 +86,7 @@ public sealed class LibraryService(string root, MetadataIndex index) : IDisposab
         {
             var items = Items(paths);
             var folder = Folder(destination);
+            AwayFromImport(items, folder, "copied");
             var needed = items.Sum(item => Measure(item, cancellationToken));
             var free = Storage.For(root)?.FreeBytes;
             if (!Storage.Fits(needed, free))
@@ -132,6 +137,7 @@ public sealed class LibraryService(string root, MetadataIndex index) : IDisposab
         {
             var items = Items(paths);
             var folder = Folder(destination);
+            AwayFromImport(items, folder, "moved");
             foreach (var item in items)
             {
                 if (item.IsDirectory && (folder == item.FullPath || folder.StartsWith(item.FullPath + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
@@ -161,6 +167,7 @@ public sealed class LibraryService(string root, MetadataIndex index) : IDisposab
         try
         {
             var items = Items(paths);
+            AwayFromImport(items, null, "deleted");
             foreach (var item in items) KeepSynced(item, synced, "deleted");
             foreach (var item in items)
             {
@@ -204,6 +211,28 @@ public sealed class LibraryService(string root, MetadataIndex index) : IDisposab
             ? fullPath
             : throw new LibraryException("That folder is no longer here. Refresh and try again.", "not_found");
     }
+
+    /// <summary>
+    /// Refuses an edit that reaches the folder an import is writing into. The import makes the
+    /// folders it needs as it goes, so moving or deleting there would be undone file by file — the
+    /// folder brought back, or its files split between two places — and a copy would catch it half
+    /// full. Everything else in the library can be changed meanwhile.
+    /// </summary>
+    private void AwayFromImport(IReadOnlyList<Item> items, string? destination, string verb)
+    {
+        if (arrivingIn?.Invoke() is not { Length: > 0 } area) return;
+        var into = destination is not null && Within(Relative(destination), area);
+        if (!into && !items.Any(item => Within(item.Relative, area) || Within(area, item.Relative))) return;
+        var name = area[(area.LastIndexOf('/') + 1)..];
+        throw new LibraryException(
+            $"Uncloud is still bringing files into “{name}”, so nothing there can be {verb} yet. "
+            + "Try again once that’s finished, or stop it.", "busy");
+    }
+
+    /// <summary>Whether <paramref name="path"/> is <paramref name="folder"/> or inside it.</summary>
+    private static bool Within(string path, string folder) =>
+        path.Equals(folder, StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith(folder + "/", StringComparison.OrdinalIgnoreCase);
 
     private static void KeepSynced(Item item, IReadOnlyCollection<string> synced, string verb)
     {

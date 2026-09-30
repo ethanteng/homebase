@@ -41,10 +41,20 @@ public sealed class ImportJobs(ImportService imports, ILogger<ImportJobs> logger
     private readonly Lock _lock = new();
     private ImportJob? _job;
     private CancellationTokenSource? _cancellation;
+    private string? _arrivingIn;
 
     public ImportJob? Current
     {
         get { lock (_lock) return _job; }
+    }
+
+    /// <summary>
+    /// The folder at the top of the library a running import is writing into, such as Dropbox, or
+    /// null while nothing is running. Copying, moving and deleting leave it alone until then.
+    /// </summary>
+    public string? ArrivingIn
+    {
+        get { lock (_lock) return _job is { Running: true } ? _arrivingIn : null; }
     }
 
     public ImportJob Start(IImportSource source, string sourceId, string remotePath, string? label)
@@ -63,6 +73,7 @@ public sealed class ImportJobs(ImportService imports, ILogger<ImportJobs> logger
             job = new ImportJob(Guid.NewGuid().ToString("N"), sourceId, remotePath, Name(label, remotePath),
                 ImportStage.Measuring, 0, 0, 0, null, null, null, DateTimeOffset.UtcNow, null);
             _cancellation = cancellation;
+            _arrivingIn = source.DestinationPrefix;
             _job = job;
         }
         // Deliberately not awaited: the request that started this answers straight away, and the
