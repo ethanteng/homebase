@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Homebase.Core;
@@ -129,6 +130,37 @@ public sealed class FileEditTests : IDisposable
         foreach (var into in new[] { "Docs", "Docs/Folder" })
             Assert.Equal(HttpStatusCode.BadRequest, (await EditAsync(client, "move", ["Docs/a 2.txt", "Docs"], into)).StatusCode);
         Assert.True(File.Exists(Path.Combine(root, "Docs", "a 2.txt")));
+    }
+
+    [Fact]
+    public async Task A_name_at_the_length_limit_makes_room_for_copy_or_a_number_rather_than_failing()
+    {
+        var (app, client, root) = await StartAsync();
+        using var _ = app;
+        using var __ = client;
+        // 255 bytes each, the most a drive allows: one in plain letters, one in two-byte ones.
+        var plain = new string('x', 251) + ".txt";
+        var accented = new string('é', 125) + "x.txt";
+        foreach (var name in new[] { plain, accented })
+        {
+            await WriteAsync(root, name, "mine");
+            await WriteAsync(root, $"Docs/{name}", "already there");
+        }
+
+        var copied = (await ItemsAsync(await EditAsync(client, "copy", [plain, accented], ""))).Select(item => item.To).ToArray();
+        var moved = (await ItemsAsync(await EditAsync(client, "move", [plain, accented], "Docs"))).Select(item => Path.GetFileName(item.To)).ToArray();
+
+        foreach (var (name, ending) in copied.Select(name => (name, " copy.txt")).Concat(moved.Select(name => (name, " 2.txt"))))
+        {
+            Assert.EndsWith(ending, name);
+            Assert.InRange(Encoding.UTF8.GetByteCount(name), ending.Length + 1, 255);
+            // Shortened between characters, never through one.
+            Assert.DoesNotContain('\uFFFD', name);
+        }
+        Assert.StartsWith("éé", moved[1]);
+        Assert.Equal("already there", await File.ReadAllTextAsync(Path.Combine(root, "Docs", plain)));
+        Assert.Equal("mine", await File.ReadAllTextAsync(Path.Combine(root, "Docs", moved[0])));
+        Assert.Equal("mine", await File.ReadAllTextAsync(Path.Combine(root, copied[1])));
     }
 
     [Fact]

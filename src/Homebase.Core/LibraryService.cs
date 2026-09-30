@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace Homebase.Core;
@@ -284,7 +285,7 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
             throw new LibraryException("A name can’t start with a dot, because Uncloud would hide it.");
         if (trimmed.IndexOfAny(['/', '\\', ':']) >= 0 || trimmed.Any(char.IsControl))
             throw new LibraryException("A name can’t contain /, \\ or :.");
-        if (Encoding.UTF8.GetByteCount(trimmed) > 255) throw new LibraryException("That name is too long.");
+        if (Encoding.UTF8.GetByteCount(trimmed) > MaxNameBytes) throw new LibraryException("That name is too long.");
         return trimmed;
     }
 
@@ -357,6 +358,9 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
         }
     }
 
+    /// <summary>The longest name a Mac or Linux drive takes, in UTF-8 bytes.</summary>
+    private const int MaxNameBytes = 255;
+
     /// <summary>
     /// The name itself when it is free, and otherwise the next of “name copy”, “name copy 2”… for
     /// a copy or “name 2”, “name 3”… for a move, with a file's extension kept at the end.
@@ -368,10 +372,38 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
         for (var attempt = 1; ; attempt++)
         {
             var candidate = attempt == 1 ? name
-                : copy ? $"{stem} copy{(attempt == 2 ? "" : $" {attempt - 1}")}{extension}"
-                : $"{stem} {attempt}{extension}";
+                : Fit(stem, copy ? $" copy{(attempt == 2 ? "" : $" {attempt - 1}")}" : $" {attempt}", extension);
             if (!Taken(Path.Combine(folder, candidate))) return candidate;
         }
+    }
+
+    /// <summary>
+    /// The stem, suffix and extension as one name no longer than a drive allows. A name already at
+    /// the limit gives up the end of its stem to make room, never part of a character, so keeping
+    /// both still works; an extension too long to keep counts as part of the stem.
+    /// </summary>
+    private static string Fit(string stem, string suffix, string extension)
+    {
+        var room = MaxNameBytes - Encoding.UTF8.GetByteCount(suffix + extension);
+        if (room < 1)
+        {
+            stem += extension;
+            extension = "";
+            room = MaxNameBytes - Encoding.UTF8.GetByteCount(suffix);
+        }
+        if (Encoding.UTF8.GetByteCount(stem) <= room) return stem + suffix + extension;
+        var kept = new StringBuilder();
+        var used = 0;
+        var elements = StringInfo.GetTextElementEnumerator(stem);
+        while (elements.MoveNext())
+        {
+            var element = elements.GetTextElement();
+            var size = Encoding.UTF8.GetByteCount(element);
+            if (used + size > room) break;
+            kept.Append(element);
+            used += size;
+        }
+        return kept.ToString().TrimEnd() + suffix + extension;
     }
 
     // A dangling link isn't there as far as File.Exists is concerned, but its name is still taken.
