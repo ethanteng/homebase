@@ -36,7 +36,7 @@ public sealed class UsageService
     /// <summary>Forgets a measurement, so the next answer is taken fresh.</summary>
     public void Invalidate(string root) => _measured.TryRemove(root, out _);
 
-    private static long Walk(string root)
+    internal static long Walk(string root)
     {
         if (!Directory.Exists(root)) return 0;
         long total = 0;

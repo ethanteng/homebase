@@ -9,7 +9,7 @@ namespace Homebase.Core;
 /// Where an import running for this account is writing, relative to the root, or null when none
 /// is. Edits keep out of it; see <see cref="AwayFromImport"/>.
 /// </param>
-public sealed class LibraryService(string root, MetadataIndex index, Func<string?>? arrivingIn = null) : IDisposable
+public sealed partial class LibraryService(string root, MetadataIndex index, Func<string?>? arrivingIn = null) : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     // Copying, moving and deleting take turns with each other but not with browsing: a large copy
@@ -25,8 +25,18 @@ public sealed class LibraryService(string root, MetadataIndex index, Func<string
 
     public LibraryState State => new(root, new DirectoryInfo(root).Name);
 
-    /// <summary>Makes the metadata database if this folder hasn't been opened before.</summary>
-    public void Initialize() => index.Initialize(root);
+    /// <summary>
+    /// Makes the metadata database if this folder hasn't been opened before, and lets go of
+    /// whatever has been in the bin past its time rather than waiting for somebody to look.
+    /// </summary>
+    public void Initialize()
+    {
+        index.Initialize(root);
+        // The bin is tidied again whenever it is opened or added to, so a folder that won't answer
+        // now is no reason to refuse to open the library.
+        try { Purge(BinFolder()); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or LibraryException) { }
+    }
 
     public async Task<DirectoryListing> BrowseAsync(string? relativePath, CancellationToken cancellationToken)
     {
@@ -158,7 +168,10 @@ public sealed class LibraryService(string root, MetadataIndex index, Func<string
         finally { _edits.Release(); }
     }
 
-    /// <summary>Deletes files, and folders with everything in them. There is no bin to get them back from.</summary>
+    /// <summary>
+    /// Deletes files, and folders with everything in them, into the bin: gone from My files at
+    /// once, and for good after <see cref="KeepDeletedFor"/> unless put back first.
+    /// </summary>
     /// <param name="synced">As for <see cref="MoveAsync"/>: a synced folder, or one holding one, stays.</param>
     public async Task<int> DeleteAsync(
         IReadOnlyList<string>? paths, IReadOnlyCollection<string> synced, CancellationToken cancellationToken)
@@ -169,12 +182,12 @@ public sealed class LibraryService(string root, MetadataIndex index, Func<string
             var items = Items(paths);
             AwayFromImport(items, null, "deleted");
             foreach (var item in items) KeepSynced(item, synced, "deleted");
+            var bin = BinFolder();
+            Purge(bin);
             foreach (var item in items)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                // A recursive delete removes a link it meets rather than following it.
-                if (item.IsDirectory) Directory.Delete(item.FullPath, recursive: true);
-                else File.Delete(item.FullPath);
+                ToBin(bin, item);
             }
             return items.Count;
         }

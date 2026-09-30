@@ -41,7 +41,8 @@ plugged into it.
 ### What you can do today
 
 - Browse your folders, look at file details, and download files, from any browser.
-- Copy, move and delete files and folders in the browser.
+- Copy, move and delete files and folders in the browser, and get deleted ones back from the
+  **Bin** for 30 days.
 - Add files from Dropbox, or from folders and drives on the host, all from one **Add files** button.
 - See how much room is left on the host at a glance, on every page.
 - Sync folders on your own computers with your space.
@@ -50,8 +51,7 @@ plugged into it.
 
 ### What isn't ready yet
 
-- **No uploading or renaming in the browser**, and no bin: deleting is for good. Files get in by
-  importing or syncing a computer.
+- **No uploading or renaming in the browser.** Files get in by importing or syncing a computer.
 - **The app is Mac only for now.**
 - **The host has to stay on and awake.** On a Mac, turn off sleep in System Settings, and tick
   **Open at Login** in the Uncloud menu so it starts again after a restart.
@@ -228,9 +228,14 @@ amber, then red, when it runs low.
 Tick the box beside files and folders to **Copy to…**, **Move to…** or **Delete** them, or use the
 same buttons in a file's details. Nothing is ever overwritten: if the folder you choose already
 has something with the same name, the new arrival gets a new one, like `notes 2.txt`, and Uncloud
-tells you. **Deleting can't be undone**, and a deleted file that syncs with your laptop is deleted
-there too. A folder that syncs with one of your computers can't be moved or deleted until you stop
+tells you. A folder that syncs with one of your computers can't be moved or deleted until you stop
 syncing it.
+
+Deleted files and folders go to the **Bin**, where they wait for 30 days before they're gone for
+good. **Put back** returns one to where it was, even if the folder it was in has gone since. Until
+then it still takes up room, so **Delete forever** or **Empty bin** when you need the space back.
+A file you delete that syncs with your laptop is deleted there too, and comes back there when you
+put it back.
 
 ### Add files
 

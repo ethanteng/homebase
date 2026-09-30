@@ -101,18 +101,19 @@ describe("editing My files", () => {
     expect(await within(screen.getByRole("dialog")).findByRole("button", { name: /Docs/ })).toBeDisabled();
   });
 
-  it("asks before deleting, and says what was deleted", async () => {
+  it("asks before sending things to the bin, and says where they went", async () => {
     await open();
     await click(screen.getByRole("checkbox", { name: "Select Docs" }));
     await click(screen.getByRole("button", { name: /delete/i }));
 
     const dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent("“Docs” and everything in it will be deleted");
+    expect(dialog).toHaveTextContent("“Docs” and everything in it will go to the bin");
+    expect(dialog).toHaveTextContent("put it back from there for 30 days");
     expect(sent).toEqual([]);
     await click(within(dialog).getByRole("button", { name: "Delete" }));
 
     expect(sent).toEqual([{ path: "/files/delete", body: { paths: ["Docs"] } }]);
-    await screen.findByText("Deleted “Docs”.");
+    await screen.findByText("Moved “Docs” to the bin.");
   });
 
   it("says so when a copy arrives under a new name", async () => {

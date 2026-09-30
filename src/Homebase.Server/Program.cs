@@ -541,10 +541,32 @@ app.MapPost("/api/files/move", async (EditFiles request, CurrentUser user, UserW
             request.Paths, request.Destination, Synced(ownership, user), cancellationToken)
     }));
 
-app.MapPost("/api/files/delete", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, UsageService usage, CancellationToken cancellationToken) =>
+// Deleting moves things into the bin, which is still this account's folder and still takes room,
+// so nothing is freed until the bin lets go of it.
+app.MapPost("/api/files/delete", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, CancellationToken cancellationToken) =>
+    Results.Ok(new
+    {
+        deleted = await workspaces.For(user.Account).Library.DeleteAsync(request.Paths, Synced(ownership, user), cancellationToken)
+    }));
+
+app.MapGet("/api/bin", async (CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+    Results.Ok(await workspaces.For(user.Account).Library.BinAsync(cancellationToken)));
+
+app.MapPost("/api/bin/restore", async (BinItems request, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+    Results.Ok(new { items = await workspaces.For(user.Account).Library.RestoreAsync(request.Ids, cancellationToken) }));
+
+app.MapPost("/api/bin/delete", async (BinItems request, CurrentUser user, UserWorkspaces workspaces, UsageService usage, CancellationToken cancellationToken) =>
 {
     var workspace = workspaces.For(user.Account);
-    var deleted = await workspace.Library.DeleteAsync(request.Paths, Synced(ownership, user), cancellationToken);
+    var deleted = await workspace.Library.DeleteFromBinAsync(request.Ids, cancellationToken);
+    usage.Invalidate(workspace.Root);
+    return Results.Ok(new { deleted });
+});
+
+app.MapPost("/api/bin/empty", async (CurrentUser user, UserWorkspaces workspaces, UsageService usage, CancellationToken cancellationToken) =>
+{
+    var workspace = workspaces.For(user.Account);
+    var deleted = await workspace.Library.EmptyBinAsync(cancellationToken);
     usage.Invalidate(workspace.Root);
     return Results.Ok(new { deleted });
 });
@@ -1062,6 +1084,8 @@ finally
 public sealed record SelectRoot(string Path);
 /// <param name="Destination">The folder to copy or move into; unused by a delete. Empty is the top of My files.</param>
 public sealed record EditFiles(IReadOnlyList<string>? Paths, string? Destination);
+/// <param name="Ids">Things in the bin, by the ids it lists them with.</param>
+public sealed record BinItems(IReadOnlyList<string>? Ids);
 public sealed record ReachFromAnywhere(bool Enabled);
 public sealed record SignIn(string? Username, string? Password);
 public sealed record CreateUser(string? Username, string? DisplayName, string? Password, bool IsAdmin = false);

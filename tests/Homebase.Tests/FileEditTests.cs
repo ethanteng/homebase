@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Homebase.Core;
 
 namespace Homebase.Tests;
@@ -46,6 +47,12 @@ public sealed class FileEditTests : IDisposable
         return body.GetProperty("items").EnumerateArray()
             .Select(item => (item.GetProperty("from").GetString()!, item.GetProperty("to").GetString()!)).ToArray();
     }
+
+    private static async Task<BinListing> BinAsync(HttpClient client) =>
+        (await client.GetFromJsonAsync<BinListing>("/api/bin"))!;
+
+    private static Task<HttpResponseMessage> BinAsync(HttpClient client, string action, params string[] ids) =>
+        client.PostAsJsonAsync($"/api/bin/{action}", new { ids });
 
     private static async Task WriteAsync(string root, string path, string content)
     {
@@ -122,7 +129,7 @@ public sealed class FileEditTests : IDisposable
     }
 
     [Fact]
-    public async Task Delete_removes_files_and_folders_with_everything_in_them()
+    public async Task Delete_moves_files_and_folders_with_everything_in_them_to_the_bin()
     {
         var (app, client, root) = await StartAsync();
         using var _ = app;
@@ -141,10 +148,84 @@ public sealed class FileEditTests : IDisposable
         Assert.Equal(2, (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("deleted").GetInt32());
         Assert.False(File.Exists(Path.Combine(root, "old.txt")));
         Assert.False(Directory.Exists(Path.Combine(root, "Old stuff")));
-        // A link inside a deleted folder goes with it; what it pointed at does not.
-        Assert.Equal("outside", await File.ReadAllTextAsync(Path.Combine(outside, "secret.txt")));
         Assert.Equal("keep.txt", Assert.Single((await client.GetFromJsonAsync<DirectoryListing>("/api/files"))!.Entries).Name);
+        var bin = await BinAsync(client);
+        Assert.Equal(["Old stuff", "old.txt"], bin.Entries.Select(entry => entry.Path).Order(StringComparer.Ordinal));
+        // Everything in the folder counts, hidden or not, since all of it still takes up room.
+        Assert.Equal(4 + 6 + 3, bin.Bytes);
+        // The bin is Uncloud's own and can't be reached as a path.
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/files?path=.homebase%2Fbin")).StatusCode);
+
+        // Emptying it is for good. A link inside a deleted folder goes with it; what it pointed at does not.
+        var emptied = await client.PostAsync("/api/bin/empty", null);
+        emptied.EnsureSuccessStatusCode();
+        Assert.Equal(2, (await emptied.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("deleted").GetInt32());
+        Assert.Empty((await BinAsync(client)).Entries);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(root, ".homebase", "bin")));
+        Assert.Equal("outside", await File.ReadAllTextAsync(Path.Combine(outside, "secret.txt")));
         Assert.True(File.Exists(Path.Combine(root, ".homebase", "index.db")));
+    }
+
+    [Fact]
+    public async Task Putting_things_back_returns_them_where_they_were_and_keeps_whatever_took_their_place()
+    {
+        var (app, client, root) = await StartAsync();
+        using var _ = app;
+        using var __ = client;
+        await WriteAsync(root, "Documents/Taxes/2025.pdf", "taxes");
+        await WriteAsync(root, "Old/deep/file.txt", "deep");
+        (await EditAsync(client, "delete", ["Documents/Taxes/2025.pdf", "Old"])).EnsureSuccessStatusCode();
+        var bin = await BinAsync(client);
+        var taxes = bin.Entries.Single(entry => entry.Name == "2025.pdf");
+        Assert.Equal("Documents/Taxes/2025.pdf", taxes.Path);
+        Assert.False(taxes.IsDirectory);
+        Assert.Equal(5, taxes.Size);
+        Assert.Equal(LibraryService.KeepDeletedFor, taxes.ExpiresAt - taxes.DeletedAt);
+        // The folders it was in have gone since, and something else is called Old now.
+        Directory.Delete(Path.Combine(root, "Documents"), recursive: true);
+        await WriteAsync(root, "Old/new.txt", "new");
+
+        var restored = await ItemsAsync(await BinAsync(client, "restore", [.. bin.Entries.Select(entry => entry.Id)]));
+
+        Assert.Equal([("Documents/Taxes/2025.pdf", "Documents/Taxes/2025.pdf"), ("Old", "Old 2")],
+            restored.OrderBy(item => item.From, StringComparer.Ordinal));
+        Assert.Equal("taxes", await File.ReadAllTextAsync(Path.Combine(root, "Documents", "Taxes", "2025.pdf")));
+        Assert.Equal("deep", await File.ReadAllTextAsync(Path.Combine(root, "Old 2", "deep", "file.txt")));
+        Assert.Equal("new", await File.ReadAllTextAsync(Path.Combine(root, "Old", "new.txt")));
+        Assert.Empty((await BinAsync(client)).Entries);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(root, ".homebase", "bin")));
+    }
+
+    [Fact]
+    public async Task The_bin_lets_go_of_things_when_asked_or_once_their_time_is_up()
+    {
+        var (app, client, root) = await StartAsync();
+        using var _ = app;
+        using var __ = client;
+        foreach (var name in new[] { "a.txt", "b.txt", "c.txt" }) await WriteAsync(root, name, name);
+        (await EditAsync(client, "delete", ["a.txt", "b.txt", "c.txt"])).EnsureSuccessStatusCode();
+        var ids = (await BinAsync(client)).Entries.ToDictionary(entry => entry.Name, entry => entry.Id);
+
+        var deleted = await BinAsync(client, "delete", ids["a.txt"]);
+        deleted.EnsureSuccessStatusCode();
+        Assert.Equal(1, (await deleted.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("deleted").GetInt32());
+        Assert.Equal(["b.txt", "c.txt"], (await BinAsync(client)).Entries.Select(entry => entry.Name).Order(StringComparer.Ordinal));
+
+        // A request names things in the bin by id and nothing else.
+        Assert.Equal(HttpStatusCode.NotFound, (await BinAsync(client, "restore", ids["a.txt"])).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await BinAsync(client, "restore", "../../b.txt")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await BinAsync(client, "delete", "*")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await BinAsync(client, "restore")).StatusCode);
+
+        // Thirty days on, b.txt goes for good the next time anybody looks.
+        var record = Path.Combine(root, ".homebase", "bin", $"{ids["b.txt"]}.json");
+        var node = JsonNode.Parse(await File.ReadAllTextAsync(record))!;
+        node["deletedAt"] = DateTimeOffset.UtcNow - LibraryService.KeepDeletedFor - TimeSpan.FromMinutes(1);
+        await File.WriteAllTextAsync(record, node.ToJsonString());
+
+        Assert.Equal("c.txt", Assert.Single((await BinAsync(client)).Entries).Name);
+        Assert.False(Directory.Exists(Path.Combine(root, ".homebase", "bin", ids["b.txt"])));
+        Assert.False(File.Exists(record));
     }
 
     [Theory]
@@ -239,6 +320,9 @@ public sealed class FileEditTests : IDisposable
         await TestHost.SetHostRootAsync(client, _host);
         var root = await TestHost.UserRootAsync(client);
         await WriteAsync(root, "Elsewhere/mine.txt", "mine");
+        await WriteAsync(root, "Dropbox/old.txt", "old");
+        (await EditAsync(client, "delete", ["Dropbox/old.txt"])).EnsureSuccessStatusCode();
+        var binned = Assert.Single((await BinAsync(client)).Entries).Id;
 
         (await client.PostAsJsonAsync("/api/imports", new { remotePath = "/work" })).EnsureSuccessStatusCode();
         await dropbox.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -249,6 +333,7 @@ public sealed class FileEditTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "delete", ["Dropbox/work"])).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "copy", ["Dropbox"], "")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "move", ["Elsewhere/mine.txt"], "Dropbox/work")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await BinAsync(client, "restore", binned)).StatusCode);
         // Everywhere else is still anybody's to change.
         (await EditAsync(client, "move", ["Elsewhere/mine.txt"], "")).EnsureSuccessStatusCode();
 
@@ -260,8 +345,10 @@ public sealed class FileEditTests : IDisposable
             await Task.Delay(15);
         }
 
+        (await BinAsync(client, "restore", binned)).EnsureSuccessStatusCode();
         Assert.Equal([("Dropbox", "Elsewhere/Dropbox")], await ItemsAsync(await EditAsync(client, "move", ["Dropbox"], "Elsewhere")));
         Assert.Equal("First.", await File.ReadAllTextAsync(Path.Combine(root, "Elsewhere", "Dropbox", "work", "first.txt")));
+        Assert.Equal("old", await File.ReadAllTextAsync(Path.Combine(root, "Elsewhere", "Dropbox", "old.txt")));
         Assert.False(Directory.Exists(Path.Combine(root, "Dropbox")));
     }
 

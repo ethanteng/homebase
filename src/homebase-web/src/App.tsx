@@ -8,6 +8,7 @@ import {
   HardDrive,
   House,
   Settings2,
+  Trash2,
   UserRound,
   Users,
   X,
@@ -19,13 +20,14 @@ import ImportStatus, { useImportJob } from "./ImportStatus";
 import HostDropbox from "./HostDropbox";
 import { StorageCard, StoragePill } from "./StorageMeter";
 import FileBrowser from "./FileBrowser";
+import Bin from "./Bin";
 import SyncPanel from "./SyncPanel";
 import HostSetup from "./HostSetup";
 import SignIn from "./SignIn";
 import UsersPanel from "./UsersPanel";
 import AccountPanel from "./AccountPanel";
 
-type View = "files" | "sync" | "users";
+type View = "files" | "bin" | "sync" | "users";
 type Dialog = "add" | "host" | "account" | null;
 
 function readPath() {
@@ -246,6 +248,14 @@ export default function App() {
             My files<span className="nav-shortcut">⌂</span>
           </button>
           <button
+            className={`nav-item${view === "bin" ? " active" : ""}`}
+            onClick={() => setView("bin")}
+            disabled={!hasFolder}
+          >
+            <Trash2 size={18} />
+            Bin
+          </button>
+          <button
             className={`nav-item${view === "sync" ? " active" : ""}`}
             onClick={() => setView("sync")}
             disabled={!hasFolder}
@@ -315,11 +325,13 @@ export default function App() {
             <span>Uncloud</span>
             <span className="slash">/</span>
             <strong>
-              {view === "sync"
-                ? "My computers"
-                : view === "users"
-                  ? "People"
-                  : "My files"}
+              {view === "bin"
+                ? "Bin"
+                : view === "sync"
+                  ? "My computers"
+                  : view === "users"
+                    ? "People"
+                    : "My files"}
             </strong>
           </div>
           <span className="topbar-status">
@@ -335,6 +347,15 @@ export default function App() {
             <UsersPanel me={me} />
           ) : hasFolder && view === "sync" ? (
             <SyncPanel />
+          ) : hasFolder && view === "bin" ? (
+            <Bin
+              // Letting go of something frees room the storage meter should show.
+              onChanged={() => setRevision((value) => value + 1)}
+              open={(folder) => {
+                setView("files");
+                navigate(folder);
+              }}
+            />
           ) : hasFolder ? (
             <FileBrowser
               rootPath={library!.rootPath!}
