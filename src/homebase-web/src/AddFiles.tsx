@@ -16,10 +16,12 @@ import {
   Plus,
   Usb,
   Users,
+  X,
 } from "lucide-react";
 import { api, formatSize, DROPBOX } from "./api";
 import type { FolderSize } from "./api";
 import { useFolderSizes } from "./folderSizes";
+import type { FolderSizes } from "./folderSizes";
 import { spaceLevel } from "./StorageMeter";
 import type {
   ImportAccount,
@@ -80,11 +82,59 @@ function PlaceIcon({ kind, size = 19 }: { kind: PlaceKind; size?: number }) {
   return <Folder size={size} strokeWidth={1.6} fill="currentColor" fillOpacity={0.14} />;
 }
 
+function describeSize(size: FolderSize): string {
+  return `${formatSize(size.bytes)} · ${size.files.toLocaleString()} ${size.files === 1 ? "file" : "files"}`;
+}
+
 /** A folder's size and how many files it holds, once measured; until then, that it's being measured. */
 function describeFolder(size: FolderSize | null | undefined): string {
   if (size === undefined) return "Folder · measuring…";
   if (size === null) return "Folder";
-  return `${formatSize(size.bytes)} · ${size.files.toLocaleString()} ${size.files === 1 ? "file" : "files"}`;
+  return describeSize(size);
+}
+
+/** What some of a folder's entries hold together, as far as it's known yet. */
+interface Total extends FolderSize {
+  /** Folders among them still being measured, whose share isn't counted yet. */
+  measuring: number;
+  /** Folders among them that couldn't be measured, and so never will be counted. */
+  unmeasured: number;
+}
+
+/**
+ * Adds up files and folders the way an import counts them, so the total is what adding them
+ * would bring: hidden entries stay behind, so they aren't counted. A folder counts once its size
+ * arrives, so the total runs upwards as they do.
+ */
+function addUp(entries: SourceEntry[], sizes: FolderSizes): Total {
+  const total = { bytes: 0, files: 0, measuring: 0, unmeasured: 0 };
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const size = entry.isFolder ? sizes[entry.path] : { bytes: entry.size ?? 0, files: 1 };
+    if (size === undefined) total.measuring++;
+    else if (size === null) total.unmeasured++;
+    else {
+      total.bytes += size.bytes;
+      total.files += size.files;
+    }
+  }
+  return total;
+}
+
+function describeTotal(total: Total): string {
+  if (total.measuring > 0 && total.files === 0) return "Measuring…";
+  let text = describeSize(total);
+  if (total.measuring > 0) text += " so far · measuring…";
+  if (total.unmeasured > 0)
+    text += ` · ${total.unmeasured} ${total.unmeasured === 1 ? "folder" : "folders"} couldn’t be measured`;
+  return text;
+}
+
+/** Several names the way somebody would say them: "Art and Chime", "Art, Chime and 3 more". */
+function nameTogether(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  if (names.length <= 3) return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
 }
 
 function readLastSource(): string | null {
@@ -124,6 +174,9 @@ export default function AddFiles({
   );
   const [trail, setTrail] = useState<Step[]>([]);
   const [entries, setEntries] = useState<SourceEntry[] | null>(null);
+  // What's ticked in the folder on screen, by path. Choosing is one folder at a time: moving
+  // anywhere else starts afresh, so nothing ticked is ever out of sight.
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(() => new Set());
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -194,6 +247,7 @@ export default function AddFiles({
   // Listing whatever folder is being looked at, whenever that changes.
   const folder = trail.at(-1)?.path ?? "";
   useEffect(() => {
+    setTicked(new Set());
     if (!sourceId) return;
     if (where.at === "place" && place && !place.available) return;
     const controller = new AbortController();
@@ -213,9 +267,13 @@ export default function AddFiles({
     return () => controller.abort();
   }, [sourceId, folder, where.at, place]);
 
-  // Online, measuring a folder is a listing of everything under it, so fewer at once.
+  // Online, measuring a folder is a listing of everything under it, so fewer at once. The folder
+  // being looked at goes first, since its total is what adding all of it would bring; inside a
+  // folder that was on screen a moment ago, the place already knows it.
   const folderSizes = useFolderSizes(
-    sourceId ? (entries ?? []).filter((entry) => entry.isFolder).map((entry) => entry.path) : [],
+    sourceId && entries?.length
+      ? [folder, ...entries.filter((entry) => entry.isFolder).map((entry) => entry.path)]
+      : [],
     (path) => `/imports/sources/${encodeURIComponent(sourceId ?? "")}/size?${new URLSearchParams({ path })}`,
     3,
   );
@@ -243,11 +301,12 @@ export default function AddFiles({
     }
   }
 
-  const add = (source: string, path: string, label: string) =>
-    run(`add:${source}:${path}`, async () => {
+  /** One file or folder, or several side by side in one folder, brought in as one import. */
+  const add = (source: string, paths: string[], label: string) =>
+    run(`add:${source}:${paths.join("\n")}`, async () => {
       const { job } = await api<{ job: ImportJob }>("/imports", {
         method: "POST",
-        body: JSON.stringify({ source, remotePath: path, label }),
+        body: JSON.stringify({ source, remotePaths: paths, label }),
       });
       onStarted(job);
     });
@@ -273,7 +332,7 @@ export default function AddFiles({
       const added = await own(suggestion.path);
       const { job } = await api<{ job: ImportJob }>("/imports", {
         method: "POST",
-        body: JSON.stringify({ source: added.id, remotePath: "/", label: added.name }),
+        body: JSON.stringify({ source: added.id, remotePaths: ["/"], label: added.name }),
       });
       onStarted(job);
     });
@@ -564,7 +623,7 @@ export default function AddFiles({
                   busy={busy === `add:${known?.id ?? ""}:/` || busy === `add:${suggestion?.path ?? ""}`}
                   disabled={disabled || unavailable}
                   onClick={() =>
-                    known ? void add(known.id, "/", known.name) : void addSuggestion(suggestion!)
+                    known ? void add(known.id, ["/"], known.name) : void addSuggestion(suggestion!)
                   }
                 />
               </li>
@@ -642,7 +701,7 @@ export default function AddFiles({
               <AddButton
                 busy={busy === `add:${candidate.id}:/`}
                 disabled={disabled || !candidate.available}
-                onClick={() => void add(candidate.id, "/", candidate.name)}
+                onClick={() => void add(candidate.id, ["/"], candidate.name)}
               />
             </li>
           ))}
@@ -754,14 +813,37 @@ export default function AddFiles({
     );
   const sourceName = source.name;
   const current = trail.at(-1);
-  // A folder can be added whole from inside it. An online account's very top can't be, which is
-  // also not a thing anybody wants in one go.
-  const whole =
-    where.at === "place"
-      ? { path: current?.path ?? "/", name: current?.name ?? sourceName }
-      : current
-        ? { path: current.path, name: current.name }
-        : null;
+  // Wherever somebody is, the folder they're looking at can be added whole, right up to everything
+  // in an online account, rather than a row at a time.
+  const whole = { path: current?.path ?? "/", name: current?.name ?? sourceName };
+  const wholeSize = folderSizes[folder];
+  const listed = entries ?? [];
+  const chosen = listed.filter((entry) => ticked.has(entry.path));
+  const allTicked = listed.length > 0 && chosen.length === listed.length;
+  // The row above the list always says what its button would add. Ticking every row is the same
+  // as the whole folder, so it reads and adds as that rather than as a long list of names.
+  const some = chosen.length > 0 && !allTicked;
+  const summary = some
+    ? {
+        title: nameTogether(chosen.map((entry) => entry.name)),
+        detail: `${chosen.length} selected · ${describeTotal(addUp(chosen, folderSizes))}`,
+        paths: chosen.map((entry) => entry.path),
+        label: nameTogether(chosen.map((entry) => entry.name)),
+      }
+    : {
+        title: `Everything in ${whole.name}`,
+        // The folder's own measurement is exact and often already known; until it is, its rows
+        // add up to the same thing as they fill in.
+        detail: wholeSize ? describeSize(wholeSize) : describeTotal(addUp(listed, folderSizes)),
+        paths: [whole.path],
+        label: whole.name,
+      };
+  const tick = (path: string) =>
+    setTicked((current) => {
+      const next = new Set(current);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
 
   return (
     <div className="add-files">
@@ -774,31 +856,61 @@ export default function AddFiles({
         </div>
       ) : (
         <>
-          <div className="add-toolbar">
-            <span className="muted add-where">
-              {where.at === "account" && account
-                ? `Signed in to ${account.name} as ${account.accountName ?? "you"}`
-                : place && !place.mine
-                  ? `Shared by ${place.sharedBy ?? "someone here"}`
-                  : place?.shared
-                    ? "Everyone here can add from this folder"
-                    : "Only you can add from this folder"}
-            </span>
-            {whole && (
-              <button
-                className="button primary"
-                onClick={() => void add(sourceId!, whole.path, whole.name)}
-                disabled={disabled}
-              >
-                {busy === `add:${sourceId}:${whole.path}` ? (
-                  <LoaderCircle className="spin" size={15} />
-                ) : (
-                  <Plus size={15} />
+          <p className="muted add-where">
+            {where.at === "account" && account
+              ? `Signed in to ${account.name} as ${account.accountName ?? "you"}`
+              : place && !place.mine
+                ? `Shared by ${place.sharedBy ?? "someone here"}`
+                : place?.shared
+                  ? "Everyone here can add from this folder"
+                  : "Only you can add from this folder"}
+          </p>
+          {listed.length > 0 && (
+            <div className={`add-whole${chosen.length > 0 ? " choosing" : ""}`} aria-live="polite">
+              <label className="check">
+                <input
+                  type="checkbox"
+                  className="check-box"
+                  aria-label={`Select everything in ${whole.name}`}
+                  checked={allTicked}
+                  ref={(box) => {
+                    if (box) box.indeterminate = some;
+                  }}
+                  onChange={() => setTicked(allTicked ? new Set() : new Set(listed.map((entry) => entry.path)))}
+                />
+              </label>
+              {current ? (
+                <FolderOpen size={19} strokeWidth={1.6} />
+              ) : place ? (
+                <PlaceIcon kind={place.kind} />
+              ) : (
+                <Cloud size={19} strokeWidth={1.6} />
+              )}
+              <span>
+                <strong>{summary.title}</strong>
+                <span className="muted">{summary.detail}</span>
+              </span>
+              <div className="add-whole-actions">
+                {chosen.length > 0 && (
+                  <button className="icon-button" aria-label="Clear selection" onClick={() => setTicked(new Set())}>
+                    <X size={16} />
+                  </button>
                 )}
-                Add all of {whole.name}
-              </button>
-            )}
-          </div>
+                <button
+                  className="button primary add-button"
+                  onClick={() => void add(sourceId!, summary.paths, summary.label)}
+                  disabled={disabled}
+                >
+                  {busy === `add:${sourceId}:${summary.paths.join("\n")}` ? (
+                    <LoaderCircle className="spin" size={15} />
+                  ) : (
+                    <Plus size={15} />
+                  )}
+                  {some ? "Add selected" : "Add all"}
+                </button>
+              </div>
+            </div>
+          )}
           {entries === null && !error ? (
             <div className="file-loading" role="status">
               <LoaderCircle className="spin" size={22} />
@@ -809,7 +921,16 @@ export default function AddFiles({
           ) : entries ? (
             <ul className="import-list browse-list">
               {entries.map((entry) => (
-                <li key={entry.id}>
+                <li key={entry.id} className={ticked.has(entry.path) ? "ticked" : ""}>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      className="check-box"
+                      aria-label={`Select ${entry.name}`}
+                      checked={ticked.has(entry.path)}
+                      onChange={() => tick(entry.path)}
+                    />
+                  </label>
                   <button
                     className="browse-name"
                     onClick={() =>
@@ -833,7 +954,7 @@ export default function AddFiles({
                   <AddButton
                     busy={busy === `add:${sourceId}:${entry.path}`}
                     disabled={disabled}
-                    onClick={() => void add(sourceId!, entry.path, entry.name)}
+                    onClick={() => void add(sourceId!, [entry.path], entry.name)}
                   />
                 </li>
               ))}

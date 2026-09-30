@@ -52,6 +52,21 @@ public sealed class DropboxApiTests : IDisposable
     }
 
     [Fact]
+    public async Task The_top_of_the_account_is_a_folder_without_asking_Dropbox()
+    {
+        // Dropbox refuses get_metadata for its root, which would make "add everything" fail.
+        var handler = new ScriptedDropbox();
+        using var client = new HttpClient(handler);
+        var api = new DropboxApi(client, new HeldTokens("refresh-token"), () => "app-key");
+
+        var top = await api.GetMetadataAsync("/", CancellationToken.None);
+
+        Assert.True(top.IsFolder);
+        Assert.Equal("", top.Path);
+        Assert.Empty(handler.Requested);
+    }
+
+    [Fact]
     public async Task An_expired_connection_is_reported_rather_than_retried_forever()
     {
         var tokens = new HeldTokens("refresh-token");

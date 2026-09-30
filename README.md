@@ -44,7 +44,9 @@ plugged into it.
   browser.
 - Copy, move, rename and delete files and folders in the browser, and get deleted ones back from the
   **Bin** for 30 days.
-- Add files from Dropbox, or from folders and drives on the host, all from one **Add files** button.
+- Add files from Dropbox, or from folders and drives on the host, all from one **Add files** button:
+  everything at once, a whole folder, or any mix of files and folders you tick, with how big it all
+  is shown before you start.
 - See how much room is left on the host at a glance, on every page.
 - Sync folders on your own computers with your space.
 - Get back a file deleted on a synced laptop for 30 days afterwards.
@@ -261,9 +263,13 @@ like. Files you already added stay where they are; only Uncloud's way back into 
 Google Drive and Evernote are coming. Until then, the folder the Google Drive app keeps on the host
 works under **This computer**.
 
-Click **Add** next to a file or folder. Uncloud checks it fits first, and the space left is shown
-at the top of every page. You can close the page while it runs; **My files** shows how far it has
-got, and **Stop** ends it early and keeps whatever has already arrived.
+Click **Add** next to a file or folder to bring just that. To bring more at once, the row above the
+list shows how big everything in the folder you're looking at is — all of Dropbox, at its top — and
+**Add all** brings the lot. Or tick any of the files and folders and **Add selected** brings just
+those, together; the same row keeps a running total of what you've ticked. Uncloud checks it fits
+first, and the space left is shown at the top of every page. You can close the page while it runs;
+**My files** shows how far it has got, and **Stop** ends it early and keeps whatever has already
+arrived.
 
 Files are copied, never moved: the originals stay where they were. Adding the same folder again
 only brings what's new, and Uncloud never overwrites a file you already have. Added files appear

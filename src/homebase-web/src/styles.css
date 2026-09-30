@@ -1887,15 +1887,64 @@ tbody tr.selected {
 .add-crumbs button:disabled {
   opacity: 1;
 }
-.add-toolbar {
+.add-where {
+  margin: 0;
+  font-size: 12px;
+}
+/* The folder being looked at, as one thing to add: how much it holds, and a button for all of it.
+   Kept out of the list, which scrolls, so it stays in view however long the folder is. */
+.add-whole {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
+  padding: 10px 10px 10px 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
 }
-.add-where {
-  font-size: 12px;
+/* Once anything is ticked, this row is about what's ticked rather than the whole folder. */
+.add-whole.choosing {
+  border-color: var(--accent);
+}
+.add-whole > svg {
+  flex-shrink: 0;
+  /* In line with the icons in the rows below, which sit inside a padded button. */
+  margin-left: 8px;
+  color: var(--accent-text);
+}
+.add-whole > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.add-whole strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.add-whole .muted {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.add-whole-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+/* On a phone the buttons take a line of their own, so what's chosen keeps room to be read. */
+@media (max-width: 720px) {
+  .add-whole {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .add-whole > span {
+    flex-basis: calc(100% - 90px);
+  }
+  .add-whole-actions {
+    margin-left: auto;
+  }
 }
 .browse-list {
   max-height: 46vh;
@@ -1903,6 +1952,18 @@ tbody tr.selected {
 }
 .browse-list li {
   padding: 6px 10px 6px 6px;
+}
+/* The row above takes some of the list's room rather than making the dialog taller, which would
+   leave a scrolling list inside a scrolling dialog. */
+.add-whole + .browse-list {
+  max-height: max(180px, calc(46vh - 60px));
+}
+.browse-list li.ticked {
+  background: var(--surface-2);
+}
+/* The tick boxes in the rows and in the row above them line up in one column. */
+.add-files .check {
+  padding-left: 8px;
 }
 /* The whole row opens a folder, not just its name: a big target is kinder than a small one. */
 .browse-name {

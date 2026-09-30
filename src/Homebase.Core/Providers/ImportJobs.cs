@@ -20,7 +20,8 @@ public sealed record ImportJob(
     string Id,
     /// <summary>Which place this came from, so the panel can show the right one on a reload.</summary>
     string SourceId,
-    string RemotePath,
+    /// <summary>What was chosen: one file or folder, or several beside each other.</summary>
+    IReadOnlyList<string> RemotePaths,
     string Label,
     ImportStage Stage,
     int TotalFiles,
@@ -47,11 +48,15 @@ public sealed class ImportJobs(ImportService imports, ILogger<ImportJobs> logger
         get { lock (_lock) return _job; }
     }
 
-    public ImportJob Start(IImportSource source, string sourceId, string remotePath, string? label)
+    public ImportJob Start(IImportSource source, string sourceId, string remotePath, string? label) =>
+        Start(source, sourceId, [remotePath], label);
+
+    public ImportJob Start(IImportSource source, string sourceId, IReadOnlyList<string> remotePaths, string? label)
     {
         // Checked here so "choose a folder first" answers the request instead of surfacing later
         // as a job that failed for a reason the caller could have been told immediately.
         imports.RequireLibrary();
+        if (remotePaths.Count == 0) throw new LibraryException("Choose something to add.", "invalid");
         CancellationTokenSource cancellation;
         ImportJob job;
         lock (_lock)
@@ -60,14 +65,14 @@ public sealed class ImportJobs(ImportService imports, ILogger<ImportJobs> logger
                 throw new LibraryException(
                     "Uncloud is already bringing files home. Let that finish, or stop it first.", "busy");
             cancellation = new CancellationTokenSource();
-            job = new ImportJob(Guid.NewGuid().ToString("N"), sourceId, remotePath, Name(label, remotePath),
+            job = new ImportJob(Guid.NewGuid().ToString("N"), sourceId, remotePaths, Name(label, remotePaths),
                 ImportStage.Measuring, 0, 0, 0, null, null, null, DateTimeOffset.UtcNow, null);
             _cancellation = cancellation;
             _job = job;
         }
         // Deliberately not awaited: the request that started this answers straight away, and the
         // import must not be tied to a connection that closes the moment it does.
-        _ = Task.Run(() => RunAsync(job.Id, source, remotePath, cancellation));
+        _ = Task.Run(() => RunAsync(job.Id, source, remotePaths, cancellation));
         return job;
     }
 
@@ -80,7 +85,8 @@ public sealed class ImportJobs(ImportService imports, ILogger<ImportJobs> logger
         }
     }
 
-    private async Task RunAsync(string id, IImportSource source, string remotePath, CancellationTokenSource cancellation)
+    private async Task RunAsync(
+        string id, IImportSource source, IReadOnlyList<string> remotePaths, CancellationTokenSource cancellation)
     {
         var progress = new Relay(update => Update(id, job => job with
         {
@@ -92,7 +98,7 @@ public sealed class ImportJobs(ImportService imports, ILogger<ImportJobs> logger
         }));
         try
         {
-            var result = await imports.ImportAsync(source, remotePath, progress, cancellation.Token);
+            var result = await imports.ImportAsync(source, remotePaths, progress, cancellation.Token);
             Update(id, job => job with
             {
                 Stage = ImportStage.Done,
@@ -112,7 +118,7 @@ public sealed class ImportJobs(ImportService imports, ILogger<ImportJobs> logger
         }
         catch (Exception failure)
         {
-            logger.LogWarning(failure, "Bringing {RemotePath} home failed", remotePath);
+            logger.LogWarning(failure, "Bringing {RemotePaths} home failed", string.Join(", ", remotePaths));
             Update(id, job => job with
             {
                 Stage = ImportStage.Failed,
@@ -143,10 +149,11 @@ public sealed class ImportJobs(ImportService imports, ILogger<ImportJobs> logger
         }
     }
 
-    private static string Name(string? label, string remotePath)
+    private static string Name(string? label, IReadOnlyList<string> remotePaths)
     {
         if (!string.IsNullOrWhiteSpace(label)) return label;
-        var path = remotePath.TrimEnd('/');
+        if (remotePaths.Count > 1) return $"{remotePaths.Count} items";
+        var path = remotePaths[0].TrimEnd('/');
         var slash = path.LastIndexOf('/');
         var name = slash >= 0 ? path[(slash + 1)..] : path;
         // The whole of a place has no last path segment to be named after, and "Bringing  home"

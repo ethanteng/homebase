@@ -17,6 +17,8 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
     /// <summary>
     /// A folder import walks the remote tree; the cap guards against a pathological account
     /// rather than expressing a considered limit. Reaching it is always reported, never silent.
+    /// Only files the import would fetch count towards it, so adding the same folder again picks up
+    /// where the last one stopped rather than stopping at the same place every time.
     /// </summary>
     public int MaxEntries { get; init; } = 20000;
 
@@ -38,13 +40,22 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
 
     /// <summary>Imports one file, or every ordinary file beneath one folder.</summary>
     public Task<ImportResult> ImportAsync(IImportSource source, string remotePath, CancellationToken cancellationToken) =>
-        ImportAsync(source, remotePath, null, cancellationToken);
+        ImportAsync(source, [remotePath], null, cancellationToken);
 
     /// <summary>
     /// As above, reporting its way through so something running in the background can be watched.
     /// </summary>
+    public Task<ImportResult> ImportAsync(
+        IImportSource source, string remotePath, IProgress<ImportProgress>? progress, CancellationToken cancellationToken) =>
+        ImportAsync(source, [remotePath], progress, cancellationToken);
+
+    /// <summary>
+    /// Several files and folders from one place as one import: one walk, one room check for all of
+    /// them together, and one result, rather than one at a time with a wait between each.
+    /// </summary>
     public async Task<ImportResult> ImportAsync(
-        IImportSource source, string remotePath, IProgress<ImportProgress>? progress, CancellationToken cancellationToken)
+        IImportSource source, IReadOnlyList<string> remotePaths, IProgress<ImportProgress>? progress,
+        CancellationToken cancellationToken)
     {
         if (!await _gate.WaitAsync(0, cancellationToken))
             throw new LibraryException("Uncloud is already importing. Let that finish first.", "busy");
@@ -54,12 +65,12 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             // already under way there is waited for rather than raced.
             await library.BeginImportAsync(source.DestinationPrefix, cancellationToken);
             var root = RequireRoot();
-            var entry = await source.GetMetadataAsync(remotePath, cancellationToken);
-            var imported = new List<ImportedItem>();
             var skipped = new List<SkippedItem>();
+            var chosen = await DescribeAsync(source, remotePaths, skipped, cancellationToken);
+            var imported = new List<ImportedItem>();
             long bytes = 0;
 
-            var collected = await CollectAsync(source, entry, skipped, cancellationToken);
+            var collected = await CollectAsync(source, chosen, WouldFetch(source, root), skipped, cancellationToken);
             RequireRoomFor(source, root, collected);
             // Read once for the whole import rather than per file: what another place already
             // brought home cannot change while this holds the gate.
@@ -108,7 +119,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
     {
         var root = RequireRoot();
         var entry = await source.GetMetadataAsync(remotePath, cancellationToken);
-        var files = await CollectAsync(source, entry, [], cancellationToken);
+        var files = await CollectAsync(source, [entry], WouldFetch(source, root), [], cancellationToken);
         var arriving = Arriving(source, root, files);
         var newBytes = arriving.Sum(file => file.Size ?? 0);
         var free = Space(root)?.FreeBytes;
@@ -121,7 +132,10 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
     /// taken by something Uncloud didn't write, is passed over without downloading, so counting it
     /// would hold a folder back over room it was never going to need.
     /// </summary>
-    private IReadOnlyList<SourceEntry> Arriving(IImportSource source, string root, IReadOnlyList<SourceEntry> files)
+    private IReadOnlyList<SourceEntry> Arriving(IImportSource source, string root, IReadOnlyList<SourceEntry> files) =>
+        files.Where(WouldFetch(source, root)).ToArray();
+
+    private Func<SourceEntry, bool> WouldFetch(IImportSource source, string root)
     {
         // Exactly how the log compares them. The log is SQLite, whose default text comparison is
         // case-sensitive, so matching case-insensitively here made the two disagree: a file the
@@ -129,7 +143,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         // the drive was never checked for. Dropbox hands back lowercased paths either way.
         var home = log.List(root).Where(file => file.Provider == source.ProviderId)
             .Select(file => file.RemotePath).ToHashSet(StringComparer.Ordinal);
-        return files.Where(file => !home.Contains(file.Path) && !Occupied(source, root, file)).ToArray();
+        return file => !home.Contains(file.Path) && !Occupied(source, root, file);
     }
 
     private static bool Occupied(IImportSource source, string root, SourceEntry file)
@@ -170,15 +184,56 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             + "your Uncloud drive. Make some room, or bring part of the folder instead.", "unavailable");
     }
 
-    /// <summary>Flattens a file or folder into the ordinary files worth importing.</summary>
-    private async Task<IReadOnlyList<SourceEntry>> CollectAsync(
-        IImportSource source, SourceEntry entry, List<SkippedItem> skipped, CancellationToken cancellationToken)
+    /// <summary>
+    /// What each thing asked for is. One thing that can't be found fails the import, as it always
+    /// has; among several chosen together, it is passed over so the rest still arrive.
+    /// </summary>
+    private async Task<IReadOnlyList<SourceEntry>> DescribeAsync(
+        IImportSource source, IReadOnlyList<string> remotePaths, List<SkippedItem> skipped,
+        CancellationToken cancellationToken)
     {
-        if (!entry.IsFolder) return [entry];
+        var paths = remotePaths.Distinct(StringComparer.Ordinal).ToArray();
+        if (paths.Length == 0) throw new LibraryException("Choose something to add.", "invalid");
+        if (paths.Length == 1) return [await source.GetMetadataAsync(paths[0], cancellationToken)];
+        var entries = new List<SourceEntry>();
+        foreach (var path in paths)
+            try
+            {
+                entries.Add(await source.GetMetadataAsync(path, cancellationToken));
+            }
+            catch (Exception failure) when (Recoverable(failure, cancellationToken))
+            {
+                skipped.Add(new SkippedItem(path, Reason(failure)));
+            }
+        return entries;
+    }
 
+    /// <summary>Flattens files and folders into the ordinary files worth importing.</summary>
+    private async Task<IReadOnlyList<SourceEntry>> CollectAsync(
+        IImportSource source, IReadOnlyList<SourceEntry> chosen, Func<SourceEntry, bool> wouldFetch,
+        List<SkippedItem> skipped, CancellationToken cancellationToken)
+    {
         var files = new List<SourceEntry>();
+        var fetching = 0;
+        // Stopping quietly at the cap would read as a complete import. Say what was left.
+        bool Full(SourceEntry file)
+        {
+            if (!wouldFetch(file) || ++fetching <= MaxEntries) return false;
+            logger.LogWarning("{Provider} import has more than {MaxEntries} new files, so it stopped at {RemotePath}",
+                source.ProviderId, MaxEntries, file.DisplayPath);
+            skipped.Add(new SkippedItem(file.DisplayPath,
+                $"Uncloud brings at most {MaxEntries:N0} new files at a time, so the rest wasn’t visited. Add the same again to bring the rest."));
+            return true;
+        }
+
         var folders = new Queue<string>();
-        folders.Enqueue(entry.Path);
+        foreach (var entry in chosen)
+        {
+            // A file chosen by itself is fetched as asked; a hidden one is refused on the way in.
+            if (entry.IsFolder) folders.Enqueue(entry.Path);
+            else if (Full(entry)) return files;
+            else files.Add(entry);
+        }
         while (folders.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -211,15 +266,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
                     folders.Enqueue(child.Path);
                     continue;
                 }
-                if (files.Count >= MaxEntries)
-                {
-                    // Stopping quietly here would read as a complete import. Say what was left.
-                    logger.LogWarning("{Provider} folder {RemotePath} holds more than {MaxEntries} files, so the rest wasn’t visited",
-                        source.ProviderId, entry.DisplayPath, MaxEntries);
-                    skipped.Add(new SkippedItem(child.DisplayPath,
-                        $"Uncloud brings at most {MaxEntries:N0} files at a time, so the rest of this folder wasn’t visited."));
-                    return files;
-                }
+                if (Full(child)) return files;
                 files.Add(child);
             }
         }
