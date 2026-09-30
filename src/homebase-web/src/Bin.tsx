@@ -46,6 +46,10 @@ function timeLeft(entry: BinEntry) {
  */
 export default function Bin({ onChanged, open }: Props) {
   const [listing, setListing] = useState<BinListing | null>(null);
+  // Kept apart: a load that failed has finished, so trying again must be possible, and it says
+  // nothing about the bin being empty.
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
@@ -53,16 +57,21 @@ export default function Bin({ onChanged, open }: Props) {
 
   useEffect(() => {
     const controller = new AbortController();
-    setListing(null);
+    setLoading(true);
+    setLoadError("");
     api<BinListing>("/bin", { signal: controller.signal })
       .then((result) => {
         if (!controller.signal.aborted) setListing(result);
       })
       .catch((failure: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            failure instanceof Error ? failure.message : "Couldn’t open the bin.",
-          );
+        if (controller.signal.aborted) return;
+        setListing(null);
+        setLoadError(
+          failure instanceof Error ? failure.message : "Couldn’t open the bin.",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
   }, [refresh]);
@@ -155,11 +164,11 @@ export default function Bin({ onChanged, open }: Props) {
           <button
             className="button secondary refresh-button"
             onClick={() => setRefresh((value) => value + 1)}
-            disabled={listing === null || busy}
+            disabled={loading || busy}
             aria-label="Refresh"
             title="Refresh"
           >
-            <RefreshCw size={16} className={listing === null ? "spin" : ""} />
+            <RefreshCw size={16} className={loading ? "spin" : ""} />
           </button>
           <button
             className="button danger"
@@ -203,7 +212,20 @@ export default function Bin({ onChanged, open }: Props) {
               </button>
             </div>
           )}
-          {listing === null && !error ? (
+          {loadError ? (
+            <div className="empty-state" role="alert">
+              <Trash2 size={36} />
+              <h2>Couldn’t open the bin</h2>
+              <p>{loadError}</p>
+              <button
+                className="button secondary"
+                onClick={() => setRefresh((value) => value + 1)}
+                disabled={loading}
+              >
+                Try again
+              </button>
+            </div>
+          ) : listing === null ? (
             <div className="file-loading" role="status">
               <RefreshCw className="spin" size={23} />
               <span>Opening the bin…</span>
@@ -293,7 +315,9 @@ export default function Bin({ onChanged, open }: Props) {
           <div className="file-footer">
             <span>
               {listing === null
-                ? "Reading the bin"
+                ? loadError
+                  ? "Bin unavailable"
+                  : "Reading the bin"
                 : `${entries.length} ${entries.length === 1 ? "item" : "items"} · ${formatSize(listing.bytes)}`}
             </span>
             <span>Only you can see what’s in your bin.</span>

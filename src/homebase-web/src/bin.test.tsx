@@ -22,6 +22,7 @@ const entry = (id: string, path: string, isDirectory = false) => ({
 let entries = [entry("a".repeat(32), "Documents/notes.txt"), entry("b".repeat(32), "Photos", true)];
 let sent: { path: string; body: unknown }[] = [];
 let restoredTo = "Documents/notes.txt";
+let failNextLoad = false;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -30,6 +31,7 @@ beforeEach(() => {
   entries = [entry("a".repeat(32), "Documents/notes.txt"), entry("b".repeat(32), "Photos", true)];
   sent = [];
   restoredTo = "Documents/notes.txt";
+  failNextLoad = false;
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input).replace(/^.*\/api/, "");
     if (init?.method === "POST") {
@@ -41,6 +43,10 @@ beforeEach(() => {
       }
       entries = path === "/bin/empty" ? [] : entries.filter((item) => !body.ids.includes(item.id));
       return Promise.resolve(json({ deleted: 1 }));
+    }
+    if (failNextLoad) {
+      failNextLoad = false;
+      return Promise.resolve(json({ detail: "The drive isn’t answering." }, 409));
     }
     return Promise.resolve(
       json({ entries, bytes: entries.reduce((sum, item) => sum + item.size, 0) }),
@@ -73,6 +79,19 @@ describe("the bin", () => {
     expect(screen.getByText("From My files")).toBeInTheDocument();
     expect(screen.getAllByText("28 days left")).toHaveLength(2);
     expect(screen.getByText("2 items · 4 KB")).toBeInTheDocument();
+  });
+
+  it("can be tried again after it fails to open, and doesn't claim to be empty", async () => {
+    failNextLoad = true;
+    render(<Bin open={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The drive isn’t answering.");
+    expect(screen.queryByText("The bin is empty")).toBeNull();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+    await click(screen.getByRole("button", { name: "Try again" }));
+
+    await screen.findByText("notes.txt");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("puts a thing back and offers to go to it", async () => {

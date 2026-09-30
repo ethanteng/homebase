@@ -5,16 +5,15 @@ namespace Homebase.Core;
 /// authenticated with, so no caller can point it at somebody else's folder. Each account gets
 /// its own instance and its own gate, so one person browsing never holds up another.
 /// </summary>
-/// <param name="arrivingIn">
-/// Where an import running for this account is writing, relative to the root, or null when none
-/// is. Edits keep out of it; see <see cref="AwayFromImport"/>.
-/// </param>
-public sealed partial class LibraryService(string root, MetadataIndex index, Func<string?>? arrivingIn = null) : IDisposable
+public sealed partial class LibraryService(string root, MetadataIndex index) : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     // Copying, moving and deleting take turns with each other but not with browsing: a large copy
-    // must not leave the folder unreadable while it runs.
+    // must not leave the folder unreadable while it runs. An import takes a turn too, to say where
+    // it is about to write; see BeginImportAsync.
     private readonly SemaphoreSlim _edits = new(1, 1);
+    // Where an import is writing, relative to the root, or null while none is.
+    private volatile string? _arrivingIn;
 
     private sealed record Item(string Relative, string FullPath, bool IsDirectory)
     {
@@ -82,6 +81,25 @@ public sealed partial class LibraryService(string root, MetadataIndex index, Fun
         }
         finally { _gate.Release(); }
     }
+
+    /// <summary>
+    /// Marks the folder an import is about to write into, so edits keep out of it until
+    /// <see cref="EndImport"/>. It takes the edits' own turn to do it: an edit already under way
+    /// finishes first, and every edit after it sees the folder is taken. Asking a running job
+    /// instead left a gap between an edit finding the folder free and an import starting to fill it.
+    /// </summary>
+    public async Task BeginImportAsync(string destination, CancellationToken cancellationToken)
+    {
+        await _edits.WaitAsync(cancellationToken);
+        try { _arrivingIn = destination; }
+        finally { _edits.Release(); }
+    }
+
+    /// <summary>
+    /// Frees the folder again. It doesn't wait for a turn: an edit elsewhere may run for a while,
+    /// and letting go only ever allows more.
+    /// </summary>
+    public void EndImport() => _arrivingIn = null;
 
     /// <summary>
     /// Copies files and folders into another folder, leaving the originals where they are. Nothing
@@ -233,7 +251,7 @@ public sealed partial class LibraryService(string root, MetadataIndex index, Fun
     /// </summary>
     private void AwayFromImport(IReadOnlyList<Item> items, string? destination, string verb)
     {
-        if (arrivingIn?.Invoke() is not { Length: > 0 } area) return;
+        if (_arrivingIn is not { Length: > 0 } area) return;
         var into = destination is not null && Within(Relative(destination), area);
         if (!into && !items.Any(item => Within(item.Relative, area) || Within(area, item.Relative))) return;
         var name = area[(area.LastIndexOf('/') + 1)..];

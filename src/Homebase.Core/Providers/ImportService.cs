@@ -50,6 +50,9 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             throw new LibraryException("Uncloud is already importing. Let that finish first.", "busy");
         try
         {
+            // Copying, moving and deleting keep out of where this writes until it is done, and one
+            // already under way there is waited for rather than raced.
+            await library.BeginImportAsync(source.DestinationPrefix, cancellationToken);
             var root = RequireRoot();
             var entry = await source.GetMetadataAsync(remotePath, cancellationToken);
             var imported = new List<ImportedItem>();
@@ -90,7 +93,11 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             progress?.Report(new ImportProgress(collected.Count, done, bytes, null));
             return new ImportResult(imported, skipped, bytes);
         }
-        finally { _gate.Release(); }
+        finally
+        {
+            library.EndImport();
+            _gate.Release();
+        }
     }
 
     /// <summary>

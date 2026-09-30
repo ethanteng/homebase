@@ -32,8 +32,7 @@ public sealed class UserWorkspace
         Root = root;
         Dropbox = dropbox;
         _places = places;
-        // Asked at the moment of each edit, by which time the jobs below exist.
-        Library = new LibraryService(root, index, () => Jobs?.ArrivingIn);
+        Library = new LibraryService(root, index);
         Library.Initialize();
         Imports = new ImportService(Library, log, loggers.CreateLogger<ImportService>());
         // One import at a time per account, rather than one for the whole host: somebody else

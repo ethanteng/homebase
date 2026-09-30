@@ -459,6 +459,33 @@ public sealed class ImportTests : IDisposable
     }
 
     [Fact]
+    public async Task The_import_itself_keeps_edits_out_of_the_folder_it_is_writing_into()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/one.txt", "rev1", "One.");
+        Directory.CreateDirectory(LocalPath("Elsewhere"));
+        Directory.CreateDirectory(LocalPath("Other"));
+        _dropbox.Hold = new TaskCompletionSource();
+
+        // Straight through the import service, with no job around it: the claim on the folder is
+        // made where the writing is, not by whatever happens to be watching.
+        var running = _imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
+        await WaitFor(() => Directory.Exists(LocalPath("Dropbox/notes")));
+
+        var refused = await Assert.ThrowsAsync<LibraryException>(
+            () => _library.MoveAsync(["Dropbox"], "Elsewhere", [], CancellationToken.None));
+        Assert.Equal("busy", refused.Code);
+        // Everywhere else is still anybody's to change.
+        await _library.MoveAsync(["Other"], "Elsewhere", [], CancellationToken.None);
+        Assert.True(Directory.Exists(LocalPath("Elsewhere/Other")));
+
+        _dropbox.Hold.SetResult();
+        await running;
+        await _library.MoveAsync(["Dropbox"], "Elsewhere", [], CancellationToken.None);
+        Assert.Equal("One.", await File.ReadAllTextAsync(LocalPath("Elsewhere/Dropbox/notes/one.txt")));
+    }
+
+    [Fact]
     public async Task Stopping_an_import_ends_it_rather_than_working_through_the_rest()
     {
         _dropbox.AddFolder("/notes");
