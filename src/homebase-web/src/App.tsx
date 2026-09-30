@@ -342,6 +342,8 @@ export default function App() {
               revision={revision}
               navigate={navigate}
               onAdd={() => setDialog("add")}
+              // The storage meter, too: copying fills the drive and deleting frees it.
+              onChanged={() => setRevision((value) => value + 1)}
               status={
                 imports.job && (
                   <ImportStatus

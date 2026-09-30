@@ -41,6 +41,7 @@ plugged into it.
 ### What you can do today
 
 - Browse your folders, look at file details, and download files, from any browser.
+- Copy, move and delete files and folders in the browser.
 - Add files from Dropbox, or from folders and drives on the host, all from one **Add files** button.
 - See how much room is left on the host at a glance, on every page.
 - Sync folders on your own computers with your space.
@@ -49,8 +50,8 @@ plugged into it.
 
 ### What isn't ready yet
 
-- **No uploading, renaming or deleting in the browser.** Files get in by importing or syncing a
-  computer.
+- **No uploading or renaming in the browser**, and no bin: deleting is for good. Files get in by
+  importing or syncing a computer.
 - **The app is Mac only for now.**
 - **The host has to stay on and awake.** On a Mac, turn off sleep in System Settings, and tick
   **Open at Login** in the Uncloud menu so it starts again after a restart.
@@ -223,6 +224,13 @@ Forgot your password? Ask them. They can give you a new one under **People**.
 button, filter and sort, and click a file to see its details or download it. The sidebar and the
 top of every page show how much room is left on the host, and how much of it is yours. They turn
 amber, then red, when it runs low.
+
+Tick the box beside files and folders to **Copy to…**, **Move to…** or **Delete** them, or use the
+same buttons in a file's details. Nothing is ever overwritten: if the folder you choose already
+has something with the same name, the new arrival gets a new one, like `notes 2.txt`, and Uncloud
+tells you. **Deleting can't be undone**, and a deleted file that syncs with your laptop is deleted
+there too. A folder that syncs with one of your computers can't be moved or deleted until you stop
+syncing it.
 
 ### Add files
 

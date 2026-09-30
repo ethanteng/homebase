@@ -5,18 +5,24 @@ import {
   ArrowDownToLine,
   ArrowUp,
   ChevronRight,
+  CircleCheck,
+  Copy,
   File,
   FileArchive,
   FileText,
   Folder,
+  FolderInput,
   FolderOpen,
   Plus,
   RefreshCw,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import { api, downloadUrl, formatSize } from "./api";
-import type { DirectoryListing, LibraryEntry } from "./api";
+import type { DirectoryListing, EditAction, LibraryEntry } from "./api";
+import EditDialog from "./FileEdits";
+import type { Edit } from "./FileEdits";
 
 interface Props {
   rootPath: string;
@@ -24,6 +30,8 @@ interface Props {
   revision: number;
   navigate: (path: string) => void;
   onAdd: () => void;
+  /** After files were copied, moved or deleted, so everything showing them reads them again. */
+  onChanged: () => void;
   /** Whatever is on its way in, shown above the files it is on its way to. */
   status?: ReactNode;
 }
@@ -56,6 +64,7 @@ export default function FileBrowser({
   revision,
   navigate,
   onAdd,
+  onChanged,
   status,
 }: Props) {
   const [listing, setListing] = useState<DirectoryListing | null>(null);
@@ -66,6 +75,11 @@ export default function FileBrowser({
   const [sort, setSort] = useState<Sort>("name");
   const [descending, setDescending] = useState(false);
   const [selected, setSelected] = useState<LibraryEntry | null>(null);
+  // Ticked for copying, moving or deleting, by path. Separate from the one file whose details
+  // are open, which is only ever one.
+  const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
+  const [edit, setEdit] = useState<Edit | null>(null);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -73,6 +87,7 @@ export default function FileBrowser({
     setError("");
     setListing(null);
     setSelected(null);
+    setChecked(new Set());
     api<DirectoryListing>(`/files?${new URLSearchParams({ path })}`, {
       signal: controller.signal,
     })
@@ -94,6 +109,7 @@ export default function FileBrowser({
   }, [rootPath, path, refresh, revision]);
   useEffect(() => {
     setQuery("");
+    setNotice("");
   }, [path, rootPath]);
 
   function changeSort(value: Sort) {
@@ -126,6 +142,29 @@ export default function FileBrowser({
   const bytes =
     listing?.entries.reduce((sum, entry) => sum + (entry.size ?? 0), 0) ?? 0;
   const SortArrow = descending ? ArrowDown : ArrowUp;
+  // Only what is on screen is acted on: a tick the filter has hidden isn't something anybody can
+  // see they are about to delete.
+  const chosen = entries.filter((entry) => checked.has(entry.path));
+  const allChosen = entries.length > 0 && chosen.length === entries.length;
+
+  function toggle(entry: LibraryEntry) {
+    setNotice("");
+    setChecked((current) => {
+      const next = new Set(current);
+      if (!next.delete(entry.path)) next.add(entry.path);
+      return next;
+    });
+  }
+  function toggleAll() {
+    setNotice("");
+    setChecked(
+      allChosen ? new Set() : new Set(entries.map((entry) => entry.path)),
+    );
+  }
+  function start(action: EditAction, targets: LibraryEntry[]) {
+    setNotice("");
+    setEdit({ action, entries: targets });
+  }
 
   return (
     <>
@@ -210,6 +249,59 @@ export default function FileBrowser({
               />
             </div>
           </div>
+          {chosen.length > 0 ? (
+            <div
+              className="selection-bar"
+              role="toolbar"
+              aria-label="Selected items"
+            >
+              <span>{chosen.length} selected</span>
+              <div className="selection-actions">
+                <button
+                  className="row-action"
+                  onClick={() => start("copy", chosen)}
+                >
+                  <Copy size={15} />
+                  Copy to…
+                </button>
+                <button
+                  className="row-action"
+                  onClick={() => start("move", chosen)}
+                >
+                  <FolderInput size={15} />
+                  Move to…
+                </button>
+                <button
+                  className="row-action danger"
+                  onClick={() => start("delete", chosen)}
+                >
+                  <Trash2 size={15} />
+                  Delete
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label="Clear selection"
+                  onClick={() => setChecked(new Set())}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            notice && (
+              <div className="edit-notice" role="status">
+                <CircleCheck size={16} />
+                <span>{notice}</span>
+                <button
+                  className="icon-button"
+                  aria-label="Dismiss"
+                  onClick={() => setNotice("")}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )
+          )}
           {error ? (
             <div className="empty-state" role="alert">
               <FolderOpen size={36} />
@@ -275,26 +367,49 @@ export default function FileBrowser({
               <table>
                 <thead>
                   <tr>
-                    {(["name", "modified", "size"] as const).map((value) => (
-                      <th
-                        key={value}
-                        scope="col"
-                        aria-sort={
-                          sort === value
-                            ? descending
-                              ? "descending"
-                              : "ascending"
-                            : "none"
-                        }
-                      >
+                    {(["name", "modified", "size"] as const).map((value) => {
+                      const sortButton = (
                         <button onClick={() => changeSort(value)}>
                           {value === "modified"
                             ? "Date modified"
                             : value[0].toUpperCase() + value.slice(1)}
                           {sort === value && <SortArrow size={13} />}
                         </button>
-                      </th>
-                    ))}
+                      );
+                      return (
+                        <th
+                          key={value}
+                          scope="col"
+                          aria-sort={
+                            sort === value
+                              ? descending
+                                ? "descending"
+                                : "ascending"
+                              : "none"
+                          }
+                        >
+                          {value === "name" ? (
+                            <div className="name-head">
+                              <input
+                                type="checkbox"
+                                className="check-box"
+                                aria-label="Select everything shown"
+                                checked={allChosen}
+                                ref={(box) => {
+                                  if (box)
+                                    box.indeterminate =
+                                      chosen.length > 0 && !allChosen;
+                                }}
+                                onChange={toggleAll}
+                              />
+                              {sortButton}
+                            </div>
+                          ) : (
+                            sortButton
+                          )}
+                        </th>
+                      );
+                    })}
                     <th scope="col">
                       <span className="sr-only">Actions</span>
                     </th>
@@ -305,30 +420,44 @@ export default function FileBrowser({
                     <tr
                       key={entry.path}
                       className={
-                        selected?.path === entry.path ? "selected" : ""
+                        selected?.path === entry.path ||
+                        checked.has(entry.path)
+                          ? "selected"
+                          : ""
                       }
                     >
                       <td>
-                        <button
-                          className="file-name"
-                          aria-label={
-                            entry.isDirectory
-                              ? `Open ${entry.name}`
-                              : `Details for ${entry.name}`
-                          }
-                          onClick={() =>
-                            entry.isDirectory
-                              ? navigate(entry.path)
-                              : setSelected(entry)
-                          }
-                        >
-                          <span
-                            className={`file-icon ${entry.isDirectory ? "directory" : ""}`}
+                        <div className="name-cell">
+                          <label className="check">
+                            <input
+                              type="checkbox"
+                              className="check-box"
+                              aria-label={`Select ${entry.name}`}
+                              checked={checked.has(entry.path)}
+                              onChange={() => toggle(entry)}
+                            />
+                          </label>
+                          <button
+                            className="file-name"
+                            aria-label={
+                              entry.isDirectory
+                                ? `Open ${entry.name}`
+                                : `Details for ${entry.name}`
+                            }
+                            onClick={() =>
+                              entry.isDirectory
+                                ? navigate(entry.path)
+                                : setSelected(entry)
+                            }
                           >
-                            <FileIcon entry={entry} />
-                          </span>
-                          <span>{entry.name}</span>
-                        </button>
+                            <span
+                              className={`file-icon ${entry.isDirectory ? "directory" : ""}`}
+                            >
+                              <FileIcon entry={entry} />
+                            </span>
+                            <span>{entry.name}</span>
+                          </button>
+                        </div>
                       </td>
                       <td className="date-cell">
                         {dateFormat.format(new Date(entry.modifiedAt))}
@@ -407,6 +536,29 @@ export default function FileBrowser({
               <ArrowDownToLine size={16} />
               Download file
             </a>
+            <div className="details-actions">
+              <button
+                className="row-action"
+                onClick={() => start("copy", [selected])}
+              >
+                <Copy size={15} />
+                Copy to…
+              </button>
+              <button
+                className="row-action"
+                onClick={() => start("move", [selected])}
+              >
+                <FolderInput size={15} />
+                Move to…
+              </button>
+              <button
+                className="row-action danger"
+                onClick={() => start("delete", [selected])}
+              >
+                <Trash2 size={15} />
+                Delete
+              </button>
+            </div>
             <p className="field-help">
               An ordinary file, kept at home. Only you can see it.
             </p>
@@ -420,6 +572,17 @@ export default function FileBrowser({
           with a cloud company.
         </p>
       </div>
+      <EditDialog
+        edit={edit}
+        from={path}
+        onClose={() => setEdit(null)}
+        onDone={(summary) => {
+          setEdit(null);
+          setChecked(new Set());
+          setNotice(summary);
+          onChanged();
+        }}
+      />
     </>
   );
 }

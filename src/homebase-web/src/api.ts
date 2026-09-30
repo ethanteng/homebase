@@ -70,6 +70,13 @@ export interface DirectoryListing {
   indexedAt: string;
 }
 
+export type EditAction = "copy" | "move" | "delete";
+/// Where one copied or moved item ended up: a different name when its own was taken there.
+export interface EditedEntry {
+  from: string;
+  to: string;
+}
+
 export interface StorageReport {
   // The volume is shared by everyone on this host; the usage is the signed-in account's own.
   freeBytes: number | null;
