@@ -69,7 +69,7 @@ public sealed class ImportTests : IDisposable
         var result = await _imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
 
         Assert.Equal("Dropbox/notes/two.txt", Assert.Single(result.Imported).LocalPath);
-        Assert.Contains(result.Skipped, skip => skip.Reason.Contains("Already imported"));
+        Assert.Equal(1, result.AlreadyHere);
         Assert.Equal(2, _imports.Imported().Count);
     }
 
@@ -422,6 +422,95 @@ public sealed class ImportTests : IDisposable
     }
 
     [Fact]
+    public async Task Adding_a_folder_again_after_the_file_limit_brings_the_rest()
+    {
+        _dropbox.AddFolder("/notes");
+        for (var index = 0; index < 5; index++)
+            _dropbox.AddFile($"/notes/file{index}.txt", "rev1", $"File {index}.");
+        var imports = new ImportService(_library, new ImportLog(), NullLogger<ImportService>.Instance)
+            { MaxEntries = 2 };
+
+        var first = await imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
+        var second = await imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
+        var third = await imports.ImportAsync(_dropbox, "/notes", CancellationToken.None);
+
+        // What already came home doesn't count towards the limit, or every later try would stop
+        // at the same files and bring nothing.
+        Assert.Equal([2, 2, 1], [first.ImportedCount, second.ImportedCount, third.ImportedCount]);
+        // Nor is it carried through the import a line at a time: on a large account that list would
+        // grow past the limit it was meant to keep.
+        Assert.Equal([0, 2, 4], [first.AlreadyHere, second.AlreadyHere, third.AlreadyHere]);
+        Assert.DoesNotContain(third.Skipped, skip => skip.Expected);
+        Assert.DoesNotContain(third.Skipped, skip => skip.Reason.Contains("wasn’t visited"));
+        Assert.Equal(5, imports.Imported().Count);
+    }
+
+    [Fact]
+    public async Task Several_things_chosen_side_by_side_arrive_as_one_import()
+    {
+        _dropbox.AddFolder("/art");
+        _dropbox.AddFile("/art/one.png", "rev1", "One.");
+        _dropbox.AddFile("/notes.txt", "rev1", "Notes.");
+        _dropbox.AddFile("/left-alone.txt", "rev1", "Not chosen.");
+
+        var result = await _imports.ImportAsync(_dropbox, ["/art", "/notes.txt", "/gone.txt"], null, CancellationToken.None);
+
+        Assert.Equal(["Dropbox/art/one.png", "Dropbox/notes.txt"],
+            result.Imported.Select(item => item.LocalPath).Order());
+        // Something chosen that has gone since is passed over, not a reason to lose the rest.
+        Assert.Contains(result.Skipped, skip => skip.RemotePath == "/gone.txt");
+        Assert.False(File.Exists(LocalPath("Dropbox/left-alone.txt")));
+    }
+
+    [Fact]
+    public async Task A_connection_that_fails_fails_several_chosen_things_rather_than_skipping_each()
+    {
+        // Passing over each one would finish the import with nothing brought and nothing said.
+        _dropbox.AddFile("/a.txt", "rev1", "A.");
+        _dropbox.AddFile("/b.txt", "rev1", "B.");
+        _dropbox.FailMetadataWith = new LibraryException("Dropbox rejected the connection.", "provider_auth");
+
+        var failure = await Assert.ThrowsAsync<LibraryException>(
+            () => _imports.ImportAsync(_dropbox, ["/a.txt", "/b.txt"], null, CancellationToken.None));
+
+        Assert.Equal("provider_auth", failure.Code);
+    }
+
+    [Fact]
+    public async Task The_file_limit_counts_everything_chosen_together()
+    {
+        _dropbox.AddFolder("/art");
+        _dropbox.AddFile("/art/one.png", "rev1", "One.");
+        _dropbox.AddFile("/art/two.png", "rev1", "Two.");
+        _dropbox.AddFile("/notes.txt", "rev1", "Notes.");
+        var imports = new ImportService(_library, new ImportLog(), NullLogger<ImportService>.Instance)
+            { MaxEntries = 2 };
+
+        var first = await imports.ImportAsync(_dropbox, ["/notes.txt", "/art"], null, CancellationToken.None);
+        var second = await imports.ImportAsync(_dropbox, ["/notes.txt", "/art"], null, CancellationToken.None);
+
+        Assert.Equal(2, first.ImportedCount);
+        Assert.Contains(first.Skipped, skip => skip.Reason.Contains("wasn’t visited"));
+        Assert.Equal(1, second.ImportedCount);
+    }
+
+    [Fact]
+    public async Task Everything_in_an_account_comes_home_at_once()
+    {
+        _dropbox.AddFolder("/notes");
+        _dropbox.AddFile("/notes/one.txt", "rev1", "One.");
+        _dropbox.AddFile("/top.txt", "rev1", "Top.");
+
+        var estimate = await _imports.MeasureAsync(_dropbox, "/", CancellationToken.None);
+        var result = await _imports.ImportAsync(_dropbox, "/", CancellationToken.None);
+
+        Assert.Equal(2, estimate.NewFileCount);
+        Assert.Equal(["Dropbox/notes/one.txt", "Dropbox/top.txt"],
+            result.Imported.Select(item => item.LocalPath).Order());
+        Assert.Equal("Top.", await File.ReadAllTextAsync(LocalPath("Dropbox/top.txt")));
+    }
+
+    [Fact]
     public async Task An_import_runs_on_its_own_and_says_how_far_it_has_got()
     {
         _dropbox.AddFolder("/notes");
@@ -603,9 +692,10 @@ public sealed class ImportTests : IDisposable
         var result = await _imports.ImportAsync(alongside, "/", CancellationToken.None);
 
         Assert.Empty(result.Imported);
-        var skip = Assert.Single(result.Skipped);
-        // Expected, so it never reaches the "Not brought home" list a person is meant to act on.
-        Assert.True(skip.Expected);
+        // Counted as already here, so it never reaches the "Not brought home" list a person is
+        // meant to act on.
+        Assert.Empty(result.Skipped);
+        Assert.Equal(1, result.AlreadyHere);
         // And the estimate agrees rather than counting room for a file that is already here.
         var estimate = await _imports.MeasureAsync(alongside, "/", CancellationToken.None);
         Assert.Equal(0, estimate.NewFileCount);
@@ -649,6 +739,8 @@ public sealed class ImportTests : IDisposable
         public string? FailListingOf { get; set; }
         public string? TimeOutDownloadOf { get; set; }
         public string? FailWriteOf { get; set; }
+        /// <summary>Refuses every metadata request, the way an expired connection does.</summary>
+        public LibraryException? FailMetadataWith { get; set; }
         /// <summary>Keeps downloads open so a test can look at an import that is still running.</summary>
         public TaskCompletionSource? Hold { get; set; }
 
@@ -680,8 +772,11 @@ public sealed class ImportTests : IDisposable
                 .ToArray());
         }
 
+        // The top of the account is a folder with nothing to describe, as DropboxApi answers it.
         public Task<SourceEntry> GetMetadataAsync(string path, CancellationToken cancellationToken) =>
-            Task.FromResult(Require(path));
+            FailMetadataWith is { } failure
+                ? throw failure
+                : Task.FromResult(path is "" or "/" ? new SourceEntry("", "Dropbox", "", "/", true, null, null, null) : Require(path));
 
         public async Task<Stream> OpenAsync(string path, CancellationToken cancellationToken)
         {

@@ -42,6 +42,10 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   a request per folder. Sizes from a place are kept for five minutes per account, so stepping back
   out of a folder doesn't ask Dropbox again, and forgotten whenever Dropbox is connected or
   disconnected, since the next account may hold different folders under the same names.
+  **Add files** measures the folder being looked at too, first, and shows it above the list with
+  **Add all**; ticking rows turns that into a running total of what's ticked (adding up the rows'
+  sizes as they arrive, hidden entries left out) with **Add selected**. Ticking everything reads,
+  and adds, as the whole folder.
 - Copying, moving and deleting files and folders (`POST /api/files/copy`, `/move`, `/delete`),
   through the same path policy as browsing. Nothing is overwritten: an item whose name is taken
   arrives as `name copy` or `name 2`. A copy checks the drive has room, is built under `.homebase/`
@@ -430,6 +434,15 @@ brings only what is new; anything already imported, hidden, or blocked by an exi
 as skipped rather than silently passed over, and one unreadable file doesn't abandon the rest. A
 folder Dropbox refuses to list is retried before Uncloud gives up on it, and giving up is reported
 when the import finishes and written to the log rather than left to be noticed.
+
+`POST /api/imports` takes `remotePaths`, several files and folders side by side (or `remotePath`,
+one), and brings them as one import: one walk, one room check for all of them together, one result.
+Among several, one that has gone since it was listed (or is refused by name) is skipped rather than
+failing the rest; anything wider, like an expired Dropbox connection, fails the import as it would
+for one. The top of a Dropbox account can be added whole — Dropbox won't describe its own root, so
+Uncloud doesn't ask. Files already here are counted (`alreadyHere` in the result) rather than carried
+through the import, and don't count towards the 20,000 files one import collects at most, so adding
+the same thing again after reaching the limit carries on from where the last one stopped.
 
 An import runs on its own rather than inside the request that started it, so **My files** shows how
 far it has got — how many of how many files, and how much has arrived — and **Stop** ends it.

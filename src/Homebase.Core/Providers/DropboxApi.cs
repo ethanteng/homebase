@@ -158,6 +158,9 @@ public sealed class DropboxApi(HttpClient client, IProviderTokens tokens, Func<s
 
     public async Task<SourceEntry> GetMetadataAsync(string path, CancellationToken cancellationToken)
     {
+        // Dropbox won't describe the account's top folder, and there is nothing to ask: it is a
+        // folder, and it is how somebody adds everything in their Dropbox at once.
+        if (path is "" or "/") return new SourceEntry("", "Dropbox", "", "/", true, null, null, null);
         using var document = await RpcAsync("/2/files/get_metadata", JsonSerializer.Serialize(new { path }), cancellationToken);
         return ReadEntry(document.RootElement);
     }

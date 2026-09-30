@@ -115,6 +115,29 @@ public sealed class ProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task Several_things_chosen_together_are_one_import()
+    {
+        _dropbox.Add("/notes/a.txt", "rev1", "A.");
+        _dropbox.Add("/notes/b.txt", "rev1", "B.");
+        _dropbox.Add("/notes/c.txt", "rev1", "Not chosen.");
+        using var app = CreateApp();
+        var (client, _) = await StartAsync(app);
+        using var __ = client;
+
+        // Nothing chosen is refused by the request, not started and failed out of sight.
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await client.PostAsJsonAsync("/api/imports", new { remotePaths = Array.Empty<string>() })).StatusCode);
+        (await client.PostAsJsonAsync("/api/imports",
+            new { remotePaths = new[] { "/notes/a.txt", "/notes/b.txt" } })).EnsureSuccessStatusCode();
+        var finished = await Settled(client);
+
+        Assert.Equal("2 items", finished.GetProperty("label").GetString());
+        Assert.Equal(2, finished.GetProperty("result").GetProperty("importedCount").GetInt32());
+        Assert.Equal(["/notes/a.txt", "/notes/b.txt"],
+            finished.GetProperty("remotePaths").EnumerateArray().Select(path => path.GetString()));
+    }
+
+    [Fact]
     public async Task Dropbox_reports_itself_unconfigured_without_an_app_key()
     {
         using var app = CreateApp(new StubDropbox { IsConfigured = false, IsConnected = false });

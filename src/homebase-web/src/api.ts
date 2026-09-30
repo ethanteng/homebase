@@ -247,6 +247,8 @@ export interface ImportResult {
   imported: ImportedItem[];
   skipped: SkippedItem[];
   bytes: number;
+  // Passed over because they were already here: counted rather than listed.
+  alreadyHere: number;
   importedCount: number;
   skippedCount: number;
 }
@@ -257,7 +259,8 @@ export interface ImportJob {
   id: string;
   // Which place it is coming from, so a reload shows the right one.
   sourceId: string;
-  remotePath: string;
+  // What was chosen: one file or folder, or several beside each other.
+  remotePaths: string[];
   label: string;
   stage: ImportStage;
   totalFiles: number;

@@ -761,7 +761,10 @@ app.MapPost("/api/imports", (ImportRequest request, CurrentUser user, UserWorksp
     var sourceId = Sources.Name(request.Source);
     return Results.Ok(new
     {
-        job = workspace.Jobs.Start(workspace.Source(sourceId), sourceId, request.RemotePath, request.Label)
+        // Several things chosen side by side arrive as one import; one alone is the same thing.
+        job = workspace.Jobs.Start(workspace.Source(sourceId), sourceId,
+            request.RemotePaths is { Count: > 0 } several ? several : request.RemotePath is { } one ? [one] : [],
+            request.Label)
     });
 });
 app.MapGet("/api/imports/job", (CurrentUser user, UserWorkspaces workspaces) =>
@@ -1123,7 +1126,7 @@ public static class Sources
         string.IsNullOrWhiteSpace(source) ? Homebase.Core.Providers.DropboxApi.ProviderName : source.Trim();
 }
 
-public sealed record ImportRequest(string RemotePath, string? Label, string? Source);
+public sealed record ImportRequest(string? RemotePath, string? Label, string? Source, IReadOnlyList<string>? RemotePaths = null);
 public sealed record AddPlace(string? Path, string? Name);
 public sealed record SharePlace(bool Shared);
 public sealed record SetDropboxAppKey(string? AppKey);
