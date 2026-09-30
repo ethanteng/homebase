@@ -40,7 +40,8 @@ plugged into it.
 
 ### What you can do today
 
-- Browse your folders, look at file details, and download files, from any browser.
+- Browse your folders, see how big each one is, look at file details, and download files, from any
+  browser.
 - Copy, move, rename and delete files and folders in the browser, and get deleted ones back from the
   **Bin** for 30 days.
 - Add files from Dropbox, or from folders and drives on the host, all from one **Add files** button.

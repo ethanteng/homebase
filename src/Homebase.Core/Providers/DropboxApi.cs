@@ -125,6 +125,37 @@ public sealed class DropboxApi(HttpClient client, IProviderTokens tokens, Func<s
             .ToArray();
     }
 
+    /// <summary>
+    /// A folder's size from one recursive listing, paged, rather than a request per folder inside
+    /// it. Dropbox lists the folder itself and everything under it; only files are counted, and
+    /// anything under a hidden name is left out, as an import would leave it.
+    /// </summary>
+    public async Task<FolderSize> SizeAsync(string path, CancellationToken cancellationToken)
+    {
+        var root = path is "" or "/" ? "" : path.TrimEnd('/');
+        var prefix = root.ToLowerInvariant() + "/";
+        long bytes = 0;
+        var files = 0;
+        var endpoint = "/2/files/list_folder";
+        var body = JsonSerializer.Serialize(new { path = root, recursive = true });
+        for (var page = 0; page < 500; page++)
+        {
+            using var document = await RpcAsync(endpoint, body, cancellationToken);
+            foreach (var entry in ReadEntries(document.RootElement))
+            {
+                if (entry.IsFolder || !entry.Path.StartsWith(prefix, StringComparison.Ordinal)) continue;
+                if (entry.Path[prefix.Length..].Split('/').Any(part => part.StartsWith('.'))) continue;
+                bytes += entry.Size ?? 0;
+                files++;
+            }
+            if (!document.RootElement.TryGetProperty("has_more", out var more) || !more.GetBoolean()) break;
+            if (!document.RootElement.TryGetProperty("cursor", out var cursor)) break;
+            endpoint = "/2/files/list_folder/continue";
+            body = JsonSerializer.Serialize(new { cursor = cursor.GetString() });
+        }
+        return new FolderSize(bytes, files);
+    }
+
     public async Task<SourceEntry> GetMetadataAsync(string path, CancellationToken cancellationToken)
     {
         using var document = await RpcAsync("/2/files/get_metadata", JsonSerializer.Serialize(new { path }), cancellationToken);

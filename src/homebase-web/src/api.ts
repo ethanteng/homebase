@@ -63,6 +63,12 @@ export interface LibraryEntry {
   size: number | null;
   modifiedAt: string;
 }
+/// What a folder holds, however deep: its bytes and how many files.
+export interface FolderSize {
+  bytes: number;
+  files: number;
+}
+
 export interface DirectoryListing {
   path: string;
   entries: LibraryEntry[];

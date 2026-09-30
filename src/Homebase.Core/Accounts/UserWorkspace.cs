@@ -16,6 +16,8 @@ public sealed class UserWorkspace
     public IDropboxConnection Dropbox { get; }
     public ImportService Imports { get; }
     public ImportJobs Jobs { get; }
+    /// <summary>Sizes of folders in the places this account brings files in from.</summary>
+    public SourceSizes SourceSizes { get; } = new();
 
     private readonly ImportPlaces _places;
 

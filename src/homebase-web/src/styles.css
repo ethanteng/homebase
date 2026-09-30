@@ -2505,3 +2505,8 @@ tbody tr.selected {
 .edit-dialog .path-input {
   font-size: 13px;
 }
+/* A folder whose size is still being measured: present, but quieter than a number. */
+.measuring {
+  color: var(--muted);
+  opacity: 0.6;
+}
