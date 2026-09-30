@@ -118,7 +118,7 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
             var items = Items(paths);
             var folder = Folder(destination);
             AwayFromImport(items, folder, "copied");
-            var needed = items.Sum(item => Measure(item, cancellationToken));
+            var needed = items.Sum(item => Measure(item, cancellationToken).Bytes);
             var free = Storage.For(root)?.FreeBytes;
             if (!Storage.Fits(needed, free))
                 throw new LibraryException(
@@ -416,20 +416,37 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
     private static bool Unseen(FileSystemInfo entry) =>
         entry.Name.StartsWith('.') || entry.LinkTarget is not null || entry.Attributes.HasFlag(FileAttributes.ReparsePoint);
 
-    private static long Measure(Item item, CancellationToken cancellationToken)
+    /// <summary>
+    /// What a file or folder in My files holds, counted as browsing and copying see it: hidden
+    /// entries and links left out. A folder is walked every time, since files reach it by routes
+    /// Uncloud never sees, like a laptop syncing.
+    /// </summary>
+    public FolderSize Size(string? path, CancellationToken cancellationToken) =>
+        Measure(Items(path is null ? null : [path]).Single(), cancellationToken);
+
+    // A folder that can't be read is left out of a count rather than failing it. A copy still
+    // refuses one, when it gets there.
+    private static readonly EnumerationOptions Countable = new() { IgnoreInaccessible = true, AttributesToSkip = 0 };
+
+    private static FolderSize Measure(Item item, CancellationToken cancellationToken)
     {
-        if (!item.IsDirectory) return new FileInfo(item.FullPath).Length;
-        long total = 0;
+        if (!item.IsDirectory) return new FolderSize(new FileInfo(item.FullPath).Length, 1);
+        long bytes = 0;
+        var files = 0;
         var folders = new Stack<DirectoryInfo>([new DirectoryInfo(item.FullPath)]);
         while (folders.TryPop(out var folder))
-            foreach (var entry in folder.EnumerateFileSystemInfos("*", Children))
+            foreach (var entry in folder.EnumerateFileSystemInfos("*", Countable))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (Unseen(entry)) continue;
                 if (entry is DirectoryInfo directory) folders.Push(directory);
-                else total += ((FileInfo)entry).Length;
+                else
+                {
+                    bytes += ((FileInfo)entry).Length;
+                    files++;
+                }
             }
-        return total;
+        return new FolderSize(bytes, files);
     }
 
     private static void CopyFolder(string from, string to, CancellationToken cancellationToken)

@@ -34,4 +34,28 @@ public interface IImportSource
     Task<SourceEntry> GetMetadataAsync(string path, CancellationToken cancellationToken);
     Task<IReadOnlyList<SourceEntry>> ListFolderAsync(string path, CancellationToken cancellationToken);
     Task<Stream> OpenAsync(string path, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What a folder here holds, counted the way an import collects it: every file beneath it,
+    /// hidden ones left out. This walks the tree a folder at a time, which is right for a folder on
+    /// this computer; a place that can list a whole tree in one go should do that instead.
+    /// </summary>
+    async Task<FolderSize> SizeAsync(string path, CancellationToken cancellationToken)
+    {
+        long bytes = 0;
+        var files = 0;
+        var folders = new Queue<string>([path]);
+        while (folders.TryDequeue(out var folder))
+            foreach (var child in await ListFolderAsync(folder, cancellationToken))
+            {
+                if (child.Name.StartsWith('.')) continue;
+                if (child.IsFolder) folders.Enqueue(child.Path);
+                else
+                {
+                    bytes += child.Size ?? 0;
+                    files++;
+                }
+            }
+        return new FolderSize(bytes, files);
+    }
 }

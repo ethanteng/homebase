@@ -513,6 +513,10 @@ app.MapGet("/api/storage", (CurrentUser user, UserWorkspaces workspaces, HostSer
 app.MapGet("/api/files", async (string? path, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
     Results.Ok(await workspaces.For(user.Account).Library.BrowseAsync(path, cancellationToken)));
 
+// The same for a folder in My files, walked afresh each time.
+app.MapGet("/api/files/size", (string? path, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+    Results.Ok(workspaces.For(user.Account).Library.Size(path, cancellationToken)));
+
 app.MapGet("/api/files/download", async (string path, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
 {
     var (stream, name) = await workspaces.For(user.Account).Library.OpenFileAsync(path, cancellationToken);
@@ -734,6 +738,14 @@ app.MapGet("/api/imports/sources", (HttpContext context, CurrentUser user, UserW
 // place, so there is no way to name a folder outside one.
 app.MapGet("/api/imports/sources/{sourceId}/files", async (string sourceId, string? path, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
     Results.Ok(await workspaces.For(user.Account).Source(sourceId).ListFolderAsync(path ?? "", cancellationToken)));
+
+// A folder's size is asked for once it is on screen, not listed with it: measuring means going
+// through everything under it, and the listing shouldn't wait for that.
+app.MapGet("/api/imports/sources/{sourceId}/size", async (string sourceId, string? path, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+{
+    var workspace = workspaces.For(user.Account);
+    return Results.Ok(await workspace.SourceSizes.MeasureAsync(workspace.Source(sourceId), path ?? "", cancellationToken));
+});
 
 app.MapGet("/api/imports", (CurrentUser user, UserWorkspaces workspaces) =>
     Results.Ok(workspaces.For(user.Account).Imports.Imported()));

@@ -18,6 +18,8 @@ import {
   Users,
 } from "lucide-react";
 import { api, formatSize, DROPBOX } from "./api";
+import type { FolderSize } from "./api";
+import { useFolderSizes } from "./folderSizes";
 import { spaceLevel } from "./StorageMeter";
 import type {
   ImportAccount,
@@ -76,6 +78,13 @@ function PlaceIcon({ kind, size = 19 }: { kind: PlaceKind; size?: number }) {
   if (kind === "drive") return <Usb size={size} strokeWidth={1.6} />;
   if (kind === "cloud") return <Cloud size={size} strokeWidth={1.6} />;
   return <Folder size={size} strokeWidth={1.6} fill="currentColor" fillOpacity={0.14} />;
+}
+
+/** A folder's size and how many files it holds, once measured; until then, that it's being measured. */
+function describeFolder(size: FolderSize | null | undefined): string {
+  if (size === undefined) return "Folder · measuring…";
+  if (size === null) return "Folder";
+  return `${formatSize(size.bytes)} · ${size.files.toLocaleString()} ${size.files === 1 ? "file" : "files"}`;
 }
 
 function readLastSource(): string | null {
@@ -203,6 +212,13 @@ export default function AddFiles({
       });
     return () => controller.abort();
   }, [sourceId, folder, where.at, place]);
+
+  // Online, measuring a folder is a listing of everything under it, so fewer at once.
+  const folderSizes = useFolderSizes(
+    sourceId ? (entries ?? []).filter((entry) => entry.isFolder).map((entry) => entry.path) : [],
+    (path) => `/imports/sources/${encodeURIComponent(sourceId ?? "")}/size?${new URLSearchParams({ path })}`,
+    3,
+  );
 
   function go(next: Where) {
     setWhere(next);
@@ -808,7 +824,9 @@ export default function AddFiles({
                     )}
                     <span>
                       <strong>{entry.name}</strong>
-                      <span className="muted">{entry.isFolder ? "Folder" : formatSize(entry.size)}</span>
+                      <span className="muted">
+                        {entry.isFolder ? describeFolder(folderSizes[entry.path]) : formatSize(entry.size)}
+                      </span>
                     </span>
                     {entry.isFolder && <ChevronRight size={16} className="browse-chevron" />}
                   </button>

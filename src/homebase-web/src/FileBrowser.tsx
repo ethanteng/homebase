@@ -24,6 +24,7 @@ import { api, downloadUrl, formatSize } from "./api";
 import type { DirectoryListing, EditAction, LibraryEntry } from "./api";
 import EditDialog from "./FileEdits";
 import type { Edit } from "./FileEdits";
+import { useFolderSizes } from "./folderSizes";
 
 interface Props {
   rootPath: string;
@@ -113,6 +114,16 @@ export default function FileBrowser({
     setNotice("");
   }, [path, rootPath]);
 
+  const folderSizes = useFolderSizes(
+    (listing?.entries ?? [])
+      .filter((entry) => entry.isDirectory)
+      .map((entry) => entry.path),
+    (folder) => `/files/size?${new URLSearchParams({ path: folder })}`,
+  );
+  // A folder's size is whatever has been measured of it so far, which is nothing to start with.
+  const sizeOf = (entry: LibraryEntry) =>
+    entry.isDirectory ? (folderSizes[entry.path]?.bytes ?? null) : entry.size;
+
   function changeSort(value: Sort) {
     if (sort === value) setDescending((current) => !current);
     else {
@@ -130,7 +141,7 @@ export default function FileBrowser({
         sort === "modified"
           ? new Date(a.modifiedAt).getTime() - new Date(b.modifiedAt).getTime()
           : sort === "size"
-            ? (a.size ?? 0) - (b.size ?? 0)
+            ? (sizeOf(a) ?? 0) - (sizeOf(b) ?? 0)
             : a.name.localeCompare(b.name, undefined, {
                 numeric: true,
                 sensitivity: "base",
@@ -473,7 +484,16 @@ export default function FileBrowser({
                       <td className="date-cell">
                         {dateFormat.format(new Date(entry.modifiedAt))}
                       </td>
-                      <td className="size-cell">{formatSize(entry.size)}</td>
+                      <td className="size-cell">
+                        {entry.isDirectory &&
+                        folderSizes[entry.path] === undefined ? (
+                          <span className="measuring" title="Measuring…">
+                            …
+                          </span>
+                        ) : (
+                          formatSize(sizeOf(entry))
+                        )}
+                      </td>
                       <td className="action-cell">
                         {entry.isDirectory ? (
                           <button

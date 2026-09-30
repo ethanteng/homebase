@@ -27,6 +27,30 @@ public sealed class DropboxApiTests : IDisposable
         Assert.Equal("page-1-cursor", handler.ContinuedWith);
     }
 
+    // The folder itself comes back too, and so does something under a hidden folder, which an
+    // import would leave behind and so isn't counted.
+    private const string FirstPage = """{"entries":[{".tag":"folder","id":"f","name":"Work","path_lower":"/work","path_display":"/Work"},{".tag":"file","id":"1","name":"a.txt","path_lower":"/work/a.txt","path_display":"/Work/a.txt","size":10,"rev":"a"},{".tag":"folder","id":"g","name":"Deep","path_lower":"/work/deep","path_display":"/Work/Deep"}],"cursor":"more","has_more":true}""";
+    private const string SecondPage = """{"entries":[{".tag":"file","id":"2","name":"b.txt","path_lower":"/work/deep/b.txt","path_display":"/Work/Deep/b.txt","size":32,"rev":"b"},{".tag":"file","id":"3","name":"c.txt","path_lower":"/work/.git/c.txt","path_display":"/Work/.git/c.txt","size":500,"rev":"c"}],"has_more":false}""";
+
+    [Fact]
+    public async Task A_folder_is_measured_from_one_recursive_listing_rather_than_a_request_per_folder()
+    {
+        var tokens = new HeldTokens("refresh-token");
+        var handler = new ScriptedDropbox
+        {
+            Answer = (path, _) => path.EndsWith("/list_folder") ? FirstPage : path.EndsWith("/list_folder/continue") ? SecondPage : null
+        };
+        using var client = new HttpClient(handler);
+        var api = new DropboxApi(client, tokens, () => "app-key");
+
+        var size = await api.SizeAsync("/Work", CancellationToken.None);
+
+        Assert.Equal(new Homebase.Core.FolderSize(42, 2), size);
+        Assert.Equal(["/2/files/list_folder", "/2/files/list_folder/continue"],
+            handler.Requested.Where(path => path.Contains("list_folder")));
+        Assert.Contains("\"recursive\":true", handler.Bodies[0]);
+    }
+
     [Fact]
     public async Task An_expired_connection_is_reported_rather_than_retried_forever()
     {
@@ -86,6 +110,10 @@ public sealed class DropboxApiTests : IDisposable
     private sealed class ScriptedDropbox : HttpMessageHandler
     {
         public List<string> Requested { get; } = [];
+        /// <summary>The bodies of Dropbox API calls, in order, leaving out the token exchange.</summary>
+        public List<string> Bodies { get; } = [];
+        /// <summary>An answer of the test's own for an API call, by path and body; null falls through.</summary>
+        public Func<string, string, string?>? Answer { get; init; }
         public string? ContinuedWith { get; private set; }
         public bool Unauthorized { get; init; }
         public bool RateLimitFirstListing { get; init; }
@@ -97,8 +125,12 @@ public sealed class DropboxApiTests : IDisposable
             Requested.Add(path);
             var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
 
-            string json;
-            if (path.EndsWith("/oauth2/token"))
+            if (!path.EndsWith("/oauth2/token")) Bodies.Add(body);
+
+            string? json;
+            if (!path.EndsWith("/oauth2/token") && Answer?.Invoke(path, body) is { } answered)
+                json = answered;
+            else if (path.EndsWith("/oauth2/token"))
                 json = """{"access_token":"access","expires_in":14400}""";
             else if (Unauthorized)
                 return new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("expired") };
