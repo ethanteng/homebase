@@ -630,8 +630,10 @@ app.MapPost("/api/providers/dropbox/paste", async (PasteDropboxCode request, Cur
     var (verifier, appKey) = flow.ClaimedBy(user.Id);
     // No redirect URI, because the sign-in was started without one. Dropbox checks the code against
     // what it was issued for, and it was issued for nothing.
-    await workspaces.For(user.Account).Dropbox
-        .ConnectAsync(code, verifier, appKey, null, cancellationToken);
+    var workspace = workspaces.For(user.Account);
+    await workspace.Dropbox.ConnectAsync(code, verifier, appKey, null, cancellationToken);
+    // It may be a different Dropbox from the last, whose folder sizes are no longer this one's.
+    workspace.SourceSizes.Forget(DropboxApi.ProviderName);
     // Only now: a code that Dropbox refused leaves the sign-in standing, so a mistyped one can be
     // typed again instead of costing a trip back to Dropbox.
     flow.Forget(user.Id);
@@ -640,7 +642,9 @@ app.MapPost("/api/providers/dropbox/paste", async (PasteDropboxCode request, Cur
 
 app.MapPost("/api/providers/dropbox/disconnect", (CurrentUser user, UserWorkspaces workspaces, DropboxAuthFlow flow) =>
 {
-    workspaces.For(user.Account).Dropbox.Disconnect();
+    var workspace = workspaces.For(user.Account);
+    workspace.Dropbox.Disconnect();
+    workspace.SourceSizes.Forget(DropboxApi.ProviderName);
     flow.Forget(user.Id);
     return Results.Ok(new { connected = false });
 });
@@ -681,8 +685,9 @@ app.MapGet("/api/providers/dropbox/callback", async (string? code, string? state
         return Results.Redirect(Back(returnTo, "failed"));
     try
     {
-        await workspaces.For(userId).Dropbox
-            .ConnectAsync(code, verifier, startedUnder, startedWith, cancellationToken);
+        var workspace = workspaces.For(userId);
+        await workspace.Dropbox.ConnectAsync(code, verifier, startedUnder, startedWith, cancellationToken);
+        workspace.SourceSizes.Forget(DropboxApi.ProviderName);
         return Results.Redirect(Back(returnTo, "connected"));
     }
     catch (Exception failure) when (failure is LibraryException or HttpRequestException)

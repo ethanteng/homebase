@@ -99,5 +99,34 @@ public sealed class SizeTests : IDisposable
         Assert.Equal(new FolderSize(7, 1), await client.GetFromJsonAsync<FolderSize>("/api/imports/sources/dropbox/size?path=%2Fwork"));
     }
 
+    [Fact]
+    public async Task Connecting_Dropbox_again_measures_afresh_rather_than_showing_the_last_account()
+    {
+        var (app, client, _) = await StartAsync();
+        using var __ = app;
+        using var ___ = client;
+        _dropbox.AddFolder("/work");
+        _dropbox.Add("/work/report.txt", "rev1", "Report.");
+        const string Work = "/api/imports/sources/dropbox/size?path=%2Fwork";
+        Assert.Equal(new FolderSize(7, 1), await client.GetFromJsonAsync<FolderSize>(Work));
+
+        // Signed in again, over the top, as somebody whose /work holds something else.
+        _dropbox.Add("/work/theirs.txt", "rev1", "Theirs.");
+        var started = await client.PostAsJsonAsync("/api/providers/dropbox/connect", new { });
+        started.EnsureSuccessStatusCode();
+        var authorize = new Uri((await started.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("authorizeUrl").GetString()!);
+        var state = System.Web.HttpUtility.ParseQueryString(authorize.Query)["state"]!;
+        using var callbacks = app.NotFollowingRedirects();
+        var back = await callbacks.GetAsync($"/api/providers/dropbox/callback?code=abc&state={Uri.EscapeDataString(state)}");
+        Assert.Contains("dropbox=connected", back.Headers.Location!.ToString());
+
+        Assert.Equal(new FolderSize(14, 2), await client.GetFromJsonAsync<FolderSize>(Work));
+
+        // And signing out forgets them too, whoever connects next.
+        _dropbox.Add("/work/newest.txt", "rev1", "Newest.");
+        (await client.PostAsync("/api/providers/dropbox/disconnect", null)).EnsureSuccessStatusCode();
+        Assert.Equal(new FolderSize(21, 3), await client.GetFromJsonAsync<FolderSize>(Work));
+    }
+
     public void Dispose() => Directory.Delete(_temporary, recursive: true);
 }

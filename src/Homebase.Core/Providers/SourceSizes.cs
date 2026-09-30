@@ -26,4 +26,14 @@ public sealed class SourceSizes
         _measured[key] = (size, now);
         return size;
     }
+
+    /// <summary>
+    /// Forgets every size measured in one place. A Dropbox connection is always the same place by
+    /// name, so without this, connecting a different account would show the last one's sizes.
+    /// </summary>
+    public void Forget(string providerId)
+    {
+        foreach (var key in _measured.Keys)
+            if (key.StartsWith(providerId + "\n", StringComparison.Ordinal)) _measured.TryRemove(key, out _);
+    }
 }

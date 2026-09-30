@@ -40,7 +40,8 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   links, walked afresh each time. A place counts what an import would bring: a folder on the host
   is walked, and a Dropbox folder is measured from one recursive `list_folder`, paged, rather than
   a request per folder. Sizes from a place are kept for five minutes per account, so stepping back
-  out of a folder doesn't ask Dropbox again.
+  out of a folder doesn't ask Dropbox again, and forgotten whenever Dropbox is connected or
+  disconnected, since the next account may hold different folders under the same names.
 - Copying, moving and deleting files and folders (`POST /api/files/copy`, `/move`, `/delete`),
   through the same path policy as browsing. Nothing is overwritten: an item whose name is taken
   arrives as `name copy` or `name 2`. A copy checks the drive has room, is built under `.homebase/`
