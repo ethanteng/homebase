@@ -48,6 +48,9 @@ public sealed class FileEditTests : IDisposable
             .Select(item => (item.GetProperty("from").GetString()!, item.GetProperty("to").GetString()!)).ToArray();
     }
 
+    private static Task<HttpResponseMessage> RenameAsync(HttpClient client, string path, string? name) =>
+        client.PostAsJsonAsync("/api/files/rename", new { path, name });
+
     private static async Task<BinListing> BinAsync(HttpClient client) =>
         (await client.GetFromJsonAsync<BinListing>("/api/bin"))!;
 
@@ -126,6 +129,52 @@ public sealed class FileEditTests : IDisposable
         foreach (var into in new[] { "Docs", "Docs/Folder" })
             Assert.Equal(HttpStatusCode.BadRequest, (await EditAsync(client, "move", ["Docs/a 2.txt", "Docs"], into)).StatusCode);
         Assert.True(File.Exists(Path.Combine(root, "Docs", "a 2.txt")));
+    }
+
+    [Fact]
+    public async Task Rename_changes_only_the_name_and_never_takes_one_already_in_use()
+    {
+        var (app, client, root) = await StartAsync();
+        using var _ = app;
+        using var __ = client;
+        await WriteAsync(root, "Docs/draft.txt", "draft");
+        await WriteAsync(root, "Docs/final.txt", "final");
+        await WriteAsync(root, "Docs/Old/inner.txt", "inner");
+
+        async Task<(string From, string To)> Renamed(string path, string name)
+        {
+            var response = await RenameAsync(client, path, name);
+            response.EnsureSuccessStatusCode();
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            return (body.GetProperty("from").GetString()!, body.GetProperty("to").GetString()!);
+        }
+
+        // Spaces either side of what was typed aren't part of the name.
+        Assert.Equal(("Docs/draft.txt", "Docs/Chapter one.txt"), await Renamed("Docs/draft.txt", " Chapter one.txt "));
+        Assert.Equal(("Docs/Old", "Docs/Archive"), await Renamed("Docs/Old", "Archive"));
+        Assert.Equal("draft", await File.ReadAllTextAsync(Path.Combine(root, "Docs", "Chapter one.txt")));
+        Assert.Equal("inner", await File.ReadAllTextAsync(Path.Combine(root, "Docs", "Archive", "inner.txt")));
+        Assert.False(File.Exists(Path.Combine(root, "Docs", "draft.txt")));
+        Assert.False(Directory.Exists(Path.Combine(root, "Docs", "Old")));
+
+        // Only the capitals changing is a rename too, even on a drive that doesn't tell them apart.
+        Assert.Equal(("Docs/final.txt", "Docs/Final.txt"), await Renamed("Docs/final.txt", "Final.txt"));
+        Assert.Contains("Final.txt", (await client.GetFromJsonAsync<DirectoryListing>("/api/files?path=Docs"))!
+            .Entries.Select(entry => entry.Name));
+        Assert.Equal(("Docs/Final.txt", "Docs/Final.txt"), await Renamed("Docs/Final.txt", "Final.txt"));
+
+        // A name already there is refused, not changed: the name is the whole point of a rename.
+        var taken = await RenameAsync(client, "Docs/Final.txt", "Chapter one.txt");
+        Assert.Equal(HttpStatusCode.Conflict, taken.StatusCode);
+        Assert.Contains("already something called", (await taken.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString());
+        Assert.Equal("final", await File.ReadAllTextAsync(Path.Combine(root, "Docs", "Final.txt")));
+        Assert.Equal("draft", await File.ReadAllTextAsync(Path.Combine(root, "Docs", "Chapter one.txt")));
+
+        foreach (var name in new[] { "", "   ", ".hidden", "..", "a/b", "a\\b", "a:b", "tab\there", new string('x', 256), null })
+            Assert.Equal(HttpStatusCode.BadRequest, (await RenameAsync(client, "Docs/Final.txt", name)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await RenameAsync(client, "Docs/gone.txt", "anything")).StatusCode);
+        Assert.Equal(["Archive", "Chapter one.txt", "Final.txt"],
+            (await client.GetFromJsonAsync<DirectoryListing>("/api/files?path=Docs"))!.Entries.Select(entry => entry.Name));
     }
 
     [Fact]
@@ -251,6 +300,7 @@ public sealed class FileEditTests : IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, (await EditAsync(client, "copy", [path], "Docs")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await EditAsync(client, "move", [path], "Docs")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await EditAsync(client, "delete", [path])).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await RenameAsync(client, path, "renamed")).StatusCode);
         if (path.Length > 0)
         {
             // Nor can anything be put there.
@@ -298,6 +348,7 @@ public sealed class FileEditTests : IDisposable
             Assert.Equal(HttpStatusCode.Conflict, moving.StatusCode);
             Assert.Contains("My computers", (await moving.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString());
             Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "delete", [path])).StatusCode);
+            Assert.Equal(HttpStatusCode.Conflict, (await RenameAsync(client, path, "Renamed")).StatusCode);
         }
         Assert.True(File.Exists(Path.Combine(root, "Work", "Diaries", "entry.txt")));
 
@@ -334,6 +385,7 @@ public sealed class FileEditTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "copy", ["Dropbox"], "")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "move", ["Elsewhere/mine.txt"], "Dropbox/work")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await BinAsync(client, "restore", binned)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await RenameAsync(client, "Dropbox", "Old Dropbox")).StatusCode);
         // Everywhere else is still anybody's to change.
         (await EditAsync(client, "move", ["Elsewhere/mine.txt"], "")).EnsureSuccessStatusCode();
 

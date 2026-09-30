@@ -541,6 +541,10 @@ app.MapPost("/api/files/move", async (EditFiles request, CurrentUser user, UserW
             request.Paths, request.Destination, Synced(ownership, user), cancellationToken)
     }));
 
+app.MapPost("/api/files/rename", async (RenameFile request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, CancellationToken cancellationToken) =>
+    Results.Ok(await workspaces.For(user.Account).Library.RenameAsync(
+        request.Path, request.Name, Synced(ownership, user), cancellationToken)));
+
 // Deleting moves things into the bin, which is still this account's folder and still takes room,
 // so nothing is freed until the bin lets go of it.
 app.MapPost("/api/files/delete", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, CancellationToken cancellationToken) =>
@@ -1084,6 +1088,7 @@ finally
 public sealed record SelectRoot(string Path);
 /// <param name="Destination">The folder to copy or move into; unused by a delete. Empty is the top of My files.</param>
 public sealed record EditFiles(IReadOnlyList<string>? Paths, string? Destination);
+public sealed record RenameFile(string? Path, string? Name);
 /// <param name="Ids">Things in the bin, by the ids it lists them with.</param>
 public sealed record BinItems(IReadOnlyList<string>? Ids);
 public sealed record ReachFromAnywhere(bool Enabled);

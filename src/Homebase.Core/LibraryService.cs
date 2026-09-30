@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Homebase.Core;
 
 /// <summary>
@@ -187,6 +189,40 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
     }
 
     /// <summary>
+    /// Gives one file or folder a new name where it is. Unlike a copy or a move, the name is the
+    /// whole point, so one already taken there is refused rather than changed.
+    /// </summary>
+    /// <param name="synced">As for <see cref="MoveAsync"/>: a synced folder, or one holding one, keeps its name.</param>
+    public async Task<EditedEntry> RenameAsync(
+        string? path, string? name, IReadOnlyCollection<string> synced, CancellationToken cancellationToken)
+    {
+        await _edits.WaitAsync(cancellationToken);
+        try
+        {
+            var item = Items(path is null ? null : [path]).Single();
+            var newName = NewName(name);
+            if (newName == item.Name) return new EditedEntry(item.Relative, item.Relative);
+            AwayFromImport([item], null, "renamed");
+            KeepSynced(item, synced, "renamed");
+            var folder = Path.GetDirectoryName(item.FullPath)!;
+            var to = Path.Combine(folder, newName);
+            var taken = new LibraryException($"There’s already something called “{newName}” here. Choose another name.", "conflict");
+            // Only a change of capitals may find its new name taken, and on a drive that ignores
+            // case what it finds is itself. Anywhere else the move below refuses and says so.
+            var recased = newName.Equals(item.Name, StringComparison.OrdinalIgnoreCase);
+            if (!recased && Taken(to)) throw taken;
+            try
+            {
+                if (item.IsDirectory) Directory.Move(item.FullPath, to);
+                else File.Move(item.FullPath, to, overwrite: false);
+            }
+            catch (IOException) when (Taken(to)) { throw taken; }
+            return new EditedEntry(item.Relative, Join(folder, newName));
+        }
+        finally { _edits.Release(); }
+    }
+
+    /// <summary>
     /// Deletes files, and folders with everything in them, into the bin: gone from My files at
     /// once, and for good after <see cref="KeepDeletedFor"/> unless put back first.
     /// </summary>
@@ -233,6 +269,23 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
         }
         return items.Where(item => !items.Any(other => other.IsDirectory
             && item.FullPath.StartsWith(other.FullPath + Path.DirectorySeparatorChar, StringComparison.Ordinal))).ToArray();
+    }
+
+    /// <summary>
+    /// A name somebody typed, as a file or folder can be called here. One starting with a dot would
+    /// vanish, since hidden entries are never shown; the rest are refused for meaning something to
+    /// the filesystem, or to a Mac, that they don't mean to whoever typed them.
+    /// </summary>
+    private static string NewName(string? name)
+    {
+        var trimmed = (name ?? "").Trim();
+        if (trimmed.Length == 0) throw new LibraryException("Type a name.");
+        if (trimmed.StartsWith('.'))
+            throw new LibraryException("A name can’t start with a dot, because Uncloud would hide it.");
+        if (trimmed.IndexOfAny(['/', '\\', ':']) >= 0 || trimmed.Any(char.IsControl))
+            throw new LibraryException("A name can’t contain /, \\ or :.");
+        if (Encoding.UTF8.GetByteCount(trimmed) > 255) throw new LibraryException("That name is too long.");
+        return trimmed;
     }
 
     private string Folder(string? destination)

@@ -86,7 +86,7 @@ export interface BinListing {
   bytes: number;
 }
 
-export type EditAction = "copy" | "move" | "delete";
+export type EditAction = "copy" | "move" | "rename" | "delete";
 /// Where one copied or moved item ended up: a different name when its own was taken there.
 export interface EditedEntry {
   from: string;

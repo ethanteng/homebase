@@ -2498,3 +2498,10 @@ tbody tr.selected {
     padding: 7px;
   }
 }
+.rename-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+.edit-dialog .path-input {
+  font-size: 13px;
+}

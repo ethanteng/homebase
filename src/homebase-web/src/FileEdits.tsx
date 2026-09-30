@@ -47,14 +47,27 @@ function summarize(edit: Edit, destination: string, items: EditedEntry[]) {
   return `${done} ${renamed.length} of them have new names there, because theirs were taken.`;
 }
 
-/** Copying or moving files somewhere else in My files, or deleting them, one dialog for each. */
+/**
+ * Copying or moving files somewhere else in My files, renaming one, or deleting them: one dialog
+ * for each.
+ */
 export default function EditDialog({ edit, from, onClose, onDone }: Props) {
   const [element, setElement] = useState<HTMLDialogElement | null>(null);
   const [folder, setFolder] = useState(from);
   const [folders, setFolders] = useState<LibraryEntry[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const choosing = edit !== null && edit.action !== "delete";
+  const [name, setName] = useState("");
+  const [named, setNamed] = useState<Edit | null>(null);
+  const [nameField, setNameField] = useState<HTMLInputElement | null>(null);
+  const choosing = edit?.action === "copy" || edit?.action === "move";
+
+  // A rename starts from the name it has. Set while rendering rather than in an effect, so the
+  // field never shows the last one first and loses the selection made below.
+  if (edit !== named) {
+    setNamed(edit);
+    setName(edit?.entries[0]?.name ?? "");
+  }
 
   // Every edit starts afresh, looking at the folder its files are in.
   useEffect(() => {
@@ -68,6 +81,15 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
       if (!element?.open) element?.showModal();
     } else element?.close();
   }, [edit, element]);
+
+  // As Finder does it: the name is ready to type over, leaving a file's extension alone.
+  useEffect(() => {
+    if (edit?.action !== "rename" || !nameField) return;
+    const entry = edit.entries[0];
+    const dot = entry.isDirectory ? -1 : entry.name.lastIndexOf(".");
+    nameField.focus();
+    nameField.setSelectionRange(0, dot > 0 ? dot : entry.name.length);
+  }, [edit, nameField]);
 
   useEffect(() => {
     if (!choosing) return;
@@ -103,6 +125,14 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
     setBusy(true);
     setError("");
     try {
+      if (edit.action === "rename") {
+        const renamed = await api<EditedEntry>("/files/rename", {
+          method: "POST",
+          body: JSON.stringify({ path: edit.entries[0].path, name }),
+        });
+        onDone(`Renamed “${edit.entries[0].name}” to “${nameOf(renamed.to)}”.`);
+        return;
+      }
       const paths = edit.entries.map((entry) => entry.path);
       const result = await api<{ items?: EditedEntry[] }>(
         `/files/${edit.action}`,
@@ -133,6 +163,9 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
   );
   const alreadyThere = edit?.action === "move" && folder === from;
   const one = edit?.entries.length === 1;
+  const unnamed =
+    edit?.action === "rename" &&
+    (name.trim() === "" || name.trim() === edit.entries[0].name);
   const folderCount = edit?.entries.filter((entry) => entry.isDirectory).length ?? 0;
 
   return (
@@ -151,7 +184,9 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
               <h2 id="edit-title">
                 {edit.action === "delete"
                   ? `Delete ${describe(edit.entries)}?`
-                  : `${edit.action === "copy" ? "Copy" : "Move"} ${describe(edit.entries)}`}
+                  : edit.action === "rename"
+                    ? `Rename ${describe(edit.entries)}`
+                    : `${edit.action === "copy" ? "Copy" : "Move"} ${describe(edit.entries)}`}
               </h2>
             </div>
             <button
@@ -179,6 +214,28 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
                 Anything that syncs with your computers is deleted there too,
                 and comes back there if you put it back.
               </p>
+            </div>
+          ) : edit.action === "rename" ? (
+            <div className="edit-body">
+              <label className="rename-label" htmlFor="rename-name">
+                New name
+              </label>
+              <input
+                id="rename-name"
+                ref={setNameField}
+                className="path-input"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !unnamed && !busy) {
+                    event.preventDefault();
+                    void submit();
+                  }
+                }}
+                disabled={busy}
+                autoComplete="off"
+                spellCheck={false}
+              />
             </div>
           ) : (
             <div className="edit-body">
@@ -271,20 +328,26 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
             <button
               className={`button ${edit.action === "delete" ? "danger" : "primary"}`}
               onClick={() => void submit()}
-              disabled={busy || alreadyThere || (choosing && folders === null)}
+              disabled={
+                busy || alreadyThere || unnamed || (choosing && folders === null)
+              }
             >
               {busy && <RefreshCw className="spin" size={15} />}
               {edit.action === "delete"
                 ? busy
                   ? "Deleting…"
                   : "Delete"
-                : edit.action === "copy"
+                : edit.action === "rename"
                   ? busy
-                    ? "Copying…"
-                    : "Copy here"
-                  : busy
-                    ? "Moving…"
-                    : "Move here"}
+                    ? "Renaming…"
+                    : "Rename"
+                  : edit.action === "copy"
+                    ? busy
+                      ? "Copying…"
+                      : "Copy here"
+                    : busy
+                      ? "Moving…"
+                      : "Move here"}
             </button>
           </div>
         </>

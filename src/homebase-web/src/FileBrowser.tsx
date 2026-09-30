@@ -13,6 +13,7 @@ import {
   Folder,
   FolderInput,
   FolderOpen,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -271,6 +272,16 @@ export default function FileBrowser({
                   <FolderInput size={15} />
                   Move to…
                 </button>
+                {/* One name at a time: there is no one new name for several things. */}
+                {chosen.length === 1 && (
+                  <button
+                    className="row-action"
+                    onClick={() => start("rename", chosen)}
+                  >
+                    <Pencil size={15} />
+                    Rename…
+                  </button>
+                )}
                 <button
                   className="row-action danger"
                   onClick={() => start("delete", chosen)}
@@ -550,6 +561,13 @@ export default function FileBrowser({
               >
                 <FolderInput size={15} />
                 Move to…
+              </button>
+              <button
+                className="row-action"
+                onClick={() => start("rename", [selected])}
+              >
+                <Pencil size={15} />
+                Rename…
               </button>
               <button
                 className="row-action danger"

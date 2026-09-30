@@ -129,6 +129,35 @@ describe("editing My files", () => {
     await screen.findByText(/It’s called “a copy.txt” there, because “a.txt” was taken/);
   });
 
+  it("renames one thing at a time, with the name ready to type over", async () => {
+    answer = () => json({ from: "a.txt", to: "Notes.txt" });
+    await open();
+    await click(screen.getByRole("checkbox", { name: "Select a.txt" }));
+    await click(screen.getByRole("checkbox", { name: "Select b.txt" }));
+    // There is no one new name for two things.
+    expect(screen.queryByRole("button", { name: /rename/i })).toBeNull();
+    await click(screen.getByRole("checkbox", { name: "Select b.txt" }));
+
+    await click(screen.getByRole("button", { name: /rename/i }));
+    const dialog = screen.getByRole("dialog");
+    const field = within(dialog).getByRole("textbox", { name: "New name" }) as HTMLInputElement;
+    const rename = within(dialog).getByRole("button", { name: "Rename" });
+    // Everything but the extension is selected, and nothing changed is nothing to send.
+    expect(field.value).toBe("a.txt");
+    expect([field.selectionStart, field.selectionEnd]).toEqual([0, 1]);
+    expect(rename).toBeDisabled();
+    fireEvent.change(field, { target: { value: "  " } });
+    expect(rename).toBeDisabled();
+
+    fireEvent.change(field, { target: { value: "Notes.txt" } });
+    await act(async () => {
+      fireEvent.keyDown(field, { key: "Enter" });
+    });
+
+    expect(sent).toEqual([{ path: "/files/rename", body: { path: "a.txt", name: "Notes.txt" } }]);
+    await screen.findByText("Renamed “a.txt” to “Notes.txt”.");
+  });
+
   it("keeps the dialog open with the reason when a change is refused", async () => {
     answer = () =>
       json({ detail: "“Docs” syncs with your computers, so it can’t be deleted here." }, 409);

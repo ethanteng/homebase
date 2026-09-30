@@ -41,7 +41,7 @@ plugged into it.
 ### What you can do today
 
 - Browse your folders, look at file details, and download files, from any browser.
-- Copy, move and delete files and folders in the browser, and get deleted ones back from the
+- Copy, move, rename and delete files and folders in the browser, and get deleted ones back from the
   **Bin** for 30 days.
 - Add files from Dropbox, or from folders and drives on the host, all from one **Add files** button.
 - See how much room is left on the host at a glance, on every page.
@@ -51,7 +51,7 @@ plugged into it.
 
 ### What isn't ready yet
 
-- **No uploading or renaming in the browser.** Files get in by importing or syncing a computer.
+- **No uploading in the browser.** Files get in by importing or syncing a computer.
 - **The app is Mac only for now.**
 - **The host has to stay on and awake.** On a Mac, turn off sleep in System Settings, and tick
   **Open at Login** in the Uncloud menu so it starts again after a restart.
@@ -225,10 +225,11 @@ button, filter and sort, and click a file to see its details or download it. The
 top of every page show how much room is left on the host, and how much of it is yours. They turn
 amber, then red, when it runs low.
 
-Tick the box beside files and folders to **Copy to…**, **Move to…** or **Delete** them, or use the
-same buttons in a file's details. Nothing is ever overwritten: if the folder you choose already
-has something with the same name, the new arrival gets a new one, like `notes 2.txt`, and Uncloud
-tells you. A folder that syncs with one of your computers can't be moved or deleted until you stop
+Tick the box beside files and folders to **Copy to…**, **Move to…** or **Delete** them, or tick
+one to **Rename…** it. A file's details have the same buttons. Nothing is ever overwritten: if the
+folder you choose already has something with the same name, the new arrival gets a new one, like
+`notes 2.txt`, and Uncloud tells you. Renaming to a name that's already taken is refused instead.
+A folder that syncs with one of your computers can't be moved, renamed or deleted until you stop
 syncing it.
 
 Deleted files and folders go to the **Bin**, where they wait for 30 days before they're gone for
