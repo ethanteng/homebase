@@ -11,9 +11,8 @@
 .hero-savings-message strong { font-weight: 750; }
 .homepage .hero-description { margin-top: 28px; }
 .homepage .hero-description strong { font-size: clamp(1.2rem, 2vw, 1.55rem); line-height: 1.45; font-weight: 650; }
-.homepage .hero-detail { margin-top: 13px; font-size: 1rem; line-height: 1.6; }
-.hero-setup-time { margin-top: 21px; font-size: .9rem; line-height: 1.5; }
-.hero-setup-time > span { margin-right: 5px; color: var(--blue-strong); }
+.hero-benefits { display: grid; gap: 8px; padding: 0; margin: 21px 0 0; list-style: none; font-size: .9rem; line-height: 1.5; }
+.hero-benefits li > span { margin-right: 5px; color: var(--blue-strong); }
 .hero-offer { display: grid; grid-template-columns: auto 1fr; max-width: 600px; margin: 24px auto 0; overflow: hidden; border: 1px solid #bfd6f2; border-radius: 16px; background: #fff; box-shadow: 0 10px 30px #1f6fe50a; text-align: left; }
 .hero-price { min-width: 0; padding: 22px 24px; }
 .hero-price { background: #eaf3ff; border-right: 1px solid #cddff5; }
@@ -113,7 +112,6 @@
   .homepage h1 { font-size: clamp(3.5rem, 4.8vw, 4.3rem); }
   .homepage .hero-description { margin-top: 25px; }
   .homepage .hero-description strong { font-size: 1.24rem; }
-  .homepage .hero-detail { font-size: .95rem; }
   .homepage .hero-copy .desktop-break { display: none; }
   .hero-actions { justify-content: flex-start; gap: 17px; }
   .hero-actions .primary-link { padding-inline: 20px; gap: 18px; }
@@ -150,8 +148,7 @@
   .homepage .hero-description { margin-top: 23px; }
   .homepage .hero-description strong { font-size: 1.15rem; line-height: 1.5; }
   .desktop-break { display: none; }
-  .homepage .hero-detail { max-width: 380px; font-size: .92rem; }
-  .hero-setup-time { font-size: .85rem; margin-top: 19px; }
+  .hero-benefits { font-size: .85rem; margin-top: 19px; }
   .hero-offer { margin-top: 20px; }
   .hero-price { padding: 19px 16px; }
   .hero-value-number { gap: 5px; }
