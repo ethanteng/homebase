@@ -19,7 +19,7 @@ There are no monthly storage fees, capacity tiers, or per-member charges in this
 
 The website currently collects early-access email signups. Joining the list locks in the $79 one-time price when the product is ready; it does not activate a trial or take payment. The calls to action, trial note, pricing card, and signup confirmation make that distinction explicit. When trial delivery or checkout becomes available, update the action and confirmation together.
 
-Keep the hero graphic (including its $99 lifetime label and $79 early-access link), pricing card, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
+Keep the hero’s $79 early-access offer and $99 regular price, savings section’s $99 one-time price, pricing card, closing signup, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
 
 ## Household savings example
 
@@ -43,11 +43,11 @@ Calculation in cents:
 - First year after the regular purchase: 50,340 − 9,900 = 40,440 ($404.40).
 - Subsequent years: $503.40 in avoided subscription bills, assuming unchanged prices and no renewals of those subscriptions.
 
-“Cut up to $500 a year in subscription bills” rounds down this conditional example. The hero graphic’s “Over $500 per year” describes the combined annual subscription costs. The detailed comparison retains the exact $503.40 annual total. These are not claims of $500 in first-year net savings or of typical household savings. All five plans must be canceled for twelve months; retaining any reduces the result. Electricity, additional drives, backup and tax are excluded from this calculation. These assumptions are retained here as the pricing source record.
+“Save up to $500 a year in subscription costs” and the hero’s shorter “Save up to $500 a year” round down this conditional example. The detailed comparison retains the exact $503.40 annual total. These are not claims of $500 in first-year net savings or of typical household savings. All five plans must be canceled for twelve months; retaining any reduces the result. Electricity, additional drives, backup and tax are excluded from this calculation. These assumptions are retained here as the pricing source record.
 
 This is a spending comparison, not feature equivalence. Moving files does not replace Evernote note editing, Gmail/Outlook storage, iCloud device backups, or other bundled benefits. Cancel only plans whose other features are no longer needed. The homepage shows the subscription costs and source links without a disclaimer or first-year savings breakdown.
 
-When changing the example, verify the same country and billing period for every row, then update the hero graphic’s five price labels and annual total, the comparison table, headline, source date and this record (including the first-year calculations above) together.
+When changing the example, verify the same country and billing period for every row, then update the comparison table, savings headline, hero savings benefit, source date and this record (including the first-year calculations above) together.
 
 ## Acquisition page comparisons
 
