@@ -7,8 +7,6 @@
 .homepage .hero-copy { max-width: 1000px; }
 .homepage h1 { margin-top: 23px; font-size: clamp(3.8rem, 6.8vw, 6.4rem); letter-spacing: -.07em; line-height: .99; }
 .homepage h1 span { margin-top: 2px; }
-.hero-savings-message { margin-top: 20px; color: var(--blue-strong); font-size: clamp(1.05rem, 1.5vw, 1.25rem); line-height: 1.5; text-wrap: balance; }
-.hero-savings-message strong { font-weight: 750; }
 .homepage .hero-description { margin-top: 28px; }
 .homepage .hero-description strong { font-size: clamp(1.2rem, 2vw, 1.55rem); line-height: 1.45; font-weight: 650; }
 .hero-benefits { display: grid; gap: 8px; padding: 0; margin: 21px 0 0; list-style: none; font-size: .9rem; line-height: 1.5; }
@@ -34,7 +32,7 @@
 .film-caption a { color: var(--blue-strong); font-size: .8rem; white-space: nowrap; }
 .film-caption a:hover { text-decoration: underline; text-underline-offset: 4px; }
 .hero-film .video-card__player { overflow: hidden; border: 1px solid #d7e2ec; border-radius: 20px; background: #edf4fa; box-shadow: 0 20px 60px #29486c12; }
-.hero-film figcaption { margin-top: 23px; text-align: center; font-size: clamp(1rem, 1.7vw, 1.25rem); line-height: 1.5; letter-spacing: -.025em; }
+.hero-film figcaption { margin-top: 23px; text-align: center; color: var(--blue-strong); font-size: clamp(1.05rem, 1.5vw, 1.25rem); line-height: 1.5; text-wrap: balance; }
 .hero-film figcaption strong { font-weight: 750; }
 .story-section { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(35px, 8vw, 110px); align-items: center; padding-block: clamp(76px, 9vw, 128px); }
 .story-copy h2, .homepage .section-heading h2, .homepage .savings h2, .signup-close h2 { margin-top: 17px; font-size: clamp(2.2rem, 3.6vw, 3.25rem); line-height: 1.09; letter-spacing: -.055em; text-wrap: balance; }
