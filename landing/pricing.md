@@ -19,7 +19,7 @@ There are no monthly storage fees, capacity tiers, or per-member charges in this
 
 The website currently collects early-access email signups. Joining the list locks in the $79 one-time price when the product is ready; it does not activate a trial or take payment. The calls to action, trial note, pricing card, and signup confirmation make that distinction explicit. When trial delivery or checkout becomes available, update the action and confirmation together.
 
-Keep the hero’s $79 early-access offer and $99 regular price, savings section’s $99 one-time price, pricing card, closing signup, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
+Keep the hero’s $79 early-access offer and $99 regular price, pricing card, closing signup, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
 
 ## Household savings example
 
