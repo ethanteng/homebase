@@ -78,6 +78,11 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <key>CFBundleURLName</key><string>life.uncloud.pair</string>
     <key>CFBundleURLSchemes</key><array><string>uncloud</string></array>
   </dict></array>
+  <!-- macOS asks before an app looks around the local network. The host announces itself over
+       Bonjour, a computer setting up looks for it, and Syncthing finds the other side nearby. -->
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Uncloud finds your household’s Uncloud on this network, so you don’t have to type its address, and syncs with it directly when it’s nearby.</string>
+  <key>NSBonjourServices</key><array><string>_uncloud._tcp</string></array>
 </dict>
 </plist>
 PLIST

@@ -321,6 +321,45 @@ public sealed class IsolationTests : IDisposable
             (await computer.PostAsJsonAsync("/api/sync/pair", new { code, deviceId = Laptop })).StatusCode);
     }
 
+    [Fact]
+    public async Task A_computer_asks_with_no_session_but_only_its_owner_signed_in_can_approve_it()
+    {
+        const string Laptop = "ZZZZZZZ-YYYYYYY-XXXXXXX-WWWWWWW-VVVVVVV-UUUUUUU-TTTTTTT-SSSSSSS";
+        using var app = CreateApp();
+        var (admin, _, member, _) = await TwoAccountsAsync(app);
+        using var ___ = admin;
+        using var ____ = member;
+        using var computer = app.Anonymous();
+
+        var opened = await computer.PostAsJsonAsync("/api/sync/pair/requests", new { deviceId = Laptop, name = "Bo’s laptop", syncEverything = true });
+        opened.EnsureSuccessStatusCode();
+        var ticket = await opened.Content.ReadFromJsonAsync<JsonElement>();
+        var id = ticket.GetProperty("id").GetString();
+        var secret = ticket.GetProperty("secret").GetString();
+
+        // The page the QR code leads to needs a session: a computer can't approve itself.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await computer.GetAsync($"/api/sync/pairing-requests/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await computer.PostAsync($"/api/sync/pairing-requests/{id}/approve", null)).StatusCode);
+
+        Assert.Equal("Bo’s laptop", (await member.GetFromJsonAsync<JsonElement>($"/api/sync/pairing-requests/{id}")).GetProperty("name").GetString());
+        var approved = await member.PostAsync($"/api/sync/pairing-requests/{id}/approve", null);
+        approved.EnsureSuccessStatusCode();
+        Assert.Single((await approved.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("devices").EnumerateArray());
+
+        // The answer is the computer's alone, by the secret it was handed.
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await computer.PostAsJsonAsync($"/api/sync/pair/requests/{id}/answer", new { secret = "guess" })).StatusCode);
+        var answer = await (await computer.PostAsJsonAsync($"/api/sync/pair/requests/{id}/answer", new { secret }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(answer.GetProperty("approved").GetBoolean());
+        Assert.Equal("bo", answer.GetProperty("result").GetProperty("accountName").GetString());
+        Assert.Single(answer.GetProperty("result").GetProperty("folders").EnumerateArray());
+
+        // Added to the member who approved it, and nobody else, with no session issued to it.
+        Assert.Empty((await admin.GetFromJsonAsync<JsonElement>("/api/sync")).GetProperty("devices").EnumerateArray());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await computer.GetAsync("/api/sync")).StatusCode);
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_temporary, true); } catch (IOException) { }

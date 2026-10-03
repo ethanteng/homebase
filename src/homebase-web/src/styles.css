@@ -1726,6 +1726,30 @@ tbody tr.selected {
 .warning-text {
   color: var(--danger-text);
 }
+/* A computer asking to be added, first on the page: on a phone that has just scanned its code,
+   the question is the only thing the person came for. */
+.pair-approval {
+  margin-bottom: 28px;
+  border-color: var(--accent);
+}
+.pair-approval h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.pair-approval h2 svg {
+  flex-shrink: 0;
+}
+.pair-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pair-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 
 /* The Dropbox setup reads the same in My account and in Settings, whether or not it sits inside
    a form that already lays out its labels. */

@@ -24,13 +24,23 @@ public sealed record PairingLink(Uri Address, string Code)
 
     public static PairingLink From(string? address, string? code)
     {
+        var uri = ParseAddress(address);
+        if (string.IsNullOrWhiteSpace(code))
+            throw new FormatException("Enter the pairing code from My computers.");
+        return new PairingLink(uri, code.Trim());
+    }
+
+    /// <summary>
+    /// Uncloud's address however it arrived — typed, pasted from the browser, or announced on the
+    /// network — as the scheme, host and port alone.
+    /// </summary>
+    public static Uri ParseAddress(string? address)
+    {
         var text = (address ?? "").Trim().TrimEnd('/');
         if (text.Length > 0 && !text.Contains("://", StringComparison.Ordinal)) text = "https://" + text;
         if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
             throw new FormatException("Enter the address you open Uncloud at, such as https://uncloud.example.ts.net.");
-        if (string.IsNullOrWhiteSpace(code))
-            throw new FormatException("Enter the pairing code from My computers.");
-        return new PairingLink(new Uri(uri.GetLeftPart(UriPartial.Authority)), code.Trim());
+        return new Uri(uri.GetLeftPart(UriPartial.Authority));
     }
 
     public string ToLink() =>

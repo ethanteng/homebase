@@ -219,5 +219,13 @@
     "license": "MIT",
     "copyright": "Tom Deseyn",
     "notice_files": []
+  },
+  {
+    "package": "QRCoder/1.8.0",
+    "license": "MIT",
+    "copyright": "Copyright \u00a9 2013-2025 Raffael Herrmann. Copyright \u00a9 2024-2025 Shane Krueger. All rights reserved.",
+    "notice_files": [
+      "LICENSE.txt"
+    ]
   }
 ]

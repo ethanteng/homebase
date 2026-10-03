@@ -300,6 +300,11 @@ export interface PairingCode {
   code: string;
   expiresAt: string;
 }
+/// A computer asking to be added, as the person approving it sees it.
+export interface PairingAsk {
+  name: string;
+  expiresAt: string;
+}
 export interface SyncStatus {
   available: boolean;
   detail: string | null;

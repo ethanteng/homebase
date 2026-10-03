@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { api, formatSize } from "./api";
 import type { PairingCode, SyncFolder, SyncStatus } from "./api";
+import PairApproval from "./PairApproval";
 
 function describe(folder: SyncFolder) {
   if (folder.error) return folder.error;
@@ -31,7 +32,15 @@ function pairingLink(code: string) {
   return `uncloud://pair?address=${encodeURIComponent(window.location.origin)}&code=${encodeURIComponent(code)}`;
 }
 
-export default function SyncPanel() {
+/// `approving` is a computer that asked to be added, when this page was opened from the QR code
+/// the Uncloud app shows on it.
+export default function SyncPanel({
+  approving = null,
+  onApprovalClosed,
+}: {
+  approving?: string | null;
+  onApprovalClosed?: () => void;
+} = {}) {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [deviceId, setDeviceId] = useState("");
   const [deviceName, setDeviceName] = useState("");
@@ -167,6 +176,13 @@ export default function SyncPanel() {
 
   return (
     <>
+      {approving && (
+        <PairApproval
+          id={approving}
+          onApproved={setStatus}
+          onClose={() => onApprovalClosed?.()}
+        />
+      )}
       <div className="page-heading">
         <div>
           <span className="eyebrow">YOUR OWN COMPUTERS</span>
@@ -233,6 +249,16 @@ export default function SyncPanel() {
 
           <section className="import-section">
             <h2>Your computers</h2>
+            <p className="field-help">
+              To add a Mac, get the Uncloud app on it and choose{" "}
+              <strong>Connect this computer to an Uncloud</strong>. At home it
+              finds this Uncloud by itself and shows a code: scan it with your
+              phone’s camera, then tap <strong>Add this computer</strong>.
+            </p>
+            <p className="field-help">
+              Or, on the computer you’re adding, get a pairing code here and
+              open it in the app.
+            </p>
             <div className="sync-form">
               <button
                 className="button"
@@ -272,8 +298,8 @@ export default function SyncPanel() {
             )}
             <p className="field-help">
               The Uncloud app keeps your whole folder in step, with nothing else to
-              set up. Without it, install Syncthing on your computer and add it by
-              its ID:
+              set up. Without it — on Windows or Linux — install Syncthing on your
+              computer and add it by its ID:
             </p>
             <div className="sync-form">
               <input

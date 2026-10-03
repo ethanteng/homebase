@@ -508,6 +508,113 @@ public sealed class SyncTests : IDisposable
         await codes.RedeemAsync(real.Code, Laptop, null, "10.0.0.10", null, CancellationToken.None);
     }
 
+    private PairingRequests Requests(Func<DateTimeOffset>? now = null) =>
+        new(_sync, _ownership, _users, _syncthing) { Now = now ?? (() => DateTimeOffset.UtcNow) };
+
+    /// <summary>A computer's device ID for each number, so a test can have as many as it likes.</summary>
+    private static string Computer(int number) =>
+        $"{(char)('A' + number / 26)}{(char)('A' + number % 26)}{new string('Q', 54)}";
+
+    [Fact]
+    public async Task A_computer_that_asks_is_added_to_whoever_approves_it_and_collects_that_once()
+    {
+        var requests = Requests();
+        var ticket = requests.Open(Laptop.Replace("-", "").ToLowerInvariant(), " Ada’s laptop ", true, "10.0.0.5");
+        Assert.Equal("Ada’s laptop", requests.Describe(ticket.Id).Name);
+
+        // Nobody has said yes yet, so nothing has changed.
+        Assert.False(requests.Answer(ticket.Id, ticket.Secret).Approved);
+        Assert.Null(_ownership.FindDevice(Laptop));
+
+        await requests.ApproveAsync(ticket.Id, _ada.Id, _ => _adaRoot, CancellationToken.None);
+        Assert.Equal(_ada.Id, _ownership.FindDevice(Laptop)!.UserId);
+        Assert.Equal("Ada’s laptop", _syncthing.Devices[Laptop].Name);
+
+        // The id in the QR code is on the screen for anybody to read; collecting needs the secret.
+        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Answer(ticket.Id, "guess")).Code);
+        var answer = requests.Answer(ticket.Id, ticket.Secret);
+        Assert.True(answer.Approved);
+        Assert.Equal((FakeSyncthing.Self, "Ada"), (answer.Result!.HostDeviceId, answer.Result.AccountName));
+        var folder = Assert.Single(answer.Result.Folders);
+        Assert.Equal(_adaRoot, _syncthing.Folders[folder.Id].Path);
+        Assert.Equal([Laptop], _syncthing.Folders[folder.Id].DeviceIds);
+
+        // Handed over once, and then gone.
+        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Answer(ticket.Id, ticket.Secret)).Code);
+        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Describe(ticket.Id)).Code);
+    }
+
+    [Fact]
+    public async Task An_approved_request_stays_approved_and_nobody_else_can_take_it()
+    {
+        var requests = Requests();
+        var ticket = requests.Open(Laptop, "Laptop", false, null);
+
+        await requests.ApproveAsync(ticket.Id, _bo.Id, _ => _boRoot, CancellationToken.None);
+        // A second tap on a slow phone is the same yes.
+        await requests.ApproveAsync(ticket.Id, _bo.Id, _ => _boRoot, CancellationToken.None);
+        Assert.Equal("conflict", (await Assert.ThrowsAsync<LibraryException>(
+            () => requests.ApproveAsync(ticket.Id, _ada.Id, _ => _adaRoot, CancellationToken.None))).Code);
+
+        Assert.Equal(_bo.Id, _ownership.FindDevice(Laptop)!.UserId);
+        Assert.Equal("Bo", requests.Answer(ticket.Id, ticket.Secret).Result!.AccountName);
+    }
+
+    [Fact]
+    public async Task Somebody_elses_computer_cant_be_claimed_by_approving_its_request()
+    {
+        await _sync.PairAsync(_ada.Id, Desktop, null, CancellationToken.None);
+        var requests = Requests();
+        var ticket = requests.Open(Desktop, "Desktop", true, null);
+
+        Assert.Equal("conflict", (await Assert.ThrowsAsync<LibraryException>(
+            () => requests.ApproveAsync(ticket.Id, _bo.Id, _ => _boRoot, CancellationToken.None))).Code);
+
+        Assert.Equal(_ada.Id, _ownership.FindDevice(Desktop)!.UserId);
+        Assert.False(requests.Answer(ticket.Id, ticket.Secret).Approved);
+        Assert.Empty(_syncthing.Folders);
+    }
+
+    [Fact]
+    public async Task A_request_runs_out_and_asking_again_replaces_it()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var requests = Requests(() => now);
+        var first = requests.Open(Laptop, null, false, null);
+        var second = requests.Open(Laptop, null, false, null);
+
+        // Only the code on the computer's screen now can be approved.
+        Assert.Equal("not_found", (await Assert.ThrowsAsync<LibraryException>(
+            () => requests.ApproveAsync(first.Id, _bo.Id, _ => _boRoot, CancellationToken.None))).Code);
+        Assert.Equal("A computer", requests.Describe(second.Id).Name);
+
+        now += PairingRequests.Lifetime + TimeSpan.FromSeconds(1);
+        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Describe(second.Id)).Code);
+        Assert.Equal("not_found", (await Assert.ThrowsAsync<LibraryException>(
+            () => requests.ApproveAsync(second.Id, _bo.Id, _ => _boRoot, CancellationToken.None))).Code);
+        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Answer(second.Id, second.Secret)).Code);
+        Assert.Null(_ownership.FindDevice(Laptop));
+    }
+
+    [Fact]
+    public void Asking_without_a_session_is_bounded()
+    {
+        var requests = Requests();
+        Assert.Equal("invalid_device", Assert.Throws<LibraryException>(
+            () => requests.Open("not-a-device", null, false, "10.0.0.9")).Code);
+
+        for (var computer = 0; computer < PairingRequests.MostFromOneAddress; computer++)
+            requests.Open(Computer(computer), null, false, "10.0.0.9");
+        Assert.Equal("too_many_attempts", Assert.Throws<LibraryException>(
+            () => requests.Open(Computer(99), null, false, "10.0.0.9")).Code);
+
+        // Other addresses aren't held up by that one, until the host has all it will keep waiting.
+        for (var computer = PairingRequests.MostFromOneAddress; computer < PairingRequests.MostWaiting; computer++)
+            requests.Open(Computer(computer), null, false, $"10.0.1.{computer / PairingRequests.MostFromOneAddress}");
+        Assert.Equal("busy", Assert.Throws<LibraryException>(
+            () => requests.Open(Computer(100), null, false, "10.0.2.1")).Code);
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_temporary, true); } catch (IOException) { }
