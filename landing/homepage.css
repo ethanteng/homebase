@@ -7,13 +7,10 @@
 .homepage .hero-copy { max-width: 1000px; }
 .homepage h1 { margin-top: 23px; font-size: clamp(3.8rem, 6.8vw, 6.4rem); letter-spacing: -.07em; line-height: .99; }
 .homepage h1 span { margin-top: 2px; }
-.hero-savings-message { margin-top: 20px; color: var(--blue-strong); font-size: clamp(1.05rem, 1.5vw, 1.25rem); line-height: 1.5; text-wrap: balance; }
-.hero-savings-message strong { font-weight: 750; }
 .homepage .hero-description { margin-top: 28px; }
 .homepage .hero-description strong { font-size: clamp(1.2rem, 2vw, 1.55rem); line-height: 1.45; font-weight: 650; }
-.homepage .hero-detail { margin-top: 13px; font-size: 1rem; line-height: 1.6; }
-.hero-setup-time { margin-top: 21px; font-size: .9rem; line-height: 1.5; }
-.hero-setup-time > span { margin-right: 5px; color: var(--blue-strong); }
+.hero-benefits { display: grid; gap: 8px; padding: 0; margin: 21px 0 0; list-style: none; font-size: .9rem; line-height: 1.5; }
+.hero-benefits li > span { margin-right: 5px; color: var(--blue-strong); }
 .hero-offer { display: grid; grid-template-columns: auto 1fr; max-width: 600px; margin: 24px auto 0; overflow: hidden; border: 1px solid #bfd6f2; border-radius: 16px; background: #fff; box-shadow: 0 10px 30px #1f6fe50a; text-align: left; }
 .hero-price { min-width: 0; padding: 22px 24px; }
 .hero-price { background: #eaf3ff; border-right: 1px solid #cddff5; }
@@ -35,11 +32,12 @@
 .film-caption a { color: var(--blue-strong); font-size: .8rem; white-space: nowrap; }
 .film-caption a:hover { text-decoration: underline; text-underline-offset: 4px; }
 .hero-film .video-card__player { overflow: hidden; border: 1px solid #d7e2ec; border-radius: 20px; background: #edf4fa; box-shadow: 0 20px 60px #29486c12; }
-.hero-film figcaption { margin-top: 23px; text-align: center; font-size: clamp(1rem, 1.7vw, 1.25rem); line-height: 1.5; letter-spacing: -.025em; }
+.hero-film figcaption { margin-top: 23px; text-align: center; color: var(--blue-strong); font-size: clamp(1.05rem, 1.5vw, 1.25rem); line-height: 1.5; text-wrap: balance; }
 .hero-film figcaption strong { font-weight: 750; }
 .story-section { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(35px, 8vw, 110px); align-items: center; padding-block: clamp(76px, 9vw, 128px); }
 .story-copy h2, .homepage .section-heading h2, .homepage .savings h2, .signup-close h2 { margin-top: 17px; font-size: clamp(2.2rem, 3.6vw, 3.25rem); line-height: 1.09; letter-spacing: -.055em; text-wrap: balance; }
 .story-copy h2 span { color: #718097; }
+#problem-heading span { display: block; }
 .story-copy > p:not(.eyebrow) { margin-top: 20px; max-width: 485px; color: #5c6a80; font-size: 1rem; line-height: 1.7; text-wrap: pretty; }
 .story-copy .story-emphasis { color: var(--ink); font-weight: 750; }
 .statement { padding: clamp(24px, 3vw, 38px); background: #fff; border: 1px solid #e0e5eb; border-radius: 14px; box-shadow: 0 20px 48px #2939540b; transform: rotate(1.5deg); }
@@ -69,7 +67,6 @@
 .migration-story .story-copy h2 span { color: var(--blue-strong); }
 .migration-story .story-copy p:not(.eyebrow) { font-size: .95rem; }
 .migration-story .eyebrow { color: #596b83; }
-.migration-story .story-copy .connection-note { color: #596b83; font-size: .78rem; }
 .migration-visual { display: grid; grid-template-columns: 1fr 55px 1.2fr; align-items: center; gap: 12px; padding: 36px 0; }
 .migration-sources { display: grid; gap: 10px; }
 .migration-sources > span { display: flex; align-items: center; gap: 9px; padding: 16px 12px; border: 1px solid #dbe5ef; border-radius: 9px; background: #fff; box-shadow: 0 6px 15px #17203307; font-size: .75rem; font-weight: 650; white-space: nowrap; }
@@ -113,7 +110,6 @@
   .homepage h1 { font-size: clamp(3.5rem, 4.8vw, 4.3rem); }
   .homepage .hero-description { margin-top: 25px; }
   .homepage .hero-description strong { font-size: 1.24rem; }
-  .homepage .hero-detail { font-size: .95rem; }
   .homepage .hero-copy .desktop-break { display: none; }
   .hero-actions { justify-content: flex-start; gap: 17px; }
   .hero-actions .primary-link { padding-inline: 20px; gap: 18px; }
@@ -150,8 +146,7 @@
   .homepage .hero-description { margin-top: 23px; }
   .homepage .hero-description strong { font-size: 1.15rem; line-height: 1.5; }
   .desktop-break { display: none; }
-  .homepage .hero-detail { max-width: 380px; font-size: .92rem; }
-  .hero-setup-time { font-size: .85rem; margin-top: 19px; }
+  .hero-benefits { font-size: .85rem; margin-top: 19px; }
   .hero-offer { margin-top: 20px; }
   .hero-price { padding: 19px 16px; }
   .hero-value-number { gap: 5px; }
