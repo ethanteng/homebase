@@ -9,7 +9,8 @@
 .homepage h1 span { margin-top: 2px; }
 .homepage .hero-description { margin-top: 28px; }
 .homepage .hero-description strong { font-size: clamp(1.2rem, 2vw, 1.55rem); line-height: 1.45; font-weight: 650; }
-.hero-benefits { display: grid; gap: 8px; padding: 0; margin: 21px 0 0; list-style: none; font-size: .9rem; line-height: 1.5; }
+.homepage .hero-detail { max-width: 570px; margin: 12px auto 0; color: #5c6a80; font-size: 1rem; line-height: 1.65; text-wrap: pretty; }
+.hero-benefits { display: grid; gap: 8px; width: fit-content; padding: 0; margin: 21px auto 0; list-style: none; text-align: left; font-size: .9rem; line-height: 1.5; }
 .hero-benefits li > span { margin-right: 5px; color: var(--blue-strong); }
 .hero-offer { display: grid; grid-template-columns: auto 1fr; max-width: 600px; margin: 24px auto 0; overflow: hidden; border: 1px solid #bfd6f2; border-radius: 16px; background: #fff; box-shadow: 0 10px 30px #1f6fe50a; text-align: left; }
 .hero-price { min-width: 0; padding: 22px 24px; }
@@ -50,7 +51,7 @@
 .statement .renewal { margin-left: auto; font-size: .65rem; font-weight: 500; color: #645b2d; white-space: nowrap; }
 .statement .statement-muted { display: flex; justify-content: space-between; padding-block: 17px; color: #647086; }
 .statement-footer { margin-top: 22px; color: #59677b; font-size: .8rem; text-align: center; }
-.homepage .setup { padding: 0 0 clamp(76px, 9vw, 128px); }
+.homepage .setup { padding: clamp(76px, 9vw, 128px) 0 0; }
 .homepage .section-heading h2 span, .homepage .savings h2 span, .signup-close h2 span { color: var(--blue-strong); }
 .section-intro { margin-top: 20px; color: #5c6a80; font-size: 1rem; line-height: 1.7; }
 .platforms { display: flex; justify-content: center; align-items: center; gap: 23px; list-style: none; margin: 24px 0 0; padding: 0; }
@@ -107,9 +108,10 @@
 @media (min-width: 1100px) {
   .homepage .hero { display: grid; grid-template-columns: .94fr 1.16fr; gap: 48px; align-items: center; padding-block: 65px 30px; }
   .homepage .hero-copy { text-align: left; }
-  .homepage h1 { font-size: clamp(3.5rem, 4.8vw, 4.3rem); }
+  .homepage h1 { font-size: clamp(3.2rem, 4.2vw, 3.8rem); }
   .homepage .hero-description { margin-top: 25px; }
   .homepage .hero-description strong { font-size: 1.24rem; }
+  .homepage .hero-detail, .hero-benefits { margin-left: 0; }
   .homepage .hero-copy .desktop-break { display: none; }
   .hero-actions { justify-content: flex-start; gap: 17px; }
   .hero-actions .primary-link { padding-inline: 20px; gap: 18px; }
@@ -145,6 +147,7 @@
   .homepage h1 { font-size: clamp(2.9rem, 10.1vw, 4rem); letter-spacing: -.065em; }
   .homepage .hero-description { margin-top: 23px; }
   .homepage .hero-description strong { font-size: 1.15rem; line-height: 1.5; }
+  .homepage .hero-detail { font-size: .94rem; }
   .desktop-break { display: none; }
   .hero-benefits { font-size: .85rem; margin-top: 19px; }
   .hero-offer { margin-top: 20px; }
