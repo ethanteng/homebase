@@ -49,6 +49,10 @@ if ((${#different[@]})); then
   exit 1
 fi
 cp -R "$desktop/." "$app/Contents/MacOS/"
+
+# Preserve repository terms, upstream attributions and source-access notices in the download.
+mkdir -p "$app/Contents/Resources/Licenses"
+cp LICENSE THIRD_PARTY_* "$app/Contents/Resources/Licenses/"
 rm -rf -- "$desktop"
 
 cat > "$app/Contents/Info.plist" <<PLIST

@@ -1,5 +1,7 @@
 <Project>
   <PropertyGroup>
+    <!-- Application projects are proprietary; do not publish them as NuGet packages. -->
+    <IsPackable>false</IsPackable>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
