@@ -27,17 +27,17 @@ export const PAGES = {
   "dropbox-alternative": {
     label: "Dropbox alternative",
     title: "Dropbox Alternative With No Monthly Fee | Uncloud",
-    description: "Uncloud is a Dropbox alternative that turns a computer you own into your family’s private cloud. $99 once, no monthly fees. Early access: $79.",
+    description: "A Dropbox alternative without the monthly bill. Move files to a computer you already own, with easy setup and access anywhere. Early access: $79 once.",
     eyebrow: "Dropbox alternative",
-    h1a: "A Dropbox alternative", h1b: "that lives in your home.",
-    lede: "Keep your family’s files on your own computer. Reach them anywhere.",
-    detail: "Connect your Dropbox, copy everything home in one step, and stop paying $19.99 a month for storage.",
+    h1a: "A Dropbox alternative", h1b: "without the monthly bill.",
+    lede: "Use a computer you already own. Keep the convenience.",
+    detail: "Ready to cancel, but dreading the move? Connect Dropbox and let Uncloud copy your files over. No home-server homework.",
     monthly: 1999,
     hero: { aria: "Uncloud Home compared with Dropbox Family", kicker: "One price. Yours to keep.", heading: "Dropbox Family, every year.", rows: yearRows("Dropbox", "Family · 2 TB", "$239.88", "dropbox"), totalBig: "$719.64", totalSmall: "over three years" },
-    sw: { eyebrow: "Bring your files home", heading: "Move from Dropbox in three steps.", intro: "Uncloud comes with its own Dropbox connection, so there’s no developer console and no app key. Each person signs in to their own Dropbox.",
+    sw: { eyebrow: "Switch without the project", heading: "Move from Dropbox in three steps.", intro: "Connect Dropbox in Uncloud and choose your files. Uncloud copies them over; your originals stay put.",
       steps: [
         { title: "Connect your Dropbox", body: "On My files, click Add files, then Connect Dropbox and sign in. Uncloud can only read your Dropbox, never change it." },
-        { title: "Choose what comes home", body: "Add one folder or everything. Uncloud checks it fits first, then copies it into your own private space." },
+        { title: "Choose your files", body: "Add one folder or everything. Uncloud checks it fits first, then copies it into your own private space." },
         { title: "Carry on while it copies", body: "Close the page if you like. My files shows how far it has got, and your originals stay in Dropbox until you decide." },
       ] },
     cmp: { eyebrow: "How the savings add up", heading: "Dropbox Family costs $239.88 a year. Uncloud is $79 once.", intro: "Dropbox Family renews every month. Uncloud Home is a single purchase, and your storage is whatever your computer and drives can hold.", caption: "Dropbox Family vs. Uncloud Home", captionSub: SRC, colA: "Dropbox Family", colB: "Uncloud Home", align: "right", rows: priceRows("$239.88", "$719.64", "$1,199.40"), boxBig: "$1,120.40", boxSmall: "kept over five years at the $79 early-access price" },
@@ -47,21 +47,21 @@ export const PAGES = {
       { q: "Can Uncloud change or delete anything in my Dropbox?", a: "No. Uncloud can only read your Dropbox. Sign Uncloud out of Dropbox whenever you like; files you already added stay where they are." },
       A.family, A.storage, A.cost,
     ],
-    close: "Bring your Dropbox home.",
+    close: "Keep your files. Drop the monthly bill.",
   },
   "google-drive-alternative": {
     label: "Google Drive alternative",
     title: "Google Drive Alternative With No Monthly Fee | Uncloud",
-    description: "Uncloud is a Google Drive alternative that keeps your family’s files on a computer you own. $99 once, no storage plan. Early access: $79.",
+    description: "A Google Drive alternative without the monthly bill. Move files to your own computer, with easy setup and access anywhere. Early access: $79 once.",
     eyebrow: "Google Drive alternative",
-    h1a: "A Google Drive alternative", h1b: "that keeps your files at home.",
-    lede: "Your files on your own computer. Reachable from any browser.",
-    detail: "Bring your Drive home, give everyone their own private space, and stop renting storage by the month.",
+    h1a: "A Google Drive alternative", h1b: "without the monthly bill.",
+    lede: "Use a computer you already own. Keep the convenience.",
+    detail: "Ready to cancel, but dreading the move? Copy your Google Drive files to Uncloud and access them anywhere. No home-server homework.",
     monthly: 999,
     hero: { aria: "Uncloud Home compared with a Google One 2 TB plan", kicker: "One price. Yours to keep.", heading: "Google One 2 TB, every year.", rows: yearRows("Google Drive", "Google One · 2 TB", "$119.88", "drive"), totalBig: "$359.64", totalSmall: "over three years" },
-    sw: { eyebrow: "Bring your files home", heading: "Move from Google Drive in three steps.", intro: "Uncloud brings Drive home through the folder the Google Drive app keeps on your computer. Nothing is deleted from Google.",
+    sw: { eyebrow: "Switch without the project", heading: "Move from Google Drive in three steps.", intro: "Uncloud copies the folder Google Drive keeps on your computer. Your originals stay in Google Drive.",
       steps: [
-        { title: "Mirror Drive to the host", body: "On the computer that runs Uncloud, install Google Drive for desktop and set it to mirror your files, so they’re stored on the drive." },
+        { title: "Get your Drive files ready", body: "On the computer that runs Uncloud, install Google Drive for desktop and set it to mirror your files, so they’re stored on the drive." },
         { title: "Add the Drive folder", body: "In Uncloud, click Add files, choose This computer, and pick the Google Drive folder. Add all of it or just what you need." },
         { title: "Your copy is yours", body: "Files are copied into your own space and the originals stay put. Adding the folder again later only brings what’s new." },
       ] },
@@ -72,19 +72,19 @@ export const PAGES = {
       { q: "Does Uncloud replace Gmail or Google Photos?", a: "No. Uncloud holds your files. Gmail, Google Photos and the other benefits of a Google One plan are separate, so keep the plan you need for those." },
       A.privacy, A.storage, A.cost,
     ],
-    close: "Bring your Google Drive home.",
+    close: "Keep your files. Drop the monthly bill.",
   },
   "icloud-alternative": {
     label: "iCloud alternative",
     title: "iCloud Alternative With No Monthly Storage Fee | Uncloud",
-    description: "Uncloud is an iCloud alternative that turns a Mac you already own into your family’s private cloud. $99 once, no iCloud+ plan. Early access: $79.",
+    description: "An iCloud Drive alternative without the monthly bill. Move files to your own computer, with easy setup and access anywhere. Early access: $79 once.",
     eyebrow: "iCloud alternative",
-    h1a: "An iCloud alternative", h1b: "on the Mac you already own.",
-    lede: "Your family’s files at home. Reachable from any browser.",
-    detail: "Bring iCloud Drive home, give everyone their own space, and keep a folder on each Mac in step.",
+    h1a: "An iCloud Drive alternative", h1b: "without the monthly bill.",
+    lede: "Use a computer you already own. Keep the convenience.",
+    detail: "Ready to cancel, but dreading the move? Copy your iCloud Drive files to Uncloud and access them anywhere. No home-server homework.",
     monthly: 999,
     hero: { aria: "Uncloud Home compared with iCloud+ 2 TB", kicker: "One price. Yours to keep.", heading: "iCloud+ 2 TB, every year.", rows: yearRows("iCloud+", "2 TB", "$119.88", "icloud"), totalBig: "$359.64", totalSmall: "over three years" },
-    sw: { eyebrow: "Bring your files home", heading: "Move from iCloud Drive in three steps.", intro: "On a Mac, iCloud Drive is already a folder. Uncloud copies it into your own space and leaves iCloud as it was.",
+    sw: { eyebrow: "Switch without the project", heading: "Move from iCloud Drive in three steps.", intro: "On a Mac, iCloud Drive is already a folder. Uncloud copies it into your own space and leaves iCloud as it was.",
       steps: [
         { title: "Download iCloud Drive", body: "On the Mac that runs Uncloud, turn off Optimize Mac Storage in iCloud Drive settings so your files are stored on the Mac." },
         { title: "Add the iCloud Drive folder", body: "In Uncloud, click Add files, choose This computer, and pick iCloud Drive, or use Choose another folder… to find it." },
@@ -99,21 +99,21 @@ export const PAGES = {
       { q: "Can I open my files on my iPhone?", a: "Yes. Sign in from Safari or any browser, at home or out, with your Uncloud’s secure https:// address." },
       A.cost,
     ],
-    close: "Bring your iCloud Drive home.",
+    close: "Keep your files. Drop the monthly bill.",
   },
   "onedrive-alternative": {
     label: "OneDrive alternative",
     title: "OneDrive Alternative With No Monthly Fee | Uncloud",
-    description: "Uncloud is a OneDrive alternative that keeps your household’s files on a computer you own. $99 once, no monthly storage fee. Early access: $79.",
+    description: "A OneDrive alternative without the monthly bill. Move files to your own computer, with easy setup and access anywhere. Early access: $79 once.",
     eyebrow: "OneDrive alternative",
-    h1a: "A OneDrive alternative", h1b: "that runs on your own computer.",
-    lede: "Your files on a computer at home. Reachable from anywhere.",
-    detail: "Bring OneDrive home, give everyone their own private space, and stop paying for storage by the month.",
+    h1a: "A OneDrive alternative", h1b: "without the monthly bill.",
+    lede: "Use a computer you already own. Keep the convenience.",
+    detail: "Ready to cancel, but dreading the move? Copy your OneDrive files to Uncloud and access them anywhere. No home-server homework.",
     monthly: 1299,
     hero: { aria: "Uncloud Home compared with Microsoft 365 Family", kicker: "One price. Yours to keep.", heading: "Microsoft 365 Family, every year.", rows: yearRows("OneDrive", "Microsoft 365 Family", "$155.88", "onedrive"), totalBig: "$467.64", totalSmall: "over three years" },
-    sw: { eyebrow: "Bring your files home", heading: "Move from OneDrive in three steps.", intro: "Uncloud brings OneDrive home through the folder the OneDrive app keeps on your computer. Nothing is deleted from Microsoft.",
+    sw: { eyebrow: "Switch without the project", heading: "Move from OneDrive in three steps.", intro: "Uncloud copies the folder OneDrive keeps on your computer. Your originals stay in OneDrive.",
       steps: [
-        { title: "Keep OneDrive on the host", body: "On the computer that runs Uncloud, choose Always keep on this device for your OneDrive folder so the files are stored locally." },
+        { title: "Get your OneDrive files ready", body: "On the computer that runs Uncloud, choose Always keep on this device for your OneDrive folder so the files are stored locally." },
         { title: "Add the OneDrive folder", body: "In Uncloud, click Add files, choose This computer, and pick the OneDrive folder. Add all of it or one folder at a time." },
         { title: "Sign in from anywhere", body: "Turn on remote access and everyone reaches their files from a phone or any browser, with a secure https:// address." },
       ] },
@@ -125,16 +125,16 @@ export const PAGES = {
       { q: "Can I use Uncloud from a Windows PC?", a: "Yes. Sign in to Uncloud from any browser on a Windows PC, at home or away." },
       A.storage, A.cost,
     ],
-    close: "Bring your OneDrive home.",
+    close: "Keep your files. Drop the monthly bill.",
   },
   "uncloud-vs-nextcloud": {
     label: "Uncloud vs. Nextcloud",
     title: "Uncloud vs. Nextcloud: Private Cloud for Your Household",
-    description: "Uncloud vs. Nextcloud for a household private cloud: setup, remote access, accounts and cost. Uncloud sets up in minutes on a computer you own.",
+    description: "Uncloud vs. Nextcloud: cloud storage for households without a server project. Use your own computer, with easy setup and file migration.",
     eyebrow: "Uncloud vs. Nextcloud",
-    h1a: "Uncloud vs. Nextcloud:", h1b: "a private cloud without the server admin.",
-    lede: "Both keep your files off somebody else’s servers. Uncloud is built for a household.",
-    detail: "Nextcloud is a full self-hosted suite. Uncloud is one app that turns a computer at home into your family’s cloud in minutes.",
+    h1a: "Your files, your computer.", h1b: "No new IT hobby.",
+    lede: "Cloud storage for your household, without a server project.",
+    detail: "Use a computer you already own, move your files over and give everyone their own account. Uncloud handles the complicated setup.",
     hero: { aria: "Uncloud Home compared with a self-hosted Nextcloud server", kicker: "Built for a household.", heading: "A Nextcloud server.", rows: [
       { name: "Software", plan: "Nextcloud Hub, open source", value: "Free", unit: "" },
       { name: "Runs on", plan: "A server, NAS or rented VPS", value: "You set up", unit: "" },
@@ -143,27 +143,27 @@ export const PAGES = {
     ], totalBig: "Self-hosted", totalSmall: "and maintained by you" },
     sw: { eyebrow: "Coming from Nextcloud", heading: "Move a household over in three steps.", intro: "Your Nextcloud files are already on a drive you control. Uncloud copies them into each person’s own space.",
       steps: [
-        { title: "Install Uncloud at home", body: "Open the Mac app and choose Make this Mac the Uncloud host. Make your account and pick where everyone’s files live." },
+        { title: "Install Uncloud", body: "Install Uncloud on a computer you already own. Create your account and choose where your files live." },
         { title: "Add your Nextcloud folder", body: "Click Add files, choose This computer, and add the folder the Nextcloud desktop client keeps, or the drive your files are on." },
         { title: "Add everyone else", body: "Open People and click Add someone. Each person gets their own username, password and private space." },
       ] },
     cmp: { eyebrow: "Side by side", heading: "Two private clouds, built for different jobs.", intro: "Nextcloud covers files, calendars, office documents and chat for teams of any size. Uncloud does one job for a household: keeping everyone’s files at home and within reach.", caption: "Uncloud Home vs. Nextcloud", captionSub: "Self-hosted Nextcloud Hub · home use", colA: "Nextcloud", colB: "Uncloud Home", align: "left", rows: [
       { label: "Built for", a: "Individuals, teams and organizations", b: "A household" },
-      { label: "Setup", a: "A server with Docker, or a web server, PHP and a database", b: "A Mac app, five minutes or less" },
+      { label: "Setup", a: "A server with Docker, or a web server, PHP and a database", b: "An app for Mac, PC or Linux; 5 minutes or less" },
       { label: "Remote access", a: "Your own domain and certificate, or a hosting provider", b: "Built in, with a secure https:// address" },
       { label: "Accounts", a: "Users and groups, managed by an admin", b: "A private space for each person" },
       { label: "Beyond files", a: "Calendar, contacts, office, chat and hundreds of apps", b: "Files, laptop sync and imports" },
       { label: "Cost", a: "Free software; hardware or hosting extra", b: "$99 once, $79 with early access" },
-    ], boxBig: "5 minutes", boxSmall: "or less to set up Uncloud with the Mac app" },
+    ], boxBig: "5 minutes", boxSmall: "or less to set up Uncloud" },
     faqHeading: "Uncloud vs. Nextcloud questions",
     faq: [
       { q: "Is Uncloud built on Nextcloud?", a: "No. Uncloud is its own app. It uses Syncthing to keep laptops in sync and Tailscale, a free service, for its secure connection from anywhere." },
-      { q: "Which is easier to set up?", a: "On a Mac, Uncloud sets up in five minutes or less: open the app, choose Make this Mac the Uncloud host, make your account and pick a folder. Nextcloud is usually installed on a server with Docker, or with a web server, PHP and a database." },
+      { q: "Which is easier to set up?", a: "Uncloud sets up in 5 minutes or less on a Mac, PC or Linux computer: install the app, create your account and choose where your files live. Nextcloud is usually installed on a server with Docker, or with a web server, PHP and a database." },
       { q: "Do I need a domain name or open ports?", a: "Not with Uncloud. Turn on remote access and Uncloud gives you a secure https:// address that works at home and away, on any device." },
       { q: "When is Nextcloud the better fit?", a: "If you want calendars, contacts, office documents, chat and a large app ecosystem on one server, Nextcloud covers far more ground. Uncloud focuses on your household’s files." },
       A.cost,
     ],
-    close: "A private cloud your whole household can use.",
+    close: "Your household’s files. Without the server project.",
   },
 };
 
@@ -259,12 +259,12 @@ export function render(slug) {
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Uncloud — private cloud storage on a computer you already own." />
+    <meta property="og:image:alt" content="Uncloud — cloud storage without the monthly bill. Use your own computer. Move your files over easily." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${esc(p.title)}" />
     <meta name="twitter:description" content="${esc(p.description)}" />
     <meta name="twitter:image" content="${ORIGIN}/social-card.png" />
-    <meta name="twitter:image:alt" content="Uncloud — private cloud storage on a computer you already own." />
+    <meta name="twitter:image:alt" content="Uncloud — cloud storage without the monthly bill. Use your own computer. Move your files over easily." />
     <link rel="canonical" href="${url}" />
     <script type="application/ld+json">
 ${indent(jsonLd(structuredData(slug, p)), 6)}
@@ -321,7 +321,7 @@ ${indent(jsonLd(structuredData(slug, p)), 6)}
                   <div class="solution-screen"><img src="./uncloud.png" width="64" height="64" alt="" /></div>
                   <div class="solution-base"></div>
                 </div>
-                <p class="solution-price"><strong>$99</strong><span>lifetime</span></p>
+                <p class="solution-price"><strong>$99</strong><span>one-time</span></p>
                 <p class="solution-promise">No monthly storage fees.</p>
                 <p class="solution-platforms">
                   <span class="sr-only">Works on Mac, PC and Linux.</span>
@@ -363,7 +363,7 @@ ${indent(steps, 12)}
         <section class="setup" id="setup" aria-labelledby="setup-heading">
           <div class="section-heading">
             <p class="eyebrow">How it works</p>
-            <h2 id="setup-heading">Set up in minutes.</h2>
+            <h2 id="setup-heading">Set up in 5 minutes or less.</h2>
           </div>
           <ol class="setup-steps" role="list">
             <li>
@@ -374,11 +374,11 @@ ${indent(steps, 12)}
             <li>
               <span class="step-number" aria-hidden="true">2</span>
               <h3>Install Uncloud</h3>
-              <p>Choose where your files live. Keep your computer on and online to reach them from anywhere.</p>
+              <p>Choose where your files live. Uncloud handles the setup.</p>
             </li>
             <li>
               <span class="step-number" aria-hidden="true">3</span>
-              <h3>Bring your files home</h3>
+              <h3>Move your files over</h3>
               <p>Move files from Dropbox, Google Drive and more.</p>
             </li>
           </ol>
@@ -387,14 +387,14 @@ ${indent(steps, 12)}
         <section class="video" id="video" aria-labelledby="video-heading">
           <div class="video-card">
             <div class="video-card__header">
-              <p class="eyebrow">Your files. Your home.</p>
+              <p class="eyebrow">Cloud storage without the monthly bill.</p>
               <h2 id="video-heading">Meet Uncloud Home</h2>
             </div>
             <div class="video-card__player">
               <iframe src="/video/embed" title="Uncloud Home teaser video" loading="lazy" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
             </div>
             <div class="video-card__footer">
-              <p>A first look at your family’s private cloud.</p>
+              <p>Use your own computer. Skip the server project.</p>
               <a href="/video" target="_blank" rel="noopener noreferrer">Watch in a new tab <span aria-hidden="true">↗</span></a>
             </div>
           </div>
@@ -436,12 +436,12 @@ ${indent(rows, 16)}
             <div class="pricing-includes">
               <h3>Everything your household needs</h3>
               <ul class="included-features" role="list">
-                <li>Unlimited household members</li>
-                <li>Unlimited devices</li>
+                <li>Unlimited household members and devices</li>
+                <li>Separate accounts and files for everyone</li>
                 <li>Access your files from anywhere</li>
-                <li>Bring your files from Dropbox, Google Drive &amp; more</li>
+                <li>Easy file migration from Dropbox, Google Drive &amp; more</li>
                 <li>Software updates included</li>
-                <li>1 primary host computer</li>
+                <li>1 primary computer</li>
               </ul>
               <p class="storage-note">Use as much storage as your computer and connected drives can hold. No storage tiers.</p>
             </div>
