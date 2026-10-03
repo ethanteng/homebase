@@ -118,6 +118,13 @@
   .hero-film { width: 100%; margin: 0; }
   .hero-film figcaption { font-size: 1.05rem; }
 }
+@media (min-width: 1280px) {
+  .homepage .hero {
+    width: min(1480px, calc(100vw - 96px));
+    margin-inline: calc((100% - min(1480px, calc(100vw - 96px))) / 2);
+    grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr);
+  }
+}
 @media (max-width: 1080px) {
   .story-section { gap: 42px; }
   .migration-story { grid-template-columns: 1fr; }
