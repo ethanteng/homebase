@@ -1,0 +1,223 @@
+[
+  {
+    "package": "Microsoft.Data.Sqlite/10.0.12",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": []
+  },
+  {
+    "package": "Microsoft.Data.Sqlite.Core/10.0.12",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": []
+  },
+  {
+    "package": "Microsoft.Extensions.DependencyInjection.Abstractions/10.0.0",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Logging.Abstractions/10.0.0",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "SQLitePCLRaw.bundle_e_sqlite3/2.1.12",
+    "license": "Apache-2.0",
+    "copyright": "Copyright 2014-2024 SourceGear, LLC",
+    "notice_files": []
+  },
+  {
+    "package": "SQLitePCLRaw.core/2.1.12",
+    "license": "Apache-2.0",
+    "copyright": "Copyright 2014-2024 SourceGear, LLC",
+    "notice_files": []
+  },
+  {
+    "package": "SQLitePCLRaw.lib.e_sqlite3/2.1.12",
+    "license": "Apache-2.0",
+    "copyright": "Copyright 2014-2024 SourceGear, LLC",
+    "notice_files": []
+  },
+  {
+    "package": "SQLitePCLRaw.provider.e_sqlite3/2.1.12",
+    "license": "Apache-2.0",
+    "copyright": "Copyright 2014-2024 SourceGear, LLC",
+    "notice_files": []
+  },
+  {
+    "package": "Avalonia/11.3.22",
+    "license": "MIT",
+    "copyright": "Copyright 2013-2026 \u00a9 The AvaloniaUI Project",
+    "notice_files": []
+  },
+  {
+    "package": "Avalonia.Angle.Windows.Natives/2.1.25547.20250602",
+    "license": "LICENSE",
+    "copyright": "Copyright 2013-2025 \u00a9 The AvaloniaUI Project",
+    "notice_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "package": "Avalonia.BuildServices/11.3.2",
+    "license": "MIT",
+    "copyright": "Copyright 2023-2025 \u00a9 The AvaloniaUI Project",
+    "notice_files": []
+  },
+  {
+    "package": "Avalonia.Desktop/11.3.22",
+    "license": "MIT",
+    "copyright": "Copyright 2013-2026 \u00a9 The AvaloniaUI Project",
+    "notice_files": []
+  },
+  {
+    "package": "Avalonia.FreeDesktop/11.3.22",
+    "license": "MIT",
+    "copyright": "Copyright 2013-2026 \u00a9 The AvaloniaUI Project",
+    "notice_files": []
+  },
+  {
+    "package": "Avalonia.Native/11.3.22",
+    "license": "MIT",
+    "copyright": "Copyright 2013-2026 \u00a9 The AvaloniaUI Project",
+    "notice_files": []
+  },
+  {
+    "package": "Avalonia.Remote.Protocol/11.3.22",
+    "license": "MIT",
+    "copyright": "Copyright 2013-2026 \u00a9 The AvaloniaUI Project",
+    "notice_files": []
+  },
+  {
+    "package": "Avalonia.Skia/11.3.22",
+    "license": "MIT",
+    "copyright": "Copyright 2013-2026 \u00a9 The AvaloniaUI Project",
+    "notice_files": []
+  },
+  {
+    "package": "Avalonia.Themes.Fluent/11.3.22",
+    "license": "MIT",
+    "copyright": "Copyright 2013-2026 \u00a9 The AvaloniaUI Project",
+    "notice_files": []
+  },
+  {
+    "package": "Avalonia.Win32/11.3.22",
+    "license": "MIT",
+    "copyright": "Copyright 2013-2026 \u00a9 The AvaloniaUI Project",
+    "notice_files": []
+  },
+  {
+    "package": "Avalonia.X11/11.3.22",
+    "license": "MIT",
+    "copyright": "Copyright 2013-2026 \u00a9 The AvaloniaUI Project",
+    "notice_files": []
+  },
+  {
+    "package": "HarfBuzzSharp/8.3.1.1",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "package": "HarfBuzzSharp.NativeAssets.Linux/8.3.1.1",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "THIRD-PARTY-NOTICES.txt",
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "package": "HarfBuzzSharp.NativeAssets.macOS/8.3.1.1",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "LICENSE.txt",
+      "THIRD-PARTY-NOTICES.txt"
+    ]
+  },
+  {
+    "package": "HarfBuzzSharp.NativeAssets.WebAssembly/8.3.1.1",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "THIRD-PARTY-NOTICES.txt",
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "package": "HarfBuzzSharp.NativeAssets.Win32/8.3.1.1",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "LICENSE.txt",
+      "THIRD-PARTY-NOTICES.txt"
+    ]
+  },
+  {
+    "package": "MicroCom.Runtime/0.11.0",
+    "license": "MIT",
+    "copyright": "Copyright 2021 \u00a9 Nikita Tsukanov",
+    "notice_files": []
+  },
+  {
+    "package": "SkiaSharp/2.88.9",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "LICENSE.txt",
+      "THIRD-PARTY-NOTICES.txt"
+    ]
+  },
+  {
+    "package": "SkiaSharp.NativeAssets.Linux/2.88.9",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "LICENSE.txt",
+      "THIRD-PARTY-NOTICES.txt"
+    ]
+  },
+  {
+    "package": "SkiaSharp.NativeAssets.macOS/2.88.9",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "LICENSE.txt",
+      "THIRD-PARTY-NOTICES.txt"
+    ]
+  },
+  {
+    "package": "SkiaSharp.NativeAssets.WebAssembly/2.88.9",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "LICENSE.txt",
+      "THIRD-PARTY-NOTICES.txt"
+    ]
+  },
+  {
+    "package": "SkiaSharp.NativeAssets.Win32/2.88.9",
+    "license": "MIT",
+    "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",
+    "notice_files": [
+      "LICENSE.txt",
+      "THIRD-PARTY-NOTICES.txt"
+    ]
+  },
+  {
+    "package": "Tmds.DBus.Protocol/0.21.3",
+    "license": "MIT",
+    "copyright": "Tom Deseyn",
+    "notice_files": []
+  }
+]

@@ -385,3 +385,7 @@ development.
 
 The landing page for [uncloud.life](https://www.uncloud.life/) lives in [`landing/`](landing/README.md).
 Inside the code, Uncloud is still called Homebase.
+
+## License
+
+This project is proprietary software. All rights reserved. See [LICENSE](LICENSE) for repository terms and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party licenses. Product use is governed by the applicable product agreement.
