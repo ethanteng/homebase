@@ -27,7 +27,7 @@ test('each page is canonical at its own clean URL, with valid FAQ structured dat
     const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
     const faq = ld['@graph'].find((node) => node['@type'] === 'FAQPage');
     assert.deepEqual(faq.mainEntity.map((q) => q.name), PAGES[slug].faq.map((f) => f.q));
-    assert.equal((html.match(/class="launchlist-widget"/g) || []).length, 2, `${slug} ends on the signup form`);
+    assert.equal((html.match(/class="launchlist-widget"/g) || []).length, 1, `${slug} ends on the signup form`);
   }
 });
 
@@ -49,8 +49,6 @@ test('price comparisons add up from the monthly price', async () => {
     const year = p.monthly * 12;
     assert.deepEqual(p.cmp.rows.map((r) => r.a), [year, year * 3, year * 5].map(dollars), slug);
     assert.equal(p.cmp.boxBig, dollars(year * 5 - 7900), slug);
-    assert.equal(p.hero.totalBig, dollars(year * 3), slug);
-    for (const row of p.hero.rows) assert.equal(row.value, dollars(year), slug);
   }
 });
 
