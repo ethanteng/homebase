@@ -37,6 +37,7 @@
 .story-section { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(35px, 8vw, 110px); align-items: center; padding-block: clamp(76px, 9vw, 128px); }
 .story-copy h2, .homepage .section-heading h2, .homepage .savings h2, .signup-close h2 { margin-top: 17px; font-size: clamp(2.2rem, 3.6vw, 3.25rem); line-height: 1.09; letter-spacing: -.055em; text-wrap: balance; }
 .story-copy h2 span { color: #718097; }
+#problem-heading span { display: block; }
 .story-copy > p:not(.eyebrow) { margin-top: 20px; max-width: 485px; color: #5c6a80; font-size: 1rem; line-height: 1.7; text-wrap: pretty; }
 .story-copy .story-emphasis { color: var(--ink); font-weight: 750; }
 .statement { padding: clamp(24px, 3vw, 38px); background: #fff; border: 1px solid #e0e5eb; border-radius: 14px; box-shadow: 0 20px 48px #2939540b; transform: rotate(1.5deg); }
@@ -66,7 +67,6 @@
 .migration-story .story-copy h2 span { color: var(--blue-strong); }
 .migration-story .story-copy p:not(.eyebrow) { font-size: .95rem; }
 .migration-story .eyebrow { color: #596b83; }
-.migration-story .story-copy .connection-note { color: #596b83; font-size: .78rem; }
 .migration-visual { display: grid; grid-template-columns: 1fr 55px 1.2fr; align-items: center; gap: 12px; padding: 36px 0; }
 .migration-sources { display: grid; gap: 10px; }
 .migration-sources > span { display: flex; align-items: center; gap: 9px; padding: 16px 12px; border: 1px solid #dbe5ef; border-radius: 9px; background: #fff; box-shadow: 0 6px 15px #17203307; font-size: .75rem; font-weight: 650; white-space: nowrap; }
