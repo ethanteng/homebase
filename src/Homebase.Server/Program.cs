@@ -120,6 +120,7 @@ builder.Services.AddSingleton<ISyncthingApi, SyncthingApi>();
 builder.Services.AddSingleton<SyncOwnership>();
 builder.Services.AddSingleton<SyncService>();
 builder.Services.AddSingleton<PairingCodes>();
+builder.Services.AddSingleton<PairingRequests>();
 // An import's stage travels as its name, not as whichever number the enum happens to sit at.
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
@@ -202,6 +203,28 @@ if (!remote.Options.FromEnvironment
     remote.Start(binding.Port, remembered);
 else
     remote.Watch(binding.Port);
+// Lets the Uncloud app on a computer at home find this host by itself, so nobody types its
+// address. Only somewhere another computer can actually reach is announced — the address this
+// host was given, or its tunnel's — and that is asked again every few seconds, because a tunnel
+// allowed after startup brings an address this host didn't have when it began announcing.
+string? Reachable()
+{
+    var url = binding.PublicUrlConfigured ? binding.PublicUrl : remote.State.Url;
+    return Uri.TryCreate(url, UriKind.Absolute, out var uri) && !uri.IsLoopback ? url : null;
+}
+if (app.Configuration.GetValue("Homebase:Announce", true)
+    && Bonjour.Announce(binding.Port, Reachable()) is { } announcement)
+    _ = Task.Run(async () =>
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(app.Lifetime.ApplicationStopping))
+                announcement.Update(Reachable());
+        }
+        catch (OperationCanceledException) { }
+        finally { announcement.Dispose(); }
+    });
 // Once Syncthing answers, bring its configuration in line with who owns what. Until then nothing
 // syncs, so there is nothing to be out of line.
 _ = app.Services.GetRequiredService<SyncthingHost>().Ready.ContinueWith(async _ =>
@@ -221,7 +244,8 @@ string[] anonymous =
     "/api/session",
     "/api/setup",
     "/api/providers/dropbox/callback",
-    // The Uncloud app on somebody's computer has no session; the pairing code is its authority.
+    // The Uncloud app on somebody's computer has no session. A pairing code is its authority, or
+    // a request a signed-in person approves under /api/sync/pairing-requests, which isn't open.
     "/api/sync/pair"
 ];
 // Reached only by an administrator: the host's own folder, and the accounts on it.
@@ -1080,6 +1104,20 @@ app.MapPost("/api/sync/pair", async (RedeemPairing request, HttpContext context,
     Results.Ok(await codes.RedeemAsync(request.Code, request.DeviceId, request.Name,
         context.Connection.RemoteIpAddress?.ToString(),
         request.SyncEverything ? userId => workspaces.For(userId).Root : null, cancellationToken)));
+// The other way round: the app on a computer asks, shows a QR code, and the person it belongs to
+// scans it and approves while signed in. The app collects the answer with a secret only it holds.
+app.MapPost("/api/sync/pair/requests", (OpenPairing request, HttpContext context, PairingRequests requests) =>
+    Results.Ok(requests.Open(request.DeviceId, request.Name, request.SyncEverything,
+        context.Connection.RemoteIpAddress?.ToString())));
+app.MapPost("/api/sync/pair/requests/{id}/answer", (string id, CollectPairing request, PairingRequests requests) =>
+    Results.Ok(requests.Answer(id, request.Secret)));
+app.MapGet("/api/sync/pairing-requests/{id}", (string id, CurrentUser user, PairingRequests requests) =>
+    Results.Ok(requests.Describe(id)));
+app.MapPost("/api/sync/pairing-requests/{id}/approve", async (string id, CurrentUser user, PairingRequests requests, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>
+{
+    await requests.ApproveAsync(id, user.Id, userId => workspaces.For(userId).Root, cancellationToken);
+    return Results.Ok(await sync.StatusAsync(user.Id, cancellationToken));
+});
 app.MapPost("/api/sync/folders", async (SyncFolderRequest request, CurrentUser user, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>
     Results.Ok(await sync.ShareAsync(user.Id, workspaces.For(user.Account).Root, request.Path, request.DeviceIds, cancellationToken)));
 app.MapPost("/api/sync/folders/accept", async (AcceptFolder request, CurrentUser user, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>
@@ -1136,4 +1174,7 @@ public sealed record SyncFolderRequest(string? Path, IReadOnlyList<string>? Devi
 public sealed record AcceptFolder(string FolderId, string? Path);
 /// <param name="SyncEverything">The Uncloud app asks for this: bring the computer in on every folder the account syncs.</param>
 public sealed record RedeemPairing(string? Code, string? DeviceId, string? Name, bool SyncEverything = false);
+/// <param name="SyncEverything">As for <see cref="RedeemPairing"/>, once the request is approved.</param>
+public sealed record OpenPairing(string? DeviceId, string? Name, bool SyncEverything = false);
+public sealed record CollectPairing(string? Secret);
 public partial class Program;

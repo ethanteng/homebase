@@ -83,8 +83,9 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   through [Syncthing](https://syncthing.net), which the host runs and supervises. Computers,
   folders and offers are owned per account. Deleted or replaced files are kept on the host for 30
   days. Syncing works from anywhere, not only at home.
-- One-time pairing codes pair a computer without copying device IDs, and the Uncloud app for Mac
-  uses them to pair itself with nothing to install, copy or accept ([The Uncloud app](#the-uncloud-app)).
+- The Uncloud app for Mac pairs a computer with nothing to install, copy or type: it finds the host
+  on the home network over Bonjour and shows a QR code, which its owner scans and approves on their
+  phone. One-time pairing codes do the same without a phone ([The Uncloud app](#the-uncloud-app)).
 
 **Reaching the host**
 
@@ -508,7 +509,33 @@ or the whole account folder if nothing syncs yet, and `folders` lists them for i
 That computer is now paired with the account that asked for the code. Codes are stored only as
 hashes, a new one replaces the last, wrong guesses are throttled per address, and a mistake that
 isn't the code's — a malformed device ID, a computer another account already has — doesn't use it
-up. This is the API the Uncloud app uses.
+up.
+
+The Uncloud app pairs the other way round: the computer asks first, and the person it belongs to
+approves. `POST /api/sync/pair/requests` with `{ "deviceId", "name", "syncEverything" }`, without a
+session, answers `{ "id", "secret", "expiresAt" }`, and the app shows `<address>/?pair=<id>` as a QR
+code. Opened by somebody signed in, that address asks **Add this computer?** at the top of **My
+computers** (`GET /api/sync/pairing-requests/{id}`), and approving it
+(`POST /api/sync/pairing-requests/{id}/approve`) pairs the computer with whoever approved, as
+redeeming a code would. Meanwhile the app asks `POST /api/sync/pair/requests/{id}/answer` with
+`{ "secret" }` every couple of seconds; that answers `{ "approved": false }` until somebody has, then
+`{ "approved": true, "result" }` — the same result a code gets — once, after which the request is
+gone. The id is on the computer's screen for anyone to read, and only ever leads to a page that
+needs a session; the secret never leaves the computer. So a photo of the QR code can neither
+approve the request into somebody else's account nor collect what was approved. Requests last ten
+minutes and are kept in memory: a computer asking again replaces what it asked before, no more
+than 32 wait at once and 8 from any one address, and a host that restarts forgets them, so the app
+asks again and shows a new code. The page asks people to approve only a computer they're setting up
+themselves, because a link somebody else sends would add *their* computer to your account.
+
+On a Mac, the host announces itself on the local network over Bonjour, as `_uncloud._tcp` under the
+computer's own name, with a TXT record carrying `url=` and the address other computers reach it at:
+`Homebase__PublicUrl` if that was set, or the tunnel's. It is asked again every ten seconds, since a
+tunnel allowed after startup brings an address the host didn't have before, and it carries no
+`url` at all while there's nowhere another computer can reach it; the app then says to turn on
+**Reach From Anywhere**. The address is all that's announced, and it is no key to anything —
+everybody still signs in. `Homebase__Announce=false` stops it. A host on Linux doesn't announce
+itself, so its computers type the address.
 
 Syncthing has one configuration for the whole host and no idea of accounts, so Uncloud records
 which account every computer and every folder belongs to and answers everything from that record.
@@ -535,8 +562,8 @@ restore button yet, so that means copying it back out of `.stversions`.
 
 Syncthing connects through its global discovery and relays by default, so your computers keep
 syncing when they're away from home, whether or not the host has a tunnel open for the web
-interface. A pairing code can be redeemed through that tunnel too; guesses are counted per
-client, the same as sign-in.
+interface. A pairing code can be redeemed, and a pairing request made, through that tunnel too;
+guesses and requests are counted per client, the same as sign-in.
 
 `Homebase__Syncthing__Path` runs a different Syncthing than the bundled one,
 `Homebase__Syncthing__GuiPort` moves its local API off 8390, and
@@ -588,7 +615,7 @@ Open **http://127.0.0.1:5173**. Vite proxies `/api` to the backend; neither serv
 src/Homebase.Core/       Filesystem boundaries, SQLite cache, the import engine
   Accounts/             Accounts, sessions, sealed connector tokens, per-user workspaces
   Providers/            Import sources (Dropbox, folders on the host), import jobs and log
-  Sync/                 Syncthing client, per-account ownership, pairing codes
+  Sync/                 Syncthing client, per-account ownership, pairing, Bonjour
   Importing/            Contract for future importer adapters
 src/Homebase.Server/     ASP.NET Core API, host binding, tunnel and Syncthing supervision, macOS picker
 src/homebase-web/        React + TypeScript + Vite
@@ -628,10 +655,13 @@ this Mac is:
   the server if it stops. Accounts and settings are kept in the same preference directory as a
   host run from source, so moving between the two keeps everything.
 - **Somebody's computer.** The app runs its own Syncthing (API on `127.0.0.1:8391`, state in
-  `~/Library/Application Support/Uncloud`) and pairs it with a code from **My computers**. The
-  pairing call (`POST /api/sync/pair` with `syncEverything`) adds every folder the account already
-  syncs to this computer, or syncs the whole account folder if nothing syncs yet, and returns the
-  folder ids, so the app sets them up under `~/Uncloud` directly and nothing waits to be accepted.
+  `~/Library/Application Support/Uncloud`) and pairs it. It looks for the host over Bonjour
+  (macOS asks once whether Uncloud may look around the local network), asks to be added, and
+  shows the QR code until somebody approves it; away from home it asks for the address first, and a
+  code from **My computers** still works. Either way it pairs with `syncEverything`, which adds
+  every folder the account already syncs to this computer, or syncs the whole account folder if
+  nothing syncs yet, and returns the folder ids, so the app sets them up under `~/Uncloud` directly
+  and nothing waits to be accepted.
   The host is the only device this Syncthing knows, and folders it shares later are accepted into
   `~/Uncloud` automatically; nothing from any other device ever is. **Disconnect** stops syncing
   and leaves `~/Uncloud` as it is.
@@ -731,7 +761,7 @@ Open http://127.0.0.1:5210. The bundled tunnel is built beside it, so turning on
 ./scripts/check.sh
 ```
 
-Builds/type-checks the frontend, runs its tests, and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, remote access over a tunnel (the announced address becoming the one this host answers to and where Dropbox returns the browser, a configured public URL not being overruled, an address only administrators are shown, refusing to let the first account be claimed over the internet, counting a stranger's guessing against the stranger rather than the whole household, refusing to take a client's word for its own address through a proxy that isn't a tunnel, following a tunnel that reconnects under a new name without opening the door to one it never carried, and refusing to start when the tunnel program isn't there), persistence, indexing, file integrity/downloads, folder sizes (counting only what browsing or an import would see, however deep, measured from one recursive Dropbox listing, and remembered for a while), copying, moving, renaming and deleting (never overwriting, keeping both under a new name, a rename refused rather than given a name already in use, names that would hide or break a file refused, copies built out of sight and left without hidden entries or links, a folder refused as its own destination, the same path refusals as browsing, synced folders and the folders holding them left alone, and the folder an import is writing into left alone until it finishes), the bin (deleting into it, putting back where things were with missing folders made again and nothing overwritten, deleting for good one at a time or all at once, letting go after 30 days, and ids that are only ever matched), host folder switching, unavailable folders, symlinks, traversal, request boundaries, imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked), places on the host's computer (bringing a folder home, the refusals that keep a place from reaching the host's folder or the preference directory — including after the host's folder moves — only an administrator adding one, paths that try to walk out of one, links left unfollowed, and two places kept from sharing a folder in the library), in-app Dropbox setup (setting the host's app key and an account's own, an account's key winning over the host's and falling back to it when cleared, the environment variable behind both, signing out only the connections a changed key would have broken, the redirect address to register, and a sign-in returning to the address it started from), Uncloud's own Dropbox app (connecting with nothing set up, a key somebody here chose winning over it, the exchange presenting the app and address the sign-in began with rather than whatever is in force when it returns, the three ways the one-click hop cannot arrive — another computer, a proxy Uncloud cannot see past, a host on its own https — each falling back to a sign-in Dropbox shows a code for, and that code being good once, refused when nothing is waiting for it, and retypeable when mistyped), and syncing with your own computers (device-ID checks, one account per computer, each account seeing and using only its own computers, folders and offers, folders confined to the account's space and never nested, Uncloud's index ignored before Syncthing first scans, offered names held to the same rules, pausing a disabled account's computers and removing a deleted one's, adopting folders from the administrator-only version, following a moved host folder, and pairing codes that are single-use, expiring, throttled and bound to the account that asked). Tests use disposable fixtures and isolated settings, never your real library or accounts.
+Builds/type-checks the frontend, runs its tests, and runs backend integration tests for accounts (first-run setup, sign-in refusals that say nothing about who exists, throttled guessing, password changes that sign out everywhere else, disabling and deleting accounts, and keeping the last administrator), isolation (separate folders, every path by which one account might name another's files, administrator-only endpoints, nothing readable without signing in, per-account provider connections and import queues, sealed tokens refused under another account, and shared free space with private usage), the upgrade path from a single-user library, host binding rules, remote access over a tunnel (the announced address becoming the one this host answers to and where Dropbox returns the browser, a configured public URL not being overruled, an address only administrators are shown, refusing to let the first account be claimed over the internet, counting a stranger's guessing against the stranger rather than the whole household, refusing to take a client's word for its own address through a proxy that isn't a tunnel, following a tunnel that reconnects under a new name without opening the door to one it never carried, and refusing to start when the tunnel program isn't there), persistence, indexing, file integrity/downloads, folder sizes (counting only what browsing or an import would see, however deep, measured from one recursive Dropbox listing, and remembered for a while), copying, moving, renaming and deleting (never overwriting, keeping both under a new name, a rename refused rather than given a name already in use, names that would hide or break a file refused, copies built out of sight and left without hidden entries or links, a folder refused as its own destination, the same path refusals as browsing, synced folders and the folders holding them left alone, and the folder an import is writing into left alone until it finishes), the bin (deleting into it, putting back where things were with missing folders made again and nothing overwritten, deleting for good one at a time or all at once, letting go after 30 days, and ids that are only ever matched), host folder switching, unavailable folders, symlinks, traversal, request boundaries, imports (single files, whole folders, skipping what's already here, refusing to overwrite anything it didn't write, carrying on past a file that fails or times out while still stopping when cancelled, retrying a listing Dropbox rate-limits, refusing a folder that wouldn't fit on the drive, and running an import as a job that reports its progress, refuses a second one and stops when asked), places on the host's computer (bringing a folder home, the refusals that keep a place from reaching the host's folder or the preference directory — including after the host's folder moves — only an administrator adding one, paths that try to walk out of one, links left unfollowed, and two places kept from sharing a folder in the library), in-app Dropbox setup (setting the host's app key and an account's own, an account's key winning over the host's and falling back to it when cleared, the environment variable behind both, signing out only the connections a changed key would have broken, the redirect address to register, and a sign-in returning to the address it started from), Uncloud's own Dropbox app (connecting with nothing set up, a key somebody here chose winning over it, the exchange presenting the app and address the sign-in began with rather than whatever is in force when it returns, the three ways the one-click hop cannot arrive — another computer, a proxy Uncloud cannot see past, a host on its own https — each falling back to a sign-in Dropbox shows a code for, and that code being good once, refused when nothing is waiting for it, and retypeable when mistyped), and syncing with your own computers (device-ID checks, one account per computer, each account seeing and using only its own computers, folders and offers, folders confined to the account's space and never nested, Uncloud's index ignored before Syncthing first scans, offered names held to the same rules, pausing a disabled account's computers and removing a deleted one's, adopting folders from the administrator-only version, following a moved host folder, pairing codes that are single-use, expiring, throttled and bound to the account that asked, and pairing requests that only a signed-in person can approve, only the asking computer can collect, and that run out, replace each other and are bounded per address and per host), and finding a host on the network over Bonjour. Tests use disposable fixtures and isolated settings, never your real library or accounts.
 
 The front-end tests cover the return path: what the app does when a browser comes back from Dropbox carrying how the sign-in went. Every bug found there has been in React's lifecycle rather than in a function worth calling directly — an effect that did not run again when the element it wanted appeared, a browser call whose answer was discarded, a value that outlived the dialog it belonged to — so they render the app and arrive at it the way a browser does, standing in for what the host answers and nothing else.
 

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Homebase.Core;
@@ -77,6 +78,81 @@ public sealed class DesktopTests : IDisposable
         await computer.ApplyAsync(result, CancellationToken.None);
         Assert.Single(_computer.Folders);
         Assert.Single(_computer.Devices);
+    }
+
+    [Fact]
+    public async Task A_computer_asks_its_owner_approves_on_their_phone_and_it_syncs_the_whole_folder()
+    {
+        using var app = new TestHost(Path.Combine(_temporary, "Config"), syncthing: _host);
+        using var owner = await app.SignUpAsync("ada");
+        await TestHost.SetHostRootAsync(owner, PathPolicy.NormalizeRoot(Directory.CreateDirectory(Path.Combine(_temporary, "Host")).FullName));
+        using var anonymous = app.CreateClient();
+        var client = new PairingClient(anonymous);
+        var address = PairingLink.ParseAddress(anonymous.BaseAddress!.ToString());
+
+        var request = await client.RequestAsync(address, Laptop, "Ada’s MacBook", CancellationToken.None);
+        // The QR code leads to Uncloud's own page, at the address the app reached it at.
+        Assert.Equal(new Uri(address, $"/?pair={request.Id}"), request.ApproveUrl);
+        Assert.Null(await client.AnswerAsync(request, CancellationToken.None));
+
+        // What the phone does once it has scanned the code and the person taps Add.
+        (await owner.PostAsync($"/api/sync/pairing-requests/{request.Id}/approve", null)).EnsureSuccessStatusCode();
+
+        var result = await client.AnswerAsync(request, CancellationToken.None);
+        Assert.NotNull(result);
+        Assert.Equal((FakeSyncthing.Self, "ada"), (result.HostDeviceId, result.AccountName));
+        var shared = Assert.Single(result.Folders);
+        Assert.Equal([Laptop], _host.Folders[shared.Id].DeviceIds);
+        Assert.Equal("Ada’s MacBook", _host.Devices[Laptop].Name);
+        // Collected once. Asking again means asking for a new one.
+        await Assert.ThrowsAsync<PairingExpiredException>(() => client.AnswerAsync(request, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task An_Uncloud_from_before_computers_asked_is_told_apart_from_a_request_that_ran_out()
+    {
+        using var older = new HttpClient(new SameAnswer(HttpStatusCode.NotFound, "This endpoint doesn’t exist."));
+        var client = new PairingClient(older);
+        var address = new Uri("https://home.example.ts.net");
+
+        // Not a request to replace with another, which would ask again forever.
+        var refused = await Assert.ThrowsAsync<PairingException>(() => client.RequestAsync(address, Laptop, "Laptop", CancellationToken.None));
+        Assert.IsNotType<PairingExpiredException>(refused);
+        Assert.Contains("pairing code", refused.Message);
+        await Assert.ThrowsAsync<PairingExpiredException>(() =>
+            client.AnswerAsync(new PairingRequest(address, "gone", "secret", DateTimeOffset.UtcNow), CancellationToken.None));
+    }
+
+    [Fact]
+    public void The_announcement_carries_the_address_and_nothing_malformed_reads_as_one()
+    {
+        Assert.Equal("https://home.example.ts.net", Bonjour.UrlFrom(Bonjour.Txt("https://home.example.ts.net")));
+        Assert.Null(Bonjour.UrlFrom(Bonjour.Txt(null)));
+        Assert.Null(Bonjour.UrlFrom([]));
+        // A length that runs past the end of the record.
+        Assert.Null(Bonjour.UrlFrom([12, (byte)'u', (byte)'r', (byte)'l', (byte)'=']));
+        Assert.Equal("https://a", Bonjour.UrlFrom([3, (byte)'v', (byte)'=', (byte)'2', 13, .. "url=https://a"u8]));
+    }
+
+    [Fact]
+    public async Task A_host_announced_on_this_network_is_found_with_where_to_reach_it()
+    {
+        // Bonjour is macOS's; anywhere else nothing is announced and nothing found.
+        if (!OperatingSystem.IsMacOS())
+        {
+            Assert.Null(Bonjour.Announce(5299, "https://found.example.ts.net"));
+            Assert.Empty(await Bonjour.FindAsync(TimeSpan.FromMilliseconds(100), CancellationToken.None));
+            return;
+        }
+        var url = $"https://{Guid.NewGuid():N}.example.ts.net";
+        using var announcement = Bonjour.Announce(5299, url);
+        Assert.NotNull(announcement);
+        Assert.Contains(await Bonjour.FindAsync(TimeSpan.FromSeconds(2), CancellationToken.None), host => host.Url == url);
+
+        // A tunnel that comes up later is announced where the host already is.
+        var moved = $"https://{Guid.NewGuid():N}.example.ts.net";
+        announcement.Update(moved);
+        Assert.Contains(await Bonjour.FindAsync(TimeSpan.FromSeconds(2), CancellationToken.None), host => host.Url == moved);
     }
 
     [Fact]
@@ -275,7 +351,8 @@ public sealed class DesktopTests : IDisposable
         var settings = new Dictionary<string, string>
         {
             ["Homebase__ConfigDirectory"] = Path.Combine(_temporary, "HostConfig"),
-            ["Homebase__Syncthing__Enabled"] = "false"
+            ["Homebase__Syncthing__Enabled"] = "false",
+            ["Homebase__Announce"] = "false"
         };
         var servers = AppContext.BaseDirectory;
         using var leftover = StartServer(servers, port, settings);
@@ -411,6 +488,13 @@ public sealed class DesktopTests : IDisposable
         var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
+    }
+
+    /// <summary>An Uncloud that answers everything the same way.</summary>
+    private sealed class SameAnswer(HttpStatusCode status, string detail) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(status) { Content = JsonContent.Create(new { detail }) });
     }
 
     public void Dispose()

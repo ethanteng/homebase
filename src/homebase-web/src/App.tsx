@@ -55,9 +55,26 @@ export default function App() {
     return outcome;
   });
   const [dialog, setDialog] = useState<Dialog>(() => (arriving ? "add" : null));
+  // Arriving from the QR code the Uncloud app shows on a computer it's setting up: that computer
+  // has asked to be added, and this person approves it on My computers — after signing in, if
+  // they have to. Taken off the address too, so a reload later doesn't ask all over again.
+  const [approving, setApproving] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("pair");
+    if (id) {
+      params.delete("pair");
+      const rest = params.toString();
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + (rest ? `?${rest}` : "") + window.location.hash,
+      );
+    }
+    return id;
+  });
   // Somebody sent to set up Dropbox should land on that, not have to find it.
   const [dropboxFocus, setDropboxFocus] = useState(false);
-  const [view, setView] = useState<View>("files");
+  const [view, setView] = useState<View>(() => (approving ? "sync" : "files"));
   // Held in state rather than a ref alone: the dialog is only rendered once there is a session to
   // show, so an "open" decided before that — arriving back from Dropbox, say — would otherwise be
   // made against an element that does not exist yet, and nothing would reopen it when it appeared.
@@ -160,7 +177,7 @@ export default function App() {
   function onSignedIn(user: User) {
     setSession({ setupNeeded: false, hostConfigured: true, user });
     setError("");
-    setView("files");
+    setView(approving ? "sync" : "files");
     navigate("");
   }
 
@@ -346,7 +363,10 @@ export default function App() {
           {view === "users" && me.isAdmin ? (
             <UsersPanel me={me} />
           ) : hasFolder && view === "sync" ? (
-            <SyncPanel />
+            <SyncPanel
+              approving={approving}
+              onApprovalClosed={() => setApproving(null)}
+            />
           ) : hasFolder && view === "bin" ? (
             <Bin
               // Letting go of something frees room the storage meter should show.

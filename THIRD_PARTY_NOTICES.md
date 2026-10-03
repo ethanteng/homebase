@@ -28,9 +28,9 @@ root license does not establish the license of all of its subpackages.
 
 ## .NET and desktop dependencies
 
-The restored package inventory is THIRD_PARTY_NUGET_INVENTORY.json (31 distinct
-packages across the four application projects). Microsoft.Data.Sqlite and Avalonia
-are MIT; SQLitePCLRaw is Apache-2.0; SkiaSharp and HarfBuzzSharp include native
+The restored package inventory is THIRD_PARTY_NUGET_INVENTORY.json (32 distinct
+packages across the four application projects). Microsoft.Data.Sqlite, Avalonia and
+QRCoder are MIT; SQLitePCLRaw is Apache-2.0; SkiaSharp and HarfBuzzSharp include native
 third-party code. Upstream license/notice files present in the exact cached NuGet
 archives are reproduced in THIRD_PARTY_LICENSES.txt. Some archives supply only a
 license expression; retain their copyright statements and obtain the full

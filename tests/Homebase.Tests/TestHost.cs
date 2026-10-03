@@ -46,7 +46,9 @@ public sealed class TestHost : WebApplicationFactory<Program>
         {
             ["Homebase:ConfigDirectory"] = configDirectory,
             // A developer with Syncthing installed must not have the suite start a real one.
-            ["Homebase:Syncthing:Enabled"] = "false"
+            ["Homebase:Syncthing:Enabled"] = "false",
+            // Nor announce a test host to everybody else on the developer's network.
+            ["Homebase:Announce"] = "false"
         };
         if (settings is not null)
             foreach (var (key, value) in settings) _settings[key] = value;

@@ -288,12 +288,18 @@ Uncloud.
 
 1. [Get the app](#get-the-app) on your laptop, open it, and choose **Connect this computer to an
    Uncloud**.
-2. In Uncloud in your laptop's browser, open **My computers** and click **Get a pairing code**.
-3. Click **open in the Uncloud app**. (Or type the address and code Uncloud shows into the app.)
+2. At home, the app finds your Uncloud by itself and shows a QR code. Scan it with your phone's
+   camera, sign in to Uncloud if it asks, and tap **Add this computer**. (No phone to hand? Click
+   **Approve in This Mac's Browser** instead.)
 
 That's all. Your Uncloud files appear in a folder called **Uncloud** in your home folder, and stay
 in step both ways. The Uncloud icon in the menu bar shows whether you're up to date, and pauses or
 disconnects the laptop.
+
+Away from home, the app asks for the address you open Uncloud at, then shows the code the same
+way. Either way, the host needs [Reach From Anywhere](#6-let-everyone-in) turned on, because that's
+how other computers reach it. You can also pair with a code instead: in Uncloud in your laptop's
+browser, open **My computers**, click **Get a pairing code**, then **open in the Uncloud app**.
 
 **On Windows or Linux, or without the app:**
 

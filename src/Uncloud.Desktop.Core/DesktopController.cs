@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Homebase.Core.Accounts;
 using Homebase.Core.Sync;
 using Microsoft.Extensions.Logging;
@@ -84,6 +85,67 @@ public sealed class DesktopController(
     /// </summary>
     public async Task<PairingResult> PairAsync(PairingLink link, string computerName, CancellationToken cancellationToken)
     {
+        var deviceId = await ReadyToPairAsync(cancellationToken);
+        var result = await new PairingClient(http).PairAsync(link, deviceId, computerName, cancellationToken);
+        await FinishPairingAsync(link.Address, result, cancellationToken);
+        return result;
+    }
+
+    /// <summary>
+    /// Every Uncloud announcing itself on this network, so the person doesn't have to know the
+    /// address. Usually one; none away from home, or before the person lets Uncloud look.
+    /// </summary>
+    public Task<IReadOnlyList<FoundHost>> FindAsync(CancellationToken cancellationToken) =>
+        Bonjour.FindAsync(TimeSpan.FromSeconds(2), cancellationToken);
+
+    /// <summary>Asks the Uncloud at this address to add this computer, for its owner to approve.</summary>
+    public async Task<PairingRequest> RequestPairingAsync(Uri address, string computerName, CancellationToken cancellationToken)
+    {
+        var deviceId = await ReadyToPairAsync(cancellationToken);
+        return await new PairingClient(http).RequestAsync(address, deviceId, computerName, cancellationToken);
+    }
+
+    /// <summary>
+    /// Finishes pairing if somebody has approved the request, and answers null while nobody has.
+    /// Everything is set up under ~/Uncloud before this returns, as it is for a code.
+    /// </summary>
+    public async Task<PairingResult?> CollectPairingAsync(PairingRequest request, CancellationToken cancellationToken)
+    {
+        if (await new PairingClient(http).AnswerAsync(request, cancellationToken) is not { } result) return null;
+        await StartSyncthingAsync(cancellationToken);
+        await FinishPairingAsync(request.Address, result, cancellationToken);
+        return result;
+    }
+
+    /// <summary>
+    /// What this computer is called where people see it — “Ada’s MacBook Air”, as Sharing in
+    /// System Settings has it — rather than its network name, Adas-MacBook-Air. It is what the
+    /// person approving on their phone is asked to recognise.
+    /// </summary>
+    public static string ComputerName()
+    {
+        if (OperatingSystem.IsMacOS())
+            try
+            {
+                using var scutil = Process.Start(new ProcessStartInfo("/usr/sbin/scutil", "--get ComputerName")
+                {
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false
+                });
+                if (scutil is not null)
+                {
+                    var name = scutil.StandardOutput.ReadToEnd().Trim();
+                    scutil.WaitForExit(2000);
+                    if (scutil.HasExited && scutil.ExitCode == 0 && name.Length > 0) return name;
+                }
+            }
+            catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException) { }
+        return Environment.MachineName;
+    }
+
+    /// <summary>This computer's own Syncthing, running, and its device ID — once pairing is allowed at all.</summary>
+    private async Task<string> ReadyToPairAsync(CancellationToken cancellationToken)
+    {
         if (Settings.Mode is DesktopMode.Host)
             throw new InvalidOperationException("This computer is the Uncloud host; its files are already here.");
         // One Uncloud per computer: a second would sync into the same ~/Uncloud and mix two
@@ -92,17 +154,19 @@ public sealed class DesktopController(
             throw new InvalidOperationException(
                 $"This computer already syncs with {Settings.AccountName ?? "an Uncloud"} at {Settings.Address}. Disconnect it first.");
         var syncthing = await StartSyncthingAsync(cancellationToken);
-        var deviceId = await syncthing.DeviceIdAsync(cancellationToken);
-        var result = await new PairingClient(http).PairAsync(link, deviceId, computerName, cancellationToken);
+        return await syncthing.DeviceIdAsync(cancellationToken);
+    }
+
+    private async Task FinishPairingAsync(Uri address, PairingResult result, CancellationToken cancellationToken)
+    {
         await _computer!.ApplyAsync(result, cancellationToken);
         Save(Settings with
         {
             Mode = DesktopMode.Computer,
-            Address = link.Address.ToString().TrimEnd('/'),
+            Address = address.ToString().TrimEnd('/'),
             AccountName = result.AccountName,
             HostDeviceId = result.HostDeviceId
         });
-        return result;
     }
 
     public async Task<ComputerStatus> StatusAsync(CancellationToken cancellationToken)
