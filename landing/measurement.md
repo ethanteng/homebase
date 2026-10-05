@@ -146,50 +146,23 @@ after adding the IDs. No GTM or GA4 configuration changes are required.
 References: [GA4 enhanced measurement parameters](https://support.google.com/analytics/answer/9216061?hl=en),
 [built-in Link ID dimension](https://developers.google.com/analytics/devguides/reporting/data/v1/api-schema).
 
-## YouTube channel link clicks (September 26, 2026)
+## Social profile link clicks
 
-The YouTube channel icons sit to the left of the GitHub icons and are measured
-the same way: GA4's automatic outbound **`click`**, with no new tag or emitter.
-Validate and report them as above, filtering Link URL to the channel instead.
+The footer's Instagram, X and YouTube icons sit to the left of the GitHub icon and
+are measured the same way as GitHub: GA4's automatic outbound **`click`**, with no
+new tag or emitter. Validate and report them as above, filtering Link URL to the
+profile instead.
 
-| Parameter | Header | Footer |
-| --- | --- | --- |
-| `link_id` | `youtube-header` | `youtube-footer` |
-| `link_url` | `https://www.youtube.com/@Uncloud-life` | Same |
-| `link_classes` | `youtube-link` | Same |
+| Network | `link_id` | `link_url` | `link_classes` |
+| --- | --- | --- | --- |
+| Instagram | `instagram-footer` | `https://www.instagram.com/uncloudlife/` | `instagram-link` |
+| X | `x-footer` | `https://x.com/uncloudlife` | `x-link` |
+| YouTube | `youtube-footer` | `https://www.youtube.com/@Uncloud-life` | `youtube-link` |
 
-Below 351px wide the header has no room for both icons, so the header YouTube
-icon is hidden there; the footer icon remains. The GitHub anchors are unchanged,
-so their parameters and existing reports are unaffected.
-
-## X profile link clicks (October 5, 2026)
-
-The X icons sit to the left of the YouTube icons and are measured the same way:
-GA4's automatic outbound **`click`**, with no new tag or emitter.
-
-| Parameter | Header | Footer |
-| --- | --- | --- |
-| `link_id` | `x-header` | `x-footer` |
-| `link_url` | `https://x.com/uncloudlife` | Same |
-| `link_classes` | `x-link` | Same |
-
-The header X icon follows the other header icons: the homepage and comparison
-pages hide them on narrow screens, and the storage page hides X alone at 430px
-and below so the CTA stays on one line. The footer icon always shows.
-
-## Instagram profile link clicks (October 5, 2026)
-
-The Instagram icons sit to the left of the X icons and are measured the same
-way: GA4's automatic outbound **`click`**, with no new tag or emitter.
-
-| Parameter | Header | Footer |
-| --- | --- | --- |
-| `link_id` | `instagram-header` | `instagram-footer` |
-| `link_url` | `https://www.instagram.com/uncloudlife/` | Same |
-| `link_classes` | `instagram-link` | Same |
-
-The header Instagram icon shows only above 800px wide, where every page has room
-for a fourth icon; the footer icon always shows.
+The header carries only the GitHub icon. YouTube (from September 26, 2026), X and
+Instagram (October 5, 2026) were also in the header until October 5, 2026, so
+`youtube-header`, `x-header` and `instagram-header` appear only in data from
+before then. The GitHub anchors never changed.
 
 ## Storage page clicks
 

@@ -190,7 +190,7 @@
   .acquisition h1 { font-size: clamp(2.6rem, 7vw, 3.6rem); }
   .why-uncloud { grid-column: auto; grid-row: auto; }
   .compare-offer { grid-template-columns: minmax(0, 1fr) auto; width: 100%; }
-  .acquisition .header-actions .github-link, .acquisition .header-actions .youtube-link, .acquisition .header-actions .x-link, .acquisition .header-actions .instagram-link { display: none; }
+  .acquisition .header-actions .github-link { display: none; }
 }
 
 @media (max-width: 620px) {
