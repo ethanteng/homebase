@@ -125,7 +125,8 @@ input:focus-visible {
 
 .github-link,
 .youtube-link,
-.x-link {
+.x-link,
+.instagram-link {
   display: inline-flex;
   padding: 8px;
   border-radius: 999px;
@@ -135,7 +136,8 @@ input:focus-visible {
 
 .github-link:hover,
 .youtube-link:hover,
-.x-link:hover { color: var(--ink); }
+.x-link:hover,
+.instagram-link:hover { color: var(--ink); }
 
 .partners-link { margin-right: 12px; padding: 8px 0; white-space: nowrap; }
 .partners-link:hover { color: var(--blue-strong); }
@@ -584,6 +586,11 @@ h1 span {
   .header-actions .youtube-link,
   .header-actions .x-link { padding: 6px; }
   .header-cta { padding: 9px 10px; }
+}
+
+/* A fourth header icon wraps the CTA (or "Need more space?") on some pages at 796px and below; the footer keeps Instagram. */
+@media (max-width: 800px) {
+  .header-actions .instagram-link { display: none; }
 }
 
 /* Too narrow for a third header icon without wrapping the CTA; the footer keeps X. */

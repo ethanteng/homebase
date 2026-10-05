@@ -131,7 +131,7 @@
 @media (max-width: 760px) {
   .homepage .hero { padding-top: 30px; }
   .homepage .site-header { min-height: 78px; }
-  .homepage .header-actions .github-link, .homepage .header-actions .youtube-link, .homepage .header-actions .x-link { display: none; }
+  .homepage .header-actions .github-link, .homepage .header-actions .youtube-link, .homepage .header-actions .x-link, .homepage .header-actions .instagram-link { display: none; }
   .homepage h1 { font-size: clamp(3.4rem, 9.1vw, 5.4rem); }
   .story-section { grid-template-columns: 1fr; gap: 38px; }
   .story-copy { max-width: 560px; }
