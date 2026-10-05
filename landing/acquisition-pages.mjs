@@ -451,7 +451,6 @@ ${indent(ACCESS, 12)}
       </main>
 
       <footer class="site-footer">
-        <p>© 2026 Uncloud</p>
 ${indent(compareNav(slug), 8)}
         <div class="footer-links">
           <a class="partners-link" href="/hardware">Buy more storage</a>
@@ -467,6 +466,11 @@ ${indent(compareNav(slug), 8)}
               ${GITHUB}
             </a>
           </span>
+        </div>
+        <div class="footer-legal">
+          <p>© 2026 Ethan Teng Consulting LLC</p>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
         </div>
       </footer>
     </div>

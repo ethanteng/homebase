@@ -172,6 +172,20 @@ input:focus-visible {
 /* On narrow screens the icons move to their own row together. */
 .footer-links { flex-wrap: wrap; }
 
+/* The copyright and legal links, always on their own line below the rest. */
+.footer-legal {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--soft-line);
+}
+
+.footer-legal a:hover { color: var(--blue-strong); }
+.footer-legal a[aria-current="page"] { color: var(--ink); }
+
 .hero {
   padding: clamp(40px, 5vw, 72px) 0 0;
 }
