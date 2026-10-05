@@ -1,0 +1,53 @@
+/* The /terms and /privacy pages. They share styles.css with the homepage; these are their own pieces. */
+
+.legal {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: clamp(40px, 5vw, 72px) 0 clamp(56px, 7vw, 96px);
+  line-height: 1.65;
+}
+
+.legal h1 {
+  margin-top: 16px;
+  font-size: clamp(2.4rem, 4.4vw, 3.4rem);
+  line-height: 1.08;
+  letter-spacing: -.045em;
+}
+
+.legal .updated { margin-top: 14px; color: var(--muted); font-size: .92rem; }
+
+.legal .summary {
+  margin-top: 32px;
+  padding: 20px 24px;
+  border: 1px solid #d1e1f3;
+  border-radius: 18px;
+  background: #f0f6fd;
+}
+
+.legal h2 {
+  margin-top: 44px;
+  font-size: 1.35rem;
+  line-height: 1.25;
+  letter-spacing: -.02em;
+  scroll-margin-top: 24px;
+}
+
+.legal h3 { margin-top: 24px; font-size: 1.05rem; }
+
+.legal p,
+.legal ul { margin: 14px 0 0; }
+
+.legal .summary p { margin: 0; }
+
+.legal ul { padding-left: 1.25em; }
+.legal li + li { margin-top: 8px; }
+
+.legal a {
+  color: var(--blue-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.legal strong { font-weight: 650; }
+
+.legal .caps { text-transform: uppercase; font-size: .92rem; }

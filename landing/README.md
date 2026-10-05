@@ -153,3 +153,9 @@ node landing/hardware-drives.mjs
 | Two-drive desktop | Mercury Elite Pro Dual | 8–48 TB (half that when mirrored) |
 
 Each size links to its own OWC product page. Every link goes through Uncloud's Impact tracking link (`IMPACT`) with the OWC page as `u` and `<drive>-<size>tb` as `subId1`, so Impact reports sales by drive and size; if `IMPACT` is emptied, links go straight to OWC with UTM tags instead. `hardware.test.cjs` fails if `hardware.html` is stale, if a link leaves OWC or lacks its drive-and-size tag, if a row's filter data disagrees with its cells, or if the affiliate disclosure is missing. Click measurement is in [measurement.md](measurement.md#storage-page-clicks).
+
+## Privacy Policy and Terms of Service
+
+`/privacy` and `/terms` are the site's and the app's legal pages, from Ethan Teng Consulting LLC, with `hello@uncloud.life` as the contact. They are plain HTML (`privacy.html`, `terms.html`) with the storage page's header and footer; their own styles are in `legal.css`. Every footer ends with a line holding the copyright and links to both, and `legal.test.cjs` fails if a page's footer lacks them or if either page drops out of the build or the sitemap.
+
+The Privacy Policy describes what the site and the apps actually collect. Update it, and its effective date, when that changes: a new analytics, advertising, signup or embed service on the site; anything the apps send off the user's computers (telemetry, update checks, crash reports, a license or payment server); or a new service users can connect.
