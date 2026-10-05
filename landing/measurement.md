@@ -177,6 +177,20 @@ The header X icon follows the other header icons: the homepage and comparison
 pages hide them on narrow screens, and the storage page hides X alone at 430px
 and below so the CTA stays on one line. The footer icon always shows.
 
+## Instagram profile link clicks (October 5, 2026)
+
+The Instagram icons sit to the left of the X icons and are measured the same
+way: GA4's automatic outbound **`click`**, with no new tag or emitter.
+
+| Parameter | Header | Footer |
+| --- | --- | --- |
+| `link_id` | `instagram-header` | `instagram-footer` |
+| `link_url` | `https://www.instagram.com/uncloudlife/` | Same |
+| `link_classes` | `instagram-link` | Same |
+
+The header Instagram icon shows only above 800px wide, where every page has room
+for a fourth icon; the footer icon always shows.
+
 ## Storage page clicks
 
 The goal of `/hardware` is to learn whether Uncloud drives storage purchases, and at what capacity. Two sources answer it:
