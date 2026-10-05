@@ -162,6 +162,21 @@ Below 351px wide the header has no room for both icons, so the header YouTube
 icon is hidden there; the footer icon remains. The GitHub anchors are unchanged,
 so their parameters and existing reports are unaffected.
 
+## X profile link clicks (October 5, 2026)
+
+The X icons sit to the left of the YouTube icons and are measured the same way:
+GA4's automatic outbound **`click`**, with no new tag or emitter.
+
+| Parameter | Header | Footer |
+| --- | --- | --- |
+| `link_id` | `x-header` | `x-footer` |
+| `link_url` | `https://x.com/uncloudlife` | Same |
+| `link_classes` | `x-link` | Same |
+
+The header X icon follows the other header icons: the homepage and comparison
+pages hide them on narrow screens, and the storage page hides X alone at 430px
+and below so the CTA stays on one line. The footer icon always shows.
+
 ## Storage page clicks
 
 The goal of `/hardware` is to learn whether Uncloud drives storage purchases, and at what capacity. Two sources answer it:

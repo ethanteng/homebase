@@ -124,7 +124,8 @@ input:focus-visible {
 .space-link:hover { color: var(--blue-strong); }
 
 .github-link,
-.youtube-link {
+.youtube-link,
+.x-link {
   display: inline-flex;
   padding: 8px;
   border-radius: 999px;
@@ -133,9 +134,10 @@ input:focus-visible {
 }
 
 .github-link:hover,
-.youtube-link:hover { color: var(--ink); }
+.youtube-link:hover,
+.x-link:hover { color: var(--ink); }
 
-.partners-link { margin-right: 12px; padding: 8px 0; }
+.partners-link { margin-right: 12px; padding: 8px 0; white-space: nowrap; }
 .partners-link:hover { color: var(--blue-strong); }
 
 .site-footer {
@@ -159,11 +161,15 @@ input:focus-visible {
 .compare-nav a[aria-current="page"] { color: var(--ink); }
 .compare-nav a:hover { color: var(--blue-strong); }
 
-.footer-links {
+.footer-links,
+.social-links {
   display: flex;
   align-items: center;
   gap: 4px;
 }
+
+/* On narrow screens the icons move to their own row together. */
+.footer-links { flex-wrap: wrap; }
 
 .hero {
   padding: clamp(40px, 5vw, 72px) 0 0;
@@ -560,8 +566,14 @@ h1 span {
   .site-header { gap: 8px; }
   .header-actions { gap: 2px; }
   .header-actions .github-link,
-  .header-actions .youtube-link { padding: 6px; }
+  .header-actions .youtube-link,
+  .header-actions .x-link { padding: 6px; }
   .header-cta { padding: 9px 10px; }
+}
+
+/* Too narrow for a third header icon without wrapping the CTA; the footer keeps X. */
+@media (max-width: 430px) {
+  .header-actions .x-link { display: none; }
 }
 
 /* Too narrow for both header icons without wrapping the CTA; the footer keeps YouTube. */
