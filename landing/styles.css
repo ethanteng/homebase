@@ -149,7 +149,8 @@ input:focus-visible {
   padding: 28px 0 36px;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: .9rem;
+  /* Small enough for the whole footer to fit on one row from 1280px wide, including with Inter or SF Pro. */
+  font-size: .75rem;
 }
 
 .compare-nav {
