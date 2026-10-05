@@ -582,25 +582,8 @@ h1 span {
 @media (max-width: 380px) {
   .site-header { gap: 8px; }
   .header-actions { gap: 2px; }
-  .header-actions .github-link,
-  .header-actions .youtube-link,
-  .header-actions .x-link { padding: 6px; }
+  .header-actions .github-link { padding: 6px; }
   .header-cta { padding: 9px 10px; }
-}
-
-/* A fourth header icon wraps the CTA (or "Need more space?") on some pages at 796px and below; the footer keeps Instagram. */
-@media (max-width: 800px) {
-  .header-actions .instagram-link { display: none; }
-}
-
-/* Too narrow for a third header icon without wrapping the CTA; the footer keeps X. */
-@media (max-width: 430px) {
-  .header-actions .x-link { display: none; }
-}
-
-/* Too narrow for both header icons without wrapping the CTA; the footer keeps YouTube. */
-@media (max-width: 350px) {
-  .header-actions .youtube-link { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

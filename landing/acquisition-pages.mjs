@@ -297,16 +297,7 @@ ${indent(jsonLd(structuredData(slug, p)), 6)}
           Uncloud
         </a>
         <div class="header-actions">
-          <!-- GA4 enhanced measurement records click + link_url; these IDs supply placement via link_id. -->
-          <a id="instagram-header" class="instagram-link" href="https://www.instagram.com/uncloudlife/" aria-label="Uncloud on Instagram">
-            ${INSTAGRAM}
-          </a>
-          <a id="x-header" class="x-link" href="https://x.com/uncloudlife" aria-label="Uncloud on X">
-            ${X}
-          </a>
-          <a id="youtube-header" class="youtube-link" href="https://www.youtube.com/@Uncloud-life" aria-label="Uncloud on YouTube">
-            ${YOUTUBE}
-          </a>
+          <!-- GA4 enhanced measurement records click + link_url; this ID supplies placement via link_id. -->
           <a id="github-header" class="github-link" href="https://github.com/ethanteng/homebase" aria-label="Uncloud on GitHub">
             ${GITHUB}
           </a>
