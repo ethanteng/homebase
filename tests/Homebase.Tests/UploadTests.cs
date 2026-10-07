@@ -363,8 +363,9 @@ public sealed class UploadTests : IDisposable
         // own 12 MB — and together they're 24 MB.
         var looked = 0;
         var go = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Stream Sending() => new Trickle(12 * 1024 * 1024, async () =>
+        Stream Sending() => new Trickle(12 * 1024 * 1024, async sent =>
         {
+            if (sent > 0) return;
             if (Interlocked.Increment(ref looked) == 2) go.SetResult();
             await go.Task;
         });
@@ -462,25 +463,104 @@ public sealed class UploadTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task No_more_than_a_few_files_arrive_at_once_for_one_account()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        using var library = new LibraryService(root, new MetadataIndex());
+        library.Initialize();
+        var id = await library.BeginUploadAsync("", 0, CancellationToken.None);
+        var holding = 0;
+        var allHolding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var go = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Stream Held() => new Trickle(1000, async sent =>
+        {
+            if (sent > 0) return;
+            if (Interlocked.Increment(ref holding) == LibraryService.ReceivingAtOnce) allHolding.SetResult();
+            await go.Task;
+        });
+        var arriving = Enumerable.Range(0, LibraryService.ReceivingAtOnce)
+            .Select(i => library.ReceiveAsync(id, $"{i}.bin", Held(), null, null, CancellationToken.None))
+            .ToArray();
+        await allHolding.Task;
+
+        // However small, one more at once is turned away rather than let in to share the same free space.
+        var refused = await Assert.ThrowsAsync<LibraryException>(() =>
+            library.ReceiveAsync(id, "one-too-many.bin", new MemoryStream(new byte[10]), 10, null, CancellationToken.None));
+        Assert.Equal("busy", refused.Code);
+
+        go.SetResult();
+        Assert.All(await Task.WhenAll(arriving), bytes => Assert.Equal(1000, bytes));
+        // And the turns come back once they're done.
+        Assert.Equal(10, await library.ReceiveAsync(id, "later.bin", new MemoryStream(new byte[10]), 10, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_file_that_takes_more_than_a_day_isnt_cleared_away_while_it_arrives()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        using var library = new LibraryService(root, new MetadataIndex());
+        library.Initialize();
+        var id = await library.BeginUploadAsync("", 0, CancellationToken.None);
+        var upload = Path.Combine(Uploads(root), id);
+        var another = false;
+        var slow = new Trickle(3 * 1024 * 1024, async sent =>
+        {
+            // It began more than a day ago, and nothing else has arrived since.
+            if (sent == 0)
+                Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow - LibraryService.KeepAbandonedUploadsFor - TimeSpan.FromHours(1));
+            // Partway through, somebody starts another upload, which clears away the abandoned ones.
+            else if (!another && sent >= 2 * 1024 * 1024)
+            {
+                another = true;
+                await library.BeginUploadAsync("", 0, CancellationToken.None);
+            }
+        });
+
+        Assert.Equal(3 * 1024 * 1024, await library.ReceiveAsync(id, "film.mov", slow, null, null, CancellationToken.None));
+
+        Assert.True(another);
+        Assert.Equal([new EditedEntry("film.mov", "film.mov")], await library.FinishUploadAsync(id, "", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Finishing_while_a_file_is_still_arriving_leaves_none_of_it_in_my_files()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        using var library = new LibraryService(root, new MetadataIndex());
+        library.Initialize();
+        var id = await library.BeginUploadAsync("", 0, CancellationToken.None);
+        IReadOnlyList<EditedEntry>? finished = null;
+        // The page never does this; something else talking to Uncloud could.
+        var halfway = new Trickle(2 * 1024 * 1024, async sent =>
+        {
+            if (finished is null && sent >= 1024 * 1024)
+                finished = await library.FinishUploadAsync(id, "", CancellationToken.None);
+        });
+
+        await Assert.ThrowsAnyAsync<Exception>(() => library.ReceiveAsync(id, "a.bin", halfway, null, null, CancellationToken.None));
+
+        Assert.Empty(finished!);
+        Assert.False(File.Exists(Path.Combine(root, "a.bin")));
+    }
+
     /// <summary>Everything gathered so far in uploads under <paramref name="root"/>.</summary>
     private static long Arrived(string root) =>
         Directory.Exists(Uploads(root))
             ? Directory.EnumerateFiles(Uploads(root), "*", SearchOption.AllDirectories).Sum(file => new FileInfo(file).Length)
             : 0;
 
-    /// <summary>A file sent a piece at a time, handing over to whatever else is running between pieces.</summary>
-    private sealed class Trickle(long size, Func<Task> beforeFirst) : Stream
+    /// <summary>
+    /// A file sent a piece at a time, handing over to whatever else is running between pieces, and
+    /// asking <paramref name="before"/> first each time, with how much it has sent so far.
+    /// </summary>
+    private sealed class Trickle(long size, Func<long, Task> before) : Stream
     {
         private long _sent;
-        private bool _started;
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            if (!_started)
-            {
-                _started = true;
-                await beforeFirst();
-            }
+            await before(_sent);
             await Task.Yield();
             var count = (int)Math.Min(buffer.Length, size - _sent);
             buffer.Span[..count].Fill(7);

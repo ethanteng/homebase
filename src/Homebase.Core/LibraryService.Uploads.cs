@@ -26,6 +26,11 @@ public sealed partial class LibraryService
     /// <summary>How often, in bytes written, a file arriving asks the drive again how much room is left.</summary>
     private const int AskDriveEvery = 1024 * 1024;
 
+    /// <summary>How many files one account can have arriving at once.</summary>
+    public const int ReceivingAtOnce = 8;
+
+    private readonly SemaphoreSlim _receiving = new(ReceivingAtOnce, ReceivingAtOnce);
+
     /// <summary>
     /// Starts an upload into <paramref name="destination"/>, refusing up front one the drive has no
     /// room for or that would land where an import is writing, rather than after it has been sent.
@@ -79,61 +84,80 @@ public sealed partial class LibraryService
         // “Photo.jpg”, which a computer that doesn't can send side by side. The second is refused
         // rather than written over the first. The same name sent again is only ever a retry.
         if (TakenByAnother(target)) throw Indistinct(target);
-        // A retry replaces what arrived before, giving that much of the drive back as it goes.
-        var replacing = File.Exists(target) ? new FileInfo(target).Length : 0;
-        if (length is { } expected) NeedRoomFor(expected - replacing, "add less at once");
 
-        // Counted as it arrives as well as checked up front: a request that doesn't say how long it is
-        // has no length to check. And the drive is asked again as it fills, because files arriving side
-        // by side — or an import, or a laptop syncing — each started from the same free space, and only
-        // the drive knows what they've taken between them. Nothing goes into the room held back.
-        var free = Space(root)?.FreeBytes;
-        var keep = free - Storage.Room(free);
-        var room = Storage.Room(free) + replacing;
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        FileStream file;
-        // Two names the drive can't tell apart, sent at the same moment, meet here instead: whichever
-        // opens second finds the first holding it.
-        try { file = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous); }
-        catch (IOException) when (TakenByAnother(target)) { throw Indistinct(target); }
-        long written = 0;
+        // A few at a time, which is all the page ever sends. Each file asks the drive how much room is
+        // left only every so often, so without a limit enough small ones at once could all see the
+        // same free space and, between them, take the room held back.
+        if (!_receiving.Wait(0))
+            throw new LibraryException("Too many files are arriving at once. Wait for some to finish, then try again.", "busy");
         try
         {
-            await using (file)
+            // A retry: what arrived of this file before is replaced, so it goes first and its room with it.
+            if (File.Exists(target)) File.Delete(target);
+            if (length is { } expected) NeedRoomFor(expected, "add less at once");
+
+            // Counted as it arrives as well as checked up front: a request that doesn't say how long it
+            // is has no length to check. And the drive is asked again as it fills, because files arriving
+            // side by side — or an import, or a laptop syncing — each started from the same free space,
+            // and only the drive knows what they've taken between them. Nothing goes into the room held back.
+            var free = Space(root)?.FreeBytes;
+            var room = Storage.Room(free);
+            var keep = free - room;
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            // Written somewhere of its own and moved into place once whole, so nothing else ever sees
+            // it half-written: not a retry of it still arriving, which writes somewhere of its own too,
+            // nor finishing the upload, which leaves this hidden folder behind.
+            var parts = Path.Combine(upload, ".parts");
+            PathPolicy.RejectLink(parts);
+            Directory.CreateDirectory(parts);
+            var arriving = Path.Combine(parts, Guid.NewGuid().ToString("N"));
+            long written = 0;
+            try
             {
-                var buffer = new byte[81920];
-                long sinceAsked = 0;
-                for (int read; (read = await content.ReadAsync(buffer, cancellationToken)) > 0;)
+                await using (var file = new FileStream(arriving, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
                 {
-                    written += read;
-                    sinceAsked += read;
-                    var full = written > room;
-                    if (sinceAsked >= AskDriveEvery)
+                    var buffer = new byte[81920];
+                    long sinceAsked = 0;
+                    for (int read; (read = await content.ReadAsync(buffer, cancellationToken)) > 0;)
                     {
-                        sinceAsked = 0;
-                        full |= Space(root)?.FreeBytes - read < keep;
+                        written += read;
+                        sinceAsked += read;
+                        var full = written > room;
+                        if (sinceAsked >= AskDriveEvery)
+                        {
+                            sinceAsked = 0;
+                            full |= Space(root)?.FreeBytes - read < keep;
+                            // Still arriving, however long one file takes, so not one to clear away.
+                            Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow);
+                        }
+                        if (full)
+                            throw new LibraryException(
+                                $"There isn’t room on your Uncloud drive for “{Path.GetFileName(target)}”. "
+                                + "Make some room, or add less at once.", "unavailable");
+                        await file.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
                     }
-                    if (full)
-                        throw new LibraryException(
-                            $"There isn’t room on your Uncloud drive for “{Path.GetFileName(target)}”. "
-                            + "Make some room, or add less at once.", "unavailable");
-                    await file.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
                 }
+                if (length is { } promised && written != promised)
+                    throw new LibraryException(
+                        $"Only part of “{Path.GetFileName(target)}” arrived. Try adding it again.", "unavailable");
+                if (modified is { } changed) File.SetLastWriteTimeUtc(arriving, changed.UtcDateTime);
+                // Asked again now it's whole: one differing only in capitals may have arrived meanwhile.
+                if (TakenByAnother(target)) throw Indistinct(target);
+                File.Move(arriving, target, overwrite: true);
             }
-            if (length is { } promised && written != promised)
-                throw new LibraryException(
-                    $"Only part of “{Path.GetFileName(target)}” arrived. Try adding it again.", "unavailable");
-            if (modified is { } changed) File.SetLastWriteTimeUtc(target, changed.UtcDateTime);
+            catch
+            {
+                // Half a file is worse than none: it would look like the whole thing once placed. Its
+                // folder is gone already if the upload was stopped or finished while it arrived.
+                try { File.Delete(arriving); }
+                catch (DirectoryNotFoundException) { }
+                throw;
+            }
+            // Somebody is still sending to it, so it isn't one to clear away.
+            Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow);
+            return written;
         }
-        catch
-        {
-            // Half a file is worse than none: it would look like the whole thing once placed.
-            File.Delete(target);
-            throw;
-        }
-        // Somebody is still sending to it, so it isn't one to clear away.
-        Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow);
-        return written;
+        finally { _receiving.Release(); }
     }
 
     /// <summary>

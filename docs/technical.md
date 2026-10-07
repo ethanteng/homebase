@@ -72,7 +72,11 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   either. A name longer than the drive takes (255 bytes) is refused for that file alone,
   and so is one that differs from another file in the same folder only in capitals, on a drive that
   ignores them (a Mac's, usually), rather than being written over it. A retry of the same name
-  replaces what arrived before, and counts that space as given back. Once files start
+  replaces what arrived before, which goes first, so its room is given back. Each attempt at a file
+  is written to a hidden file of its own and moved into place once whole, so a retry and an attempt
+  still lingering on a dropped connection never write over each other, and finishing an upload never
+  picks up a file half-written. At most eight files arrive at once per account, and an upload still
+  arriving is marked as such every megabyte, so one file that takes more than a day isn't cleared away. Once files start
   moving into place, all of them are moved, even if the browser has gone. Nothing is overwritten: a
   name already taken arrives as `name 2`, a folder included. Each file keeps its modification
   time. The request size limit is lifted for these requests alone. Files and folders can be chosen

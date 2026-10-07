@@ -490,5 +490,6 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
     {
         _gate.Dispose();
         _edits.Dispose();
+        _receiving.Dispose();
     }
 }
