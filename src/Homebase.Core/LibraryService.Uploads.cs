@@ -73,22 +73,33 @@ public sealed partial class LibraryService
             "A file can only go inside the folder it’s being added to.",
             "Names starting with a dot are hidden in Uncloud, so they can’t be added.");
         if (target == upload) throw new LibraryException("Say which file this is.");
-        if (length is { } expected) NeedRoomFor(expected, "add less at once");
         if (Directory.Exists(target))
             throw new LibraryException($"“{Path.GetFileName(target)}” is a folder in this upload already.", "conflict");
+        // A drive that ignores capitals — a Mac's, usually — has one place for “photo.jpg” and
+        // “Photo.jpg”, which a computer that doesn't can send side by side. The second is refused
+        // rather than written over the first. The same name sent again is only ever a retry.
+        if (TakenByAnother(target)) throw Indistinct(target);
+        // A retry replaces what arrived before, giving that much of the drive back as it goes.
+        var replacing = File.Exists(target) ? new FileInfo(target).Length : 0;
+        if (length is { } expected) NeedRoomFor(expected - replacing, "add less at once");
 
         // Counted as it arrives as well as checked up front: a request that doesn't say how long it is
         // has no length to check. And the drive is asked again as it fills, because files arriving side
         // by side — or an import, or a laptop syncing — each started from the same free space, and only
         // the drive knows what they've taken between them. Nothing goes into the room held back.
         var free = Space(root)?.FreeBytes;
-        var room = Storage.Room(free);
-        var keep = free - room;
+        var keep = free - Storage.Room(free);
+        var room = Storage.Room(free) + replacing;
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        FileStream file;
+        // Two names the drive can't tell apart, sent at the same moment, meet here instead: whichever
+        // opens second finds the first holding it.
+        try { file = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous); }
+        catch (IOException) when (TakenByAnother(target)) { throw Indistinct(target); }
         long written = 0;
         try
         {
-            await using (var file = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
+            await using (file)
             {
                 var buffer = new byte[81920];
                 long sinceAsked = 0;
@@ -175,6 +186,23 @@ public sealed partial class LibraryService
         }
         finally { _edits.Release(); }
     }
+
+    /// <summary>
+    /// Whether the drive answers to <paramref name="target"/> with a file of another name — the same
+    /// apart from capitals, or accents written another way — which is some other file in this upload,
+    /// not an earlier try at this one. Only looked into when something is there, which is rare.
+    /// </summary>
+    private static bool TakenByAnother(string target)
+    {
+        if (!File.Exists(target)) return false;
+        var name = Path.GetFileName(target);
+        return !Directory.EnumerateFileSystemEntries(Path.GetDirectoryName(target)!)
+            .Any(entry => Path.GetFileName(entry) == name);
+    }
+
+    private static LibraryException Indistinct(string target) => new(
+        $"Another file here is called “{Path.GetFileName(target)}” apart from capitals, and this Uncloud’s drive "
+        + "can’t keep both in one folder. Rename one of them and add it again.");
 
     /// <summary>Refuses something the drive has no room for, worded as what to do about it.</summary>
     private void NeedRoomFor(long bytes, string instead)

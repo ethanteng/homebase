@@ -69,14 +69,19 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   checks the drive has room for all of it, and each file checks again and counts its bytes as they
   arrive, so one sent without a length still stops short of the room held back; every megabyte it
   asks the drive again, so files arriving side by side can't eat into that room between them
-  either. A name longer than the drive takes (255 bytes) is refused for that file alone. Once files start
+  either. A name longer than the drive takes (255 bytes) is refused for that file alone,
+  and so is one that differs from another file in the same folder only in capitals, on a drive that
+  ignores them (a Mac's, usually), rather than being written over it. A retry of the same name
+  replaces what arrived before, and counts that space as given back. Once files start
   moving into place, all of them are moved, even if the browser has gone. Nothing is overwritten: a
   name already taken arrives as `name 2`, a folder included. Each file keeps its modification
   time. The request size limit is lifted for these requests alone. Files and folders can be chosen
   in **Add files** or dropped onto it, or dropped straight onto the list in My files, where a
   folder's row takes them into that folder; a drop anywhere else is refused rather than letting the browser open the file in place of Uncloud. The
   page sends three files at a time with progress, retries one whose connection drops, skips one Uncloud refuses by name, and
-  gives up on the whole upload when the drive runs out of room or the session ends.
+  gives up on the whole upload when the drive runs out of room or the session ends. If Uncloud doesn't
+  answer the request to put them in place, the page says they may already be there and reads My files
+  again, rather than inviting them to be added twice.
 - Deleting moves things into a per-account bin at `.homebase/bin/`: a folder per deletion, named
   by a random id, holding the item under its own name, beside an `<id>.json` record of where it
   came from, when, and how big it was. Being under `.homebase` keeps it out of browsing, copies and

@@ -406,6 +406,62 @@ public sealed class UploadTests : IDisposable
         Assert.Equal("fits", await File.ReadAllTextAsync(Path.Combine(root, longest)));
     }
 
+    [Fact]
+    public async Task A_retry_counts_the_room_given_back_by_what_it_replaces()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        const long capacity = 1000;
+        using var library = new LibraryService(root, new MetadataIndex())
+        {
+            Space = _ => new StorageReport(capacity - Arrived(root), capacity)
+        };
+        library.Initialize();
+        var id = await library.BeginUploadAsync("", 0, CancellationToken.None);
+        await library.ReceiveAsync(id, "video.mov", new MemoryStream(new byte[800]), 800, null, CancellationToken.None);
+
+        // Its answer was lost, so the browser sends it again. Only 200 bytes are free now, but the 800
+        // already here are what the retry replaces.
+        Assert.Equal(800, await library.ReceiveAsync(id, "video.mov", new MemoryStream(new byte[800]), 800, null, CancellationToken.None));
+        Assert.Equal(800, await library.ReceiveAsync(id, "video.mov", new MemoryStream(new byte[800]), null, null, CancellationToken.None));
+        // Something new still has to fit in what's left.
+        await Assert.ThrowsAsync<LibraryException>(() =>
+            library.ReceiveAsync(id, "other.mov", new MemoryStream(new byte[800]), 800, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Two_names_the_drive_cant_tell_apart_keep_the_first_and_refuse_the_second()
+    {
+        var (app, admin, _, member, root) = await StartAsync();
+        using var __ = app;
+        using var ___ = admin;
+        using var ____ = member;
+        // A Mac's drive usually ignores capitals; Linux's doesn't. Either way nothing is written over.
+        var probe = Path.Combine(_temporary, "probe");
+        await File.WriteAllTextAsync(probe, "");
+        var ignoresCapitals = File.Exists(Path.Combine(_temporary, "PROBE"));
+        var id = await BeginAsync(member);
+
+        (await SendAsync(member, id, "Photos/photo.jpg", "lower")).EnsureSuccessStatusCode();
+        var second = await SendAsync(member, id, "Photos/Photo.jpg", "upper");
+        // The same name again is a retry, wherever it lands.
+        (await SendAsync(member, id, "Photos/photo.jpg", "lower again")).EnsureSuccessStatusCode();
+        await FinishAsync(member, id);
+
+        var photos = Path.Combine(root, "Photos");
+        Assert.Equal("lower again", await File.ReadAllTextAsync(Path.Combine(photos, "photo.jpg")));
+        if (ignoresCapitals)
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, second.StatusCode);
+            Assert.Contains("apart from capitals", (await second.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString());
+            Assert.Equal(["photo.jpg"], Directory.EnumerateFiles(photos).Select(Path.GetFileName));
+        }
+        else
+        {
+            second.EnsureSuccessStatusCode();
+            Assert.Equal("upper", await File.ReadAllTextAsync(Path.Combine(photos, "Photo.jpg")));
+        }
+    }
+
     /// <summary>Everything gathered so far in uploads under <paramref name="root"/>.</summary>
     private static long Arrived(string root) =>
         Directory.Exists(Uploads(root))

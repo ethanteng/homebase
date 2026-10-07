@@ -365,10 +365,15 @@ export function useUpload(active: boolean, onUploaded: () => void) {
             onUploaded();
           } catch (problem: unknown) {
             await discard(id);
+            // No answer at all, rather than a refusal: Uncloud may well have put them in place and
+            // only the reply was lost. Saying nothing was added would have them added twice.
+            const unanswered = problem instanceof TypeError;
+            if (unanswered) onUploaded();
             update({
               stage: "failed",
-              error:
-                problem instanceof SignedOutError
+              error: unanswered
+                ? "Uncloud didn’t answer while putting them in place, so they may already be in your files. Look there before adding them again."
+                : problem instanceof SignedOutError
                   ? "You were signed out, so nothing was added. Sign in, then add them again."
                   : problem instanceof Error
                     ? problem.message

@@ -335,6 +335,22 @@ describe("adding files from this device", () => {
     expect(asked.some((request) => request.path.endsWith("/finish"))).toBe(false);
   });
 
+  it("doesn't say nothing was added when the answer to putting them in place never came", async () => {
+    const accept = accepting();
+    answer = (path, method) =>
+      path === "/uploads/u1/finish"
+        ? Promise.reject(new TypeError("Failed to fetch"))
+        : accept(path, method);
+    const uploaded = vi.fn();
+    render(<Harness chosen={pickedFrom([file("notes.txt")])} onUploaded={uploaded} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("they may already be in your files");
+    // What's there is read again, so if they arrived they're in sight.
+    expect(uploaded).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses up front, before sending anything, what Uncloud has no room for", async () => {
     answer = () => json({ detail: "This would add 4 GB and only 1 GB is free on your Uncloud drive." }, 409);
     render(<Harness chosen={pickedFrom([file("film.mov")])} />);
