@@ -124,6 +124,49 @@ public sealed class DesktopTests : IDisposable
     }
 
     [Fact]
+    public async Task A_handshake_that_drops_is_tried_again_and_one_that_keeps_dropping_says_why()
+    {
+        var address = new Uri("https://home.example.ts.net");
+        static Exception Dropped() => new HttpRequestException(HttpRequestError.SecureConnectionError,
+            "The SSL connection could not be established, see inner exception.",
+            new IOException("Received an unexpected EOF or 0 bytes from the transport stream."));
+
+        // Once, as a first connection through Tailscale now and then is.
+        var once = new Drops(Dropped, times: 1);
+        using (var http = new HttpClient(once))
+        {
+            var request = await new PairingClient(http) { Pause = TimeSpan.Zero }
+                .RequestAsync(address, Laptop, "Laptop", CancellationToken.None);
+            Assert.Equal("ticket", request.Id);
+            Assert.Equal(2, once.Sent);
+        }
+
+        // Every time: given up on, in words that say what happened rather than pointing at an
+        // inner exception nobody looking at the window can see.
+        var always = new Drops(Dropped, times: int.MaxValue);
+        using (var http = new HttpClient(always))
+        {
+            var refused = await Assert.ThrowsAsync<PairingException>(() => new PairingClient(http) { Pause = TimeSpan.Zero }
+                .RequestAsync(address, Laptop, "Laptop", CancellationToken.None));
+            Assert.Contains("The SSL connection could not be established: Received an unexpected EOF", refused.Message);
+            Assert.DoesNotContain("inner exception", refused.Message);
+            Assert.Equal(3, always.Sent);
+        }
+    }
+
+    [Fact]
+    public async Task A_request_that_may_have_reached_Uncloud_is_not_sent_again()
+    {
+        // The connection went after the code did, so the code may already be spent.
+        var ended = new Drops(() => new HttpRequestException(HttpRequestError.ResponseEnded, "The response ended prematurely."), times: int.MaxValue);
+        using var http = new HttpClient(ended);
+
+        await Assert.ThrowsAsync<PairingException>(() => new PairingClient(http) { Pause = TimeSpan.Zero }
+            .PairAsync(PairingLink.From("https://home.example.ts.net", "AB12C-DE34F"), Laptop, "Laptop", CancellationToken.None));
+        Assert.Equal(1, ended.Sent);
+    }
+
+    [Fact]
     public void The_announcement_carries_the_address_and_nothing_malformed_reads_as_one()
     {
         Assert.Equal("https://home.example.ts.net", Bonjour.UrlFrom(Bonjour.Txt("https://home.example.ts.net")));
@@ -495,6 +538,20 @@ public sealed class DesktopTests : IDisposable
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(status) { Content = JsonContent.Create(new { detail }) });
+    }
+
+    /// <summary>A connection that fails the first <paramref name="times"/> times, then a host that hands out a ticket.</summary>
+    private sealed class Drops(Func<Exception> failure, int times) : HttpMessageHandler
+    {
+        public int Sent { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            ++Sent <= times
+                ? Task.FromException<HttpResponseMessage>(failure())
+                : Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new PairingTicket("ticket", "secret", DateTimeOffset.UtcNow.AddMinutes(10)))
+                });
     }
 
     public void Dispose()
