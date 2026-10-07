@@ -402,8 +402,8 @@ export default function App() {
               revision={revision}
               navigate={navigate}
               onAdd={() => setDialog("add")}
-              // Dropped onto the list: into the folder it shows, the same as from Add files.
-              onDropFiles={(picked) => uploads.start(path, picked)}
+              // Dropped onto the list: into the folder it shows, or the folder dropped on.
+              onDropFiles={(folder, picked) => uploads.start(folder, picked)}
               uploading={uploads.running}
               // The storage meter, too: copying fills the drive and deleting frees it.
               onChanged={() => setRevision((value) => value + 1)}

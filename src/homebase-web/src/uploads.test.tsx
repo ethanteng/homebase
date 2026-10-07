@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import AddFiles from "./AddFiles";
 import FileBrowser from "./FileBrowser";
 import UploadStatus, { pickedFrom, useUpload } from "./Uploads";
@@ -384,7 +384,7 @@ function carrying(...entries: unknown[]) {
 }
 
 describe("dropping onto My files", () => {
-  const onDropFiles = vi.fn<(picked: Picked[]) => Promise<void>>();
+  const onDropFiles = vi.fn<(folder: string, picked: Picked[]) => Promise<void>>();
 
   beforeEach(() => {
     onDropFiles.mockReset();
@@ -425,12 +425,54 @@ describe("dropping onto My files", () => {
 
     expect(screen.queryByText("Drop to add to Trips")).not.toBeInTheDocument();
     await waitFor(() => expect(onDropFiles).toHaveBeenCalledTimes(1));
+    expect(onDropFiles.mock.calls[0][0]).toBe("Photos/Trips");
     // Hidden things are left where they are, a hidden folder without even being opened.
-    expect(onDropFiles.mock.calls[0][0].map((item) => item.path)).toEqual([
+    expect(onDropFiles.mock.calls[0][1].map((item) => item.path)).toEqual([
       "Holiday/sea.jpg",
       "Holiday/day 1/map.pdf",
       "notes.txt",
     ]);
+  });
+
+  it("puts what's dropped on a folder's row into that folder, and anywhere else into the one open", async () => {
+    answer = (path) =>
+      path.startsWith("/files/size")
+        ? json({ bytes: 0, files: 0 })
+        : json({
+            path: "Photos/Trips",
+            entries: [
+              { name: "Rome", path: "Photos/Trips/Rome", isDirectory: true, size: null, modifiedAt: "2026-01-01T00:00:00Z" },
+              { name: "plan.txt", path: "Photos/Trips/plan.txt", isDirectory: false, size: 4, modifiedAt: "2026-01-01T00:00:00Z" },
+            ],
+            skippedCount: 0,
+            indexedAt: "",
+          });
+    const panel = list();
+    const rome = (await screen.findByText("Rome")).closest("tr")!;
+    const plan = screen.getByText("plan.txt").closest("tr")!;
+
+    fireEvent.dragEnter(panel, carrying(fileEntry("colosseum.jpg")));
+    fireEvent.dragOver(within(rome).getByText("Rome"), carrying(fileEntry("colosseum.jpg")));
+    // The folder lights up, and the banner names it.
+    expect(rome).toHaveClass("drop-target");
+    expect(screen.getByText("Drop to add to Rome")).toBeInTheDocument();
+    // Over a file, it's the folder on screen again.
+    fireEvent.dragOver(within(plan).getByText("plan.txt"), carrying(fileEntry("colosseum.jpg")));
+    expect(rome).not.toHaveClass("drop-target");
+    expect(screen.getByText("Drop to add to Trips")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.drop(within(rome).getByText("Rome"), carrying(fileEntry("colosseum.jpg")));
+    });
+    await waitFor(() => expect(onDropFiles).toHaveBeenCalledTimes(1));
+    expect(onDropFiles.mock.calls[0][0]).toBe("Photos/Trips/Rome");
+    expect(rome).not.toHaveClass("drop-target");
+
+    await act(async () => {
+      fireEvent.drop(within(plan).getByText("plan.txt"), carrying(fileEntry("ticket.pdf")));
+    });
+    await waitFor(() => expect(onDropFiles).toHaveBeenCalledTimes(2));
+    expect(onDropFiles.mock.calls[1][0]).toBe("Photos/Trips");
   });
 
   it("says why, above the list, when Uncloud won't take what was dropped", async () => {

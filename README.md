@@ -250,7 +250,7 @@ On **My files**, click **Add files** and choose where they are:
 - **This device**, for everyone: the computer or phone you're using right now. Click **Choose
   files…** or **Choose a folder…**, or drop files and folders onto the box. They go into the folder
   you have open in **My files**. You can also skip **Add files** and drop them straight onto the
-  list in **My files**. Keep the page open until **My files** says they're in: unlike the
+  list in **My files**, or onto a folder in the list to put them in that folder. Keep the page open until **My files** says they're in: unlike the
   other ways in, the page is what's sending them. **Stop** ends it early, and then nothing from it
   is added. Something already there with the same name is kept, and what you add arrives beside it
   as "name 2".

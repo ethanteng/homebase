@@ -2632,32 +2632,43 @@ tbody tr.selected {
   margin: -10px 0 22px;
 }
 
-/* Files held over My files: the list says where they'll go. The cover lets the pointer through, so
-   the list underneath still counts where the drag is. */
+/* Files held over My files. The list stays in sight, so the folder row they'd land in can light up;
+   a banner says where they'll go. It sits on the window rather than the list, which can run longer
+   than the screen, and lets the pointer through so the rows underneath still count. */
 .file-panel {
   position: relative;
 }
-.drop-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
+.file-panel.dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+tbody tr.drop-target {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.drop-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 20;
+  transform: translateX(-50%);
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 20px;
-  border: 2px dashed var(--accent);
-  border-radius: 9px;
-  background: var(--surface);
-  color: var(--accent-text);
-  text-align: center;
+  gap: 9px;
+  max-width: calc(100vw - 32px);
+  padding: 11px 18px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   pointer-events: none;
 }
-.drop-overlay strong {
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 600;
+.drop-banner span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .edit-notice.failed {
   color: var(--danger-text);
