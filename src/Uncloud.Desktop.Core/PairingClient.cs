@@ -52,23 +52,38 @@ public sealed class PairingClient(HttpClient client)
             : null;
     }
 
+    /// <summary>How many times a request that never got as far as Uncloud is sent before giving up.</summary>
+    private const int Attempts = 3;
+
+    /// <summary>The wait before sending again, longer each time. Nothing in tests.</summary>
+    internal TimeSpan Pause { get; init; } = TimeSpan.FromSeconds(1);
+
     private async Task<T> SendAsync<T>(Uri address, string path, object body, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(address, path)) { Content = JsonContent.Create(body) };
-        // What Uncloud asks of anything that changes something, so a web page elsewhere can't.
-        request.Headers.Add("X-Homebase-Request", "1");
         HttpResponseMessage response;
-        try
+        for (var attempt = 1; ; attempt++)
         {
-            response = await client.SendAsync(request, cancellationToken);
-        }
-        catch (Exception error) when (error is HttpRequestException
-            // The client giving up, not the caller: told apart so a window waiting for approval
-            // carries on waiting instead of taking it for being closed.
-            || (error is TaskCanceledException && !cancellationToken.IsCancellationRequested))
-        {
-            throw new PairingException(
-                $"Couldn’t reach Uncloud at {address.Host}. Check the address, and that this computer can open it in a browser. ({error.Message})");
+            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(address, path)) { Content = JsonContent.Create(body) };
+            // What Uncloud asks of anything that changes something, so a web page elsewhere can't.
+            request.Headers.Add("X-Homebase-Request", "1");
+            try
+            {
+                response = await client.SendAsync(request, cancellationToken);
+                break;
+            }
+            // A first connection through Tailscale now and then drops its handshake, and the next
+            // one goes through. Sent again only when nothing reached Uncloud, so a code is never
+            // spent twice.
+            catch (HttpRequestException error) when (attempt < Attempts && NeverSent(error)) { }
+            catch (Exception error) when (error is HttpRequestException
+                // The client giving up, not the caller: told apart so a window waiting for approval
+                // carries on waiting instead of taking it for being closed.
+                || (error is TaskCanceledException && !cancellationToken.IsCancellationRequested))
+            {
+                throw new PairingException(
+                    $"Couldn’t reach Uncloud at {address.Host}. Check the address, and that this computer can open it in a browser. ({Reason(error)})");
+            }
+            await Task.Delay(Pause * attempt, cancellationToken);
         }
         using (response)
         {
@@ -78,6 +93,23 @@ public sealed class PairingClient(HttpClient client)
             var detail = await DetailAsync(response, cancellationToken);
             throw response.StatusCode is HttpStatusCode.NotFound ? new PairingExpiredException(detail) : new PairingException(detail);
         }
+    }
+
+    /// <summary>Failed finding, connecting to or shaking hands with Uncloud, before any of the request went.</summary>
+    private static bool NeverSent(HttpRequestException error) => error.HttpRequestError
+        is HttpRequestError.NameResolutionError or HttpRequestError.ConnectionError or HttpRequestError.SecureConnectionError;
+
+    /// <summary>
+    /// What went wrong, down to the cause. .NET says only “The SSL connection could not be
+    /// established, see inner exception” of a failed handshake, and nobody looking at the window can.
+    /// </summary>
+    internal static string Reason(Exception error)
+    {
+        if (error is not HttpRequestException { InnerException: not null }) return error.Message;
+        var cause = error;
+        while (cause.InnerException is { } inner) cause = inner;
+        var said = error.Message.Replace(", see inner exception", "", StringComparison.OrdinalIgnoreCase).TrimEnd('.');
+        return said.Contains(cause.Message.TrimEnd('.'), StringComparison.OrdinalIgnoreCase) ? said : $"{said}: {cause.Message}";
     }
 
     private static async Task<string> DetailAsync(HttpResponseMessage response, CancellationToken cancellationToken)
