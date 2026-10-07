@@ -226,10 +226,13 @@ function renderAddFiles(onStarted: () => void = () => {}) {
   render(
     <AddFiles
       importing={false}
+      uploading={false}
       isAdmin={false}
+      folder=""
       storage={null}
       arrivedFromDropbox="connected"
       onStarted={onStarted}
+      onUpload={async () => {}}
       onSetUpDropbox={() => {}}
     />,
   );

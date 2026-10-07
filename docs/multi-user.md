@@ -149,6 +149,25 @@ member naming a folder would read straight across every other account. Instead:
 Removing a place stops further imports from it and touches nothing already brought home: those are
 ordinary files in an account's own folder, and the provenance record is that account's too.
 
+## Files from the browser
+
+Sending files from the computer or phone somebody is using is open to every account, administrator
+or not, because it reads nothing on the host: the bytes come from the person's own device, and all
+it can do is write into their own folder.
+
+- **The folder is the session's.** Like every other edit, an upload asks `UserWorkspaces` for the
+  account the middleware authenticated, so a request can only ever name a folder *inside* that
+  account's root, through `PathPolicy.Resolve`.
+- **An upload id is matched, never used as a path.** It must be 32 hex characters, and is looked for
+  only under the signed-in account's own `.homebase/uploads/`. Another account's id isn't there, so
+  it answers *not found*, and stopping it touches nothing.
+- **The path inside an upload goes through the same rules** as anywhere in My files: no `..`,
+  absolute paths, backslashes, NULs or dot-prefixed segments, and no links followed.
+- **Nothing is in My files until the end.** Files are gathered under `.homebase/uploads/<id>/`, which
+  is never shown, copied or synced, and moved into place together; nothing already there is
+  overwritten. The gathering counts towards the account's usage, as the bin does, and an upload
+  nobody finishes is cleared away after a day.
+
 ## The Dropbox return trip
 
 The OAuth callback is the one endpoint that must work without a session, because it is a

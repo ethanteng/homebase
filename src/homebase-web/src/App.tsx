@@ -17,6 +17,7 @@ import { api, SignedOutError } from "./api";
 import type { LibraryState, Session, StorageReport, User } from "./api";
 import AddFiles from "./AddFiles";
 import ImportStatus, { useImportJob } from "./ImportStatus";
+import UploadStatus, { useUpload } from "./Uploads";
 import HostDropbox from "./HostDropbox";
 import { StorageCard, StoragePill } from "./StorageMeter";
 import FileBrowser from "./FileBrowser";
@@ -83,6 +84,7 @@ export default function App() {
   const me = session?.user ?? null;
   const onImported = useCallback(() => setRevision((value) => value + 1), []);
   const imports = useImportJob(me != null && library?.rootPath != null, onImported);
+  const uploads = useUpload(me != null, onImported);
 
   // A session that ends while the app is open returns everyone to the sign-in screen rather
   // than to a page of errors nobody can act on.
@@ -124,7 +126,8 @@ export default function App() {
   }, [me, revision, signedOut]);
 
   // How much room is left is on screen all the time, so it is kept current: every minute, and
-  // every few seconds while files are arriving and the number is visibly moving.
+  // every few seconds while files are arriving — imported or sent — and the number is visibly moving.
+  const filling = imports.running || uploads.running;
   useEffect(() => {
     if (!library?.rootPath) return;
     const controller = new AbortController();
@@ -135,12 +138,12 @@ export default function App() {
           // A drive that won't say how full it is shouldn't take the app down with it.
         });
     void read();
-    const timer = window.setInterval(() => void read(), imports.running ? 5000 : 60000);
+    const timer = window.setInterval(() => void read(), filling ? 5000 : 60000);
     return () => {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [library?.rootPath, revision, imports.running]);
+  }, [library?.rootPath, revision, filling]);
 
   useEffect(() => {
     const onHash = () => setPath(readPath());
@@ -386,14 +389,24 @@ export default function App() {
               // The storage meter, too: copying fills the drive and deleting frees it.
               onChanged={() => setRevision((value) => value + 1)}
               status={
-                imports.job && (
-                  <ImportStatus
-                    job={imports.job}
-                    onStop={() => void imports.stop()}
-                    onDismiss={imports.dismiss}
-                    onOpen={navigate}
-                  />
-                )
+                <>
+                  {uploads.upload && (
+                    <UploadStatus
+                      upload={uploads.upload}
+                      onStop={uploads.stop}
+                      onDismiss={uploads.dismiss}
+                      onOpen={navigate}
+                    />
+                  )}
+                  {imports.job && (
+                    <ImportStatus
+                      job={imports.job}
+                      onStop={() => void imports.stop()}
+                      onDismiss={imports.dismiss}
+                      onOpen={navigate}
+                    />
+                  )}
+                </>
               }
             />
           ) : me.isAdmin ? (
@@ -472,11 +485,18 @@ export default function App() {
         {dialog === "add" && hasFolder && (
           <AddFiles
             importing={imports.running}
+            uploading={uploads.running}
             isAdmin={me.isAdmin}
+            // Files from this device go into whichever folder is open behind the dialog.
+            folder={path}
             storage={storage}
             arrivedFromDropbox={arriving}
             onStarted={(job) => {
               imports.start(job);
+              closeDialog();
+            }}
+            onUpload={async (picked) => {
+              await uploads.start(path, picked);
               closeDialog();
             }}
             // Whoever looks after this Uncloud sets Dropbox up once for everybody; anyone else

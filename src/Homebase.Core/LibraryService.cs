@@ -29,14 +29,17 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
 
     /// <summary>
     /// Makes the metadata database if this folder hasn't been opened before, and lets go of
-    /// whatever has been in the bin past its time rather than waiting for somebody to look.
+    /// whatever has been in the bin past its time rather than waiting for somebody to look, and of
+    /// uploads somebody walked away from.
     /// </summary>
     public void Initialize()
     {
         index.Initialize(root);
-        // The bin is tidied again whenever it is opened or added to, so a folder that won't answer
-        // now is no reason to refuse to open the library.
+        // Both are tidied again whenever they are next used, so a folder that won't answer now is no
+        // reason to refuse to open the library.
         try { Purge(BinFolder()); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or LibraryException) { }
+        try { PurgeUploads(UploadsFolder()); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or LibraryException) { }
     }
 

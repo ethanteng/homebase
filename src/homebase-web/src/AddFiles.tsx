@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -12,17 +12,21 @@ import {
   Laptop,
   LoaderCircle,
   Lock,
+  MonitorSmartphone,
   NotebookPen,
   Plus,
+  Upload,
   Usb,
   Users,
   X,
 } from "lucide-react";
-import { api, formatSize, DROPBOX } from "./api";
+import { api, formatSize, nameTogether, DROPBOX } from "./api";
 import type { FolderSize } from "./api";
 import { useFolderSizes } from "./folderSizes";
 import type { FolderSizes } from "./folderSizes";
 import { spaceLevel } from "./StorageMeter";
+import { pickedFrom, pickedFromDrop } from "./Uploads";
+import type { Picked } from "./Uploads";
 import type {
   ImportAccount,
   ImportJob,
@@ -49,6 +53,7 @@ const LAST_SOURCE = "uncloud.add-files.source";
 type Where =
   | { at: "start" }
   | { at: "computer" }
+  | { at: "device" }
   | { at: "shared" }
   | { at: "account"; id: string }
   | { at: "place"; id: string };
@@ -62,10 +67,16 @@ interface Step {
 interface Props {
   /** Whether an import is already going, since only one runs at a time. */
   importing: boolean;
+  /** Whether files are already on their way from this device; one upload at a time, too. */
+  uploading: boolean;
   isAdmin: boolean;
+  /** The folder open in My files, which is where files from this device go. */
+  folder: string;
   /** Room left on the drive, said up front so nobody picks something that can't fit. */
   storage: StorageReport | null;
   onStarted: (job: ImportJob) => void;
+  /** Starts sending files from this device, and settles once Uncloud has agreed to take them. */
+  onUpload: (picked: Picked[]) => Promise<void>;
   /** Dropbox needs an app set up before anybody can connect; this opens wherever that happens. */
   onSetUpDropbox: () => void;
   /**
@@ -130,13 +141,6 @@ function describeTotal(total: Total): string {
   return text;
 }
 
-/** Several names the way somebody would say them: "Art and Chime", "Art, Chime and 3 more". */
-function nameTogether(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  if (names.length <= 3) return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-  return `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
-}
-
 function readLastSource(): string | null {
   try {
     return window.localStorage.getItem(LAST_SOURCE);
@@ -160,9 +164,12 @@ function rememberSource(id: string) {
  */
 export default function AddFiles({
   importing,
+  uploading,
   isAdmin,
+  folder: openFolder,
   storage,
   onStarted,
+  onUpload,
   onSetUpDropbox,
   arrivedFromDropbox,
 }: Props) {
@@ -225,6 +232,7 @@ export default function AddFiles({
       // Picking up where they left off saves a click for the common case of one favourite place.
       const last = readLastSource();
       if (last === "computer" && latest.canAddFolders) setWhere({ at: "computer" });
+      else if (last === "device") setWhere({ at: "device" });
       else if (last && latest.accounts.some((account) => account.id === last))
         setWhere({ at: "account", id: last });
     });
@@ -286,6 +294,7 @@ export default function AddFiles({
     setNotice("");
     setTyping(false);
     if (next.at === "computer") rememberSource("computer");
+    if (next.at === "device") rememberSource("device");
     if (next.at === "account") rememberSource(next.id);
   }
 
@@ -355,6 +364,12 @@ export default function AddFiles({
       go({ at: "place", id: added.id });
     });
   }
+
+  /** Whatever was chosen or dropped on this device, sent once it's known what that is. */
+  const upload = (picking: Promise<Picked[]>) =>
+    run("upload", async () => {
+      await onUpload(await picking);
+    });
 
   const share = (target: ImportPlace, next: boolean) =>
     run("share", async () => {
@@ -507,6 +522,16 @@ export default function AddFiles({
               onClick={() => go({ at: "computer" })}
             />
           )}
+          <SourceCard
+            icon={<MonitorSmartphone size={22} strokeWidth={1.5} />}
+            name="This device"
+            detail={
+              uploading
+                ? "Still sending the last ones…"
+                : "Files and folders on the computer or phone you’re using"
+            }
+            onClick={() => go({ at: "device" })}
+          />
           {sources.accounts.map((candidate) => (
             <SourceCard
               key={candidate.id}
@@ -546,7 +571,9 @@ export default function AddFiles({
   const root =
     where.at === "computer" || (where.at === "place" && place?.mine)
       ? { name: "This computer", to: { at: "computer" } as Where }
-      : where.at === "shared" || where.at === "place"
+      : where.at === "device"
+        ? { name: "This device", to: where }
+        : where.at === "shared" || where.at === "place"
         ? { name: "Shared with you", to: { at: "shared" } as Where }
         : { name: account?.name ?? "Online", to: where };
   const crumbs: { name: string; onClick: (() => void) | null }[] = [
@@ -669,6 +696,31 @@ export default function AddFiles({
         </div>
         <p className="field-help add-promise">
           <Lock size={13} /> Only you can add from the folders here, unless you choose to share one.
+        </p>
+      </div>
+    );
+  }
+
+  // The computer or phone this page is open on: whatever is chosen or dropped here is sent.
+  if (where.at === "device") {
+    const destination = openFolder ? openFolder.split("/").at(-1) : "My files";
+    return (
+      <div className="add-files">
+        {header}
+        {messages}
+        {uploading && (
+          <p className="library-note add-wait" role="status">
+            Some files from this device are still on their way. You can add more once they’re in.
+          </p>
+        )}
+        <DeviceDrop
+          busy={busy === "upload"}
+          disabled={uploading || busy !== ""}
+          onPicked={(picking) => void upload(picking)}
+        />
+        <p className="field-help add-promise">
+          <Lock size={13} /> They go into <strong>{destination}</strong>, the folder you have open in
+          My files, where only you can see them. Nothing already there is replaced.
         </p>
       </div>
     );
@@ -1006,6 +1058,93 @@ function SourceCard({
       <strong>{name}</strong>
       <span className="muted">{detail}</span>
     </button>
+  );
+}
+
+/**
+ * Somewhere to drop files and folders from this device, or to choose them from. A phone has nothing
+ * to drop and often no way to choose a folder, so the buttons are the way in that always works.
+ */
+function DeviceDrop({
+  busy,
+  disabled,
+  onPicked,
+}: {
+  busy: boolean;
+  disabled: boolean;
+  onPicked: (picking: Promise<Picked[]>) => void;
+}) {
+  const filesInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
+  const [over, setOver] = useState(false);
+  const [canChooseFolder] = useState(() => "webkitdirectory" in document.createElement("input"));
+
+  const chosen = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files?.length) onPicked(Promise.resolve(pickedFrom(files)));
+    // Cleared, so choosing the same things again still counts as choosing.
+    event.target.value = "";
+  };
+  // Always taken, even when nothing can be added right now: a drop the page doesn't take is one the
+  // browser opens in place of Uncloud.
+  const dragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = disabled ? "none" : "copy";
+    setOver(!disabled);
+  };
+
+  return (
+    <div
+      className={`drop-zone${over ? " over" : ""}`}
+      onDragEnter={dragOver}
+      onDragOver={dragOver}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver(false);
+      }}
+      onDrop={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        setOver(false);
+        if (!disabled) onPicked(pickedFromDrop(event.dataTransfer));
+      }}
+    >
+      <span className="source-card-icon">
+        {busy ? <LoaderCircle className="spin" size={22} /> : <Upload size={22} strokeWidth={1.5} />}
+      </span>
+      <strong>{busy ? "Getting ready…" : "Drop files or folders here"}</strong>
+      <div className="card-actions">
+        <button
+          className="button primary"
+          onClick={() => filesInput.current?.click()}
+          disabled={disabled}
+        >
+          <File size={16} />
+          Choose files…
+        </button>
+        {canChooseFolder && (
+          <button
+            className="button secondary"
+            onClick={() => folderInput.current?.click()}
+            disabled={disabled}
+          >
+            <Folder size={16} />
+            Choose a folder…
+          </button>
+        )}
+      </div>
+      <input ref={filesInput} type="file" multiple hidden onChange={chosen} data-testid="choose-files" />
+      <input
+        ref={(input) => {
+          folderInput.current = input;
+          if (input) input.webkitdirectory = true;
+        }}
+        type="file"
+        hidden
+        onChange={chosen}
+        data-testid="choose-folder"
+      />
+    </div>
   );
 }
 

@@ -4,6 +4,7 @@ using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
 using Homebase.Core.Sync;
 using Homebase.Server;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Data.Sqlite;
 
@@ -581,6 +582,46 @@ app.MapPost("/api/files/delete", async (EditFiles request, CurrentUser user, Use
         deleted = await workspaces.For(user.Account).Library.DeleteAsync(request.Paths, Synced(ownership, user), cancellationToken)
     }));
 
+// Files sent from the browser, from whichever computer or phone somebody is using, into their own
+// folder — which, like every other edit's, comes from the session and never from the request. An
+// upload is gathered out of sight a file at a time and put in place whole when it finishes.
+app.MapPost("/api/uploads", async (BeginUpload request, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+    Results.Ok(new
+    {
+        id = await workspaces.For(user.Account).Library.BeginUploadAsync(request.Destination, request.Bytes, cancellationToken)
+    }));
+
+// One file of an upload, as the request body. The path says where it sits in the upload — its name,
+// or its place in a folder being sent — and only ever inside it.
+app.MapPut("/api/uploads/{id}", async (string id, string? path, long? modified, HttpContext context, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+{
+    // A photo library's videos are far larger than the default limit on a request, and the drive's
+    // free space is what decides whether one fits, which the upload checks for itself.
+    if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+        limit.MaxRequestBodySize = null;
+    // A date the browser can't have meant is left out rather than refusing the file over it.
+    DateTimeOffset? changed = modified is > 0 and < 253402300800000 ? DateTimeOffset.FromUnixTimeMilliseconds(modified.Value) : null;
+    var bytes = await workspaces.For(user.Account).Library.ReceiveAsync(
+        id, path, context.Request.Body, context.Request.ContentLength, changed, cancellationToken);
+    return Results.Ok(new { bytes });
+});
+
+app.MapPost("/api/uploads/{id}/finish", async (string id, FinishUpload request, CurrentUser user, UserWorkspaces workspaces, UsageService usage, CancellationToken cancellationToken) =>
+{
+    var workspace = workspaces.For(user.Account);
+    var placed = await workspace.Library.FinishUploadAsync(id, request.Destination, cancellationToken);
+    usage.Invalidate(workspace.Root);
+    return Results.Ok(new { items = placed });
+});
+
+app.MapDelete("/api/uploads/{id}", async (string id, CurrentUser user, UserWorkspaces workspaces, UsageService usage, CancellationToken cancellationToken) =>
+{
+    var workspace = workspaces.For(user.Account);
+    await workspace.Library.CancelUploadAsync(id, cancellationToken);
+    usage.Invalidate(workspace.Root);
+    return Results.Ok(new { });
+});
+
 app.MapGet("/api/bin", async (CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
     Results.Ok(await workspaces.For(user.Account).Library.BinAsync(cancellationToken)));
 
@@ -1147,6 +1188,11 @@ public sealed record SelectRoot(string Path);
 /// <param name="Destination">The folder to copy or move into; unused by a delete. Empty is the top of My files.</param>
 public sealed record EditFiles(IReadOnlyList<string>? Paths, string? Destination);
 public sealed record RenameFile(string? Path, string? Name);
+/// <param name="Destination">The folder in My files the upload goes into. Empty is the top of My files.</param>
+/// <param name="Bytes">What the browser is about to send, all of it together, so a drive without room says so first.</param>
+public sealed record BeginUpload(string? Destination, long Bytes);
+/// <param name="Destination">The folder in My files the upload goes into, checked again now it's arrived.</param>
+public sealed record FinishUpload(string? Destination);
 /// <param name="Ids">Things in the bin, by the ids it lists them with.</param>
 public sealed record BinItems(IReadOnlyList<string>? Ids);
 public sealed record ReachFromAnywhere(bool Enabled);

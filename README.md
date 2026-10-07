@@ -29,9 +29,10 @@ plugged into it.
 
 - **Everyone has their own space.** Each person has their own username and password, and sees only
   their own files. Nobody else in the household can open them.
-- **Bring your files home.** Click **Add files** and copy files and folders out of Dropbox, or out
-  of a folder or drive on the host (such as the folder your Google Drive, OneDrive or iCloud app
-  keeps), into your space. What you add is yours alone; sharing is something you choose to do.
+- **Bring your files home.** Click **Add files** and send files and folders from the computer or
+  phone you're using, or copy them out of Dropbox, or out of a folder or drive on the host (such as
+  the folder your Google Drive, OneDrive or iCloud app keeps), into your space. What you add is
+  yours alone; sharing is something you choose to do.
 - **Keep your laptop in step.** Choose a folder on your laptop and it stays in sync with Uncloud.
   Add, change or delete a file on one and the same happens on the other, even when you're away
   from home.
@@ -44,9 +45,11 @@ plugged into it.
   browser.
 - Copy, move, rename and delete files and folders in the browser, and get deleted ones back from the
   **Bin** for 30 days.
-- Add files from Dropbox, or from folders and drives on the host, all from one **Add files** button:
-  everything at once, a whole folder, or any mix of files and folders you tick, with how big it all
-  is shown before you start.
+- Add files and folders from the computer or phone you're using, by choosing them or dropping them
+  onto **Add files**.
+- Add files from Dropbox, or from folders and drives on the host, all from the same **Add files**
+  button: everything at once, a whole folder, or any mix of files and folders you tick, with how big
+  it all is shown before you start.
 - See how much room is left on the host at a glance, on every page.
 - Sync folders on your own computers with your space.
 - Get back a file deleted on a synced laptop for 30 days afterwards.
@@ -54,7 +57,6 @@ plugged into it.
 
 ### What isn't ready yet
 
-- **No uploading in the browser.** Files get in by importing or syncing a computer.
 - **The app is Mac only for now.**
 - **The host has to stay on and awake.** On a Mac, turn off sleep in System Settings, and tick
   **Open at Login** in the Uncloud menu so it starts again after a restart.
@@ -245,6 +247,12 @@ put it back.
 
 On **My files**, click **Add files** and choose where they are:
 
+- **This device**, for everyone: the computer or phone you're using right now. Click **Choose
+  files…** or **Choose a folder…**, or drop files and folders onto the box. They go into the folder
+  you have open in **My files**. Keep the page open until **My files** says they're in: unlike the
+  other ways in, the page is what's sending them. **Stop** ends it early, and then nothing from it
+  is added. Something already there with the same name is kept, and what you add arrives beside it
+  as "name 2".
 - **This computer** (for whoever looks after Uncloud): the folders and drives on the host, such as
   Documents, Pictures, an old backup drive, or the folder your Dropbox or Google Drive app keeps.
   Open one to look inside, or add the whole thing. **Choose another folder…** finds anything else.
@@ -274,7 +282,7 @@ arrived.
 Files are copied, never moved: the originals stay where they were. Adding the same folder again
 only brings what's new, and Uncloud never overwrites a file you already have. Added files appear
 at the top of **My files**, in a folder named after where they came from, such as **Dropbox** or
-**Documents**.
+**Documents** — except files from **This device**, which go wherever you had open.
 
 **What you add is yours alone.** A folder on this computer that you add can only be added from by
 you. To let everyone in the house add from it too — a folder of family photos, say — open it in

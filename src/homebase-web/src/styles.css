@@ -2595,3 +2595,39 @@ tbody tr.selected {
   color: var(--muted);
   opacity: 0.6;
 }
+
+/* Somewhere to drop files from the device this page is open on, or to choose them from. Dashed,
+   like any place that takes a drop, and lit while something is held over it. */
+.drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 30px 20px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: center;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.drop-zone.over {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--surface-2);
+}
+.drop-zone .source-card-icon {
+  margin-bottom: 0;
+}
+.drop-zone strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.drop-zone .card-actions {
+  justify-content: center;
+}
+/* Something being sent from this device and something being imported can both be on their way. */
+.page-heading + .import-progress + .import-progress {
+  margin: -10px 0 22px;
+}

@@ -360,6 +360,13 @@ export function formatSize(size: number | null): string {
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)} ${units[unit]}`;
 }
 
+/** Several names the way somebody would say them: "Art and Chime", "Art, Chime and 3 more". */
+export function nameTogether(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  if (names.length <= 3) return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+}
+
 export function downloadUrl(path: string): string {
   return `/api/files/download?${new URLSearchParams({ path })}`;
 }
