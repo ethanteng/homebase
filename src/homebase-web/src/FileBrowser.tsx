@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { DragEvent, ReactNode } from "react";
 import {
   ArrowDown,
   ArrowDownToLine,
@@ -18,6 +18,8 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  TriangleAlert,
+  Upload,
   X,
 } from "lucide-react";
 import { api, downloadUrl, formatSize } from "./api";
@@ -25,6 +27,8 @@ import type { DirectoryListing, EditAction, LibraryEntry } from "./api";
 import EditDialog from "./FileEdits";
 import type { Edit } from "./FileEdits";
 import { useFolderSizes } from "./folderSizes";
+import { pickedFromDrop } from "./Uploads";
+import type { Picked } from "./Uploads";
 
 interface Props {
   rootPath: string;
@@ -36,6 +40,14 @@ interface Props {
   onChanged: () => void;
   /** Whatever is on its way in, shown above the files it is on its way to. */
   status?: ReactNode;
+  /**
+   * Files and folders dropped onto the list, sent into the folder it shows — or into a folder in
+   * it, when they were dropped on that folder's row. Settles once Uncloud has agreed to take them,
+   * and throws with the reason when it won't.
+   */
+  onDropFiles: (folder: string, picked: Picked[]) => Promise<void>;
+  /** Whether files from this device are already on their way; one upload runs at a time. */
+  uploading: boolean;
 }
 type Sort = "name" | "modified" | "size";
 const dateFormat = new Intl.DateTimeFormat(undefined, {
@@ -68,6 +80,8 @@ export default function FileBrowser({
   onAdd,
   onChanged,
   status,
+  onDropFiles,
+  uploading,
 }: Props) {
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +96,14 @@ export default function FileBrowser({
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [edit, setEdit] = useState<Edit | null>(null);
   const [notice, setNotice] = useState("");
+  // Why files dropped here weren't taken, such as there being no room for them.
+  const [problem, setProblem] = useState("");
+  // Files held over the list. Counted rather than tracked by where they went: entering a row is
+  // also leaving the list, and not every browser says where a drag went when it left.
+  const [dropping, setDropping] = useState(false);
+  const depth = useRef(0);
+  // The folder row they're held over, which is where they'd go instead of the folder on screen.
+  const [dropInto, setDropInto] = useState<LibraryEntry | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -112,6 +134,7 @@ export default function FileBrowser({
   useEffect(() => {
     setQuery("");
     setNotice("");
+    setProblem("");
   }, [path, rootPath]);
 
   const folderSizes = useFolderSizes(
@@ -178,6 +201,33 @@ export default function FileBrowser({
     setEdit({ action, entries: targets });
   }
 
+  // Only a drag carrying files from outside the page is this list's to take.
+  const carriesFiles = (event: DragEvent) => event.dataTransfer.types.includes("Files");
+  /** The folder whose row the pointer is on, if it's on one; anywhere else in the list is the folder on screen. */
+  const folderUnder = (event: DragEvent) => {
+    const row = (event.target as Element).closest?.("tr[data-folder]");
+    return entries.find((entry) => entry.isDirectory && entry.path === row?.getAttribute("data-folder")) ?? null;
+  };
+  function drop(event: DragEvent) {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    depth.current = 0;
+    setDropping(false);
+    setDropInto(null);
+    if (uploading) return;
+    setNotice("");
+    setProblem("");
+    const into = folderUnder(event)?.path ?? path;
+    // Taken during the drop itself: a browser only lets a dropped folder be read while it happens.
+    const picking = pickedFromDrop(event.dataTransfer);
+    void picking
+      .then((picked) => onDropFiles(into, picked))
+      .catch((failure: unknown) =>
+        setProblem(failure instanceof Error ? failure.message : "Those files couldn’t be added."),
+      );
+  }
+  const here = dropInto?.name ?? (path ? path.split("/").at(-1) : "My files");
+
   return (
     <>
       <div className="page-heading">
@@ -224,10 +274,42 @@ export default function FileBrowser({
       </div>
       <div className="browser-layout">
         <section
-          className="file-panel"
+          className={`file-panel${dropping ? " dropping" : ""}`}
           aria-label="File browser"
           aria-busy={loading}
+          onDragEnter={(event) => {
+            if (!carriesFiles(event)) return;
+            event.preventDefault();
+            depth.current++;
+            setDropping(true);
+          }}
+          onDragOver={(event) => {
+            if (!carriesFiles(event)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = uploading ? "none" : "copy";
+            const under = uploading ? null : folderUnder(event);
+            setDropInto((current) => (current?.path === under?.path ? current : under));
+          }}
+          onDragLeave={(event) => {
+            if (!carriesFiles(event)) return;
+            depth.current = Math.max(0, depth.current - 1);
+            if (depth.current > 0) return;
+            setDropping(false);
+            setDropInto(null);
+          }}
+          onDrop={drop}
         >
+          {/* The rows stay in sight, so the one being dropped on can be seen to light up. */}
+          {dropping && (
+            <div className="drop-banner" aria-hidden="true">
+              <Upload size={16} />
+              <span>
+                {uploading
+                  ? "Some files are still on their way. Add more once they’re in."
+                  : `Drop to add to ${here}`}
+              </span>
+            </div>
+          )}
           <div className="file-toolbar">
             <nav aria-label="Folder path" className="breadcrumbs">
               <button onClick={() => navigate("")}>My files</button>
@@ -308,6 +390,18 @@ export default function FileBrowser({
                   <X size={16} />
                 </button>
               </div>
+            </div>
+          ) : problem ? (
+            <div className="edit-notice failed" role="alert">
+              <TriangleAlert size={16} />
+              <span>{problem}</span>
+              <button
+                className="icon-button"
+                aria-label="Dismiss"
+                onClick={() => setProblem("")}
+              >
+                <X size={16} />
+              </button>
             </div>
           ) : (
             notice && (
@@ -441,11 +535,14 @@ export default function FileBrowser({
                   {entries.map((entry) => (
                     <tr
                       key={entry.path}
+                      data-folder={entry.isDirectory ? entry.path : undefined}
                       className={
-                        selected?.path === entry.path ||
-                        checked.has(entry.path)
-                          ? "selected"
-                          : ""
+                        dropInto?.path === entry.path
+                          ? "drop-target"
+                          : selected?.path === entry.path ||
+                              checked.has(entry.path)
+                            ? "selected"
+                            : ""
                       }
                     >
                       <td>

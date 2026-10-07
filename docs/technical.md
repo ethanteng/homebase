@@ -57,6 +57,35 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   already in use there is refused rather than changed, since the name is the point; a change of
   capitals alone is allowed. Names can't be empty, start with a dot (they would be hidden), contain
   `/`, `\`, `:` or control characters, or run past 255 bytes.
+- Sending files and folders from the browser, from whichever computer or phone somebody is using,
+  into the folder they have open (`POST /api/uploads` with `{ destination, bytes }`, then
+  `PUT /api/uploads/{id}?path=&modified=` once per file with the file as the body, then
+  `POST /api/uploads/{id}/finish` with `{ destination }`; `DELETE /api/uploads/{id}` throws one
+  away). The account's folder comes from the session like every other edit; the id is a random one
+  only ever matched under that account's `.homebase/uploads/`, and the path inside it goes through
+  the same path policy as browsing, so hidden names and anything reaching outside it are refused.
+  Files are gathered there out of sight and moved into place together at the end, so a stopped
+  upload adds nothing and leaves nothing; one nobody finishes is cleared away after a day. Starting
+  checks the drive has room for all of it, and each file checks again and counts its bytes as they
+  arrive, so one sent without a length still stops short of the room held back; every megabyte it
+  asks the drive again, so files arriving side by side can't eat into that room between them
+  either. A name longer than the drive takes (255 bytes) is refused for that file alone,
+  and so is one that differs from another file in the same folder only in capitals, on a drive that
+  ignores them (a Mac's, usually), rather than being written over it. A retry of the same name
+  replaces what arrived before, which goes first, so its room is given back. Each attempt at a file
+  is written to a hidden file of its own and moved into place once whole, so a retry and an attempt
+  still lingering on a dropped connection never write over each other, and finishing an upload never
+  picks up a file half-written. At most eight files arrive at once per account, and an upload still
+  arriving is marked as such every megabyte, so one file that takes more than a day isn't cleared away. Once files start
+  moving into place, all of them are moved, even if the browser has gone. Nothing is overwritten: a
+  name already taken arrives as `name 2`, a folder included. Each file keeps its modification
+  time. The request size limit is lifted for these requests alone. Files and folders can be chosen
+  in **Add files** or dropped onto it, or dropped straight onto the list in My files, where a
+  folder's row takes them into that folder; a drop anywhere else is refused rather than letting the browser open the file in place of Uncloud. The
+  page sends three files at a time with progress, retries one whose connection drops, skips one Uncloud refuses by name, and
+  gives up on the whole upload when the drive runs out of room or the session ends. If Uncloud doesn't
+  answer the request to put them in place, the page says they may already be there and reads My files
+  again, rather than inviting them to be added twice.
 - Deleting moves things into a per-account bin at `.homebase/bin/`: a folder per deletion, named
   by a random id, holding the item under its own name, beside an `<id>.json` record of where it
   came from, when, and how big it was. Being under `.homebase` keeps it out of browsing, copies and
@@ -103,8 +132,6 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
 
 **Not built yet**
 
-- Uploading files in the web interface. Files arrive by import or
-  by syncing a computer.
 - Sharing a folder between accounts, per-account storage quotas, search across folders, and a
   restore button for synced files.
 - Direct connectors for Google Drive, iCloud or Evernote (use their synced folders instead).
@@ -337,8 +364,9 @@ here, this copy is the one that counts, and Uncloud never goes back for it. Noth
 is ever overwritten.
 
 Everything comes in through one place: **Add files** on **My files**. It asks where the files are —
-this computer, an online account such as Dropbox, or a folder somebody shared — and then every source
-is browsed and added the same way, because underneath it is the same import: the same walk, the same
+the device the browser is on, this computer, an online account such as Dropbox, or a folder somebody
+shared. Files from the browser's own device are sent by the page rather than imported (see
+[What's built](#whats-built)); every other source is browsed and added the same way, because underneath it is the same import: the same walk, the same
 room check, the same never-overwrite rule, the same log. Google Drive and Evernote appear there as
 *coming soon*; each will be an online account like Dropbox when it arrives.
 

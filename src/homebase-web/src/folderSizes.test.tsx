@@ -54,7 +54,16 @@ describe("folder sizes", () => {
     };
 
     render(
-      <FileBrowser rootPath="/u" path="" revision={0} navigate={() => {}} onAdd={() => {}} onChanged={() => {}} />,
+      <FileBrowser
+        rootPath="/u"
+        path=""
+        revision={0}
+        navigate={() => {}}
+        onAdd={() => {}}
+        onChanged={() => {}}
+        onDropFiles={async () => {}}
+        uploading={false}
+      />,
     );
     const row = async (name: string) => (await screen.findByText(name)).closest("tr")!;
 
@@ -226,10 +235,13 @@ function renderAddFiles(onStarted: () => void = () => {}) {
   render(
     <AddFiles
       importing={false}
+      uploading={false}
       isAdmin={false}
+      folder=""
       storage={null}
       arrivedFromDropbox="connected"
       onStarted={onStarted}
+      onUpload={async () => {}}
       onSetUpDropbox={() => {}}
     />,
   );

@@ -25,18 +25,24 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
 
     public string Root => root;
 
+    /// <summary>How much room the drive has, asked afresh each time. Replaceable, so a full drive can be pretended.</summary>
+    public Func<string, StorageReport?> Space { get; init; } = Storage.For;
+
     public LibraryState State => new(root, new DirectoryInfo(root).Name);
 
     /// <summary>
     /// Makes the metadata database if this folder hasn't been opened before, and lets go of
-    /// whatever has been in the bin past its time rather than waiting for somebody to look.
+    /// whatever has been in the bin past its time rather than waiting for somebody to look, and of
+    /// uploads somebody walked away from.
     /// </summary>
     public void Initialize()
     {
         index.Initialize(root);
-        // The bin is tidied again whenever it is opened or added to, so a folder that won't answer
-        // now is no reason to refuse to open the library.
+        // Both are tidied again whenever they are next used, so a folder that won't answer now is no
+        // reason to refuse to open the library.
         try { Purge(BinFolder()); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or LibraryException) { }
+        try { PurgeUploads(UploadsFolder()); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or LibraryException) { }
     }
 
@@ -119,7 +125,7 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
             var folder = Folder(destination);
             AwayFromImport(items, folder, "copied");
             var needed = items.Sum(item => Measure(item, cancellationToken).Bytes);
-            var free = Storage.For(root)?.FreeBytes;
+            var free = Space(root)?.FreeBytes;
             if (!Storage.Fits(needed, free))
                 throw new LibraryException(
                     $"This would copy {Storage.Describe(needed)} and only {Storage.Describe(free!.Value)} is free on "
@@ -484,5 +490,6 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
     {
         _gate.Dispose();
         _edits.Dispose();
+        _receiving.Dispose();
     }
 }

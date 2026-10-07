@@ -58,6 +58,8 @@ async function open(onChanged = vi.fn()) {
       navigate={() => {}}
       onAdd={() => {}}
       onChanged={onChanged}
+      onDropFiles={async () => {}}
+      uploading={false}
     />,
   );
   await screen.findByText("a.txt");
