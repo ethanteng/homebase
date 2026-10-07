@@ -14,16 +14,20 @@
 .hero-benefits li > span { margin-right: 5px; color: var(--blue-strong); }
 .hero-benefits .hero-setup-benefit { grid-column: 1 / -1; justify-self: start; padding: 10px 14px; border-radius: 9px; background: #e5f0ff; color: #264a78; font-size: 1rem; }
 .hero-setup-benefit strong { color: var(--blue-strong); font-weight: 750; }
-.hero-conversion { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 20px; row-gap: 12px; max-width: 510px; margin-top: 24px; padding-top: 22px; border-top: 1px solid #d8e3ef; }
+.hero-conversion { max-width: 510px; margin-top: 24px; padding-top: 22px; border-top: 1px solid #d8e3ef; }
 .hero-value-number { display: flex; align-items: center; gap: 10px; }
 .hero-value-number strong { color: var(--blue-strong); font-size: clamp(2.9rem, 4.2vw, 3.75rem); letter-spacing: -.065em; line-height: 1.05; font-weight: 800; }
 .hero-value-number > span { display: grid; gap: 4px; font-size: .9rem; font-weight: 650; line-height: 1.3; white-space: nowrap; }
 .hero-value-number small { color: #52637b; font-size: .76rem; font-weight: 400; }
 .hero-value-number s { text-decoration-thickness: 1.5px; }
 .hero-lock-in { margin-top: 10px; color: #52637b; font-size: .78rem; line-height: 1.5; }
-.hero-actions { display: grid; gap: 7px; }
+/* LaunchList sizes its form to its content, about 660px wide at the font set in its dashboard, and
+   crops it in any narrower frame down to 426px; at 425px and below it stacks the field over the
+   button. The hero column is narrower than 660px, so its form stays at the stacked width. */
+.hero-signup { max-width: 420px; margin-top: 4px; }
+.hero-signup .launchlist-widget { min-height: 176px; }
+.hero-signup p { margin-top: -14px; color: #52637b; text-align: center; font-size: .78rem; line-height: 1.5; }
 .homepage .primary-link { display: inline-flex; align-items: center; justify-content: center; gap: 28px; border-radius: 9px; }
-.hero-actions p { color: #52637b; text-align: center; font-size: .78rem; line-height: 1.5; }
 .hero-film { max-width: 1000px; margin: 48px auto 0; }
 .film-caption { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 0 2px 14px; }
 .film-caption h2 { font-size: .85rem; font-weight: 650; letter-spacing: -.02em; }
@@ -99,7 +103,8 @@
 .homepage .pricing { padding-bottom: 0; }
 .signup-close { max-width: 780px; padding: clamp(76px, 9vw, 120px) 0; margin: 0 auto; }
 .signup-close .access-offer { border: 0; background: none; padding: 0; margin-top: 24px; margin-bottom: 22px; font-size: 1.1rem; letter-spacing: -.02em; }
-.signup-close .launchlist-widget { max-width: 620px; min-height: 72px; margin: 0 auto; }
+/* Stacked like the hero's: see .hero-signup. */
+.signup-close .launchlist-widget { max-width: 420px; min-height: 176px; margin: 0 auto; }
 .signup-close .trust-note { font-size: .9rem; }
 .signup-note { margin-top: 8px; font-size: .8rem; color: var(--muted); line-height: 1.6; }
 .peerlist-badge { display: flex; justify-content: center; padding-bottom: 40px; }
@@ -111,7 +116,6 @@
   .homepage .hero-description { margin-top: 22px; }
   .homepage .hero-description strong { font-size: 1.24rem; }
   .homepage .hero-copy .desktop-break { display: none; }
-  .hero-actions .primary-link { padding-inline: 18px; gap: 14px; }
   .hero-film { width: 100%; margin: 0; }
   .hero-film figcaption { font-size: 1.05rem; }
 }
@@ -153,10 +157,9 @@
   .desktop-break { display: none; }
   .hero-benefits { gap: 10px 14px; font-size: .8rem; margin-top: 18px; }
   .hero-benefits .hero-setup-benefit { font-size: .9rem; }
-  .hero-conversion { column-gap: 14px; margin-top: 20px; padding-top: 18px; }
+  .hero-conversion { margin-top: 20px; padding-top: 18px; }
   .hero-value-number strong { font-size: 2.8rem; }
   .hero-value-number > span { font-size: .78rem; }
-  .hero-actions .primary-link { min-height: 52px; width: auto; padding-inline: 16px; gap: 12px; font-size: .85rem; }
   .hero-film { margin-top: 36px; }
   .film-caption { align-items: flex-start; gap: 12px; }
   .film-caption h2 { max-width: 190px; font-size: .76rem; line-height: 1.5; }
@@ -182,11 +185,6 @@
   .signup-close { padding-inline: 5px; }
   .signup-close .access-offer { font-size: .98rem; line-height: 1.6; }
   .signup-close .access-offer strong { display: block; }
-}
-@media (max-width: 420px) {
-  .hero-conversion { grid-template-columns: 1fr; }
-  .hero-actions { margin-top: 2px; }
-  .hero-actions .primary-link { width: 100%; }
 }
 @media (max-width: 360px) {
   .homepage h1 { font-size: 2.5rem; }
