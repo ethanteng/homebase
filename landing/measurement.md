@@ -164,6 +164,16 @@ Instagram (October 5, 2026) were also in the header until October 5, 2026, so
 `youtube-header`, `x-header` and `instagram-header` appear only in data from
 before then. The GitHub anchors never changed.
 
+## Peerlist badge clicks
+
+The homepage's Peerlist badge, between the signup section and the footer, is measured
+the same way: GA4's automatic outbound **`click`**, with no new tag or emitter. It opens
+Peerlist in a new tab.
+
+| `link_id` | `link_url` | `link_domain` |
+| --- | --- | --- |
+| `peerlist-badge` | `https://peerlist.io/ethanteng/project/uncloud` | `peerlist.io` |
+
 ## Storage page clicks
 
 The goal of `/hardware` is to learn whether Uncloud drives storage purchases, and at what capacity. Two sources answer it:
