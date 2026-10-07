@@ -145,6 +145,22 @@ export default function App() {
     };
   }, [library?.rootPath, revision, filling]);
 
+  // A file dropped where nothing takes it would be opened by the browser in place of Uncloud, and
+  // an upload under way would go with it. Only somewhere that takes files says it does.
+  useEffect(() => {
+    const refuse = (event: DragEvent) => {
+      if (event.defaultPrevented || !event.dataTransfer?.types.includes("Files")) return;
+      event.preventDefault();
+      if (event.type === "dragover") event.dataTransfer.dropEffect = "none";
+    };
+    window.addEventListener("dragover", refuse);
+    window.addEventListener("drop", refuse);
+    return () => {
+      window.removeEventListener("dragover", refuse);
+      window.removeEventListener("drop", refuse);
+    };
+  }, []);
+
   useEffect(() => {
     const onHash = () => setPath(readPath());
     window.addEventListener("hashchange", onHash);
@@ -386,6 +402,9 @@ export default function App() {
               revision={revision}
               navigate={navigate}
               onAdd={() => setDialog("add")}
+              // Dropped onto the list: into the folder it shows, the same as from Add files.
+              onDropFiles={(picked) => uploads.start(path, picked)}
+              uploading={uploads.running}
               // The storage meter, too: copying fills the drive and deleting frees it.
               onChanged={() => setRevision((value) => value + 1)}
               status={

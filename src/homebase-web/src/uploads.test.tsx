@@ -2,6 +2,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AddFiles from "./AddFiles";
+import FileBrowser from "./FileBrowser";
 import UploadStatus, { pickedFrom, useUpload } from "./Uploads";
 import type { Picked } from "./Uploads";
 
@@ -344,5 +345,125 @@ describe("adding files from this device", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Uncloud leaves hidden files out");
     expect(asked).toHaveLength(0);
+  });
+});
+
+/** A file as a browser hands over a dropped one: something to ask for the file. */
+function fileEntry(name: string, content = "x") {
+  return {
+    name,
+    isFile: true,
+    isDirectory: false,
+    file: (resolve: (file: File) => void) => resolve(new File([content], name)),
+  };
+}
+
+/** A dropped folder, which a browser reads out a batch at a time until a batch comes back empty. */
+function folderEntry(name: string, ...batches: unknown[][]) {
+  return {
+    name,
+    isFile: false,
+    isDirectory: true,
+    createReader: () => {
+      const left = [...batches];
+      return { readEntries: (resolve: (entries: unknown[]) => void) => resolve(left.shift() ?? []) };
+    },
+  };
+}
+
+/** What a drag carries, the way a browser describes it to the page. */
+function carrying(...entries: unknown[]) {
+  return {
+    dataTransfer: {
+      types: ["Files"],
+      items: entries.map((entry) => ({ kind: "file", webkitGetAsEntry: () => entry })),
+      files: [],
+      dropEffect: "none",
+    },
+  };
+}
+
+describe("dropping onto My files", () => {
+  const onDropFiles = vi.fn<(picked: Picked[]) => Promise<void>>();
+
+  beforeEach(() => {
+    onDropFiles.mockReset();
+    onDropFiles.mockResolvedValue();
+    answer = () => json({ path: "Photos/Trips", entries: [], skippedCount: 0, indexedAt: "" });
+  });
+
+  function list(uploading = false) {
+    render(
+      <FileBrowser
+        rootPath="/u"
+        path="Photos/Trips"
+        revision={0}
+        navigate={() => {}}
+        onAdd={() => {}}
+        onChanged={() => {}}
+        onDropFiles={onDropFiles}
+        uploading={uploading}
+      />,
+    );
+    return screen.getByRole("region", { name: "File browser" });
+  }
+
+  it("takes a folder dropped onto the list, everything in it, into the folder that's open", async () => {
+    const panel = list();
+    await screen.findByText("This folder is empty");
+    const holiday = folderEntry(
+      "Holiday",
+      [fileEntry("sea.jpg"), fileEntry(".DS_Store"), folderEntry(".git", [fileEntry("config")])],
+      [folderEntry("day 1", [fileEntry("map.pdf")])],
+    );
+
+    fireEvent.dragEnter(panel, carrying(holiday));
+    expect(screen.getByText("Drop to add to Trips")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.drop(panel, carrying(holiday, fileEntry("notes.txt")));
+    });
+
+    expect(screen.queryByText("Drop to add to Trips")).not.toBeInTheDocument();
+    await waitFor(() => expect(onDropFiles).toHaveBeenCalledTimes(1));
+    // Hidden things are left where they are, a hidden folder without even being opened.
+    expect(onDropFiles.mock.calls[0][0].map((item) => item.path)).toEqual([
+      "Holiday/sea.jpg",
+      "Holiday/day 1/map.pdf",
+      "notes.txt",
+    ]);
+  });
+
+  it("says why, above the list, when Uncloud won't take what was dropped", async () => {
+    onDropFiles.mockRejectedValue(new Error("This would add 4 GB and only 1 GB is free on your Uncloud drive."));
+    const panel = list();
+    await screen.findByText("This folder is empty");
+
+    await act(async () => {
+      fireEvent.drop(panel, carrying(fileEntry("film.mov")));
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("only 1 GB is free");
+  });
+
+  it("doesn't take more while files are still on their way", async () => {
+    const panel = list(true);
+    await screen.findByText("This folder is empty");
+
+    fireEvent.dragEnter(panel, carrying(fileEntry("more.jpg")));
+    expect(screen.getByText(/Some files are still on their way/)).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.drop(panel, carrying(fileEntry("more.jpg")));
+    });
+
+    expect(onDropFiles).not.toHaveBeenCalled();
+  });
+
+  it("leaves alone a drag that isn't carrying files", async () => {
+    const panel = list();
+    await screen.findByText("This folder is empty");
+
+    fireEvent.dragEnter(panel, { dataTransfer: { types: ["text/plain"], items: [], files: [] } });
+
+    expect(screen.queryByText(/Drop to add/)).not.toBeInTheDocument();
   });
 });

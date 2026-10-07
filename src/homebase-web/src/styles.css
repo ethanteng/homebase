@@ -2631,3 +2631,37 @@ tbody tr.selected {
 .page-heading + .import-progress + .import-progress {
   margin: -10px 0 22px;
 }
+
+/* Files held over My files: the list says where they'll go. The cover lets the pointer through, so
+   the list underneath still counts where the drag is. */
+.file-panel {
+  position: relative;
+}
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  border: 2px dashed var(--accent);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--accent-text);
+  text-align: center;
+  pointer-events: none;
+}
+.drop-overlay strong {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+.edit-notice.failed {
+  color: var(--danger-text);
+}
+.edit-notice.failed > svg {
+  color: var(--danger-text);
+}

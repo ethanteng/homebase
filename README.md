@@ -45,8 +45,8 @@ plugged into it.
   browser.
 - Copy, move, rename and delete files and folders in the browser, and get deleted ones back from the
   **Bin** for 30 days.
-- Add files and folders from the computer or phone you're using, by choosing them or dropping them
-  onto **Add files**.
+- Add files and folders from the computer or phone you're using, by choosing them in **Add files** or
+  dropping them onto **My files**.
 - Add files from Dropbox, or from folders and drives on the host, all from the same **Add files**
   button: everything at once, a whole folder, or any mix of files and folders you tick, with how big
   it all is shown before you start.
@@ -249,7 +249,8 @@ On **My files**, click **Add files** and choose where they are:
 
 - **This device**, for everyone: the computer or phone you're using right now. Click **Choose
   files…** or **Choose a folder…**, or drop files and folders onto the box. They go into the folder
-  you have open in **My files**. Keep the page open until **My files** says they're in: unlike the
+  you have open in **My files**. You can also skip **Add files** and drop them straight onto the
+  list in **My files**. Keep the page open until **My files** says they're in: unlike the
   other ways in, the page is what's sending them. **Stop** ends it early, and then nothing from it
   is added. Something already there with the same name is kept, and what you add arrives beside it
   as "name 2".
