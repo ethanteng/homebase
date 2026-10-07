@@ -27,7 +27,7 @@ test('each page is canonical at its own clean URL, with valid FAQ structured dat
     const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
     const faq = ld['@graph'].find((node) => node['@type'] === 'FAQPage');
     assert.deepEqual(faq.mainEntity.map((q) => q.name), PAGES[slug].faq.map((f) => f.q));
-    assert.equal((html.match(/class="launchlist-widget"/g) || []).length, 1, `${slug} ends on the signup form`);
+    assert.equal((html.match(/class="launchlist-widget"/g) || []).length, 2, `${slug} has the signup form in the hero and at the close`);
   }
 });
 

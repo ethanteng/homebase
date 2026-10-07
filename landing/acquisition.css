@@ -40,15 +40,18 @@
 .compare-platforms { display: flex; align-items: center; justify-content: center; gap: 24px; padding-top: 18px; border-top: 1px solid #dbe5f0; }
 .compare-platforms > span { display: inline-flex; align-items: center; gap: 7px; color: #596980; font-size: .75rem; font-weight: 600; }
 .compare-platforms .platform-mark { display: inline-block; width: 16px; height: 16px; }
-.compare-offer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 20px; max-width: 510px; padding-top: 22px; border-top: 1px solid #d8e3ef; }
+.compare-offer { max-width: 510px; padding-top: 22px; border-top: 1px solid #d8e3ef; }
 .compare-price { display: flex; align-items: center; gap: 10px; }
 .compare-price strong { color: var(--blue-strong); font-size: 3.4rem; line-height: 1; letter-spacing: -.065em; }
 .compare-price > span { display: grid; gap: 4px; font-size: .85rem; font-weight: 650; white-space: nowrap; }
 .compare-price small { color: #596980; font-size: .75rem; font-weight: 400; }
 .compare-lock { margin-top: 10px; color: #596980; font-size: .78rem; line-height: 1.5; }
-.compare-action { display: grid; gap: 8px; }
-.compare-action .primary-link { display: inline-flex; align-items: center; justify-content: center; gap: 14px; padding-inline: 18px; font-size: .92rem; white-space: nowrap; }
-.compare-action p { color: #596980; font-size: .78rem; text-align: center; }
+/* LaunchList sizes its form to its content, about 660px wide at the font set in its dashboard, and
+   crops it in any narrower frame down to 426px; at 425px and below it stacks the field over the
+   button. Both forms here stay at the stacked width so neither is cropped at any screen size. */
+.compare-signup { max-width: 420px; margin-top: 4px; }
+.compare-signup .launchlist-widget { min-height: 176px; }
+.compare-signup p { margin-top: -14px; color: #596980; font-size: .78rem; line-height: 1.5; text-align: center; }
 .acquisition .savings { margin-bottom: 0; padding: clamp(24px, 4vw, 48px); }
 .acquisition .savings h2 { font-size: clamp(2rem, 3.1vw, 2.9rem); }
 .comparison-source { margin-top: 14px; font-size: .78rem; color: #596980; }
@@ -175,12 +178,11 @@
 
 .join h2 { max-width: 760px; margin-inline: auto; }
 .join-action { max-width: 690px; margin: 34px auto 0; }
+.join-action .launchlist-widget { max-width: 420px; min-height: 176px; margin: 0 auto; }
 
 @media (max-width: 1024px) {
   .acquisition .hero { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
   .why-uncloud { padding: 24px; }
-  .compare-offer { grid-template-columns: 1fr; }
-  .compare-action { justify-self: start; }
   .switch { grid-template-columns: 1fr; }
 }
 
@@ -189,7 +191,6 @@
   .acquisition .hero-copy { max-width: 640px; }
   .acquisition h1 { font-size: clamp(2.6rem, 7vw, 3.6rem); }
   .why-uncloud { grid-column: auto; grid-row: auto; }
-  .compare-offer { grid-template-columns: minmax(0, 1fr) auto; width: 100%; }
   .acquisition .header-actions .github-link { display: none; }
 }
 
@@ -204,9 +205,7 @@
   .why-reasons li { padding: 16px 0; gap: 10px; }
   .why-reasons h3 { font-size: 1.07rem; }
   .why-reasons p { font-size: .88rem; }
-  .compare-offer { gap: 18px 12px; }
   .compare-price strong { font-size: 2.8rem; }
-  .compare-action .primary-link { padding-inline: 14px; gap: 10px; font-size: .85rem; }
   .acquisition .video { padding-block: 52px; }
   .acquisition .savings { padding: 26px 20px; }
   .switch { padding: 28px 24px; border-radius: 22px; }
@@ -218,9 +217,4 @@
   .faq-list summary { font-size: 1.02rem; }
   .faq-list details p { padding-right: 0; }
   .join { padding: 36px 20px; border-radius: 22px; }
-}
-
-@media (max-width: 380px) {
-  .compare-offer { grid-template-columns: 1fr; }
-  .compare-action { justify-self: stretch; }
 }

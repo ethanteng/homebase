@@ -40,6 +40,7 @@ The event tag includes `landing_version=cloud-subscriptions-v1`, registered as t
 ## Counting and data boundaries
 
 - `generate_lead` means the widget sent the address, not that LaunchList confirmed storing it: that answer arrives in a tab the page cannot see. Empty and malformed addresses stop at LaunchList's checks and never count. An address that is already on the list counts again when it is sent from a new session.
+- The homepage and each acquisition page have the form twice, in the hero and at the close. The events do not say which one was used, and each counts once per page view whichever form sends it.
 - A page view records at most one lead, however many addresses are sent from it, and GA4 counts one per session. LaunchList is the authority on how many people signed up; GA4 is the authority on which campaigns brought them.
 - The widget passes the page's query string to LaunchList, so each LaunchList signup carries the visit's `utm_*` parameters and click IDs. These go to LaunchList only; they are never pushed into the data layer.
 - Email addresses, typed form contents, validation errors, and user IDs are never pushed into the data layer or event parameters.
