@@ -316,6 +316,36 @@ public sealed class UploadTests : IDisposable
     }
 
     [Fact]
+    public async Task A_file_that_doesnt_say_how_big_it_is_still_stops_short_of_filling_the_drive()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        // 1,000 bytes free, a tenth of it held back: 900 is all a file can take.
+        using var library = new LibraryService(root, new MetadataIndex())
+        {
+            Space = _ => new StorageReport(FreeBytes: 1000, TotalBytes: 8192)
+        };
+        library.Initialize();
+        var id = await library.BeginUploadAsync("", 0, CancellationToken.None);
+        var gathered = Path.Combine(Uploads(root), id);
+
+        // Sent without a length, the way a chunked request comes: stopped once it passes the room left.
+        var unsaid = await Assert.ThrowsAsync<LibraryException>(() =>
+            library.ReceiveAsync(id, "big.bin", new MemoryStream(new byte[2000]), null, null, CancellationToken.None));
+        Assert.Equal("unavailable", unsaid.Code);
+        Assert.False(File.Exists(Path.Combine(gathered, "big.bin")));
+        // Sent with one, refused before any of it is read.
+        var said = await Assert.ThrowsAsync<LibraryException>(() =>
+            library.ReceiveAsync(id, "big.bin", new MemoryStream(new byte[2000]), 2000, null, CancellationToken.None));
+        Assert.Equal("unavailable", said.Code);
+        Assert.False(File.Exists(Path.Combine(gathered, "big.bin")));
+
+        // Within the room left, either way is fine.
+        Assert.Equal(800, await library.ReceiveAsync(id, "fits.bin", new MemoryStream(new byte[800]), null, null, CancellationToken.None));
+        Assert.Equal([new EditedEntry("fits.bin", "fits.bin")], await library.FinishUploadAsync(id, "", CancellationToken.None));
+        Assert.Equal(800, new FileInfo(Path.Combine(root, "fits.bin")).Length);
+    }
+
+    [Fact]
     public async Task Sending_a_file_again_replaces_what_arrived_of_it_before()
     {
         var (app, admin, _, member, root) = await StartAsync();

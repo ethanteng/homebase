@@ -25,6 +25,9 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
 
     public string Root => root;
 
+    /// <summary>How much room the drive has, asked afresh each time. Replaceable, so a full drive can be pretended.</summary>
+    public Func<string, StorageReport?> Space { get; init; } = Storage.For;
+
     public LibraryState State => new(root, new DirectoryInfo(root).Name);
 
     /// <summary>
@@ -122,7 +125,7 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
             var folder = Folder(destination);
             AwayFromImport(items, folder, "copied");
             var needed = items.Sum(item => Measure(item, cancellationToken).Bytes);
-            var free = Storage.For(root)?.FreeBytes;
+            var free = Space(root)?.FreeBytes;
             if (!Storage.Fits(needed, free))
                 throw new LibraryException(
                     $"This would copy {Storage.Describe(needed)} and only {Storage.Describe(free!.Value)} is free on "

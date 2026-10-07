@@ -67,14 +67,25 @@ public sealed partial class LibraryService
         if (Directory.Exists(target))
             throw new LibraryException($"“{Path.GetFileName(target)}” is a folder in this upload already.", "conflict");
 
+        // Counted as it arrives as well as checked up front: a request that doesn't say how long it is
+        // has no length to check, and nothing else stops it before the drive is full.
+        var room = Storage.Room(Space(root)?.FreeBytes);
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        long written;
+        long written = 0;
         try
         {
             await using (var file = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
             {
-                await content.CopyToAsync(file, cancellationToken);
-                written = file.Length;
+                var buffer = new byte[81920];
+                for (int read; (read = await content.ReadAsync(buffer, cancellationToken)) > 0;)
+                {
+                    written += read;
+                    if (written > room)
+                        throw new LibraryException(
+                            $"There isn’t room on your Uncloud drive for “{Path.GetFileName(target)}”. "
+                            + "Make some room, or add less at once.", "unavailable");
+                    await file.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                }
             }
             if (length is { } promised && written != promised)
                 throw new LibraryException(
@@ -107,10 +118,12 @@ public sealed partial class LibraryService
             var folder = Folder(destination);
             AwayFromImport([], folder, "added");
             var placed = new List<EditedEntry>();
+            // Not given up partway, even if whoever asked has gone: each move is a rename, so this is
+            // quick, and stopping between two would leave some of the upload in My files and the rest
+            // waiting to be thrown away.
             foreach (var entry in new DirectoryInfo(upload).EnumerateFileSystemInfos("*", Children)
                          .OrderBy(entry => entry.Name, StringComparer.Ordinal))
             {
-                cancellationToken.ThrowIfCancellationRequested();
                 // Nothing an upload is sent can be hidden or a link; this is only never trusting that.
                 if (Unseen(entry)) continue;
                 var isDirectory = entry is DirectoryInfo;
@@ -144,7 +157,7 @@ public sealed partial class LibraryService
     /// <summary>Refuses something the drive has no room for, worded as what to do about it.</summary>
     private void NeedRoomFor(long bytes, string instead)
     {
-        var free = Storage.For(root)?.FreeBytes;
+        var free = Space(root)?.FreeBytes;
         if (!Storage.Fits(bytes, free))
             throw new LibraryException(
                 $"This would add {Storage.Describe(bytes)} and only {Storage.Describe(free!.Value)} is free on "

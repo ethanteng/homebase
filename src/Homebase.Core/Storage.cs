@@ -34,11 +34,15 @@ public static class Storage
     /// back shrinks with the space left, so a drive that is already tight still takes a small file
     /// rather than refusing everything on principle.
     /// </summary>
-    public static bool Fits(long needed, long? free, long headroom = Headroom)
-    {
-        if (needed == 0 || free is null) return true;
-        return needed <= free.Value - Math.Min(headroom, free.Value / 10);
-    }
+    public static bool Fits(long needed, long? free, long headroom = Headroom) =>
+        needed == 0 || Room(free, headroom) is not { } room || needed <= room;
+
+    /// <summary>
+    /// How much can be written before the drive is run down to the room held back, or null when the
+    /// drive won't say how much is free.
+    /// </summary>
+    public static long? Room(long? free, long headroom = Headroom) =>
+        free is { } bytes ? bytes - Math.Min(headroom, bytes / 10) : null;
 
     /// <summary>Bytes as a person reads them, matching what the interface shows.</summary>
     public static string Describe(long bytes)

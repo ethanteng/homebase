@@ -292,6 +292,32 @@ describe("adding files from this device", () => {
     expect(FakeRequest.sent.every((request) => request.aborted)).toBe(true);
     expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u1", body: null });
     expect(asked.some((request) => request.path.endsWith("/finish"))).toBe(false);
+
+    // Stopping one leaves the way clear for the next.
+    FakeRequest.respond = (request) => request.finish(200, { bytes: 1 });
+    await click(screen.getByText("Send"));
+    await screen.findByText(/Added 2 files from this device/);
+  });
+
+  it("turns away a second upload while Uncloud is still agreeing to the first", async () => {
+    let agree: (response: Response) => void = () => {};
+    const accept = accepting([{ from: "film.mov", to: "Trips/film.mov" }]);
+    answer = (path, method) =>
+      path === "/uploads" && method === "POST"
+        ? new Promise<Response>((resolve) => {
+            agree = resolve;
+          })
+        : accept(path, method);
+    render(<Harness chosen={pickedFrom([file("film.mov")])} />);
+
+    await click(screen.getByText("Send"));
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Some files are still on their way");
+    await act(async () => agree(json({ id: "u1" })));
+    await screen.findByText(/Added 1 file from this device/);
+    expect(asked.filter((request) => request.path === "/uploads")).toHaveLength(1);
+    expect(FakeRequest.sent).toHaveLength(1);
   });
 
   it("gives up on the whole upload, throwing away what arrived, when Uncloud runs out of room partway", async () => {

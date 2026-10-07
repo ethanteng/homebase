@@ -220,15 +220,31 @@ export function useUpload(active: boolean, onUploaded: () => void) {
             ? "There’s nothing here to add. Uncloud leaves hidden files out, and that’s all there was."
             : "Nothing was chosen.",
         );
-      const bytes = items.reduce((sum, item) => sum + item.file.size, 0);
-      // Asked first, so a drive without room — or a folder that's gone — says so before anything is sent.
-      const { id } = await api<{ id: string }>("/uploads", {
-        method: "POST",
-        body: JSON.stringify({ destination: folder, bytes }),
-      });
-      const tops = [...new Set(items.map((item) => item.path.split("/")[0]))];
+      // One at a time, claimed before Uncloud is even asked: a second drop while the first is still
+      // being agreed to would otherwise start an upload nobody could see or stop.
+      if (current.current)
+        throw new Error("Some files are still on their way. You can add more once they’re in.");
       const run: Run = { stopped: false, requests: new Set(), loaded: new Map() };
       current.current = run;
+      const bytes = items.reduce((sum, item) => sum + item.file.size, 0);
+      let id: string;
+      try {
+        // Asked first, so a drive without room — or a folder that's gone — says so before anything is sent.
+        ({ id } = await api<{ id: string }>("/uploads", {
+          method: "POST",
+          body: JSON.stringify({ destination: folder, bytes }),
+        }));
+      } catch (problem: unknown) {
+        current.current = null;
+        throw problem;
+      }
+      // Signed out while Uncloud was being asked: nobody is here to send them.
+      if (run.stopped) {
+        current.current = null;
+        void discard(id);
+        return;
+      }
+      const tops = [...new Set(items.map((item) => item.path.split("/")[0]))];
       const update = (change: Partial<Upload>) =>
         setUpload((value) => (value?.id === id ? { ...value, ...change } : value));
       setUpload({
@@ -248,116 +264,119 @@ export function useUpload(active: boolean, onUploaded: () => void) {
       });
 
       void (async () => {
-        let next = 0;
-        let doneFiles = 0;
-        let doneBytes = 0;
-        let arrived = 0;
-        let arrivedBytes = 0;
-        let fatal: string | null = null;
-        const skipped: Upload["skipped"] = [];
-        // What was last shown, so a tick with nothing new doesn't redraw the page under it.
-        let shown = "";
-        const progress = () => {
-          let inFlight = 0;
-          for (const loaded of run.loaded.values()) inFlight += loaded;
-          const sentBytes = doneBytes + inFlight;
-          const now = `${doneFiles}:${sentBytes}:${skipped.length}`;
-          if (now === shown) return;
-          shown = now;
-          update({ doneFiles, sentBytes, arrivedBytes, skipped: [...skipped] });
-        };
-        const timer = window.setInterval(progress, 250);
+        try {
+          let next = 0;
+          let doneFiles = 0;
+          let doneBytes = 0;
+          let arrived = 0;
+          let arrivedBytes = 0;
+          let fatal: string | null = null;
+          const skipped: Upload["skipped"] = [];
+          // What was last shown, so a tick with nothing new doesn't redraw the page under it.
+          let shown = "";
+          const progress = () => {
+            let inFlight = 0;
+            for (const loaded of run.loaded.values()) inFlight += loaded;
+            const sentBytes = doneBytes + inFlight;
+            const now = `${doneFiles}:${sentBytes}:${skipped.length}`;
+            if (now === shown) return;
+            shown = now;
+            update({ doneFiles, sentBytes, arrivedBytes, skipped: [...skipped] });
+          };
+          const timer = window.setInterval(progress, 250);
 
-        const worker = async () => {
-          while (!run.stopped && fatal === null && next < items.length) {
-            const item = items[next++];
-            for (let attempt = 1; ; attempt++) {
-              // Somebody pressed Stop, or another file found the upload can't go on, while this one waited.
-              if (run.stopped || fatal !== null) return;
-              try {
-                await send(id, item, (loaded) => run.loaded.set(item.path, loaded), run.requests);
-                arrived++;
-                arrivedBytes += item.file.size;
-                break;
-              } catch (error) {
-                run.loaded.delete(item.path);
+          const worker = async () => {
+            while (!run.stopped && fatal === null && next < items.length) {
+              const item = items[next++];
+              for (let attempt = 1; ; attempt++) {
+                // Somebody pressed Stop, or another file found the upload can't go on, while this one waited.
                 if (run.stopped || fatal !== null) return;
-                const refused = error instanceof Refused ? error : new Refused(String(error), 0);
-                // A name Uncloud won't keep is this file's problem, not the upload's.
-                if (refused.status === 400) {
-                  skipped.push({ path: item.path, reason: refused.message });
+                try {
+                  await send(id, item, (loaded) => run.loaded.set(item.path, loaded), run.requests);
+                  arrived++;
+                  arrivedBytes += item.file.size;
                   break;
-                }
-                if (refused.status === 0 || refused.status >= 500) {
-                  if (!(await readable(item.file))) {
-                    skipped.push({
-                      path: item.path,
-                      reason: "This device couldn’t read it. It may have been moved or deleted after it was chosen.",
-                    });
+                } catch (error) {
+                  run.loaded.delete(item.path);
+                  if (run.stopped || fatal !== null) return;
+                  const refused = error instanceof Refused ? error : new Refused(String(error), 0);
+                  // A name Uncloud won't keep is this file's problem, not the upload's.
+                  if (refused.status === 400) {
+                    skipped.push({ path: item.path, reason: refused.message });
                     break;
                   }
-                  if (attempt < ATTEMPTS) {
-                    await pause(attempt * 1000);
-                    continue;
-                  }
-                  fatal = "Uncloud stopped answering, so nothing was added. Check you’re still connected, then try again.";
-                } else
-                  fatal =
-                    refused.status === 401
-                      ? "You were signed out, so nothing was added. Sign in, then add them again."
-                      : refused.message || "The upload was interrupted, so nothing was added.";
-                run.requests.forEach((request) => request.abort());
-                return;
+                  if (refused.status === 0 || refused.status >= 500) {
+                    if (!(await readable(item.file))) {
+                      skipped.push({
+                        path: item.path,
+                        reason: "This device couldn’t read it. It may have been moved or deleted after it was chosen.",
+                      });
+                      break;
+                    }
+                    if (attempt < ATTEMPTS) {
+                      await pause(attempt * 1000);
+                      continue;
+                    }
+                    fatal = "Uncloud stopped answering, so nothing was added. Check you’re still connected, then try again.";
+                  } else
+                    fatal =
+                      refused.status === 401
+                        ? "You were signed out, so nothing was added. Sign in, then add them again."
+                        : refused.message || "The upload was interrupted, so nothing was added.";
+                  run.requests.forEach((request) => request.abort());
+                  return;
+                }
               }
+              run.loaded.delete(item.path);
+              doneFiles++;
+              doneBytes += item.file.size;
             }
-            run.loaded.delete(item.path);
-            doneFiles++;
-            doneBytes += item.file.size;
-          }
-        };
-        await Promise.all(Array.from({ length: Math.min(AT_ONCE, items.length) }, worker));
-        window.clearInterval(timer);
-        progress();
+          };
+          await Promise.all(Array.from({ length: Math.min(AT_ONCE, items.length) }, worker));
+          window.clearInterval(timer);
+          progress();
 
-        if (run.stopped) {
-          await discard(id);
-          update({ stage: "stopped" });
-          return;
-        }
-        if (fatal !== null || arrived === 0) {
-          await discard(id);
-          update({
-            stage: "failed",
-            error: fatal ?? `None of ${items.length === 1 ? "it" : "these"} could be added.`,
-          });
-          return;
-        }
-        update({ stage: "placing" });
-        try {
-          const { items: placed } = await api<{ items: EditedEntry[] }>(
-            `/uploads/${encodeURIComponent(id)}/finish`,
-            { method: "POST", body: JSON.stringify({ destination: folder }) },
-          );
-          const one = placed.length === 1 ? placed[0] : null;
-          update({
-            stage: "done",
-            placed,
-            openTo:
-              one && items.some((item) => item.path.startsWith(`${one.from}/`)) ? one.to : folder,
-          });
-          onUploaded();
-        } catch (problem: unknown) {
-          await discard(id);
-          update({
-            stage: "failed",
-            error:
-              problem instanceof SignedOutError
-                ? "You were signed out, so nothing was added. Sign in, then add them again."
-                : problem instanceof Error
-                  ? problem.message
-                  : "The files arrived but couldn’t be put in place, so nothing was added.",
-          });
+          if (run.stopped) {
+            await discard(id);
+            update({ stage: "stopped" });
+            return;
+          }
+          if (fatal !== null || arrived === 0) {
+            await discard(id);
+            update({
+              stage: "failed",
+              error: fatal ?? `None of ${items.length === 1 ? "it" : "these"} could be added.`,
+            });
+            return;
+          }
+          update({ stage: "placing" });
+          try {
+            const { items: placed } = await api<{ items: EditedEntry[] }>(
+              `/uploads/${encodeURIComponent(id)}/finish`,
+              { method: "POST", body: JSON.stringify({ destination: folder }) },
+            );
+            const one = placed.length === 1 ? placed[0] : null;
+            update({
+              stage: "done",
+              placed,
+              openTo:
+                one && items.some((item) => item.path.startsWith(`${one.from}/`)) ? one.to : folder,
+            });
+            onUploaded();
+          } catch (problem: unknown) {
+            await discard(id);
+            update({
+              stage: "failed",
+              error:
+                problem instanceof SignedOutError
+                  ? "You were signed out, so nothing was added. Sign in, then add them again."
+                  : problem instanceof Error
+                    ? problem.message
+                    : "The files arrived but couldn’t be put in place, so nothing was added.",
+            });
+          }
         } finally {
+          // However it ended, the next upload can start.
           if (current.current === run) current.current = null;
         }
       })();
