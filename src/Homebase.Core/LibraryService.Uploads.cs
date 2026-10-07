@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Homebase.Core;
@@ -21,6 +22,9 @@ public sealed partial class LibraryService
 
     [GeneratedRegex("^[0-9a-f]{32}$")]
     private static partial Regex UploadId();
+
+    /// <summary>How often, in bytes written, a file arriving asks the drive again how much room is left.</summary>
+    private const int AskDriveEvery = 1024 * 1024;
 
     /// <summary>
     /// Starts an upload into <paramref name="destination"/>, refusing up front one the drive has no
@@ -58,6 +62,12 @@ public sealed partial class LibraryService
         // Not a turn of the edits: files arrive several at a time and an upload can take hours, and
         // nothing else reaches into the folder an upload is gathered in.
         var upload = Upload(id);
+        // Before the path goes anywhere near the drive, which would answer a name longer than it takes
+        // with an error that reads as the drive having gone. Another device can allow one: a name in
+        // Chinese, say, takes three bytes a character here.
+        foreach (var part in (path ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries))
+            if (Encoding.UTF8.GetByteCount(part) > MaxNameBytes)
+                throw new LibraryException($"“{part}” has a name too long for this Uncloud’s drive, so it can’t be added.");
         var target = PathPolicy.Resolve(upload, path,
             "This upload is no longer here. Start it again.",
             "A file can only go inside the folder it’s being added to.",
@@ -68,8 +78,12 @@ public sealed partial class LibraryService
             throw new LibraryException($"“{Path.GetFileName(target)}” is a folder in this upload already.", "conflict");
 
         // Counted as it arrives as well as checked up front: a request that doesn't say how long it is
-        // has no length to check, and nothing else stops it before the drive is full.
-        var room = Storage.Room(Space(root)?.FreeBytes);
+        // has no length to check. And the drive is asked again as it fills, because files arriving side
+        // by side — or an import, or a laptop syncing — each started from the same free space, and only
+        // the drive knows what they've taken between them. Nothing goes into the room held back.
+        var free = Space(root)?.FreeBytes;
+        var room = Storage.Room(free);
+        var keep = free - room;
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         long written = 0;
         try
@@ -77,10 +91,18 @@ public sealed partial class LibraryService
             await using (var file = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
             {
                 var buffer = new byte[81920];
+                long sinceAsked = 0;
                 for (int read; (read = await content.ReadAsync(buffer, cancellationToken)) > 0;)
                 {
                     written += read;
-                    if (written > room)
+                    sinceAsked += read;
+                    var full = written > room;
+                    if (sinceAsked >= AskDriveEvery)
+                    {
+                        sinceAsked = 0;
+                        full |= Space(root)?.FreeBytes - read < keep;
+                    }
+                    if (full)
                         throw new LibraryException(
                             $"There isn’t room on your Uncloud drive for “{Path.GetFileName(target)}”. "
                             + "Make some room, or add less at once.", "unavailable");

@@ -67,7 +67,9 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   Files are gathered there out of sight and moved into place together at the end, so a stopped
   upload adds nothing and leaves nothing; one nobody finishes is cleared away after a day. Starting
   checks the drive has room for all of it, and each file checks again and counts its bytes as they
-  arrive, so one sent without a length still stops short of the room held back. Once files start
+  arrive, so one sent without a length still stops short of the room held back; every megabyte it
+  asks the drive again, so files arriving side by side can't eat into that room between them
+  either. A name longer than the drive takes (255 bytes) is refused for that file alone. Once files start
   moving into place, all of them are moved, even if the browser has gone. Nothing is overwritten: a
   name already taken arrives as `name 2`, a folder included. Each file keeps its modification
   time. The request size limit is lifted for these requests alone. Files and folders can be chosen

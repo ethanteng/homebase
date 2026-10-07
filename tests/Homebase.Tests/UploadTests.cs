@@ -346,6 +346,105 @@ public sealed class UploadTests : IDisposable
     }
 
     [Fact]
+    public async Task Files_arriving_side_by_side_stop_short_of_the_room_held_back_between_them()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        const long capacity = 20 * 1024 * 1024;
+        // A drive that fills as files arrive in it, the way a real one does: 18 MB of it can be
+        // written, and the last 2 MB is held back. The drive is asked again every megabyte, so the
+        // room held back has to be more than that for there to be a moment to notice in.
+        using var library = new LibraryService(root, new MetadataIndex())
+        {
+            Space = _ => new StorageReport(capacity - Arrived(root), capacity)
+        };
+        library.Initialize();
+        var id = await library.BeginUploadAsync("", 0, CancellationToken.None);
+        // Neither starts writing until both have looked at how much is free, so each sees room for its
+        // own 12 MB — and together they're 24 MB.
+        var looked = 0;
+        var go = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Stream Sending() => new Trickle(12 * 1024 * 1024, async () =>
+        {
+            if (Interlocked.Increment(ref looked) == 2) go.SetResult();
+            await go.Task;
+        });
+        async Task<bool> Arrives(string name)
+        {
+            try
+            {
+                await library.ReceiveAsync(id, name, Sending(), null, null, CancellationToken.None);
+                return true;
+            }
+            catch (LibraryException refused) when (refused.Code == "unavailable") { return false; }
+        }
+
+        var arrived = await Task.WhenAll(Arrives("a.bin"), Arrives("b.bin"));
+
+        Assert.Contains(false, arrived);
+        Assert.True(Arrived(root) <= capacity - capacity / 10, $"{Arrived(root)} bytes went into the room held back");
+    }
+
+    [Fact]
+    public async Task A_name_longer_than_the_drive_takes_is_refused_on_its_own()
+    {
+        var (app, admin, _, member, root) = await StartAsync();
+        using var __ = app;
+        using var ___ = admin;
+        using var ____ = member;
+        var id = await BeginAsync(member);
+        // Three bytes a character: 85 of them is as long as a name can be, and 100 is too long.
+        var longest = new string('日', 85);
+        var tooLong = new string('日', 100);
+
+        (await SendAsync(member, id, longest, "fits")).EnsureSuccessStatusCode();
+        var refused = await SendAsync(member, id, tooLong, "doesn't");
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Contains("too long", (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(member, id, $"Photos/{tooLong}/a.jpg", "doesn't")).StatusCode);
+
+        Assert.Equal([(longest, longest)], await FinishAsync(member, id));
+        Assert.Equal("fits", await File.ReadAllTextAsync(Path.Combine(root, longest)));
+    }
+
+    /// <summary>Everything gathered so far in uploads under <paramref name="root"/>.</summary>
+    private static long Arrived(string root) =>
+        Directory.Exists(Uploads(root))
+            ? Directory.EnumerateFiles(Uploads(root), "*", SearchOption.AllDirectories).Sum(file => new FileInfo(file).Length)
+            : 0;
+
+    /// <summary>A file sent a piece at a time, handing over to whatever else is running between pieces.</summary>
+    private sealed class Trickle(long size, Func<Task> beforeFirst) : Stream
+    {
+        private long _sent;
+        private bool _started;
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (!_started)
+            {
+                _started = true;
+                await beforeFirst();
+            }
+            await Task.Yield();
+            var count = (int)Math.Min(buffer.Length, size - _sent);
+            buffer.Span[..count].Fill(7);
+            _sent += count;
+            return count;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => _sent; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Fact]
     public async Task Sending_a_file_again_replaces_what_arrived_of_it_before()
     {
         var (app, admin, _, member, root) = await StartAsync();
