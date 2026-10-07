@@ -102,6 +102,8 @@
 .signup-close .launchlist-widget { max-width: 620px; min-height: 72px; margin: 0 auto; }
 .signup-close .trust-note { font-size: .9rem; }
 .signup-note { margin-top: 8px; font-size: .8rem; color: var(--muted); line-height: 1.6; }
+.peerlist-badge { display: flex; justify-content: center; padding-bottom: 40px; }
+.peerlist-badge img { display: block; width: auto; height: 72px; }
 @media (min-width: 1100px) {
   .homepage .hero { display: grid; grid-template-columns: .94fr 1.16fr; gap: 48px; align-items: center; padding-block: 65px 30px; }
   .homepage .hero-copy { text-align: left; }
