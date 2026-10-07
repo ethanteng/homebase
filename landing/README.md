@@ -71,7 +71,7 @@ Video files live in a **public** Vercel Blob store (Storage → Create Database 
 
 The page's signup form is a [LaunchList](https://getlaunchlist.com/) widget, waitlist key `IH5CSi`. `index.html` loads `https://getlaunchlist.com/js/widget.js` and marks two spots, in the hero and in the closing section, with `<div class="launchlist-widget" data-key-id="IH5CSi">`; the script fills each with an iframe served by LaunchList. **The LaunchList waitlist is the list.** The form's fields, button label and colors, validation messages, and the confirmation a visitor sees after signing up are all configured in the LaunchList dashboard, not in this repository, and `styles.css` cannot reach inside the iframe. The widget forwards the page's query string to LaunchList, so `utm_*` parameters and ad click IDs travel with the signup.
 
-LaunchList sizes the form to its content, about 660px wide at the font size set in the dashboard, and crops it on both sides in any frame narrower than that down to 426px; at 425px and below it stacks the field over the button. `homepage.css` holds both homepage forms to 420px so they always stack. After changing the font size or layout in the dashboard, check the form at desktop width.
+LaunchList sizes the form to its content, about 660px wide at the font size set in the dashboard, and crops it on both sides in any frame narrower than that down to 426px; at 425px and below it stacks the field over the button. `homepage.css` and `acquisition.css` hold every form to 420px so it always stacks. After changing the font size or layout in the dashboard, check the form at desktop width.
 
 The iframe submits into a new tab on getlaunchlist.com and, on its own, tells the page nothing but its height. [`launchlist-head.html`](launchlist-head.html) is the head code that makes up for that: saved in LaunchList under **Integration → Custom code → Head code**, it runs inside the widget, tells the page when a signup is attempted and sent so `main.js` can push `cta_click` and `generate_lead`, and gives the email field an accessible name and autofill. It is not part of the build; after changing it, paste the whole file into LaunchList again. See [measurement.md](measurement.md) for what the events mean now.
 
@@ -119,7 +119,7 @@ Five evergreen search landing pages share one template and end on the same early
 | `/onedrive-alternative` | OneDrive alternative |
 | `/uncloud-vs-nextcloud` | Uncloud vs. Nextcloud |
 
-Each has the homepage header, a hero comparing Uncloud Home with that service, the early-access signup, three switching steps, the homepage's setup steps, the teaser video, a price (or side-by-side) comparison, the pricing card, an FAQ, and a closing signup. The footer on every page, including the homepage, links all five.
+Each has the homepage header, a hero comparing Uncloud Home with that service with the early-access signup under its $79 offer, three switching steps, the homepage's setup steps, the teaser video, a price (or side-by-side) comparison, the pricing card, an FAQ, and a closing signup. The footer on every page, including the homepage, links all five.
 
 The copy and per-page SEO (title of 60 characters or fewer, description of 155 or fewer, canonical URL, Open Graph, and WebPage, BreadcrumbList, FAQPage and SoftwareApplication JSON-LD) live in [`acquisition-pages.mjs`](acquisition-pages.mjs). The `<slug>.html` files are generated from it and committed so they build and preview like `index.html`; edit the copy there, then regenerate:
 

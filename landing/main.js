@@ -29,7 +29,7 @@ if (names.length > 1) {
 
 // The signup form is LaunchList's widget, an iframe from another origin. The head code kept in
 // launchlist-head.html runs inside it and posts an event name here; nothing typed ever crosses.
-// The homepage carries the widget twice, in the hero and at the close; either one counts.
+// Every landing page carries the widget twice, in the hero and at the close; either one counts.
 const widgets = [...document.querySelectorAll(".launchlist-widget")];
 
 if (widgets.length) {
