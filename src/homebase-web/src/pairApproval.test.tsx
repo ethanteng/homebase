@@ -126,6 +126,25 @@ describe("arriving from a computer's QR code", () => {
     expect(screen.queryByRole("button", { name: "Add this computer" })).toBeNull();
   });
 
+  it("isn't put to whoever signs in next when it was left unanswered", async () => {
+    signedIn = true;
+    await arriveAt("?pair=abc123");
+    expect(await screen.findByRole("heading", { name: /Add Ada’s MacBook Air\?/ })).toBeTruthy();
+
+    // Whoever opened the code signs out without answering, and somebody else signs in.
+    await act(async () => {
+      screen.getByRole("button", { name: "Sign out" }).click();
+    });
+    signedIn = false;
+    fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "bo" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct horse" } });
+    fireEvent.submit(screen.getByLabelText("Password").closest("form")!);
+
+    await screen.findByText("Nothing here yet");
+    expect(screen.queryByRole("heading", { name: /Add Ada’s MacBook Air/ })).toBeNull();
+    expect(sent.filter((call) => call.path.startsWith("/sync/pairing-requests"))).toHaveLength(1);
+  });
+
   it("opens on My files as usual without one", async () => {
     signedIn = true;
     await arriveAt("");

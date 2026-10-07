@@ -43,7 +43,14 @@ export function useImportJob(active: boolean, onImported: () => void) {
   const settled = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!active) return;
+    // Signed out: whatever was showing was that account's, and nobody who signs in next on this
+    // browser should see it. Their own import, if they have one, is asked for when they arrive.
+    if (!active) {
+      setJob(null);
+      watched.current.clear();
+      settled.current = null;
+      return;
+    }
     const controller = new AbortController();
     api<{ job: ImportJob | null }>("/imports/job", { signal: controller.signal })
       .then(({ job: existing }) => {

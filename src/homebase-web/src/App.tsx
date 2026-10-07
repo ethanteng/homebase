@@ -94,6 +94,10 @@ export default function App() {
     );
     setLibrary(null);
     setStorage(null);
+    // A computer asking to be added was asking whoever opened its code. Left unanswered, it isn't
+    // put to whoever signs in next on this browser, who would be adding somebody else's computer
+    // to their own account.
+    setApproving(null);
   }, []);
 
   useEffect(() => {
