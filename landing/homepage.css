@@ -156,8 +156,9 @@
   .homepage .hero-description strong { font-size: 1.15rem; line-height: 1.5; }
   .desktop-break { display: none; }
   /* On a phone the hero is the headline, one line of support, then the offer. The benefit list
-     sat between them and outshone the price; setup time and access anywhere are covered below. */
-  .hero-benefits { display: none; }
+     sat between them and outshone the price; setup time and access anywhere are covered below.
+     The header's button only repeated the form a few lines down. */
+  .hero-benefits, .homepage .header-cta { display: none; }
   .hero-conversion { margin-top: 22px; padding: 20px 16px 14px; border: 1px solid #d3e2f2; border-radius: 16px; background: #fff; box-shadow: 0 14px 36px #29486c14; }
   .hero-value-number { justify-content: center; gap: 12px; }
   .hero-value-number strong { font-size: 3.6rem; }
@@ -166,9 +167,9 @@
   .hero-lock-in { margin-top: 6px; text-align: center; font-size: .82rem; }
   .hero-signup { margin: 10px auto 0; }
   .hero-film { margin-top: 36px; }
-  .film-caption { align-items: flex-start; gap: 12px; }
-  .film-caption h2 { max-width: 190px; font-size: .76rem; line-height: 1.5; }
-  .film-caption a { font-size: .72rem; line-height: 1.5; }
+  /* The player is right here, so a link to watch it in another tab is clutter. The heading stays for screen readers. */
+  .film-caption { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .film-caption a { display: none; }
   .hero-film .video-card__player { border-radius: 10px; }
   .hero-film figcaption { max-width: 280px; margin: 20px auto 0; font-size: 1.1rem; }
   .hero-film figcaption strong { display: block; }
