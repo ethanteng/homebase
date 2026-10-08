@@ -322,6 +322,18 @@ ${indent(jsonLd(structuredData(slug, p)), 6)}
             <p class="hero-detail">${esc(p.detail)}</p>${p.monthly ? '\n            <p class="compare-setup"><span aria-hidden="true">✓</span> Set up in <strong>5 minutes or less.</strong></p>' : ""}
           </div>
 
+          <!-- Ahead of the aside so a single column reaches the offer first; wider, the aside sits beside both. -->
+          <div class="compare-offer">
+            <div>
+              <p class="compare-price"><strong>$79</strong><span>one-time<small><s>$99</s> regular</small></span></p>
+              <p class="compare-lock">Early access locks in $79 at launch.</p>
+            </div>
+            <div class="compare-signup">
+              ${WIDGET}
+              <p>No payment today.</p>
+            </div>
+          </div>
+
           <aside class="why-uncloud" aria-labelledby="why-heading">
             <div class="why-heading">
               <h2 id="why-heading">Why choose Uncloud?</h2>
@@ -339,17 +351,6 @@ ${indent(reasons, 14)}
               <span><span class="platform-mark platform-linux" aria-hidden="true"></span>Linux</span>
             </p>
           </aside>
-
-          <div class="compare-offer">
-            <div>
-              <p class="compare-price"><strong>$79</strong><span>one-time<small><s>$99</s> regular</small></span></p>
-              <p class="compare-lock">Early access locks in $79 at launch.</p>
-            </div>
-            <div class="compare-signup">
-              ${WIDGET}
-              <p>No payment today.</p>
-            </div>
-          </div>
         </section>
 
         <section class="savings" id="savings" aria-labelledby="savings-heading">

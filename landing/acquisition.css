@@ -195,6 +195,16 @@
 }
 
 @media (max-width: 620px) {
+  /* As on the homepage: the headline and its support, then the offer in a card. The header's button
+     only repeated the form below it, and the setup steps further down give the setup time. */
+  .acquisition .header-cta, .compare-setup { display: none; }
+  .compare-offer { padding: 20px 16px 14px; border: 1px solid #d3e2f2; border-radius: 16px; background: #fff; box-shadow: 0 14px 36px #29486c14; }
+  .compare-price { justify-content: center; gap: 12px; }
+  .compare-price strong { font-size: 3.6rem; }
+  .compare-price > span { font-size: .9rem; }
+  .compare-price small { font-size: .8rem; }
+  .compare-lock { margin-top: 6px; text-align: center; font-size: .82rem; }
+  .compare-signup { margin: 10px auto 0; }
   .acquisition .hero-description strong { font-size: 1.1rem; }
   .acquisition .hero-detail { font-size: .95rem; }
   .why-uncloud { padding: 22px; border-radius: 18px; }
@@ -205,7 +215,6 @@
   .why-reasons li { padding: 16px 0; gap: 10px; }
   .why-reasons h3 { font-size: 1.07rem; }
   .why-reasons p { font-size: .88rem; }
-  .compare-price strong { font-size: 2.8rem; }
   .acquisition .video { padding-block: 52px; }
   .acquisition .savings { padding: 26px 20px; }
   .switch { padding: 28px 24px; border-radius: 22px; }
