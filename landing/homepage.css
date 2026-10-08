@@ -155,11 +155,16 @@
   .homepage .hero-description { margin-top: 18px; }
   .homepage .hero-description strong { font-size: 1.15rem; line-height: 1.5; }
   .desktop-break { display: none; }
-  .hero-benefits { gap: 10px 14px; font-size: .8rem; margin-top: 18px; }
-  .hero-benefits .hero-setup-benefit { font-size: .9rem; }
-  .hero-conversion { margin-top: 20px; padding-top: 18px; }
-  .hero-value-number strong { font-size: 2.8rem; }
-  .hero-value-number > span { font-size: .78rem; }
+  /* On a phone the hero is the headline, one line of support, then the offer. The benefit list
+     sat between them and outshone the price; setup time and access anywhere are covered below. */
+  .hero-benefits { display: none; }
+  .hero-conversion { margin-top: 22px; padding: 20px 16px 14px; border: 1px solid #d3e2f2; border-radius: 16px; background: #fff; box-shadow: 0 14px 36px #29486c14; }
+  .hero-value-number { justify-content: center; gap: 12px; }
+  .hero-value-number strong { font-size: 3.6rem; }
+  .hero-value-number > span { font-size: .9rem; }
+  .hero-value-number small { font-size: .8rem; }
+  .hero-lock-in { margin-top: 6px; text-align: center; font-size: .82rem; }
+  .hero-signup { margin: 10px auto 0; }
   .hero-film { margin-top: 36px; }
   .film-caption { align-items: flex-start; gap: 12px; }
   .film-caption h2 { max-width: 190px; font-size: .76rem; line-height: 1.5; }
@@ -188,7 +193,5 @@
 }
 @media (max-width: 360px) {
   .homepage h1 { font-size: 2.5rem; }
-  .hero-benefits { grid-template-columns: 1fr; }
-  .hero-benefits .hero-setup-benefit { grid-column: 1; }
-  .hero-value-number strong { font-size: 2.6rem; }
+  .hero-value-number strong { font-size: 3.2rem; }
 }
