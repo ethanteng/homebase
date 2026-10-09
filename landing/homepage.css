@@ -159,6 +159,7 @@
      sat between them and outshone the price; setup time and access anywhere are covered below.
      The header's button only repeated the form a few lines down. */
   .hero-benefits, .homepage .header-cta { display: none; }
+  .homepage .faq-link { display: inline; }
   .hero-conversion { margin-top: 22px; padding: 20px 16px 14px; border: 1px solid #d3e2f2; border-radius: 16px; background: #fff; box-shadow: 0 14px 36px #29486c14; }
   .hero-value-number { justify-content: center; gap: 12px; }
   .hero-value-number strong { font-size: 3.6rem; }
