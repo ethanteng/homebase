@@ -138,6 +138,18 @@ node landing/acquisition-pages.mjs
 
 `/partners-one-pager` is the printable US Letter version (marked `noindex`). Open it and use **Print or save as PDF**; it fits on one page.
 
+## FAQ page
+
+`/faq` answers the questions visitors ask most, gathered from real conversations. Every footer except the partner pitch's links to it as “FAQ”; it is not in the site header. It shares the comparison pages' question list (the `.faq-list` styles in `styles.css`); its own styles are in `faq.css`.
+
+The questions and answers live in [`faq-questions.mjs`](faq-questions.mjs), which writes both the list and the page's FAQPage structured data, so the two can't disagree. Edit them there, then regenerate:
+
+```sh
+node landing/faq-questions.mjs
+```
+
+The page's title and description stay in `faq.html` and name the structured data too. `faq.test.cjs` fails if `faq.html` is stale, if the title or description is too long, or if a full footer lacks the link.
+
 ## Storage page
 
 `/hardware` recommends OWC drives, by size and type; Uncloud is an OWC affiliate (through Impact), and the page says so under the table. The homepage and acquisition-page headers link to it as “Need more space?” (hidden at 700px and narrower, where it would wrap the header), and every footer links to it as “Buy more storage.” Its own styles are in `hardware.css`, and `hardware.js` adds filters by type (which hides the other columns) and minimum size (which hides smaller rows). The filters ship hidden, so without JavaScript the page is the whole table.

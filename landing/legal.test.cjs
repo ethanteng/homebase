@@ -8,7 +8,7 @@ const LEGAL = ['privacy', 'terms'];
 
 test('every public page links to the privacy policy and terms in its footer', async () => {
   const { SLUGS, render } = await import('./acquisition-pages.mjs');
-  const pages = { index: read('index.html'), hardware: read('hardware.html'), partners: read('partners.html') };
+  const pages = { index: read('index.html'), faq: read('faq.html'), hardware: read('hardware.html'), partners: read('partners.html') };
   for (const slug of [...SLUGS, ...LEGAL]) pages[slug] = SLUGS.includes(slug) ? render(slug) : read(`${slug}.html`);
   for (const [name, html] of Object.entries(pages)) {
     for (const slug of LEGAL) assert.match(footer(html), new RegExp(`<a href="/${slug}"`), `${name} footer lacks /${slug}`);

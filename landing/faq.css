@@ -1,0 +1,44 @@
+/* The /faq page. It shares styles.css with the homepage, including the question list; these are its own pieces. */
+
+.faq-hero {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: clamp(40px, 5vw, 72px) 0 0;
+  text-align: center;
+}
+
+/* Sized for this page at every width, so the homepage's h1 breakpoints don't apply. */
+.faq-hero h1 { margin-top: 20px; font-size: clamp(2.6rem, 4.8vw, 4.5rem); }
+.faq-hero .hero-detail { margin-top: 24px; }
+.faq-hero a { color: var(--blue-strong); text-decoration: underline; text-underline-offset: 2px; }
+
+.faq-questions { padding: clamp(8px, 1vw, 16px) 0 clamp(56px, 7vw, 96px); }
+
+/* The closing call to action, as on the storage page. */
+.faq-join {
+  margin-bottom: clamp(64px, 8vw, 110px);
+  padding: clamp(40px, 6vw, 72px) clamp(24px, 4.5vw, 56px);
+  border: 1px solid #d1e1f3;
+  border-radius: 28px;
+  background: linear-gradient(135deg, #edf4fc, #fff);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.faq-join h2 {
+  max-width: 760px;
+  margin: 17px auto 0;
+  font-size: clamp(2rem, 3.4vw, 3rem);
+  line-height: 1.08;
+  letter-spacing: -.05em;
+  text-wrap: balance;
+}
+
+.faq-join .access-offer { max-width: 690px; margin: 28px auto 22px; text-wrap: balance; }
+.faq-join .primary-link { display: inline-flex; align-items: center; justify-content: center; padding: 0 28px; }
+.faq-join .trial-note { margin-top: 14px; font-size: clamp(1.05rem, 1.5vw, 1.2rem); font-weight: 500; line-height: 1.55; }
+.faq-join .trial-note span { font-weight: 750; }
+
+@media (max-width: 620px) {
+  .faq-join { border-radius: 22px; }
+}
