@@ -526,6 +526,45 @@ h1 span {
 .video-card__footer p { color: var(--muted); }
 .video-card__footer a { color: var(--blue-strong); text-decoration: underline; text-underline-offset: 3px; }
 
+/* Questions and answers, on the FAQ page and the comparison pages. */
+.faq-list { max-width: 860px; margin: 36px auto 0; border-top: 1px solid var(--line); }
+.faq-list details { border-bottom: 1px solid var(--line); }
+
+.faq-list summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: 1.12rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -.02em;
+}
+
+.faq-list summary::-webkit-details-marker { display: none; }
+.faq-list summary:focus-visible { outline: 3px solid rgba(42, 127, 240, 0.5); outline-offset: 4px; }
+.faq-list summary :is(h2, h3) { font: inherit; letter-spacing: inherit; }
+
+.faq-sign {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #dce3ea;
+  border-radius: 50%;
+  background: #f0f6fd;
+  color: var(--blue-strong);
+  font-weight: 600;
+  transition: transform .15s ease;
+}
+
+.faq-list details[open] .faq-sign { transform: rotate(45deg); }
+.faq-list details p { max-width: 720px; padding: 0 52px 24px 0; color: var(--muted); font-size: 1rem; line-height: 1.65; text-wrap: pretty; }
+
 @media (max-width: 1024px) {
   .hero { padding-top: 36px; }
   h1 { font-size: clamp(3rem, 5.6vw, 3.7rem); }
@@ -577,6 +616,8 @@ h1 span {
   .pricing-includes { padding: 28px 0 0; border-left: 0; border-top: 1px solid #d1e1f3; }
   .pricing .section-heading { text-align: left; }
   .pricing-link { display: none; }
+  .faq-list summary { font-size: 1.02rem; }
+  .faq-list details p { padding-right: 0; }
 }
 
 @media (max-width: 380px) {

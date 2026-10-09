@@ -128,44 +128,6 @@
 
 .faq { padding-bottom: clamp(64px, 8vw, 110px); scroll-margin-top: 28px; }
 .faq .section-heading { text-align: center; }
-.faq-list { max-width: 860px; margin: 36px auto 0; border-top: 1px solid var(--line); }
-.faq-list details { border-bottom: 1px solid var(--line); }
-
-.faq-list summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 22px 0;
-  cursor: pointer;
-  list-style: none;
-  font-size: 1.12rem;
-  font-weight: 700;
-  line-height: 1.4;
-  letter-spacing: -.02em;
-}
-
-.faq-list summary::-webkit-details-marker { display: none; }
-.faq-list summary:focus-visible { outline: 3px solid rgba(42, 127, 240, 0.5); outline-offset: 4px; }
-.faq-list summary h3 { font: inherit; letter-spacing: inherit; }
-
-.faq-sign {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid #dce3ea;
-  border-radius: 50%;
-  background: #f0f6fd;
-  color: var(--blue-strong);
-  font-weight: 600;
-  transition: transform .15s ease;
-}
-
-.faq-list details[open] .faq-sign { transform: rotate(45deg); }
-.faq-list details p { max-width: 720px; padding: 0 52px 24px 0; color: var(--muted); font-size: 1rem; line-height: 1.65; text-wrap: pretty; }
-
 .join {
   margin-bottom: clamp(64px, 8vw, 110px);
   padding: clamp(40px, 6vw, 80px) clamp(24px, 4.5vw, 56px);
@@ -223,7 +185,5 @@
   .cost-table tbody th { font-size: .8rem; }
   .cost-table tbody td { font-size: .82rem; }
   .faq .section-heading { text-align: left; }
-  .faq-list summary { font-size: 1.02rem; }
-  .faq-list details p { padding-right: 0; }
   .join { padding: 36px 20px; border-radius: 22px; }
 }
