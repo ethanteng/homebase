@@ -113,6 +113,7 @@ input:focus-visible {
   gap: 14px;
 }
 
+.faq-link,
 .pricing-link,
 .space-link {
   padding: 10px 4px;
@@ -120,8 +121,10 @@ input:focus-visible {
   font-weight: 650;
 }
 
+.faq-link:hover,
 .pricing-link:hover,
-.space-link:hover { color: var(--blue-strong); }
+.space-link:hover,
+.faq-link[aria-current="page"] { color: var(--blue-strong); }
 
 .github-link,
 .youtube-link,
@@ -615,7 +618,8 @@ h1 span {
   .pricing-card { grid-template-columns: 1fr; padding: 28px 24px; border-radius: 22px; }
   .pricing-includes { padding: 28px 0 0; border-left: 0; border-top: 1px solid #d1e1f3; }
   .pricing .section-heading { text-align: left; }
-  .pricing-link { display: none; }
+  /* No room beside a Get early access button. The homepage and comparison pages hide theirs, and keep the FAQ link. */
+  .pricing-link, .faq-link { display: none; }
   .faq-list summary { font-size: 1.02rem; }
   .faq-list details p { padding-right: 0; }
 }
