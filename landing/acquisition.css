@@ -160,6 +160,7 @@
   /* As on the homepage: the headline and its support, then the offer in a card. The header's button
      only repeated the form below it, and the setup steps further down give the setup time. */
   .acquisition .header-cta, .compare-setup { display: none; }
+  .acquisition .faq-link { display: inline; }
   .compare-offer { padding: 20px 16px 14px; border: 1px solid #d3e2f2; border-radius: 16px; background: #fff; box-shadow: 0 14px 36px #29486c14; }
   .compare-price { justify-content: center; gap: 12px; }
   .compare-price strong { font-size: 3.6rem; }

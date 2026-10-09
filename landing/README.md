@@ -140,7 +140,7 @@ node landing/acquisition-pages.mjs
 
 ## FAQ page
 
-`/faq` answers the questions visitors ask most, gathered from real conversations. Every footer except the partner pitch's links to it as “FAQ”; it is not in the site header. It shares the comparison pages' question list (the `.faq-list` styles in `styles.css`); its own styles are in `faq.css`.
+`/faq` answers the questions visitors ask most, gathered from real conversations. Every page with the full header and footer links to it as “FAQ” in both; the partner pitch, with its own minimal header and footer, doesn't. On phones the link stays in the homepage and comparison-page headers, which hide their “Get early access” button there, and drops from the others' along with “Pricing”. It shares the comparison pages' question list (the `.faq-list` styles in `styles.css`); its own styles are in `faq.css`.
 
 The questions and answers live in [`faq-questions.mjs`](faq-questions.mjs), which writes both the list and the page's FAQPage structured data, so the two can't disagree. Edit them there, then regenerate:
 
@@ -148,7 +148,7 @@ The questions and answers live in [`faq-questions.mjs`](faq-questions.mjs), whic
 node landing/faq-questions.mjs
 ```
 
-The page's title and description stay in `faq.html` and name the structured data too. `faq.test.cjs` fails if `faq.html` is stale, if the title or description is too long, or if a full footer lacks the link.
+The page's title and description stay in `faq.html` and name the structured data too. `faq.test.cjs` fails if `faq.html` is stale, if the title or description is too long, or if a full header or footer lacks the link.
 
 ## Storage page
 

@@ -303,6 +303,7 @@ ${indent(jsonLd(structuredData(slug, p)), 6)}
             ${GITHUB}
           </a>
           <a class="space-link" href="/hardware">Need more space?</a>
+          <a class="faq-link" href="/faq">FAQ</a>
           <a class="pricing-link" href="#pricing">Pricing</a>
           <a class="header-cta" href="#early-access">Get early access</a>
         </div>
