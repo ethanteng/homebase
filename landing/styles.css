@@ -566,7 +566,9 @@ h1 span {
 }
 
 .faq-list details[open] .faq-sign { transform: rotate(45deg); }
-.faq-list details p { max-width: 720px; padding: 0 52px 24px 0; color: var(--muted); font-size: 1rem; line-height: 1.65; text-wrap: pretty; }
+.faq-list details p { max-width: 720px; padding: 0 52px 0 0; color: var(--muted); font-size: 1rem; line-height: 1.65; text-wrap: pretty; }
+.faq-list details p + p { margin-top: 12px; }
+.faq-list details p:last-child { padding-bottom: 24px; }
 
 @media (max-width: 1024px) {
   .hero { padding-top: 36px; }
