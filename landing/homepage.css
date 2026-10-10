@@ -10,10 +10,10 @@
 .homepage .hero-description { margin-top: 22px; }
 .homepage .hero-description strong { font-size: clamp(1.2rem, 2vw, 1.55rem); line-height: 1.45; font-weight: 650; }
 .homepage .hero-description > span { display: block; margin-top: 6px; color: #5c6a80; font-size: .95rem; line-height: 1.6; }
-.hero-benefits { display: grid; grid-template-columns: max-content max-content; gap: 12px 20px; padding: 0; margin: 20px 0 0; list-style: none; font-size: .85rem; line-height: 1.5; }
-.hero-benefits li > span { margin-right: 5px; color: var(--blue-strong); }
-.hero-benefits .hero-setup-benefit { grid-column: 1 / -1; justify-self: start; padding: 10px 14px; border-radius: 9px; background: #e5f0ff; color: #264a78; font-size: 1rem; }
-.hero-setup-benefit strong { color: var(--blue-strong); font-weight: 750; }
+/* Three equal points on one line, short enough for the 413px column at 1280px; they wrap rather than crowd if a font runs wider. */
+.hero-benefits { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0; margin: 18px 0 0; list-style: none; color: #3b4a5e; font-size: .85rem; line-height: 1.5; }
+.hero-benefits li { white-space: nowrap; }
+.hero-benefits li > span { margin-right: 5px; color: var(--blue-strong); font-weight: 700; }
 .hero-conversion { max-width: 510px; margin-top: 24px; padding-top: 22px; border-top: 1px solid #d8e3ef; }
 .hero-value-number { display: flex; align-items: center; gap: 10px; }
 .hero-value-number strong { color: var(--blue-strong); font-size: clamp(2.9rem, 4.2vw, 3.75rem); letter-spacing: -.065em; line-height: 1.05; font-weight: 800; }
