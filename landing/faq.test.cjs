@@ -17,7 +17,7 @@ test('the FAQ structured data lists the questions shown on the page', async () =
   const { QUESTIONS } = await load();
   const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
   const faq = ld['@graph'].find((node) => node['@type'] === 'FAQPage');
-  assert.deepEqual(faq.mainEntity.map((q) => [q.name, q.acceptedAnswer.text]), QUESTIONS.map((f) => [f.q, f.a]));
+  assert.deepEqual(faq.mainEntity.map((q) => [q.name, q.acceptedAnswer.text]), QUESTIONS.map((f) => [f.q, f.a.join(' ')]));
   assert.equal((html.match(/<details>/g) || []).length, QUESTIONS.length);
 });
 
