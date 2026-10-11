@@ -1181,9 +1181,6 @@ tbody tr.selected {
     height: 49px;
     padding: 0 21px;
   }
-  .topbar .private-label {
-    font-size: 11px;
-  }
   .main-content {
     padding: 28px 19px;
   }
@@ -2253,14 +2250,6 @@ tbody tr.selected {
 .add-room.level-critical strong {
   color: var(--danger-text);
 }
-@media (max-width: 580px) {
-  /* On a phone the sidebar's card is gone, so the top bar keeps the space left and gives up the
-     privacy note, which every page's heading already says. */
-  .topbar-status .private-label {
-    display: none;
-  }
-}
-
 /* Registering a Dropbox app is folded away wherever one is already working, because the four
    steps for making one are then an answer to a question nobody asked. A disclosure rather than
    a removal: wanting your own app is legitimate, and this stays the place to say so. */

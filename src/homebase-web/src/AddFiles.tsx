@@ -517,7 +517,7 @@ export default function AddFiles({
           {sources.canAddFolders && (
             <SourceCard
               icon={<Laptop size={22} strokeWidth={1.5} />}
-              name="This computer"
+              name="Host computer"
               detail="Folders and drives on the computer Uncloud runs on"
               onClick={() => go({ at: "computer" })}
             />
@@ -570,7 +570,7 @@ export default function AddFiles({
   // Where the dialog is, from the top, as something to click back along.
   const root =
     where.at === "computer" || (where.at === "place" && place?.mine)
-      ? { name: "This computer", to: { at: "computer" } as Where }
+      ? { name: "Host computer", to: { at: "computer" } as Where }
       : where.at === "device"
         ? { name: "This device", to: where }
         : where.at === "shared" || where.at === "place"
@@ -609,7 +609,7 @@ export default function AddFiles({
     </div>
   );
 
-  // This computer, from the top: the folders on it, whether used before or not, all alike.
+  // Host computer, from the top: the folders on it, whether used before or not, all alike.
   if (where.at === "computer") {
     const rows = [
       ...mine.map((candidate) => ({ key: candidate.id, place: candidate, suggestion: null })),

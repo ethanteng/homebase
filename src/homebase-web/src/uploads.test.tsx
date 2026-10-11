@@ -163,7 +163,7 @@ describe("adding files from this device", () => {
 
     // The host's own folders stay with whoever looks after it; this device is everybody's.
     expect(await screen.findByText("This device")).toBeInTheDocument();
-    expect(screen.queryByText("This computer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Host computer")).not.toBeInTheDocument();
     await click(screen.getByText("This device"));
     expect(screen.getByText("Trips", { selector: "strong" })).toBeInTheDocument();
 

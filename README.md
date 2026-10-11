@@ -266,7 +266,7 @@ On **My files**, click **Add files** and choose where they are:
   other ways in, the page is what's sending them. **Stop** ends it early, and then nothing from it
   is added. Something already there with the same name is kept, and what you add arrives beside it
   as "name 2".
-- **This computer** (for whoever looks after Uncloud): the folders and drives on the host, such as
+- **Host computer** (for whoever looks after Uncloud): the folders and drives on the host, such as
   Documents, Pictures, an old backup drive, or the folder your Dropbox or Google Drive app keeps.
   Open one to look inside, or add the whole thing. **Choose another folder…** finds anything else.
 - **Dropbox.** Click **Connect Dropbox** and sign in — there is nothing to set up first. Uncloud can
@@ -282,7 +282,7 @@ On **My files**, click **Add files** and choose where they are:
 like. Files you already added stay where they are; only Uncloud's way back into Dropbox goes.
 
 Google Drive and Evernote are coming. Until then, the folder the Google Drive app keeps on the host
-works under **This computer**.
+works under **Host computer**.
 
 Click **Add** next to a file or folder to bring just that. To bring more at once, the row above the
 list shows how big everything in the folder you're looking at is — all of Dropbox, at its top — and

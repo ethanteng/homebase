@@ -395,10 +395,6 @@ export default function App() {
             </strong>
           </div>
           <span className="topbar-status">
-            <span className="private-label">
-              <span className="status-dot" />
-              Yours alone
-            </span>
             {hasFolder && <StoragePill storage={storage} />}
           </span>
         </header>
