@@ -253,7 +253,7 @@ The app sets this up once, through macOS's password prompt, with
   The first line deletes everybody's files and accounts unless they were on a drive; copy them out
   first (as root) if they're wanted.
 
-`_uncloud` can't read anybody's folders, so **This computer** under **Add files** reaches them
+`_uncloud` can't read anybody's folders, so **Host computer** under **Add files** reaches them
 through the menu-bar app, running as the person signed in: it answers on
 `/Library/Application Support/Uncloud/Bridge/host-folders.sock`, in a folder owned by that person
 with group `_uncloud` and mode `0750`, so only the two can open it. The server asks it for
@@ -288,7 +288,7 @@ WantedBy=multi-user.target
 ```
 
 `/opt/uncloud` is a `dotnet publish` of `src/Homebase.Server` (as `scripts/publish-macos.sh` does
-for macOS, with `-r linux-x64`). **This computer** then only offers folders the `uncloud` user can
+for macOS, with `-r linux-x64`). **Host computer** then only offers folders the `uncloud` user can
 read.
 
 
@@ -472,7 +472,7 @@ works for every service at once. If a desktop app already syncs a folder onto th
 Dropbox, Google Drive, OneDrive, iCloud Drive — add from that folder. An old external drive or a
 `Documents` folder works exactly the same way.
 
-**This computer** lists the folders Uncloud finds (`Desktop`, `Documents`, `Downloads`, `Pictures`,
+**Host computer** lists the folders Uncloud finds (`Desktop`, `Documents`, `Downloads`, `Pictures`,
 `~/Dropbox`, `~/Google Drive`, `~/Library/CloudStorage/*`, and drives under `/Volumes`, leaving out
 an app's installer left open — a drive holding nothing but an `.app` and a shortcut to
 Applications) alongside any already used, all alike: open one and browse it, or add the whole
