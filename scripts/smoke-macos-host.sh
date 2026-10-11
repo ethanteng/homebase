@@ -160,6 +160,21 @@ upload "$holiday" "Somewhere warm"
 private "$base/Files" "$holiday"
 echo "Moved into its own account, which nobody signed in here can look into."
 
+# --- An update that can't start leaves the one before running -------------------------------------
+sudo ditto "$built" "$broken"
+printf '#!/bin/sh\nexit 1\n' | sudo tee "$broken/Contents/MacOS/Homebase.Server" >/dev/null
+sudo chmod 755 "$broken/Contents/MacOS/Homebase.Server"
+if said="$(sudo /bin/bash "$broken/Contents/Resources/uncloud-host.sh" install --app "$broken" --owner "$USER" 2>&1)"; then
+  fail "Updating to a server that can't start reported success."
+fi
+grep -q "carries on as it was before" <<<"$said" || fail "A failed update didn't say what happened: $said"
+sudo rm -rf "$broken"
+answering
+[[ "$(api GET /api/session | json user username)" == ada ]] || fail "After a failed update, Uncloud didn't carry on as it was."
+cmp -s "$app/Contents/MacOS/Homebase.Server" "$base/Server/Homebase.Server" ||
+  fail "After a failed update, the service isn't running the copy it ran before."
+echo "An update that couldn't start left the version before it running."
+
 # --- This Mac's folders, read by the app as the person signed in here -------------------------------
 home="$work/home"
 mkdir -p "$home/Library/Application Support/Uncloud" "$home/Documents/Letters"

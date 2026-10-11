@@ -308,18 +308,20 @@ only_uncloud() {
   [[ -z "$entries" ]] || ! grep -qvxE 'users|\.homebase|\.DS_Store' <<<"$entries"
 }
 
-# What moving in has done so far, so that if Uncloud then doesn't start, it can all be put back and
-# the Uncloud that ran as this person carries on exactly as it was.
+# What this run has changed so far, so that if it stops part way — Uncloud doesn't start, a disk
+# fills, anything — it can all be put back, and whatever ran before carries on exactly as it was.
+changing=false
 migrated_from=""
 moved=()
 given=()
 root_was=""
 made_root=""
 
-# Gives a folder to Uncloud's account, remembering it was the owner's.
+# Gives a folder to Uncloud's account, remembering it was somebody else's. One already Uncloud's —
+# an earlier library being chosen again — is not handed to anybody if this fails.
 give() {
+  if [[ "$(stat -f %Su "$1")" != "$account" ]]; then given+=("$1"); fi
   take "$1"
-  given+=("$1")
 }
 
 move() {
@@ -327,9 +329,8 @@ move() {
   moved+=("$1|$2")
 }
 
-undo_migration() {
+undo() {
   local group i pair
-  [[ -n "$migrated_from" ]] || return 0
   group="$(id -gn "$owner")"
   stop_service
   if ((${#given[@]})); then
@@ -342,10 +343,24 @@ undo_migration() {
   done
   # A folder made to hold what moved, empty again now.
   if [[ -n "$made_root" ]]; then rmdir "$made_root" 2>/dev/null || true; fi
-  find "$host" -xdev -exec chown -h "$owner:$group" {} +
-  mv "$host" "$migrated_from"
-  migrated_from=""
-  echo "Everything was put back as it was, and Uncloud runs as $owner again." >&2
+  if [[ -n "$migrated_from" ]]; then
+    find "$host" -xdev -exec chown -h "$owner:$group" {} +
+    mv "$host" "$migrated_from"
+  fi
+  rm -rf "$payload.new"
+  if $had_service; then
+    # The service that was running, running again from the copy it ran before.
+    restore_payload
+    launchctl bootstrap system "$plist" 2>/dev/null || true
+    echo "Uncloud carries on as it was before." >&2
+  else
+    rm -f "$plist" "$rotation"
+    if [[ -n "$migrated_from" ]]; then
+      echo "Everything was put back as it was, and Uncloud runs as $owner again." >&2
+    else
+      echo "Nothing was left changed." >&2
+    fi
+  fi
 }
 
 migrate() {
@@ -422,11 +437,11 @@ migrate() {
   fi
 }
 
-# Anything that stops the script part way through moving in puts it all back.
+# Anything that stops installing part way puts it all back.
 finished=false
 on_exit() {
   local status=$?
-  if ((status != 0)) && ! $finished && [[ -n "$migrated_from" ]]; then undo_migration || true; fi
+  if ((status != 0)) && $changing && ! $finished; then undo || true; fi
 }
 trap on_exit EXIT
 
@@ -526,15 +541,8 @@ start_service() {
       sleep 1
     done
   fi
-  # A service set up just now that can't start is taken away again, rather than left failing in
-  # the background. One that was already there goes back to the copy it ran before.
-  stop_service
-  if $had_service; then
-    restore_payload
-    launchctl bootstrap system "$plist" 2>/dev/null || true
-  else
-    rm -f "$plist" "$rotation"
-  fi
+  # Failing here undoes the rest: a service set up just now is taken away again rather than left
+  # failing in the background, and one that was already there goes back to what it ran before.
   fail "Uncloud didn’t start. What went wrong is in $logs, which only an administrator can open: sudo tail \"$logs/server.log\"."
 }
 
@@ -550,6 +558,8 @@ install() {
 
   if [[ -f "$plist" ]]; then had_service=true; fi
   ensure_account
+  # From here on, anything that fails is undone.
+  changing=true
   stop_service
   own_dir "$base" root:wheel 755
   install_payload
@@ -565,7 +575,8 @@ install() {
   start_root="$files"
   if [[ -n "$root" ]]; then
     start_root="$(target_in "$root")"
-    protect "$start_root"
+    check_protectable "$start_root"
+    give "$start_root"
   fi
 
   write_service "$start_root"
