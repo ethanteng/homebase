@@ -93,22 +93,55 @@ sudo ditto "$built" "$app"
 legacy="$HOME/Library/Application Support/Homebase"
 old_files="$HOME/Uncloud Files"
 mkdir -p "$old_files"
-Homebase__Announce=false "$app/Contents/MacOS/Homebase.Server" >"$work/legacy.log" 2>&1 &
-legacy_pid=$!
-answering
+# The folder chosen back then already had somebody's own things in it, which Uncloud promised to leave.
+echo "Mine alone" >"$old_files/My own notes.txt"
+run_legacy() {
+  Homebase__Announce=false "$app/Contents/MacOS/Homebase.Server" >>"$work/legacy.log" 2>&1 &
+  legacy_pid=$!
+  answering
+}
+stop_legacy() {
+  kill "$legacy_pid"
+  wait "$legacy_pid" 2>/dev/null || true
+}
+run_legacy
 api POST /api/setup -d "$(body username ada displayName Ada password 'correct horse battery')" >/dev/null
 api PUT /api/host -d "$(body path "$old_files")" >/dev/null
 upload "$diary" "Dear diary"
 find "$old_files/users" -name "$diary" | grep -q . || fail "The diary didn't arrive where it should have."
 echo "Ran as $USER, which could list everybody's files."
-kill "$legacy_pid"
-wait "$legacy_pid" 2>/dev/null || true
+stop_legacy
+
+# --- A move that can't finish puts everything back ------------------------------------------------
+# A copy of the app whose server never starts, so the service can't come up after moving in.
+broken=/Applications/Broken.app
+sudo rm -rf "$broken"
+sudo ditto "$built" "$broken"
+printf '#!/bin/sh\nexit 1\n' | sudo tee "$broken/Contents/MacOS/Homebase.Server" >/dev/null
+sudo chmod 755 "$broken/Contents/MacOS/Homebase.Server"
+if said="$(sudo /bin/bash "$broken/Contents/Resources/uncloud-host.sh" install --app "$broken" --owner "$USER" --legacy-config "$legacy" 2>&1)"; then
+  fail "Setting up a server that can't start reported success."
+fi
+grep -q "put back as it was" <<<"$said" || fail "A failed move didn't say what happened: $said"
+[[ -f "$legacy/homebase.db" ]] || fail "A failed move didn't put the settings back in $legacy."
+[[ "$(stat -f %Su "$legacy/homebase.db")" == "$USER" ]] || fail "A failed move left the settings with Uncloud's account."
+find "$old_files/users" -name "$diary" | grep -q . || fail "A failed move didn't put everybody's files back."
+[[ ! -e "$base/Host/homebase.db" && ! -e /Library/LaunchDaemons/life.uncloud.host.plist ]] ||
+  fail "A failed move left a service or settings behind."
+sudo rm -rf "$broken"
+run_legacy
+[[ "$(api GET /api/session | json user username)" == ada ]] || fail "After a failed move, Uncloud didn't carry on as it was."
+listed "$diary" || fail "After a failed move, Ada's diary is missing."
+stop_legacy
+echo "A move that couldn't finish put everything back, and Uncloud ran as before."
 
 # --- Moved into an account of its own --------------------------------------------------------------
 sudo /bin/bash "$script" install --app "$app" --owner "$USER" --legacy-config "$legacy"
 answering
 [[ ! -e "$legacy" ]] || fail "The old settings are still in $legacy."
-[[ ! -e "$old_files" ]] || fail "Everybody's files are still in $old_files."
+[[ ! -e "$old_files/users" ]] || fail "Everybody's files are still in $old_files."
+# What was somebody's own stays where it was, and still theirs.
+[[ "$(cat "$old_files/My own notes.txt")" == "Mine alone" ]] || fail "The notes that were already there moved or changed hands."
 # The same account, and the same session, carry on as they were.
 [[ "$(api GET /api/session | json user username)" == ada ]] || fail "Ada's session didn't survive the move."
 [[ "$(api GET /api/host | json rootPath)" == "$base/Files" ]] || fail "Everybody's files aren't in $base/Files."

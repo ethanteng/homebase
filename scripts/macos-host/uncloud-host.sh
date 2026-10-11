@@ -46,7 +46,7 @@ fail() {
 
 verb="${1:-}"
 if (($#)); then shift; fi
-app="" owner="" root="" legacy="" folder=""
+app="" owner="" root="" legacy="" folder="" had_service=false
 while (($#)); do
   case "$1" in
     --app) app="${2:?}"; shift 2 ;;
@@ -87,7 +87,7 @@ ensure_account() {
     dscl . -create "/Groups/$account" RealName "Uncloud"
     dscl . -create "/Groups/$account" Password '*'
   fi
-  gid="$(dscl . -read "/Groups/$account" PrimaryGroupID | awk '{ print $2 }')"
+  gid="$(attribute "/Groups/$account" PrimaryGroupID)"
   if ! dscl . -read "/Users/$account" UniqueID >/dev/null 2>&1; then
     dscl . -create "/Users/$account"
     dscl . -create "/Users/$account" UniqueID "$id"
@@ -97,6 +97,33 @@ ensure_account() {
     dscl . -create "/Users/$account" RealName "Uncloud"
     dscl . -create "/Users/$account" Password '*'
     dscl . -create "/Users/$account" IsHidden 1
+  fi
+  verify_account
+}
+
+# One attribute of a user or group, read as a property list, so a value with spaces in it — a
+# home folder in Application Support — comes back whole.
+attribute() {
+  dscl -plist . -read "$1" "$2" 2>/dev/null | plutil -extract "dsAttrTypeStandard:$2.0" raw -o - - 2>/dev/null || true
+}
+
+# Everybody's files are about to belong to this account, so it has to be the one Uncloud made, or
+# would have: a role account nobody can sign in to, with no password, no shell, nobody else in its
+# group, and Uncloud's folder for a home. One that is anything else — made by somebody, for
+# something else — is refused rather than trusted.
+verify_account() {
+  local id gid group shell home
+  id="$(attribute "/Users/$account" UniqueID)"
+  gid="$(attribute "/Users/$account" PrimaryGroupID)"
+  group="$(attribute "/Groups/$account" PrimaryGroupID)"
+  shell="$(attribute "/Users/$account" UserShell)"
+  home="$(attribute "/Users/$account" NFSHomeDirectory)"
+  if ! [[ "$id" =~ ^[0-9]+$ ]] || ((id < 450 || id > 499)) ||
+    [[ "$gid" != "$group" || "$shell" != /usr/bin/false || "$home" != "$host" ]] ||
+    [[ -n "$(attribute "/Users/$account" AuthenticationAuthority)" ]] ||
+    [[ "$(attribute "/Users/$account" Password)" != "*" ]] ||
+    [[ -n "$(attribute "/Groups/$account" GroupMembership)" ]]; then
+    fail "This Mac already has an account called $account that Uncloud didn’t set up, so Uncloud won’t give it everyone’s files. An administrator can remove it in System Settings → Users & Groups, or with: sudo dscl . -delete /Users/$account"
   fi
 }
 
@@ -243,8 +270,61 @@ target_in() {
 
 setting() { sqlite3 "$1/homebase.db" "SELECT value FROM host_settings WHERE key = 'root_path'" 2>/dev/null || true; }
 
+set_root() {
+  sqlite3 "$host/homebase.db" \
+    "INSERT OR REPLACE INTO host_settings(key, value) VALUES ('root_path', '${1//\'/\'\'}')"
+}
+
+# Uncloud's own entries at the top of a host folder. Anything else there is somebody's, and stays.
+only_uncloud() {
+  local entries
+  entries="$(ls -A "$1")"
+  [[ -z "$entries" ]] || ! grep -qvxE 'users|\.homebase|\.DS_Store' <<<"$entries"
+}
+
+# What moving in has done so far, so that if Uncloud then doesn't start, it can all be put back and
+# the Uncloud that ran as this person carries on exactly as it was.
+migrated_from=""
+moved=()
+given=()
+root_was=""
+made_root=""
+
+# Gives a folder to Uncloud's account, remembering it was the owner's.
+give() {
+  find "$1" -xdev -exec chown -h "$account:$account" {} +
+  chmod 700 "$1"
+  given+=("$1")
+}
+
+move() {
+  mv "$1" "$2"
+  moved+=("$1|$2")
+}
+
+undo_migration() {
+  local group i pair
+  [[ -n "$migrated_from" ]] || return 0
+  group="$(id -gn "$owner")"
+  stop_service
+  if ((${#given[@]})); then
+    for i in "${given[@]}"; do find "$i" -xdev -exec chown -h "$owner:$group" {} +; done
+  fi
+  if [[ -n "$root_was" ]]; then set_root "$root_was"; fi
+  for ((i = ${#moved[@]} - 1; i >= 0; i--)); do
+    pair="${moved[i]}"
+    mv "${pair#*|}" "${pair%%|*}"
+  done
+  # A folder made to hold what moved, empty again now.
+  if [[ -n "$made_root" ]]; then rmdir "$made_root" 2>/dev/null || true; fi
+  find "$host" -xdev -exec chown -h "$owner:$group" {} +
+  mv "$host" "$migrated_from"
+  migrated_from=""
+  echo "Everything was put back as it was, and Uncloud runs as $owner again." >&2
+}
+
 migrate() {
-  local from="$1" home old moving=false
+  local from="$1" home old new_root="" whole=false entry
   [[ -d "$from" && ! -L "$from" ]] || return 0
   [[ -f "$from/homebase.db" ]] || return 0
   # Already moved in once: whatever is in Host now is the real one.
@@ -259,44 +339,70 @@ migrate() {
 
   # Everything that could refuse is asked first, while nothing has moved.
   if [[ -n "$old" ]]; then
-    [[ -d "$old" ]] ||
+    [[ -d "$old" && ! -L "$old" ]] ||
       fail "Everyone’s files are in “$old”, which isn’t there right now. If it’s on a drive, plug it in, then try again."
-    home="$(dscl . -read "/Users/$owner" NFSHomeDirectory | awk '{ $1 = ""; sub(/^ /, ""); print }')"
+    home="$(attribute "/Users/$owner" NFSHomeDirectory)"
     case "$old" in
       "$home"/*)
-        # Nobody else may pass through a home folder, Uncloud's account included, so the files
-        # move out of it: a rename on the same disk, which copies nothing.
-        moving=true
+        # Nobody else may pass through a home folder, Uncloud's account included, so everyone's
+        # files move out of it: a rename on the same disk, which copies nothing.
+        new_root="$files"
         if [[ -e "$files" || -L "$files" ]]; then
           { [[ -d "$files" && ! -L "$files" ]] && is_empty "$files"; } ||
             fail "$files already has something in it, so Uncloud’s files can’t be moved there."
         fi
         ;;
-      *) check_protectable "$old" ;;
+      *)
+        check_protectable "$old"
+        new_root="$old"
+        ;;
     esac
+    if only_uncloud "$old"; then
+      whole=true
+    else
+      # Other things share the folder, and they stay where they are, still their owner's. Only
+      # Uncloud's own move, into a folder of its own.
+      if [[ "$new_root" == "$old" ]]; then
+        new_root="$old/Uncloud"
+        [[ ! -e "$new_root" && ! -L "$new_root" ]] ||
+          fail "“$old” already has something called Uncloud in it, so Uncloud’s files can’t be moved there. Rename it, then try again."
+      fi
+    fi
   fi
 
   rmdir "$host" 2>/dev/null || true
   [[ ! -e "$host" ]] || fail "$host already has something in it, so Uncloud’s settings weren’t moved there."
   mv "$from" "$host"
+  migrated_from="$from"
 
-  if $moving; then
+  [[ -n "$old" ]] || return 0
+  if [[ "$new_root" == "$old" ]]; then
+    give "$old"
+  elif $whole; then
     rmdir "$files" 2>/dev/null || true
-    if ! mv "$old" "$files"; then
-      # Put back as it was, so the Uncloud that ran as this person still finds everything.
-      mv "$host" "$from" || true
-      fail "Uncloud couldn’t move its files out of “$old”. Move that folder somewhere outside your home folder, choose it in Uncloud’s Settings, and try again."
-    fi
-    # Everything in it changes hands with it: the person it belonged to can't open it from here on,
-    # and Uncloud's account has to be able to.
-    find "$files" -xdev -exec chown -h "$account:$account" {} +
-    chmod 700 "$files"
-    sqlite3 "$host/homebase.db" \
-      "INSERT OR REPLACE INTO host_settings(key, value) VALUES ('root_path', '${files//\'/\'\'}')"
-  elif [[ -n "$old" ]]; then
-    protect "$old"
+    move "$old" "$files"
+    give "$files"
+    root_was="$old"
+    set_root "$files"
+  else
+    mkdir -p "$new_root"
+    made_root="$new_root"
+    for entry in users .homebase; do
+      if [[ -e "$old/$entry" ]]; then move "$old/$entry" "$new_root/$entry"; fi
+    done
+    give "$new_root"
+    root_was="$old"
+    set_root "$new_root"
   fi
 }
+
+# Anything that stops the script part way through moving in puts it all back.
+finished=false
+on_exit() {
+  local status=$?
+  if ((status != 0)) && ! $finished && [[ -n "$migrated_from" ]]; then undo_migration || true; fi
+}
+trap on_exit EXIT
 
 # --- The service ---------------------------------------------------------------------------------
 
@@ -361,11 +467,18 @@ stop_service() {
 
 start_service() {
   launchctl enable "system/$label"
-  launchctl bootstrap system "$plist" || fail "macOS wouldn’t start Uncloud’s background service."
-  for _ in $(seq 1 120); do
-    if curl -fsS -m 2 "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then return 0; fi
-    sleep 1
-  done
+  if launchctl bootstrap system "$plist"; then
+    for _ in $(seq 1 120); do
+      if curl -fsS -m 2 "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then return 0; fi
+      sleep 1
+    done
+  fi
+  # A service set up just now that can't start is taken away again, rather than left failing in
+  # the background. One that was already there stays, for Repair to try again.
+  if ! $had_service; then
+    stop_service
+    rm -f "$plist" "$rotation"
+  fi
   fail "Uncloud didn’t start. What went wrong is in $logs, which only an administrator can open: sudo tail \"$logs/server.log\"."
 }
 
@@ -379,6 +492,7 @@ install() {
     fail "Something is already answering where Uncloud runs. Quit it, then try again."
   fi
 
+  if [[ -f "$plist" ]]; then had_service=true; fi
   ensure_account
   stop_service
   own_dir "$base" root:wheel 755
@@ -400,6 +514,7 @@ install() {
 
   write_service "$server" "$start_root"
   start_service
+  finished=true
 }
 
 prepare() {
