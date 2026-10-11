@@ -208,6 +208,19 @@ upload "$diary" "Dear diary, on the drive"
 private "$target" "$diary"
 echo "A drive was opened to Uncloud, which keeps its files there, and nobody else can look."
 
+# A folder whose access list lets everyone in, and passes that on to whatever is made inside it.
+shared="/Users/Shared/uncloud-smoke-shared"
+mkdir -p "$shared"
+echo "Ours" >"$shared/ours.txt"
+chmod +a "everyone allow list,search,readattr,read,file_inherit,directory_inherit" "$shared"
+inside="$(sudo /bin/bash "$script" prepare --folder "$shared")"
+[[ "$inside" == "$shared/Uncloud" ]] || fail "A shared folder with things in it should get a folder of Uncloud's own, not $inside."
+listing="$(ls -led "$inside")"
+if grep -q '^ *[0-9]*: ' <<<"$listing"; then fail "$inside kept an access list: $listing"; fi
+if ls "$inside" >/dev/null 2>&1; then fail "$USER can list $inside through an access list."; fi
+[[ "$(cat "$shared/ours.txt")" == Ours ]] || fail "What was already in the shared folder changed."
+echo "A folder made inside a shared one didn't keep the access list that would have let everyone in."
+
 hdiutil create -size 64m -fs ExFAT -volname LooseDrive "$work/loose.dmg" >/dev/null
 hdiutil attach -nobrowse "$work/loose.dmg" >/dev/null
 if refused="$(sudo /bin/bash "$script" prepare --folder /Volumes/LooseDrive 2>&1)"; then

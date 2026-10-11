@@ -138,6 +138,17 @@ own_dir() {
   mkdir -p "$path"
   chown "$owner_group" "$path"
   chmod "$mode" "$path"
+  chmod -N "$path"
+}
+
+# Everything under a folder belonging to Uncloud's account alone. The owner and mode aren't enough:
+# an access list survives both and can still let anybody in, and one inherited from the folder
+# above is how a folder made inside a shared one arrives with it. Links keep theirs, which open
+# nothing.
+take() {
+  find "$1" -xdev -exec chown -h "$account:$account" {} +
+  find "$1" -xdev ! -type l -exec chmod -N {} +
+  chmod -h 700 "$1"
 }
 
 is_empty() {
@@ -248,8 +259,7 @@ check_protectable() {
 # Gives a folder, and everything in it on the same drive, to Uncloud's account alone.
 protect() {
   check_protectable "$1"
-  find "$1" -xdev -exec chown -h "$account:$account" {} +
-  chmod -h 700 "$1"
+  take "$1"
 }
 
 # Where in the chosen folder everyone's files go: the folder itself when it is empty or already
@@ -308,8 +318,7 @@ made_root=""
 
 # Gives a folder to Uncloud's account, remembering it was the owner's.
 give() {
-  find "$1" -xdev -exec chown -h "$account:$account" {} +
-  chmod -h 700 "$1"
+  take "$1"
   given+=("$1")
 }
 
@@ -432,7 +441,8 @@ install_payload() {
   [[ ! -L "$payload" && ! -L "$payload.new" && ! -L "$payload.old" ]] ||
     fail "$payload is a link, which Uncloud won't follow. Remove it and try again."
   rm -rf "$payload.new"
-  ditto --noqtn "$app/Contents/MacOS" "$payload.new"
+  # Without the app's access lists too, any of which could let somebody change the copy.
+  ditto --noqtn --noacl "$app/Contents/MacOS" "$payload.new"
   version="$(plutil -extract CFBundleVersion raw -o - "$app/Contents/Info.plist" 2>/dev/null || true)"
   printf '%s\n' "${version:-unknown}" >"$payload.new/.uncloud-version"
   chown -R root:wheel "$payload.new"
@@ -545,8 +555,7 @@ install() {
   install_payload
   own_dir "$host" "$account:$account" 700
   if [[ -n "$legacy" ]]; then migrate "$legacy"; fi
-  own_dir "$host" "$account:$account" 700
-  find "$host" -xdev -exec chown -h "$account:$account" {} +
+  take "$host"
   own_dir "$files" "$account:$account" 700
   # The app, as the person signed in here, answers on a socket in this folder. They make it;
   # Uncloud's account, through the folder's group, can open it; nobody else can reach it.
