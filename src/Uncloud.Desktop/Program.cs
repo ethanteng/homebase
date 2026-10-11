@@ -1,4 +1,5 @@
 using Avalonia;
+using Homebase.Core;
 using Microsoft.Extensions.Logging;
 
 namespace Uncloud.Desktop;

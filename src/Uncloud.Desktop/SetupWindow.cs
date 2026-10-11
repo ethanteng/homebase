@@ -3,16 +3,32 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
 using Homebase.Core.Sync;
 using QRCoder;
 
 namespace Uncloud.Desktop;
 
+/// <summary>What the setup window opens on, when it isn't the first question.</summary>
+public enum SetupStart
+{
+    /// <summary>Whatever comes next: the first question, or finding Uncloud for a computer.</summary>
+    Next,
+    Disconnect,
+    /// <summary>Moving a host that runs as the person signed in here into an account of its own.</summary>
+    KeepPrivate,
+    UseAnotherFolder,
+    TurnOff,
+    /// <summary>Bringing Uncloud itself up to date with an app that was updated.</summary>
+    Update
+}
+
 /// <summary>
 /// The one window the app has. First run asks what this computer is. A computer then finds the
 /// Uncloud on its network and shows a QR code for its owner to scan and approve on their phone —
-/// or pairs with a link or an address and code, as it always could. The host starts Uncloud and
-/// opens it in the browser, where the first account is made as it always has been.
+/// or pairs with a link or an address and code, as it always could. The host sets Uncloud up in an
+/// account of its own and opens it in the browser, where the first account is made as it always
+/// has been.
 /// </summary>
 public sealed class SetupWindow : Window
 {
@@ -26,7 +42,7 @@ public sealed class SetupWindow : Window
     // to approve — stopped when it moves on to something else or is closed.
     private CancellationTokenSource? _work;
 
-    public SetupWindow(DesktopController controller, string? link, bool disconnect)
+    public SetupWindow(DesktopController controller, string? link, SetupStart start = SetupStart.Next)
     {
         _controller = controller;
         Title = "Uncloud";
@@ -37,7 +53,11 @@ public sealed class SetupWindow : Window
         Content = _body;
         Closed += (_, _) => _work?.Cancel();
 
-        if (disconnect) ShowDisconnect();
+        if (start is SetupStart.Disconnect) ShowDisconnect();
+        else if (start is SetupStart.KeepPrivate) ShowKeepPrivate();
+        else if (start is SetupStart.UseAnotherFolder) ShowAnotherFolder();
+        else if (start is SetupStart.TurnOff) ShowTurnOff();
+        else if (start is SetupStart.Update) ShowUpdate();
         else if (link is not null) ShowCode(link);
         else if (controller.Settings.Mode is DesktopMode.Computer) ShowFind();
         else ShowChoice();
@@ -65,7 +85,7 @@ public sealed class SetupWindow : Window
         _body.Children.Add(Choice("Connect this computer to an Uncloud",
             "Your files appear in an Uncloud folder here, and stay in step both ways.", ShowFind));
         _body.Children.Add(Choice("Make this Mac the Uncloud host",
-            "Everyone’s files live here. Keep it on and awake while people use it.", ShowHost));
+            "Everyone’s files live here. Keep it on and awake while people use it.", () => ShowHost()));
     }
 
     private static Button Choice(string title, string detail, Action choose)
@@ -295,10 +315,38 @@ public sealed class SetupWindow : Window
         _body.Children.Add(open);
     }
 
-    private void ShowHost()
+    private void ShowHost(string? root = null)
     {
-        Reset("Make this Mac the host",
-            "Uncloud will run here from the menu bar, with everything it needs built in. Next, your browser opens to make the first account and choose where everyone’s files are kept.");
+        if (!_controller.CanSetUpPrivately)
+        {
+            Reset("Make this Mac the host",
+                "Uncloud will run here from the menu bar, with everything it needs built in. Next, your browser opens to make the first account and choose where everyone’s files are kept.");
+        }
+        else if (_controller.HasKeptHost)
+        {
+            Reset("Turn Uncloud on again",
+                "Uncloud kept everyone’s files and accounts on this Mac when it was turned off, still private to its own account. Starting it again picks them all up where they were. macOS asks for an administrator’s password.");
+        }
+        else
+        {
+            Reset("Make this Mac the host",
+                "Uncloud runs here in the background from now on, from the moment the Mac starts, in an account of its own that nobody signs in to. Everyone’s files belong to that account, so nobody using this Mac can look through them, in Finder or in Terminal. macOS asks for an administrator’s password once, to set it up.");
+            if (_controller.AsksWhereFilesGo)
+            {
+                var where = new TextBlock
+                {
+                    Text = root is null ? "Everyone’s files will be kept on this Mac." : $"Everyone’s files will be kept in {root}.",
+                    TextWrapping = TextWrapping.Wrap
+                };
+                _body.Children.Add(where);
+                _body.Children.Add(root is null
+                    ? Links(("Keep them on a drive or another folder instead", async () =>
+                    {
+                        if (await ChooseFolderAsync() is { } chosen) ShowHost(chosen);
+                    }))
+                    : Links(("Keep them on this Mac instead", () => ShowHost())));
+            }
+        }
         var start = new Button { Content = "Start Uncloud Here", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
         start.Click += async (_, _) =>
         {
@@ -306,9 +354,15 @@ public sealed class SetupWindow : Window
             start.Content = "Starting…";
             try
             {
-                await _controller.BecomeHostAsync(CancellationToken.None);
-                App.Open(_controller.Server!.Address.ToString());
+                await _controller.BecomeHostAsync(root, CancellationToken.None);
+                OpenAtLogin();
+                App.Open(DesktopController.HostAddress.ToString());
                 Close();
+            }
+            catch (OperationCanceledException)
+            {
+                start.IsEnabled = true;
+                start.Content = "Start Uncloud Here";
             }
             catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
             {
@@ -319,6 +373,191 @@ public sealed class SetupWindow : Window
         };
         _body.Children.Add(_problem);
         _body.Children.Add(start);
+        if (_controller.CannotSetUpPrivately is { } why)
+        {
+            Problem(why);
+            start.IsEnabled = false;
+        }
+    }
+
+    /// <summary>
+    /// For a host set up before Uncloud ran in an account of its own: everything moves across as it
+    /// is, and from then on nobody signed in here can look through anybody's files.
+    /// </summary>
+    private void ShowKeepPrivate()
+    {
+        Reset("Keep everyone’s files private",
+            "Uncloud on this Mac runs as you, so anyone signed in here can open everybody’s files in Finder or Terminal. It can run in an account of its own instead, which nobody signs in to. Then nobody using this Mac can look through them, and Uncloud starts with the Mac, before anyone signs in.");
+        _body.Children.Add(new TextBlock
+        {
+            Text = "Accounts, files and synced computers all carry on as they are. If everyone’s files are in your home folder, they move out of it, to a folder only Uncloud can open. macOS asks for an administrator’s password.",
+            TextWrapping = TextWrapping.Wrap
+        });
+        var later = new Button { Content = "Not Now" };
+        later.Click += (_, _) => Close();
+        var go = new Button { Content = "Continue", Background = Accent, Foreground = Brushes.White };
+        go.Click += async (_, _) =>
+        {
+            go.IsEnabled = later.IsEnabled = false;
+            go.Content = "Moving everything across…";
+            try
+            {
+                await _controller.KeepPrivateAsync(null, CancellationToken.None);
+                OpenAtLogin();
+                Reset("Everyone’s files are private",
+                    "They belong to Uncloud’s own account now. Nobody signed in to this Mac can look through them, and Uncloud starts with the Mac.");
+                Done();
+            }
+            catch (OperationCanceledException) { ShowKeepPrivate(); }
+            catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+            {
+                Problem(error.Message);
+                go.IsEnabled = later.IsEnabled = true;
+                go.Content = "Continue";
+            }
+        };
+        _body.Children.Add(_problem);
+        _body.Children.Add(Buttons(later, go));
+        if (_controller.CannotSetUpPrivately is { } why)
+        {
+            Problem(why);
+            go.IsEnabled = false;
+        }
+    }
+
+    /// <summary>
+    /// Opens a drive or folder to Uncloud's account so it can be chosen in Settings, which is the
+    /// only way a host in an account of its own can use a folder nobody opened to it.
+    /// </summary>
+    private void ShowAnotherFolder()
+    {
+        Reset("Keep everyone’s files somewhere else",
+            "Choose a drive, or a folder outside your home folder. Uncloud opens it to its own account, and then you choose it in Settings. If it already has things in it, Uncloud makes a folder called Uncloud inside, so nothing there changes hands. macOS asks for an administrator’s password.");
+        var choose = new Button { Content = "Choose Folder…", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
+        choose.Click += async (_, _) =>
+        {
+            if (await ChooseFolderAsync() is not { } chosen) return;
+            choose.IsEnabled = false;
+            choose.Content = "Opening it to Uncloud…";
+            try
+            {
+                var folder = await _controller.PrepareFolderAsync(chosen, CancellationToken.None);
+                Reset("Now choose it in Settings",
+                    "In Uncloud’s Settings, enter this folder as where everyone’s files are kept. The files already in Uncloud stay where they are until you move them.");
+                var path = new TextBox { Text = folder, IsReadOnly = true };
+                _body.Children.Add(path);
+                var settings = new Button { Content = "Open Settings", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
+                settings.Click += (_, _) =>
+                {
+                    App.Open(new Uri(DesktopController.HostAddress, "/?settings").ToString());
+                    Close();
+                };
+                _body.Children.Add(settings);
+            }
+            catch (OperationCanceledException)
+            {
+                choose.IsEnabled = true;
+                choose.Content = "Choose Folder…";
+            }
+            catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+            {
+                Problem(error.Message);
+                choose.IsEnabled = true;
+                choose.Content = "Choose Folder…";
+            }
+        };
+        _body.Children.Add(_problem);
+        _body.Children.Add(choose);
+    }
+
+    /// <summary>
+    /// Uncloud runs from a copy of itself only an administrator can change, so that nobody can make
+    /// it read everybody's files by changing the app. Updating the app reaches it this way.
+    /// </summary>
+    private void ShowUpdate()
+    {
+        Reset("Finish updating Uncloud",
+            "This app has been updated. Uncloud itself runs from a copy only an administrator can change, so nobody can swap in something that reads everyone’s files. Updating that copy asks for an administrator’s password. Nobody is signed out, and it takes a moment.");
+        var later = new Button { Content = "Not Now" };
+        later.Click += (_, _) => Close();
+        var go = new Button { Content = "Update", Background = Accent, Foreground = Brushes.White };
+        go.Click += async (_, _) =>
+        {
+            go.IsEnabled = later.IsEnabled = false;
+            go.Content = "Updating…";
+            try
+            {
+                await _controller.KeepPrivateAsync(null, CancellationToken.None);
+                Close();
+            }
+            catch (OperationCanceledException) { ShowUpdate(); }
+            catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+            {
+                Problem(error.Message);
+                go.IsEnabled = later.IsEnabled = true;
+                go.Content = "Update";
+            }
+        };
+        _body.Children.Add(_problem);
+        _body.Children.Add(Buttons(later, go));
+    }
+
+    private void ShowTurnOff()
+    {
+        Reset("Turn off Uncloud on this Mac?",
+            "Nobody can reach Uncloud until it’s on again, and other computers stop syncing. Everyone’s files and accounts stay here, still private to Uncloud’s own account, and making this Mac the host again picks them up. macOS asks for an administrator’s password.");
+        var off = new Button { Content = "Turn Off", HorizontalAlignment = HorizontalAlignment.Right };
+        off.Click += async (_, _) =>
+        {
+            off.IsEnabled = false;
+            try
+            {
+                await _controller.TurnOffAsync(CancellationToken.None);
+                Close();
+            }
+            catch (OperationCanceledException) { off.IsEnabled = true; }
+            catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+            {
+                Problem(error.Message);
+                off.IsEnabled = true;
+            }
+        };
+        _body.Children.Add(_problem);
+        _body.Children.Add(off);
+    }
+
+    private async Task<string?> ChooseFolderAsync()
+    {
+        var chosen = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Where should everyone’s files be kept?",
+            AllowMultiple = false
+        });
+        return chosen.FirstOrDefault()?.TryGetLocalPath();
+    }
+
+    /// <summary>
+    /// Uncloud itself starts with the Mac now; this app opening too is what hands it the Mac's
+    /// folders, for bringing files in from them.
+    /// </summary>
+    private static void OpenAtLogin()
+    {
+        if (OperatingSystem.IsMacOS() && Environment.ProcessPath is { } app)
+            LoginItem.ForThisUser(app).Set(true);
+    }
+
+    private void Done()
+    {
+        var close = new Button { Content = "Done", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
+        close.Click += (_, _) => Close();
+        _body.Children.Add(close);
+    }
+
+    private static StackPanel Buttons(params Button[] buttons)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        foreach (var button in buttons) row.Children.Add(button);
+        return row;
     }
 
     private void ShowDisconnect()

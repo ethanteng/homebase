@@ -61,7 +61,8 @@ Nothing about *who* a user is lives under the host root. Accounts, sessions and 
 tokens live in a control database beside the host's preferences:
 
 ```text
-<config dir>/            ~/Library/Application Support/Homebase on macOS
+<config dir>/            /Library/Application Support/Uncloud/Host on a Mac app host,
+                         ~/Library/Application Support/Homebase on macOS from source
   homebase.db              users, sessions, connectors, host settings
   host.key                 32 random bytes, owner-only: the connector-token key
 ```
@@ -257,9 +258,18 @@ without a certificate.
 
 ## What this is not
 
-- **Not an OS sandbox.** One process runs as one operating-system user and can read every
-  user's directory. Isolation is enforced in Uncloud, not by the kernel. Anyone with a shell
-  on the host, or any other program running as that OS user, can read everything.
+- **Not an OS sandbox between accounts.** One process runs as one operating-system user and
+  can read every user's directory. Isolation between Uncloud accounts is enforced in Uncloud,
+  not by the kernel.
+- **Kept from the host's own users only when it has an account of its own.** The Mac app runs
+  the server as `_uncloud`, a hidden role account that owns everybody's files, the control
+  database and Syncthing's keys, all `0700`, so nobody signed in at the Mac can read them. The
+  Mac's folders reach it through the menu-bar app, which reads them as the person signed in
+  (see [technical.md](technical.md#keeping-the-host-private)). The service runs a root-owned copy
+  of the server, so changing the app can't make it run anything else. An administrator of the Mac
+  can still get in with `sudo`. Run from source or on Linux,
+  the server is whoever starts it, and anyone with a shell as that user, or any other program
+  they run, can read everything.
 - **Not a backup.** Syncing with your own computers (below) copies
   files to them, but it mirrors: a deletion on a laptop deletes the host's copy too, and the 30
   days of versions the host keeps are for undoing that, not for surviving a dead drive. Backup

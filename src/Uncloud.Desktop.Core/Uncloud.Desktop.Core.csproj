@@ -5,4 +5,9 @@
   <ItemGroup>
     <ProjectReference Include="../Homebase.Core/Homebase.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- On the host, the app serves the Mac's folders to the Uncloud server over a local socket.
+         The same framework the app and the server already share (see Uncloud.Desktop.csproj). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 </Project>

@@ -25,11 +25,27 @@ static string Join(string? existing, params string[] additions) => string.Join('
 
 var defaultConfig = HostPaths.DefaultConfigDirectory;
 
+// In the background, run by launchd in an account of its own, nobody reads what Uncloud prints, so
+// it keeps its log in a file instead — one only that account and an administrator can open, since
+// what it says can name somebody's files.
+var logFile = builder.Configuration["Homebase:LogFile"] is { Length: > 0 } configuredLog
+    ? new FileLoggerProvider(configuredLog)
+    : null;
+if (logFile is not null)
+{
+    builder.Logging.ClearProviders();
+    builder.Logging.AddProvider(logFile);
+}
+
 // Read once before anything is started, so a missing certificate or an unreadable bind address
 // is refused while there is still nothing running to clean up.
 HostBinding.From(builder.Configuration);
 
-var remoteLog = LoggerFactory.Create(logging => logging.AddConsole());
+var remoteLog = LoggerFactory.Create(logging =>
+{
+    if (logFile is not null) logging.AddProvider(logFile);
+    else logging.AddConsole();
+});
 var remote = RemoteAccess.From(
     builder.Configuration,
     builder.Configuration["Homebase:ConfigDirectory"] ?? defaultConfig,
@@ -83,11 +99,21 @@ builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<ConnectorStore>();
 builder.Services.AddSingleton<LoginThrottle>();
 builder.Services.AddSingleton<UsageService>();
+// Running in an operating-system account of its own, which the Mac app sets Uncloud up in so that
+// nobody signed in at the Mac can look through everybody's files. Nobody signs in to that account,
+// so nothing here can open a window, and only folders opened to it can be used.
+static bool OwnAccount(IServiceProvider provider) =>
+    provider.GetRequiredService<IConfiguration>().GetValue("Homebase:OwnAccount", false);
+
 builder.Services.AddSingleton(provider => new HostService(
-    provider.GetRequiredService<ControlDatabase>(), provider.GetRequiredService<SettingsStore>()));
+    provider.GetRequiredService<ControlDatabase>(), provider.GetRequiredService<SettingsStore>(),
+    provider.GetRequiredService<IConfiguration>()["Homebase:Root"])
+{
+    OwnAccount = OwnAccount(provider)
+});
 builder.Services.AddSingleton<MetadataIndex>();
 builder.Services.AddSingleton<ImportLog>();
-builder.Services.AddSingleton<IFolderPicker, NativeFolderPicker>();
+builder.Services.AddSingleton<IFolderPicker>(provider => new NativeFolderPicker(onScreen: !OwnAccount(provider)));
 // One shared client; downloads of large files need a generous timeout.
 builder.Services.AddSingleton(_ => new HttpClient { Timeout = TimeSpan.FromMinutes(30) });
 // Uncloud's own Dropbox app, under everybody else's. Overridable so that somebody running their
@@ -104,10 +130,18 @@ builder.Services.AddSingleton<IDropboxApiFactory>(provider => new DropboxApiFact
     provider.GetRequiredService<ConnectorStore>(),
     // A function, not a value: an administrator can set the app key while Uncloud is running.
     userId => provider.GetRequiredService<DropboxAppKey>().For(userId)));
+// The folders on this computer people bring files in from. Read directly, unless this host runs
+// in an account of its own that can't read them: then the Uncloud app signed in at the Mac reads
+// them, over a socket only it and that account can open.
+builder.Services.AddSingleton<IHostFolders>(provider =>
+    provider.GetRequiredService<IConfiguration>()["Homebase:HostFolders:Socket"] is { Length: > 0 } socket
+        ? new BridgedHostFolders(socket)
+        : new LocalHostFolders());
 builder.Services.AddSingleton(provider => new ImportPlaces(
     provider.GetRequiredService<ControlDatabase>(),
     provider.GetRequiredService<HostService>(),
-    ConfigDirectory(provider, defaultConfig)));
+    ConfigDirectory(provider, defaultConfig),
+    provider.GetRequiredService<IHostFolders>()));
 builder.Services.AddSingleton<UserWorkspaces>();
 builder.Services.AddSingleton<DropboxAuthFlow>();
 builder.Services.AddSingleton(provider => new SyncthingHost(
@@ -411,7 +445,7 @@ static void IssueSession(HttpContext context, AuthSession session) =>
 
 // A folder on this computer as one account sees it. Where it is on the disk is only its owner's
 // to know; everybody else it is shared with sees its name and who shared it.
-static object Place(ImportPlace place, string viewer, Func<string, string> kind)
+static object Place(ImportPlace place, string viewer, ImportPlaces places, Func<string, string> kind)
 {
     var mine = place.OwnerId == viewer;
     return new
@@ -422,7 +456,7 @@ static object Place(ImportPlace place, string viewer, Func<string, string> kind)
         kind = kind(place.Path),
         // Said plainly rather than discovered by trying: an unplugged drive is a normal thing for a
         // household to have, not an error.
-        available = Directory.Exists(place.Path),
+        available = places.Available(place),
         mine,
         place.Shared,
         sharedBy = mine ? null : place.OwnerName,
@@ -795,12 +829,15 @@ app.MapGet("/api/imports/sources", (HttpContext context, CurrentUser user, UserW
                 destination = workspace.Source(DropboxApi.ProviderName).DestinationPrefix
             }
         },
-        places = visible.Select(place => Place(place, user.Id, kind)),
+        places = visible.Select(place => Place(place, user.Id, places, kind)),
         suggestions = user.IsAdmin ? places.Suggestions(user.Id) : [],
         // Only somebody who looks after this host can read its folders. Anyone else is shown what
         // has been shared with them, and nothing about the rest of this computer.
         canAddFolders = user.IsAdmin,
-        canPickFolder = user.IsAdmin && picker.IsSupported
+        canPickFolder = user.IsAdmin && picker.IsSupported,
+        // Why this computer's folders can't be read just now — on a Mac where Uncloud runs in an
+        // account of its own, because the Uncloud app isn't open there to read them — or null.
+        computerUnavailable = user.IsAdmin || visible.Count > 0 ? places.Unavailable() : null
     });
 });
 
@@ -945,7 +982,7 @@ app.MapPost("/api/folder-picker", async (IFolderPicker picker, CancellationToken
 // Adding a folder on this computer, which is administrative because only somebody who looks after
 // this host may read its folders. What they add is theirs alone: nothing here shares it.
 app.MapPost("/api/host/places", (AddPlace request, CurrentUser user, ImportPlaces places) =>
-    Results.Ok(Place(places.Add(user.Id, request.Path, request.Name), user.Id, places.Kinds())));
+    Results.Ok(Place(places.Add(user.Id, request.Path, request.Name), user.Id, places, places.Kinds())));
 
 // Sharing a folder with everyone here, or no longer sharing it. Only its owner can do either.
 app.MapPatch("/api/host/places/{id}", (string id, SharePlace request, CurrentUser user, ImportPlaces places, UserWorkspaces workspaces) =>
@@ -953,7 +990,7 @@ app.MapPatch("/api/host/places/{id}", (string id, SharePlace request, CurrentUse
     var place = places.SetShared(id, user.Id, request.Shared);
     // Anybody else partway through bringing it home was reading it on the strength of the share.
     if (!request.Shared) workspaces.CancelImportsFrom(place.Id, reader => reader != user.Id);
-    return Results.Ok(Place(place, user.Id, places.Kinds()));
+    return Results.Ok(Place(place, user.Id, places, places.Kinds()));
 });
 
 app.MapDelete("/api/host/places/{id}", (string id, CurrentUser user, ImportPlaces places, UserWorkspaces workspaces) =>

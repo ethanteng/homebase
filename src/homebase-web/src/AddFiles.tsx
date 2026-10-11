@@ -634,7 +634,9 @@ export default function AddFiles({
                     <strong>{name}</strong>
                     <span className="muted">
                       {unavailable
-                        ? "Not plugged in right now"
+                        ? sources.computerUnavailable
+                          ? "Can’t be read right now"
+                          : "Not plugged in right now"
                         : known?.shared
                           ? "Shared with everyone here"
                           : kind === "drive"
@@ -657,8 +659,14 @@ export default function AddFiles({
             );
           })}
         </ul>
-        {rows.length === 0 && (
-          <p className="field-help">Uncloud didn’t find any of the usual folders on this computer.</p>
+        {sources.computerUnavailable ? (
+          <p className="field-help" role="status">
+            {sources.computerUnavailable}
+          </p>
+        ) : (
+          rows.length === 0 && (
+            <p className="field-help">Uncloud didn’t find any of the usual folders on this computer.</p>
+          )
         )}
         <div className="add-another">
           {sources.canPickFolder && !typing ? (
@@ -746,7 +754,9 @@ export default function AddFiles({
                   <span className="muted">
                     {candidate.available
                       ? `Shared by ${candidate.sharedBy ?? "someone here"}`
-                      : "Not plugged in right now"}
+                      : sources?.computerUnavailable
+                        ? "Can’t be read right now"
+                        : "Not plugged in right now"}
                   </span>
                 </span>
               </button>

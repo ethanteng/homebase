@@ -193,12 +193,103 @@ is done from **Settings** afterwards, not here:
 | Everyone's files | The host folder you chose: `users/<id>/…` |
 | Each account's metadata cache | `users/<id>/.homebase/index.db` (rebuildable) |
 | Each account's bin, 30 days of what they deleted | `users/<id>/.homebase/bin/` (not rebuildable) |
-| Accounts, sessions, settings, sealed tokens, `host.key` | macOS: `~/Library/Application Support/Homebase/` · Linux: `~/.local/share/Homebase/` |
+| Accounts, sessions, settings, sealed tokens, `host.key` | Mac app host: `/Library/Application Support/Uncloud/Host/` · from source on macOS: `~/Library/Application Support/Homebase/` · Linux: `~/.local/share/Homebase/` |
 | Syncthing's configuration and the tunnel's identity | `syncthing/` and `tunnel/` in that same preference directory |
+| Everyone's files, unless a drive was chosen | Mac app host: `/Library/Application Support/Uncloud/Files/` |
+| The server's log | Mac app host: `/Library/Logs/Uncloud/` · from source: the terminal it runs in |
 
-Run one Uncloud per preference directory. Uncloud runs as one operating-system user and can read
-every account's folder, so isolation between accounts is enforced by Uncloud, not by the operating
-system: anyone with a shell on the host can read everything.
+Run one Uncloud per preference directory. Between accounts, isolation is enforced by Uncloud: one
+process serves everybody and can read every account's folder. Whether the operating system keeps
+*people signed in at the host* out of those folders depends on which account that process runs as;
+see [Keeping the host private](#keeping-the-host-private).
+
+### Keeping the host private
+
+A host set up with the Mac app runs Uncloud as `_uncloud`, a hidden role account (an ID in
+450–499, no password, no shell, kept off the login window) that nobody signs in to. Everything above
+belongs to it and is `0700`, so the person signed in at the Mac — whoever set it up included —
+gets "Permission denied" in Finder and Terminal. An administrator of the Mac can still get in on
+purpose, with their password (`sudo`): the operating system can't keep an administrator out of
+their own computer.
+
+The app sets this up once, through macOS's password prompt, with
+`Contents/Resources/uncloud-host.sh` (in the repository as
+[`scripts/macos-host/uncloud-host.sh`](../scripts/macos-host/uncloud-host.sh)), run as root:
+
+- **`install`** makes the account and the folders, and copies the app's `Contents/MacOS` to
+  `/Library/Application Support/Uncloud/Server`, owned by root and writable by nobody else, with
+  the app's version beside it. Run from the app itself, anybody who can change the app (its owner
+  can, without a password) could have the service run something else as `_uncloud`. It then writes
+  `/Library/LaunchDaemons/life.uncloud.host.plist`. That service runs `Server/Homebase.Server` as
+  `_uncloud` with umask `077`, from startup, and restarts it if it stops. Its environment sets
+  `Homebase__ConfigDirectory`, `Homebase__Root` (the folder to start with, adopted only while none
+  is chosen), `Homebase__OwnAccount`, `Homebase__HostFolders__Socket` and `Homebase__LogFile`. An
+  updated app finds its version differs from the copy's and offers **Update Uncloud…**, which runs
+  `install` again. A copy that won't start is put back to the one before. Given `--legacy-config`, it moves in a
+  host that ran as the person signed in. Its preference directory moves into `Host/`. If its files
+  are in that person's home folder, which `_uncloud` can't pass through, they move to `Files/` (a
+  rename on the same disk) and `root_path` is updated. Synced folders follow on the next start.
+  Only `users/` and `.homebase` move when anything else shares the old folder, so nothing of
+  anybody else's changes hands. Every check runs before anything moves, and if the service then
+  doesn't start, it is all put back: settings, files, ownership and the folder setting.
+- **`prepare --folder <folder>`** opens a drive or folder to `_uncloud` for **Settings** to use. It
+  uses the folder itself if it is empty or already Uncloud's, and otherwise makes `Uncloud` inside it,
+  so nothing already there changes hands. It refuses a path reached through a link anywhere along
+  it, the system's folders, anything in a home folder (only `/Users/Shared` is offered), the top of
+  a drive, and drives formatted without permissions
+  (exFAT, FAT, NTFS). On APFS or Mac OS Extended drives it turns off *Ignore ownership on this
+  volume* (`diskutil enableOwnership`), which external drives usually arrive with, and which would
+  otherwise leave everything on them open. A drive used from another Mac may then show that Mac's
+  files on it as belonging to someone else.
+- **`uninstall`** stops and removes the service and leaves everything else as it is, still locked.
+  Running `install` again picks it all up. To remove Uncloud from the Mac completely, after
+  `uninstall`:
+
+  ```sh
+  sudo rm -rf "/Library/Application Support/Uncloud" /Library/Logs/Uncloud
+  sudo dscl . -delete /Users/_uncloud && sudo dscl . -delete /Groups/_uncloud
+  ```
+
+  The first line deletes everybody's files and accounts unless they were on a drive; copy them out
+  first (as root) if they're wanted.
+
+`_uncloud` can't read anybody's folders, so **This computer** under **Add files** reaches them
+through the menu-bar app, running as the person signed in: it answers on
+`/Library/Application Support/Uncloud/Bridge/host-folders.sock`, in a folder owned by that person
+with group `_uncloud` and mode `0750`, so only the two can open it. The server asks it for
+suggestions, to resolve and check paths, to list folders and to read files. The app refuses
+Uncloud's own folders, and every refusal about which folders may be places still happens in the
+server. While the app isn't open, places are shown as unavailable and **Add files** says why.
+
+The server has no screen there, so it offers no folder chooser, and a folder `_uncloud` can't reach
+is refused with a pointer to **Use Another Folder…** in the menu. Its log is `server.log`, which it
+trims itself, and `server-errors.log` for anything printed before that is open (rotated by
+`newsyslog`). Both are readable by root only, because a log can name somebody's files.
+
+A host run from source, or on Linux, runs as whoever starts it, and they can read everything. On
+Linux, give it an account of its own with systemd:
+
+```ini
+# /etc/systemd/system/uncloud.service, after:
+#   useradd --system --create-home --home-dir /var/lib/uncloud uncloud
+#   install -d -o uncloud -g uncloud -m 700 /var/lib/uncloud/files
+[Service]
+User=uncloud
+Group=uncloud
+UMask=0077
+Environment=Homebase__ConfigDirectory=/var/lib/uncloud/config
+Environment=Homebase__Root=/var/lib/uncloud/files
+ExecStart=/opt/uncloud/Homebase.Server
+WorkingDirectory=/opt/uncloud
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/opt/uncloud` is a `dotnet publish` of `src/Homebase.Server` (as `scripts/publish-macos.sh` does
+for macOS, with `-r linux-x64`). **This computer** then only offers folders the `uncloud` user can
+read.
 
 
 ## Reaching the host
@@ -259,9 +350,11 @@ at once, so neither is something anybody has to go and find. The public address 
 once it is through. The node's identity is kept in `tunnel/` beside the accounts, so both are
 asked once and not again.
 
-The menu-bar app's **Reach From Anywhere** tick is the same switch, writing the same setting; it
-restarts the server rather than opening the tunnel in place, because from outside there is no
-signed-in way to ask it to do that. Neither one overrules the other.
+On a host the app set up in an account of its own, the menu's **Reach From Anywhere…** opens this
+panel (`/?settings`), because that account's settings are its alone. On a host still running as the
+person signed in, the menu's **Reach From Anywhere** tick is the same switch, writing the same
+setting; it restarts the server rather than opening the tunnel in place, because from outside there
+is no signed-in way to ask it to do that. Neither one overrules the other.
 
 The tunnel says why in words meant for a person, on a line Uncloud reads (`uncloud-tunnel:
 trouble=…`) as well as to the log, so a failure it cannot get past — a tailnet whose owner isn't
@@ -677,11 +770,15 @@ attachments under `Notes/Evernote/`; these folders aren’t created until someth
 One Mac app, `Uncloud.app`, for both ends. It lives in the menu bar and, on first launch, asks what
 this Mac is:
 
-- **The host.** The app carries the Uncloud server, its Syncthing and its tunnel, runs them as a
-  child process and stops them when it quits, and opens the browser for the first account. Its
-  menu opens Uncloud, turns **Reach From Anywhere** (the bundled tunnel) on and off, and restarts
-  the server if it stops. Accounts and settings are kept in the same preference directory as a
-  host run from source, so moving between the two keeps everything.
+- **The host.** The app carries the Uncloud server, its Syncthing and its tunnel. It asks where
+  everyone's files go and sets the server up to run in an account of its own, from startup (see
+  [Keeping the host private](#keeping-the-host-private)), then opens the browser for the first
+  account. After that it serves the Mac's folders to the server, and its menu opens Uncloud,
+  **Reach From Anywhere…** (Settings), **Use Another Folder…**, **Update Uncloud…** when the app has
+  been updated since Uncloud's own copy, and **Turn Off Uncloud on This Mac…**. Quitting the menu leaves Uncloud
+  running. A host set up before this runs the server as the app's child process, as it did,
+  and is asked once — then offered in the menu — to **Keep Everyone's Files Private**, which moves
+  everything across. So does a build run from source, which doesn't carry the script.
 - **Somebody's computer.** The app runs its own Syncthing (API on `127.0.0.1:8391`, state in
   `~/Library/Application Support/Uncloud`) and pairs it. It looks for the host over Bonjour
   (macOS asks once whether Uncloud may look around the local network), asks to be added, and
@@ -723,7 +820,12 @@ updates the `mac-latest` release with them (never deleting it, and without being
 published as are removed from the release. Before the disk image is kept,
 `scripts/smoke-macos-app.sh` opens the built app on the runner, once as a Mac nobody has set up and
 once as the host, and fails the build if it doesn't stay open, logs an error, or its server doesn't
-answer.
+answer. Then `scripts/smoke-macos-host.sh` sets the runner up as a host for real, with CI's
+passwordless `sudo` standing in for the password prompt. It starts from a host that ran as the
+signed-in user with its files in their home folder and moves it across. It brings files in from the
+user's Documents through the app, opens a disk image to Uncloud as a drive (and refuses an exFAT
+one), and turns the service off and on again. All along it checks that the signed-in user can't list
+or find any of it.
 
 The app and the server it carries sit side by side in `Contents/MacOS` and share one copy of .NET
 (around 190 MB unpacked instead of 275 with a copy each). The desktop project

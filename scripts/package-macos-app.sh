@@ -54,6 +54,10 @@ cp -R "$desktop/." "$app/Contents/MacOS/"
 mkdir -p "$app/Contents/Resources/Licenses"
 cp LICENSE THIRD_PARTY_* "$app/Contents/Resources/Licenses/"
 rm -rf -- "$desktop"
+# What sets a host up to run Uncloud in a macOS account of its own, run through macOS's password
+# prompt. A resource like any other, so the bundle's signature covers it.
+cp scripts/macos-host/uncloud-host.sh "$app/Contents/Resources/"
+chmod 755 "$app/Contents/Resources/uncloud-host.sh"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

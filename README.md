@@ -58,8 +58,8 @@ plugged into it.
 ### What isn't ready yet
 
 - **The app is Mac only for now.**
-- **The host has to stay on and awake.** On a Mac, turn off sleep in System Settings, and tick
-  **Open at Login** in the Uncloud menu so it starts again after a restart.
+- **The host has to stay on and awake.** On a Mac, turn off sleep in System Settings. Uncloud starts
+  again by itself after a restart, before anyone signs in.
 - **No sharing of files inside Uncloud** between people, and no storage limits per person. (A folder
   on the host can be shared for others to add from.)
 - **No built-in backup.** Uncloud keeps one copy of everything. [Set up a backup](#keeping-your-files-safe).
@@ -87,15 +87,22 @@ Macs in sync with it.
 
 The app is about 60 MB to download because everything it needs is inside it: there is nothing
 else to install. These links always give you the latest build. If it ever won't open, what went
-wrong is in `~/Library/Application Support/Uncloud/uncloud.log`.
+wrong is in `~/Library/Application Support/Uncloud/uncloud.log`. On the host, Uncloud's own log is
+in `/Library/Logs/Uncloud`, which only an administrator can open, because it can name people's
+files: `sudo tail /Library/Logs/Uncloud/server.log`.
 
 ## Set up Uncloud
 
 This part is for whoever looks after Uncloud. With the Mac app, setup takes five minutes or less.
 Manual setup on Linux or from Terminal takes longer.
 
-On a Mac, [get the app](#get-the-app), open it, and choose **Make this Mac the Uncloud host**. It
-starts Uncloud and opens your browser. Then carry on from [step 3](#3-make-your-account).
+On a Mac, [get the app](#get-the-app), drag it into **Applications**, open it, and choose **Make
+this Mac the Uncloud host**. Choose where everyone's files are kept: on this Mac, or on a drive.
+macOS asks for an administrator's password, once. That's what keeps everyone's files private on
+the host: Uncloud runs in an account of its own, which nobody signs in to, and everyone's files
+belong to that account (see [Who can see what](#keeping-your-files-safe)). It also means Uncloud
+starts with the Mac, before anyone signs in. Your browser then opens: carry on from
+[step 3](#3-make-your-account). Step 4 is already done.
 
 To run Uncloud from Terminal instead, or on Linux, follow steps 1 and 2. You'll need to be
 comfortable pasting commands into Terminal. For Linux, see the
@@ -145,7 +152,13 @@ Choose a folder, either a new empty one or one on an external drive, and click *
 Everyone's files will go inside it, each person in their own space, and everyone shares that
 drive's free space. Pick a drive with plenty of room.
 
-If your Mac says Uncloud (or Terminal) can't read the folder, allow it under **System Settings →
+With the Mac app, you chose this when you set the host up. To keep everyone's files somewhere else
+later, click the **U** in the menu bar and choose **Use Another Folder…**. Pick a drive, or a folder
+outside your home folder. Uncloud opens it to its own account, which asks for an administrator's
+password, and tells you what to enter under **Settings**. A drive has to be formatted as APFS or
+Mac OS Extended: a drive formatted for Windows can't keep files private to one account.
+
+From Terminal, if your Mac says Terminal can't read the folder, allow it under **System Settings →
 Privacy & Security → Files and Folders**.
 
 Uncloud never moves or changes files that are already there.
@@ -164,8 +177,7 @@ Open **Settings**. Under **Reaching this host from anywhere**, click **Reach thi
 anywhere**, then **Allow this host**. You'll be taken to Tailscale, a free service Uncloud uses for
 its secure connection. Sign in or make an account.
 
-(With the app, ticking **Reach From Anywhere** under the **U** in the menu bar does the same
-thing. Either one is enough; they are the same switch.)
+(With the app, **Reach From Anywhere…** under the **U** in the menu bar opens this panel.)
 
 Tailscale then asks one more thing, also once: that you let this tailnet be reached from the
 public internet. Uncloud puts that in front of you too — the same panel shows **Open it to the
@@ -345,15 +357,24 @@ Before you rely on Uncloud:
 - Or use a backup tool or service that keeps **older versions** of files, not just a mirror, so
   you can get back something that was deleted weeks ago.
 - To keep the accounts as well as the files, also back up
-  `~/Library/Application Support/Homebase`.
+  `/Library/Application Support/Uncloud` (Time Machine does), or
+  `~/Library/Application Support/Homebase` if you run Uncloud from Terminal.
 
 **Who can see what:**
 
 - In Uncloud, each person's files are visible only to them. That includes the people who look
   after Uncloud: they manage accounts, but can't browse anyone else's files. They can give someone
   a new password, but that signs the person out, so they'd notice.
-- Anyone who can sign in to the **host computer itself** can open every folder on its drive, as
-  with any computer. Keep the host's own login private.
+- On a Mac host set up with the app, nobody signed in to the Mac can look through anybody's files,
+  you included. Uncloud runs in an account of its own, and everyone's files, the accounts and
+  Uncloud's settings belong to that account. Finder and Terminal say you don't have permission.
+  Uncloud itself runs from a copy only an administrator can change. The one way in is as an
+  administrator of the Mac, deliberately, with an administrator's password (with `sudo`, say). So
+  keep the Mac's administrator passwords to the people who look after it, as you would for any
+  computer.
+- If you run Uncloud from Terminal, or on Linux, it runs as you, and whoever signs in to the host
+  as you can open every folder. The [technical reference](docs/technical.md#keeping-the-host-private)
+  says how to give it an account of its own.
 - With remote access on, passwords are what keep strangers out, so everyone should use a good one.
   Uncloud slows down anybody who keeps guessing.
 - Files travel encrypted between your devices and the host, and aren't stored with any cloud
@@ -362,9 +383,23 @@ Before you rely on Uncloud:
 ## Questions and problems
 
 **I can't reach Uncloud.** Check that the host is on and awake. With the app, click the **U** in
-the host's menu bar: it says whether Uncloud is running, and **Start Uncloud Again** restarts it.
-Tick **Open at Login** so it comes back after a restart. From Terminal, check the window from
-step 2 is still open, and start it again if the computer restarted.
+the host's menu bar: it says whether Uncloud is running. Uncloud starts again by itself if it
+stops, and when the Mac restarts. From Terminal, check the window from step 2 is still open, and
+start it again if the computer restarted.
+
+**The host's menu says to update Uncloud.** After you update the app on the host, Uncloud itself
+follows once an administrator's password is given: it runs from a copy only an administrator can
+change, so nobody can swap in something that reads everyone's files. Choose **Update Uncloud…**.
+
+**Adding files from the host's folders says the Uncloud app isn't open.** Uncloud's own account
+can't read your folders, which is what keeps it private, so the app reads them for it. Open
+Uncloud on the host, and leave **Open at Login** ticked.
+
+**Uncloud on the host still runs as me.** A host set up before Uncloud had an account of its own
+asks once whether to move. To move later, click the **U** and choose **Keep Everyone's Files
+Private…**. Accounts, files and synced computers carry on as they are. If everyone's files were in
+your home folder, they move to `/Library/Application Support/Uncloud/Files`, which only Uncloud can
+open.
 
 **My laptop isn't syncing.** Click the **U** in the laptop's menu bar. It says whether it's up to
 date, syncing, paused, or can't reach Uncloud. If it can't, check that the host is on, and that

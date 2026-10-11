@@ -1,10 +1,11 @@
 using Microsoft.Extensions.Logging;
 
-namespace Uncloud.Desktop;
+namespace Homebase.Core;
 
 /// <summary>
-/// The app's log, in its own folder: a menu-bar app has no console, and "it stopped syncing"
-/// needs something to look at. Trimmed when it grows, so it never fills a disk.
+/// A log in a file of its own: the Mac app's, which has no console, and the server's when it runs
+/// in the background where nobody reads its output. "It stopped syncing" needs something to look
+/// at. Trimmed when it grows, so it never fills a disk.
 /// </summary>
 public sealed class FileLoggerProvider(string path) : ILoggerProvider
 {

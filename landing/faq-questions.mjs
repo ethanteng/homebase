@@ -11,7 +11,7 @@ export const QUESTIONS = [
     q: "What happens when my computer is off or asleep and I need a file from my phone?",
     a: [
       "Uncloud serves your files from your host computer, so for access around the clock, keep the host on and awake. It doesn’t need to be a powerful machine: an old laptop that stays plugged in, or a desktop you already leave on, works great.",
-      "It only takes a minute to set up. On a Mac, turn off sleep in System Settings and tick Open at Login in the Uncloud menu, so Uncloud starts again on its own after a restart.",
+      "It only takes a minute to set up. On a Mac, turn off sleep in System Settings. Uncloud starts again on its own after a restart, before anyone signs in.",
       "And if your laptop keeps a folder in sync with Uncloud, those files live on your laptop too, so you can open them even while the host is off. Any changes catch up as soon as it’s back.",
     ],
   },

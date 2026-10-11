@@ -9,10 +9,14 @@ public interface IFolderPicker
     Task<string?> ChooseAsync(CancellationToken cancellationToken);
 }
 
-public sealed class NativeFolderPicker : IFolderPicker
+/// <param name="onScreen">
+/// False where nobody could see a chooser if one opened: a host running in an account of its own,
+/// which nobody signs in to, has no screen to put it on.
+/// </param>
+public sealed class NativeFolderPicker(bool onScreen = true) : IFolderPicker
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
-    public bool IsSupported => OperatingSystem.IsMacOS();
+    public bool IsSupported => onScreen && OperatingSystem.IsMacOS();
 
     public async Task<string?> ChooseAsync(CancellationToken cancellationToken)
     {
