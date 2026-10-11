@@ -32,6 +32,7 @@ base="/Library/Application Support/Uncloud"
 host="$base/Host"
 files="$base/Files"
 bridge="$base/Bridge"
+payload="$base/Server"
 logs=/Library/Logs/Uncloud
 plist="/Library/LaunchDaemons/$label.plist"
 rotation=/etc/newsyslog.d/life.uncloud.host.conf
@@ -193,10 +194,24 @@ refuse_path() {
   esac
 }
 
-# The same, for a folder that is there: not a link, and not the whole of a drive.
+# The folder a path really is, with every link along the way followed.
+physical() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+# Refuses a path that runs through a link anywhere along it, not only at its end. Every check here
+# is about where a folder is, and a link lets a harmless-looking name stand for /etc.
+refuse_links() {
+  local path="$1" real
+  while [[ "$path" == */ && "$path" != / ]]; do path="${path%/}"; done
+  real="$(physical "$path")" || fail "“$1” isn’t a folder on this Mac."
+  [[ "$real" == "$path" ]] ||
+    fail "“$1” is reached through a linked folder, and is really “$real”. Choose the folder by its real path."
+}
+
+# The same, for a folder that is there: reached through no link, and not the whole of a drive.
 refuse_unsafe() {
-  refuse_path "$1"
   [[ -d "$1" && ! -L "$1" ]] || fail "“$1” isn’t a folder on this Mac."
+  refuse_links "$1"
+  refuse_path "$1"
   if is_mount_point "$1"; then fail "“$1” is a whole drive. Choose a folder on it instead."; fi
 }
 
@@ -234,7 +249,7 @@ check_protectable() {
 protect() {
   check_protectable "$1"
   find "$1" -xdev -exec chown -h "$account:$account" {} +
-  chmod 700 "$1"
+  chmod -h 700 "$1"
 }
 
 # Where in the chosen folder everyone's files go: the folder itself when it is empty or already
@@ -247,6 +262,7 @@ target_in() {
   [[ -d "$chosen" && ! -L "$chosen" ]] || fail "“$chosen” isn’t a folder on this Mac."
   # The top of the startup disk is the one place a folder can't be made in: it is the system's.
   if [[ "$chosen" == / ]]; then fail "“/” is this Mac’s own disk. Choose a drive, or a folder in /Users/Shared."; fi
+  refuse_links "$chosen"
   private_volume "$chosen"
   if is_uncloud_folder "$chosen" || { is_empty "$chosen" && ! is_mount_point "$chosen"; }; then
     target="$chosen"
@@ -293,7 +309,7 @@ made_root=""
 # Gives a folder to Uncloud's account, remembering it was the owner's.
 give() {
   find "$1" -xdev -exec chown -h "$account:$account" {} +
-  chmod 700 "$1"
+  chmod -h 700 "$1"
   given+=("$1")
 }
 
@@ -341,6 +357,7 @@ migrate() {
   if [[ -n "$old" ]]; then
     [[ -d "$old" && ! -L "$old" ]] ||
       fail "Everyone’s files are in “$old”, which isn’t there right now. If it’s on a drive, plug it in, then try again."
+    refuse_links "$old"
     home="$(attribute "/Users/$owner" NFSHomeDirectory)"
     case "$old" in
       "$home"/*)
@@ -406,6 +423,33 @@ trap on_exit EXIT
 
 # --- The service ---------------------------------------------------------------------------------
 
+# The Uncloud the service runs: a copy of the app's, which only an administrator can change. Run
+# straight from the app, anybody who can change the app — its owner can, without a password — could
+# have the service run something else as Uncloud's account, which can read everybody's files. An
+# update to the app reaches the service when this runs again.
+install_payload() {
+  local version
+  [[ ! -L "$payload" && ! -L "$payload.new" && ! -L "$payload.old" ]] ||
+    fail "$payload is a link, which Uncloud won't follow. Remove it and try again."
+  rm -rf "$payload.new"
+  ditto --noqtn "$app/Contents/MacOS" "$payload.new"
+  version="$(plutil -extract CFBundleVersion raw -o - "$app/Contents/Info.plist" 2>/dev/null || true)"
+  printf '%s\n' "${version:-unknown}" >"$payload.new/.uncloud-version"
+  chown -R root:wheel "$payload.new"
+  chmod -R go-w "$payload.new"
+  rm -rf "$payload.old"
+  if [[ -e "$payload" ]]; then mv "$payload" "$payload.old"; fi
+  mv "$payload.new" "$payload"
+}
+
+# The copy that ran before, back in its place.
+restore_payload() {
+  if [[ -d "$payload.old" ]]; then
+    rm -rf "$payload"
+    mv "$payload.old" "$payload"
+  fi
+}
+
 xml() {
   local text="$1"
   text="${text//&/&amp;}"
@@ -415,7 +459,7 @@ xml() {
 }
 
 write_service() {
-  local server="$1" start_root="$2"
+  local start_root="$1"
   cat >"$plist.new" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -423,8 +467,8 @@ write_service() {
 <dict>
   <key>Label</key><string>$label</string>
   <key>AssociatedBundleIdentifiers</key><array><string>life.uncloud.app</string></array>
-  <key>ProgramArguments</key><array><string>$(xml "$server")</string></array>
-  <key>WorkingDirectory</key><string>$(xml "$(dirname "$server")")</string>
+  <key>ProgramArguments</key><array><string>$(xml "$payload/Homebase.Server")</string></array>
+  <key>WorkingDirectory</key><string>$(xml "$payload")</string>
   <key>UserName</key><string>$account</string>
   <key>GroupName</key><string>$account</string>
   <key>Umask</key><integer>63</integer>
@@ -439,7 +483,6 @@ write_service() {
     <key>Homebase__ConfigDirectory</key><string>$(xml "$host")</string>
     <key>Homebase__Root</key><string>$(xml "$start_root")</string>
     <key>Homebase__OwnAccount</key><string>true</string>
-    <key>Homebase__StopWhenReplaced</key><string>true</string>
     <key>Homebase__HostFolders__Socket</key><string>$(xml "$bridge/host-folders.sock")</string>
     <key>Homebase__LogFile</key><string>$logs/server.log</string>
   </dict>
@@ -474,9 +517,12 @@ start_service() {
     done
   fi
   # A service set up just now that can't start is taken away again, rather than left failing in
-  # the background. One that was already there stays, for Repair to try again.
-  if ! $had_service; then
-    stop_service
+  # the background. One that was already there goes back to the copy it ran before.
+  stop_service
+  if $had_service; then
+    restore_payload
+    launchctl bootstrap system "$plist" 2>/dev/null || true
+  else
     rm -f "$plist" "$rotation"
   fi
   fail "Uncloud didn’t start. What went wrong is in $logs, which only an administrator can open: sudo tail \"$logs/server.log\"."
@@ -496,6 +542,7 @@ install() {
   ensure_account
   stop_service
   own_dir "$base" root:wheel 755
+  install_payload
   own_dir "$host" "$account:$account" 700
   if [[ -n "$legacy" ]]; then migrate "$legacy"; fi
   own_dir "$host" "$account:$account" 700
@@ -512,8 +559,9 @@ install() {
     protect "$start_root"
   fi
 
-  write_service "$server" "$start_root"
+  write_service "$start_root"
   start_service
+  rm -rf "$payload.old"
   finished=true
 }
 

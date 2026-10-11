@@ -265,8 +265,9 @@ without a certificate.
   the server as `_uncloud`, a hidden role account that owns everybody's files, the control
   database and Syncthing's keys, all `0700`, so nobody signed in at the Mac can read them. The
   Mac's folders reach it through the menu-bar app, which reads them as the person signed in
-  (see [technical.md](technical.md#keeping-the-host-private)). An administrator of the Mac can still
-  get in with `sudo`, or by replacing the app the service runs. Run from source or on Linux,
+  (see [technical.md](technical.md#keeping-the-host-private)). The service runs a root-owned copy
+  of the server, so changing the app can't make it run anything else. An administrator of the Mac
+  can still get in with `sudo`. Run from source or on Linux,
   the server is whoever starts it, and anyone with a shell as that user, or any other program
   they run, can read everything.
 - **Not a backup.** Syncing with your own computers (below) copies

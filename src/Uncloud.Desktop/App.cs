@@ -103,6 +103,10 @@ public sealed class App : Application
             _controller.AskedToKeepPrivate();
             ShowSetup(null, SetupStart.KeepPrivate);
         }
+        // The app was updated, and Uncloud itself — which runs from a copy only an administrator can
+        // change — waits for a password to follow it.
+        else if (_controller.RunsInOwnAccount && _controller.NeedsUpdate)
+            ShowSetup(null, SetupStart.Update);
         await RefreshAsync();
     }
 
@@ -160,8 +164,8 @@ public sealed class App : Application
                 // changes them, in Settings.
                 menu.Add(Item("Reach From Anywhere…", () => Open(new Uri(DesktopController.HostAddress, "/?settings").ToString())));
                 menu.Add(Item("Use Another Folder…", () => ShowSetup(null, SetupStart.UseAnotherFolder)));
-                if (_controller.NeedsRepair)
-                    menu.Add(Item("Repair Uncloud…", () => Guard(() => _controller.KeepPrivateAsync(null, CancellationToken.None))));
+                if (_controller.NeedsUpdate)
+                    menu.Add(Item("Update Uncloud…", () => ShowSetup(null, SetupStart.Update)));
                 menu.Add(new NativeMenuItemSeparator());
                 menu.Add(Item("Turn Off Uncloud on This Mac…", () => ShowSetup(null, SetupStart.TurnOff)));
                 break;

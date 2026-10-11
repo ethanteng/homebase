@@ -167,11 +167,6 @@ catch { StopTunnel(); throw; }
 // holding the port against the next copy of the app, which would then fail to start beside it.
 if (app.Configuration.GetValue("Homebase:StopWhenInputCloses", false))
     _ = ParentWatch.StopWhenClosed(Console.In, app.Lifetime.StopApplication);
-// Run by launchd instead, which starts it again whenever it stops. Stopping once the app has been
-// updated over it is what puts the new version to work without anybody restarting the Mac.
-if (app.Configuration.GetValue("Homebase:StopWhenReplaced", false) && Environment.ProcessPath is { } executable)
-    _ = ReplacementWatch.StopWhenReplaced(executable, app.Lifetime.StopApplication,
-        TimeSpan.FromSeconds(30), app.Lifetime.ApplicationStopping);
 var binding = app.Services.GetRequiredService<HostBinding>();
 // Where Dropbox returns the browser. Read per request rather than once, because a tunnel
 // allowed a minute after startup has an address this host could not have known then — and

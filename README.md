@@ -368,9 +368,10 @@ Before you rely on Uncloud:
 - On a Mac host set up with the app, nobody signed in to the Mac can look through anybody's files,
   you included. Uncloud runs in an account of its own, and everyone's files, the accounts and
   Uncloud's settings belong to that account. Finder and Terminal say you don't have permission.
-  The one way in is as an administrator of the Mac, deliberately: with `sudo` and an
-  administrator's password, or by changing the app itself. So keep the Mac's administrator
-  passwords to the people who look after it, as you would for any computer.
+  Uncloud itself runs from a copy only an administrator can change. The one way in is as an
+  administrator of the Mac, deliberately, with an administrator's password (with `sudo`, say). So
+  keep the Mac's administrator passwords to the people who look after it, as you would for any
+  computer.
 - If you run Uncloud from Terminal, or on Linux, it runs as you, and whoever signs in to the host
   as you can open every folder. The [technical reference](docs/technical.md#keeping-the-host-private)
   says how to give it an account of its own.
@@ -383,9 +384,12 @@ Before you rely on Uncloud:
 
 **I can't reach Uncloud.** Check that the host is on and awake. With the app, click the **U** in
 the host's menu bar: it says whether Uncloud is running. Uncloud starts again by itself if it
-stops, and when the Mac restarts. If the menu says to **Repair Uncloud**, choose it: the app was
-moved or replaced since Uncloud was set up. From Terminal, check the window from step 2 is still
-open, and start it again if the computer restarted.
+stops, and when the Mac restarts. From Terminal, check the window from step 2 is still open, and
+start it again if the computer restarted.
+
+**The host's menu says to update Uncloud.** After you update the app on the host, Uncloud itself
+follows once an administrator's password is given: it runs from a copy only an administrator can
+change, so nobody can swap in something that reads everyone's files. Choose **Update Uncloud…**.
 
 **Adding files from the host's folders says the Uncloud app isn't open.** Uncloud's own account
 can't read your folders, which is what keeps it private, so the app reads them for it. Open

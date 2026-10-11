@@ -81,8 +81,10 @@ public sealed class HostInstallTests : IAsyncDisposable
             </dict>
             </plist>
             """);
-        Assert.Equal("/Applications/Tom & Ada/Uncloud.app/Contents/MacOS/Homebase.Server", HostInstall.ProgramIn(plist));
-        Assert.Null(HostInstall.ProgramIn(Path.Combine(_temporary, "missing.plist")));
+        Assert.Equal("/Applications/Tom & Ada/Uncloud.app/Contents/MacOS/Homebase.Server", HostInstall.ValueIn(plist, "ProgramArguments"));
+        Assert.Equal("life.uncloud.host", HostInstall.ValueIn(plist, "Label"));
+        Assert.Null(HostInstall.ValueIn(plist, "CFBundleVersion"));
+        Assert.Null(HostInstall.ValueIn(Path.Combine(_temporary, "missing.plist"), "ProgramArguments"));
     }
 
     [Fact]
@@ -165,15 +167,29 @@ public sealed class HostInstallTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task A_service_set_up_from_a_copy_that_has_gone_asks_to_be_repaired()
+    public async Task An_updated_app_asks_to_bring_Uncloud_itself_up_to_date()
     {
+        // Uncloud runs from a copy only an administrator can change, so the app being updated
+        // doesn't reach it until somebody here gives the password.
         new DesktopSettings { Mode = DesktopMode.Host }.Save(_paths);
         _install.Installed = true;
-        _install.InstalledServer = Path.Combine(_temporary, "Gone.app", "Contents", "MacOS", "Homebase.Server");
+        _install.Version = "v2";
+        _install.InstalledVersion = "v2";
         var controller = Controller();
+        Assert.False(controller.NeedsUpdate);
 
-        Assert.True(controller.NeedsRepair);
-        Assert.Contains("Repair", await controller.HostStatusAsync(CancellationToken.None));
+        _install.InstalledVersion = "v1";
+        Assert.True(controller.NeedsUpdate);
+        Assert.Contains("Update Uncloud", await controller.HostStatusAsync(CancellationToken.None));
+
+        // So does a copy that has gone missing.
+        _install.InstalledVersion = "v2";
+        _install.InstalledServer = Path.Combine(_temporary, "Server", "Homebase.Server");
+        Assert.True(controller.NeedsUpdate);
+        Assert.Contains("Update Uncloud", await controller.HostStatusAsync(CancellationToken.None));
+
+        await controller.KeepPrivateAsync(null, CancellationToken.None);
+        Assert.Single(_install.Installs);
     }
 
     [Fact]
@@ -213,6 +229,8 @@ public sealed class HostInstallTests : IAsyncDisposable
         public bool Installed { get; set; }
         public bool IsInstalled => Installed;
         public string? InstalledServer { get; set; }
+        public string? InstalledVersion { get; set; }
+        public string? Version { get; set; }
         // Somewhere nothing is listening, rather than the real one on a Mac that is a host.
         public string BridgeSocket { get; } = Path.Combine(Path.GetTempPath(), "uc-" + Guid.NewGuid().ToString("N")[..8], "b.sock");
         public IReadOnlyList<string> Private { get; } = [];

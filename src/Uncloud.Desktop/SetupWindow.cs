@@ -18,7 +18,9 @@ public enum SetupStart
     /// <summary>Moving a host that runs as the person signed in here into an account of its own.</summary>
     KeepPrivate,
     UseAnotherFolder,
-    TurnOff
+    TurnOff,
+    /// <summary>Bringing Uncloud itself up to date with an app that was updated.</summary>
+    Update
 }
 
 /// <summary>
@@ -55,6 +57,7 @@ public sealed class SetupWindow : Window
         else if (start is SetupStart.KeepPrivate) ShowKeepPrivate();
         else if (start is SetupStart.UseAnotherFolder) ShowAnotherFolder();
         else if (start is SetupStart.TurnOff) ShowTurnOff();
+        else if (start is SetupStart.Update) ShowUpdate();
         else if (link is not null) ShowCode(link);
         else if (controller.Settings.Mode is DesktopMode.Computer) ShowFind();
         else ShowChoice();
@@ -460,6 +463,38 @@ public sealed class SetupWindow : Window
         };
         _body.Children.Add(_problem);
         _body.Children.Add(choose);
+    }
+
+    /// <summary>
+    /// Uncloud runs from a copy of itself only an administrator can change, so that nobody can make
+    /// it read everybody's files by changing the app. Updating the app reaches it this way.
+    /// </summary>
+    private void ShowUpdate()
+    {
+        Reset("Finish updating Uncloud",
+            "This app has been updated. Uncloud itself runs from a copy only an administrator can change, so nobody can swap in something that reads everyone’s files. Updating that copy asks for an administrator’s password. Nobody is signed out, and it takes a moment.");
+        var later = new Button { Content = "Not Now" };
+        later.Click += (_, _) => Close();
+        var go = new Button { Content = "Update", Background = Accent, Foreground = Brushes.White };
+        go.Click += async (_, _) =>
+        {
+            go.IsEnabled = later.IsEnabled = false;
+            go.Content = "Updating…";
+            try
+            {
+                await _controller.KeepPrivateAsync(null, CancellationToken.None);
+                Close();
+            }
+            catch (OperationCanceledException) { ShowUpdate(); }
+            catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+            {
+                Problem(error.Message);
+                go.IsEnabled = later.IsEnabled = true;
+                go.Content = "Update";
+            }
+        };
+        _body.Children.Add(_problem);
+        _body.Children.Add(Buttons(later, go));
     }
 
     private void ShowTurnOff()

@@ -183,7 +183,7 @@ public sealed class DesktopController(
                 ? "Uncloud is running"
                 : $"Uncloud has stopped. {_server?.LastError}".Trim();
         if (_install.InstalledServer is { } program && !File.Exists(program))
-            return "Uncloud was set up from a copy of the app that isn’t there any more. Choose Repair Uncloud.";
+            return "Uncloud on this Mac is missing a part. Choose Update Uncloud to put it back.";
         // Asked every few seconds by the menu, so it is not kept waiting long by a server that
         // hasn't come up yet.
         using var patience = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -191,18 +191,29 @@ public sealed class DesktopController(
         try
         {
             using var answer = await http.GetAsync(new Uri(HostAddress, "/api/health"), patience.Token);
-            if (answer.IsSuccessStatusCode) return "Uncloud is running";
+            if (answer.IsSuccessStatusCode)
+                return NeedsUpdate
+                    ? "Uncloud is running the version before this app. Choose Update Uncloud."
+                    : "Uncloud is running";
         }
         catch (HttpRequestException) { }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { }
-        return "Uncloud isn’t answering. It starts again by itself; if it doesn’t, restart this Mac.";
+        return NeedsUpdate
+            ? "Uncloud isn’t answering, and needs updating to this app. Choose Update Uncloud."
+            : "Uncloud isn’t answering. It starts again by itself; if it doesn’t, restart this Mac.";
     }
 
     /// <summary>Remembers that this host has been asked once to keep everyone's files private.</summary>
     public void AskedToKeepPrivate() => Save(Settings with { AskedToKeepPrivate = true });
 
-    /// <summary>Whether the service points at a copy of the app that is gone, and setting it up again would fix it.</summary>
-    public bool NeedsRepair => _install.IsInstalled && _install.InstalledServer is { } program && !File.Exists(program);
+    /// <summary>
+    /// Whether the service's own copy of Uncloud is behind this app, or gone, so that setting it up
+    /// again — which asks for an administrator's password — would bring it up to date. It runs from a
+    /// copy only an administrator can change, so updating the app alone doesn't reach it.
+    /// </summary>
+    public bool NeedsUpdate => _install.IsInstalled
+        && (_install.InstalledServer is { } program && !File.Exists(program)
+            || _install.Version is { } mine && _install.InstalledVersion != mine);
 
     /// <summary>
     /// Hands Uncloud this Mac's folders, read as the person signed in here. Not being able to is no

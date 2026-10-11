@@ -209,28 +209,34 @@ A host set up with the Mac app runs Uncloud as `_uncloud`, a hidden role account
 450–499, no password, no shell, kept off the login window) that nobody signs in to. Everything above
 belongs to it and is `0700`, so the person signed in at the Mac — whoever set it up included —
 gets "Permission denied" in Finder and Terminal. An administrator of the Mac can still get in on
-purpose: with `sudo`, or by replacing the app the service runs. The operating system can't keep an
-administrator out of their own computer.
+purpose, with their password (`sudo`): the operating system can't keep an administrator out of
+their own computer.
 
 The app sets this up once, through macOS's password prompt, with
 `Contents/Resources/uncloud-host.sh` (in the repository as
 [`scripts/macos-host/uncloud-host.sh`](../scripts/macos-host/uncloud-host.sh)), run as root:
 
-- **`install`** makes the account and the folders, and writes
-  `/Library/LaunchDaemons/life.uncloud.host.plist`. That service runs the app's
-  `Contents/MacOS/Homebase.Server` as `_uncloud` with umask `077`, from startup, and restarts it if it
-  stops. Its environment sets `Homebase__ConfigDirectory`, `Homebase__Root` (the folder to start
-  with, adopted only while none is chosen), `Homebase__OwnAccount`, `Homebase__StopWhenReplaced`
-  (stop when the app is updated over it, so launchd starts the new one),
-  `Homebase__HostFolders__Socket` and `Homebase__LogFile`. Given `--legacy-config`, it moves in a
+- **`install`** makes the account and the folders, and copies the app's `Contents/MacOS` to
+  `/Library/Application Support/Uncloud/Server`, owned by root and writable by nobody else, with
+  the app's version beside it. Run from the app itself, anybody who can change the app (its owner
+  can, without a password) could have the service run something else as `_uncloud`. It then writes
+  `/Library/LaunchDaemons/life.uncloud.host.plist`. That service runs `Server/Homebase.Server` as
+  `_uncloud` with umask `077`, from startup, and restarts it if it stops. Its environment sets
+  `Homebase__ConfigDirectory`, `Homebase__Root` (the folder to start with, adopted only while none
+  is chosen), `Homebase__OwnAccount`, `Homebase__HostFolders__Socket` and `Homebase__LogFile`. An
+  updated app finds its version differs from the copy's and offers **Update Uncloud…**, which runs
+  `install` again. A copy that won't start is put back to the one before. Given `--legacy-config`, it moves in a
   host that ran as the person signed in. Its preference directory moves into `Host/`. If its files
   are in that person's home folder, which `_uncloud` can't pass through, they move to `Files/` (a
   rename on the same disk) and `root_path` is updated. Synced folders follow on the next start.
-  Every check runs before anything moves, and a move that fails is put back.
+  Only `users/` and `.homebase` move when anything else shares the old folder, so nothing of
+  anybody else's changes hands. Every check runs before anything moves, and if the service then
+  doesn't start, it is all put back: settings, files, ownership and the folder setting.
 - **`prepare --folder <folder>`** opens a drive or folder to `_uncloud` for **Settings** to use. It
   uses the folder itself if it is empty or already Uncloud's, and otherwise makes `Uncloud` inside it,
-  so nothing already there changes hands. It refuses the system's folders, anything in a home folder
-  (only `/Users/Shared` is offered), the top of a drive, and drives formatted without permissions
+  so nothing already there changes hands. It refuses a path reached through a link anywhere along
+  it, the system's folders, anything in a home folder (only `/Users/Shared` is offered), the top of
+  a drive, and drives formatted without permissions
   (exFAT, FAT, NTFS). On APFS or Mac OS Extended drives it turns off *Ignore ownership on this
   volume* (`diskutil enableOwnership`), which external drives usually arrive with, and which would
   otherwise leave everything on them open. A drive used from another Mac may then show that Mac's
@@ -768,8 +774,8 @@ this Mac is:
   everyone's files go and sets the server up to run in an account of its own, from startup (see
   [Keeping the host private](#keeping-the-host-private)), then opens the browser for the first
   account. After that it serves the Mac's folders to the server, and its menu opens Uncloud,
-  **Reach From Anywhere…** (Settings), **Use Another Folder…**, **Repair Uncloud…** when the app the
-  service runs has gone, and **Turn Off Uncloud on This Mac…**. Quitting the menu leaves Uncloud
+  **Reach From Anywhere…** (Settings), **Use Another Folder…**, **Update Uncloud…** when the app has
+  been updated since Uncloud's own copy, and **Turn Off Uncloud on This Mac…**. Quitting the menu leaves Uncloud
   running. A host set up before this runs the server as the app's child process, as it did,
   and is asked once — then offered in the menu — to **Keep Everyone's Files Private**, which moves
   everything across. So does a build run from source, which doesn't carry the script.

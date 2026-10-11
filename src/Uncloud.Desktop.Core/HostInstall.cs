@@ -29,6 +29,15 @@ public interface IHostInstall
     /// <summary>The Uncloud the service runs, as it was set up, or null when there isn't one.</summary>
     string? InstalledServer { get; }
 
+    /// <summary>
+    /// Which version of the app the service's copy of Uncloud came from. It runs from a copy only an
+    /// administrator can change, so updating the app reaches it only when it is set up again.
+    /// </summary>
+    string? InstalledVersion { get; }
+
+    /// <summary>This copy of the app's version, to compare against.</summary>
+    string? Version { get; }
+
     /// <summary>Where this app hands the service the Mac's folders, which its account can't read.</summary>
     string BridgeSocket { get; }
 
@@ -84,7 +93,18 @@ public sealed class HostInstall(string serverDirectory) : IHostInstall
     /// </summary>
     public bool IsInstalled => Packaged && File.Exists(Plist);
 
-    public string? InstalledServer => IsInstalled ? ProgramIn(Plist) : null;
+    public string? InstalledServer => IsInstalled ? ValueIn(Plist, "ProgramArguments") : null;
+
+    public string? InstalledVersion
+    {
+        get
+        {
+            try { return IsInstalled ? File.ReadAllText(Path.Combine(Base, "Server", ".uncloud-version")).Trim() : null; }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException) { return null; }
+        }
+    }
+
+    public string? Version => ValueIn(Path.Combine(App, "Contents", "Info.plist"), "CFBundleVersion");
 
     public async Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken)
     {
@@ -148,8 +168,11 @@ public sealed class HostInstall(string serverDirectory) : IHostInstall
         return new InvalidOperationException(said.Length > 0 ? said : "Uncloud couldn’t be set up on this Mac.");
     }
 
-    /// <summary>The program a launchd property list starts, read without running anything.</summary>
-    internal static string? ProgramIn(string plist)
+    /// <summary>
+    /// A string a property list keeps under <paramref name="key"/>, or the first of a list of them —
+    /// the program a launchd job starts, say — read without running anything.
+    /// </summary>
+    internal static string? ValueIn(string plist, string key)
     {
         try
         {
@@ -157,8 +180,10 @@ public sealed class HostInstall(string serverDirectory) : IHostInstall
             using var reader = System.Xml.XmlReader.Create(plist,
                 new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Ignore, XmlResolver = null });
             var keys = XDocument.Load(reader).Root?.Element("dict")?.Elements().ToList() ?? [];
-            var at = keys.FindIndex(element => element.Name == "key" && element.Value == "ProgramArguments");
-            return at >= 0 && at + 1 < keys.Count ? keys[at + 1].Elements("string").FirstOrDefault()?.Value : null;
+            var at = keys.FindIndex(element => element.Name == "key" && element.Value == key);
+            if (at < 0 || at + 1 >= keys.Count) return null;
+            var value = keys[at + 1];
+            return value.Name == "string" ? value.Value : value.Elements("string").FirstOrDefault()?.Value;
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or System.Xml.XmlException)
         {

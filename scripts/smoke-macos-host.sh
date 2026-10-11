@@ -149,6 +149,11 @@ listed "$diary" || fail "Ada's diary didn't come across."
 [[ "$(sudo stat -f %Su "$base/Files")" == _uncloud ]] || fail "$base/Files doesn't belong to Uncloud's account."
 [[ "$(sudo stat -f %Lp "$base/Files")" == 700 ]] || fail "$base/Files is open to others."
 private "$base/Files" "$diary"
+# The service runs a copy of Uncloud only an administrator can change, not the app this user owns.
+program="$(plutil -extract ProgramArguments.0 raw -o - /Library/LaunchDaemons/life.uncloud.host.plist)"
+[[ "$program" == "$base/Server/Homebase.Server" ]] || fail "The service runs $program, not its own copy."
+[[ "$(stat -f %Su "$program")" == root && ! -w "$program" && ! -w "$base/Server" ]] ||
+  fail "$USER can change the copy of Uncloud the service runs."
 private "$base/Host" homebase.db
 private "$logs" server.log
 upload "$holiday" "Somewhere warm"
@@ -212,12 +217,19 @@ grep -q "formatted as" <<<"$refused" || fail "Refusing an ExFAT drive didn't say
 [[ ! -e /Volumes/LooseDrive/Uncloud ]] || fail "Refusing a drive left a folder behind on it."
 echo "A drive that can't keep files private was refused, and left as it was."
 
-# Nothing that isn't Uncloud's to take is taken.
-for folder in / /Users "$HOME" "$HOME/Documents" /Applications /Library "$drive/../.."; do
+# Nothing that isn't Uncloud's to take is taken — however it's named. A link anywhere along the way
+# can make a harmless-looking path stand for the system's own folders.
+link=/Users/Shared/uncloud-smoke-link
+ln -sfn / "$link"
+for folder in / /Users "$HOME" "$HOME/Documents" /Applications /Library "$drive/../.." \
+  "$link/etc" "$link/Users/Shared" "$link/private/var"; do
   if sudo /bin/bash "$script" prepare --folder "$folder" >/dev/null 2>&1; then
     fail "$folder was opened to Uncloud."
   fi
 done
+rm -f "$link"
+[[ "$(stat -f %Su /private/etc)" == root && "$(stat -f %Su /private/var)" == root ]] ||
+  fail "A folder of the system's changed hands."
 [[ "$(stat -f %Su "$HOME")" == "$USER" ]] || fail "$HOME changed hands."
 [[ ! -e "$HOME/Uncloud" ]] || fail "Refusing $HOME left a folder behind in it."
 

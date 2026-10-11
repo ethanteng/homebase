@@ -4,7 +4,6 @@ using System.Text.Json;
 using Homebase.Core;
 using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
-using Homebase.Server;
 using Uncloud.Desktop;
 
 namespace Homebase.Tests;
@@ -125,28 +124,6 @@ public sealed class OwnAccountTests : IAsyncDisposable
         using var admin = await app.SignUpAsync();
         var response = await admin.PutAsJsonAsync("/api/host", new { path = Path.Combine(_temporary, "Somewhere") });
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task The_server_stops_once_an_update_has_put_a_new_copy_where_it_started_from()
-    {
-        var executable = Write(_temporary, "Homebase.Server", "the old one");
-        var stopped = new TaskCompletionSource();
-        using var watching = new CancellationTokenSource();
-        _ = ReplacementWatch.StopWhenReplaced(executable, () => stopped.TrySetResult(),
-            TimeSpan.FromMilliseconds(50), watching.Token);
-
-        // Left alone, it carries on.
-        await Task.Delay(300);
-        Assert.False(stopped.Task.IsCompleted);
-
-        // An update takes the old one away and puts another in its place.
-        File.Delete(executable);
-        await Task.Delay(150);
-        Assert.False(stopped.Task.IsCompleted);
-        File.WriteAllText(executable, "the new one, which is longer");
-        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        watching.Cancel();
     }
 
     [Fact]
