@@ -212,6 +212,11 @@ done
 [[ "$(api GET /api/imports/job | json job stage)" == Done ]] || fail "Bringing Letters in didn't finish: $(api GET /api/imports/job)"
 private "$base/Files" "$letter"
 kill "$app_pid"
+for _ in $(seq 1 30); do
+  if ! kill -0 "$app_pid" 2>/dev/null; then break; fi
+  sleep 1
+done
+if kill -0 "$app_pid" 2>/dev/null; then fail "The app didn't close when told to."; fi
 wait "$app_pid" 2>/dev/null || true
 app_pid=""
 [[ "$(api GET /api/imports/sources | json computerUnavailable)" == *"isn’t open on the host Mac"* ]] ||

@@ -153,7 +153,10 @@ jobs:
       # password prompt, run here with CI's passwordless sudo. It checks that everybody's files
       # belong to Uncloud's own account and that the person signed in at the Mac can't list them —
       # moved across from a host that ran as that person, read from a drive, and turned off.
+      # It takes ten minutes or so. The job's own limit is for Apple's queue, and a hang here
+      # shouldn't sit on main for an hour and a half before anybody hears.
       - run: ./scripts/smoke-macos-host.sh artifacts/app-${{ matrix.runtime }}/Uncloud.app
+        timeout-minutes: 25
 
       - uses: actions/upload-artifact@v4
         with:
