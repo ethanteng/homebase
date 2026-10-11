@@ -59,10 +59,14 @@ public sealed class DesktopController(
 
     /// <summary>
     /// Whether becoming a host would ask where everyone's files go: only when there is no Uncloud on
-    /// this Mac already, whose files stay where they are.
+    /// this Mac already — one run as this person, or one turned off with everything kept — whose
+    /// files stay where they are.
     /// </summary>
-    public bool AsksWhereFilesGo => _install.Packaged
+    public bool AsksWhereFilesGo => _install.Packaged && !HasKeptHost
         && !File.Exists(Path.Combine(_hostConfig, "homebase.db"));
+
+    /// <summary>Whether Uncloud's own account already keeps everybody's files here, from before it was turned off.</summary>
+    public bool HasKeptHost => _install.HasKeptHost;
 
     /// <summary>Picks up where the app left off: Uncloud on the host, Syncthing on a computer.</summary>
     public async Task StartAsync(CancellationToken cancellationToken)

@@ -141,13 +141,13 @@ own_dir() {
   chmod -N "$path"
 }
 
-# Everything under a folder belonging to Uncloud's account alone. The owner and mode aren't enough:
-# an access list survives both and can still let anybody in, and one inherited from the folder
-# above is how a folder made inside a shared one arrives with it. Links keep theirs, which open
-# nothing.
+# Everything under a folder belonging to Uncloud's account alone. The owner and mode aren't enough
+# for the folder itself: an access list survives both and can still let anybody in, and one
+# inherited from the folder above is how a folder made inside a shared one arrives with it. What is
+# inside keeps its own modes and lists, which open nothing to anybody who can't enter the folder.
 take() {
   find "$1" -xdev -exec chown -h "$account:$account" {} +
-  find "$1" -xdev ! -type l -exec chmod -N {} +
+  chmod -N "$1"
   chmod -h 700 "$1"
 }
 
@@ -310,42 +310,81 @@ only_uncloud() {
 
 # What this run has changed so far, so that if it stops part way — Uncloud doesn't start, a disk
 # fills, anything — it can all be put back, and whatever ran before carries on exactly as it was.
+# Kept as lists of fields apart by a character no path is made of.
+sep=$'\x1f'
 changing=false
 migrated_from=""
+made_host=false
 moved=()
 given=()
+modes=()
+owners=()
+lists=()
 root_was=""
 made_root=""
 
-# Gives a folder to Uncloud's account, remembering it was somebody else's. One already Uncloud's —
-# an earlier library being chosen again — is not handed to anybody if this fails.
+# Gives a folder to Uncloud's account, remembering how it was, if it was somebody else's: who owned
+# whatever in it isn't the person's, the folder's own mode, and its access list. One already
+# Uncloud's — an earlier library being chosen again — is not handed to anybody if this fails.
 give() {
-  if [[ "$(stat -f %Su "$1")" != "$account" ]]; then given+=("$1"); fi
-  take "$1"
+  local folder="$1" group entry line
+  if [[ "$(stat -f %Su "$folder")" != "$account" ]]; then
+    group="$(id -gn "$owner")"
+    given+=("$folder")
+    modes+=("$(stat -f %Lp "$folder")$sep$folder")
+    while IFS= read -r -d '' entry; do
+      owners+=("$(stat -f %u:%g "$entry")$sep$entry")
+    done < <(find "$folder" -xdev \( ! -user "$owner" -o ! -group "$group" \) -print0)
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^\ *([0-9]+):\ (.*)$ ]]; then
+        # Put back as it was, though as the folder's own: chmod can't mark an entry inherited.
+        lists+=("${BASH_REMATCH[1]}$sep${BASH_REMATCH[2]/ inherited / }$sep$folder")
+      fi
+    done < <(ls -led "$folder")
+  fi
+  take "$folder"
 }
 
 move() {
   mv "$1" "$2"
-  moved+=("$1|$2")
+  moved+=("$1$sep$2")
 }
 
 undo() {
-  local group i pair
+  local group i entry
   group="$(id -gn "$owner")"
   stop_service
+  # Everything handed over goes back as it was: to the person, then whatever in it was somebody
+  # else's to them, then each folder's mode and access list.
   if ((${#given[@]})); then
     for i in "${given[@]}"; do find "$i" -xdev -exec chown -h "$owner:$group" {} +; done
   fi
+  if ((${#owners[@]})); then
+    for entry in "${owners[@]}"; do chown -h "${entry%%"$sep"*}" "${entry#*"$sep"}" || true; done
+  fi
+  if ((${#modes[@]})); then
+    for entry in "${modes[@]}"; do chmod -h "${entry%%"$sep"*}" "${entry#*"$sep"}" || true; done
+  fi
+  if ((${#lists[@]})); then
+    for entry in "${lists[@]}"; do
+      local index="${entry%%"$sep"*}" rest="${entry#*"$sep"}"
+      chmod +a# "$index" "${rest%%"$sep"*}" "${rest#*"$sep"}" || true
+    done
+  fi
   if [[ -n "$root_was" ]]; then set_root "$root_was"; fi
   for ((i = ${#moved[@]} - 1; i >= 0; i--)); do
-    pair="${moved[i]}"
-    mv "${pair#*|}" "${pair%%|*}"
+    entry="${moved[i]}"
+    mv "${entry#*"$sep"}" "${entry%%"$sep"*}"
   done
   # A folder made to hold what moved, empty again now.
   if [[ -n "$made_root" ]]; then rmdir "$made_root" 2>/dev/null || true; fi
   if [[ -n "$migrated_from" ]]; then
     find "$host" -xdev -exec chown -h "$owner:$group" {} +
     mv "$host" "$migrated_from"
+  elif $made_host; then
+    # Made by this run for a server that never got going, so a later setup isn't taken for one
+    # turned off with everything kept.
+    rm -rf "$host"
   fi
   rm -rf "$payload.new"
   if $had_service; then
@@ -563,6 +602,7 @@ install() {
   stop_service
   own_dir "$base" root:wheel 755
   install_payload
+  if [[ ! -e "$host" ]]; then made_host=true; fi
   own_dir "$host" "$account:$account" 700
   if [[ -n "$legacy" ]]; then migrate "$legacy"; fi
   take "$host"
@@ -574,6 +614,10 @@ install() {
 
   start_root="$files"
   if [[ -n "$root" ]]; then
+    # A host turned off kept its folder, and picks it up again; a new one would never be used.
+    if [[ -f "$host/homebase.db" ]] && ! $made_host; then
+      fail "Uncloud already keeps everyone’s files on this Mac, from before it was turned off. Turn it on without choosing a folder; to move them, use Use Another Folder… afterwards."
+    fi
     start_root="$(target_in "$root")"
     check_protectable "$start_root"
     give "$start_root"

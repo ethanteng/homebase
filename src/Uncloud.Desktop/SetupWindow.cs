@@ -322,6 +322,11 @@ public sealed class SetupWindow : Window
             Reset("Make this Mac the host",
                 "Uncloud will run here from the menu bar, with everything it needs built in. Next, your browser opens to make the first account and choose where everyone’s files are kept.");
         }
+        else if (_controller.HasKeptHost)
+        {
+            Reset("Turn Uncloud on again",
+                "Uncloud kept everyone’s files and accounts on this Mac when it was turned off, still private to its own account. Starting it again picks them all up where they were. macOS asks for an administrator’s password.");
+        }
         else
         {
             Reset("Make this Mac the host",

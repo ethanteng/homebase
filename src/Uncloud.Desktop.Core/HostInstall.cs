@@ -26,6 +26,12 @@ public interface IHostInstall
     /// <summary>Whether Uncloud is set up on this Mac to run in its own account.</summary>
     bool IsInstalled { get; }
 
+    /// <summary>
+    /// Whether Uncloud's own account already keeps everybody's files and settings here — from before
+    /// it was turned off, say — so setting it up again picks them up rather than asking afresh.
+    /// </summary>
+    bool HasKeptHost { get; }
+
     /// <summary>The Uncloud the service runs, as it was set up, or null when there isn't one.</summary>
     string? InstalledServer { get; }
 
@@ -92,6 +98,9 @@ public sealed class HostInstall(string serverDirectory) : IHostInstall
     /// whatever else this Mac is set up to run.
     /// </summary>
     public bool IsInstalled => Packaged && File.Exists(Plist);
+
+    // Its inside is Uncloud's account's alone, but that it is there at all anybody can see.
+    public bool HasKeptHost => Packaged && Directory.Exists(Path.Combine(Base, "Host"));
 
     public string? InstalledServer => IsInstalled ? ValueIn(Plist, "ProgramArguments") : null;
 

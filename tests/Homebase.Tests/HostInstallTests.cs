@@ -193,6 +193,17 @@ public sealed class HostInstallTests : IAsyncDisposable
     }
 
     [Fact]
+    public void A_host_turned_off_with_everything_kept_is_picked_up_rather_than_asked_about_again()
+    {
+        // Its files and settings are still there, locked to Uncloud's account. Asking where files go
+        // would hand over a folder that is never used, while the old one carried on.
+        _install.HasKeptHost = true;
+        var controller = Controller();
+        Assert.True(controller.HasKeptHost);
+        Assert.False(controller.AsksWhereFilesGo);
+    }
+
+    [Fact]
     public async Task Turning_it_off_forgets_this_Mac_was_the_host()
     {
         new DesktopSettings { Mode = DesktopMode.Host }.Save(_paths);
@@ -228,6 +239,7 @@ public sealed class HostInstallTests : IAsyncDisposable
         public string? CannotInstall { get; set; }
         public bool Installed { get; set; }
         public bool IsInstalled => Installed;
+        public bool HasKeptHost { get; set; }
         public string? InstalledServer { get; set; }
         public string? InstalledVersion { get; set; }
         public string? Version { get; set; }

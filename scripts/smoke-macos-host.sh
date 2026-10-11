@@ -93,8 +93,9 @@ sudo ditto "$built" "$app"
 legacy="$HOME/Library/Application Support/Homebase"
 old_files="$HOME/Uncloud Files"
 mkdir -p "$old_files"
-# The folder chosen back then already had somebody's own things in it, which Uncloud promised to leave.
-echo "Mine alone" >"$old_files/My own notes.txt"
+# A mode and an access list of its own, which a move that can't finish has to put back.
+chmod 751 "$old_files"
+chmod +a "everyone deny delete" "$old_files"
 run_legacy() {
   Homebase__Announce=false "$app/Contents/MacOS/Homebase.Server" >>"$work/legacy.log" 2>&1 &
   legacy_pid=$!
@@ -126,6 +127,10 @@ grep -q "put back as it was" <<<"$said" || fail "A failed move didn't say what h
 [[ -f "$legacy/homebase.db" ]] || fail "A failed move didn't put the settings back in $legacy."
 [[ "$(stat -f %Su "$legacy/homebase.db")" == "$USER" ]] || fail "A failed move left the settings with Uncloud's account."
 find "$old_files/users" -name "$diary" | grep -q . || fail "A failed move didn't put everybody's files back."
+[[ "$(stat -f %Su "$old_files")" == "$USER" && "$(stat -f %Lp "$old_files")" == 751 ]] ||
+  fail "A failed move didn't put $old_files back as it was: $(stat -f '%Su %Lp' "$old_files")"
+listing="$(ls -led "$old_files")"
+grep -q "everyone deny delete" <<<"$listing" || fail "A failed move lost $old_files's access list: $listing"
 [[ ! -e "$base/Host/homebase.db" && ! -e /Library/LaunchDaemons/life.uncloud.host.plist ]] ||
   fail "A failed move left a service or settings behind."
 sudo rm -rf "$broken"
@@ -134,6 +139,9 @@ run_legacy
 listed "$diary" || fail "After a failed move, Ada's diary is missing."
 stop_legacy
 echo "A move that couldn't finish put everything back, and Uncloud ran as before."
+
+# The folder chosen back then also had somebody's own things in it, which Uncloud promised to leave.
+echo "Mine alone" >"$old_files/My own notes.txt"
 
 # --- Moved into an account of its own --------------------------------------------------------------
 sudo /bin/bash "$script" install --app "$app" --owner "$USER" --legacy-config "$legacy"
@@ -266,6 +274,13 @@ sudo /bin/bash "$script" uninstall
 if curl -fsS -m 2 "$address/api/health" >/dev/null 2>&1; then fail "Uncloud still answers after turning it off."; fi
 private "$base/Files" "$holiday"
 private "$target" "$diary"
+# Turned on again, it picks up where everybody's files are; a new folder would never be used.
+mkdir -p /Users/Shared/uncloud-smoke-unused
+if sudo /bin/bash "$script" install --app "$app" --owner "$USER" --root /Users/Shared/uncloud-smoke-unused >/dev/null 2>&1; then
+  fail "Turning Uncloud on again took a new folder it would never use."
+fi
+[[ "$(stat -f %Su /Users/Shared/uncloud-smoke-unused)" == "$USER" && ! -e /Users/Shared/uncloud-smoke-unused/Uncloud ]] ||
+  fail "Refusing a new folder on turning Uncloud on again changed it."
 sudo /bin/bash "$script" install --app "$app" --owner "$USER"
 answering
 [[ "$(api GET /api/session | json user username)" == ada ]] || fail "Turning it on again lost Ada."
