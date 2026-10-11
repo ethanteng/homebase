@@ -51,6 +51,10 @@ jobs:
       # tests: the same script a contributor runs locally.
       - run: ./scripts/check.sh
 
+      # The scripts that run as root on somebody's Mac, and the one that tries them for real.
+      - if: runner.os == 'Linux'
+        run: shellcheck scripts/macos-host/uncloud-host.sh scripts/smoke-macos-host.sh
+
       # The Syncthing Uncloud ships is a pinned release checked against a pinned SHA-256. Fetching
       # it here means a pin that no longer matches fails a pull request, not somebody's install.
       - run: ./scripts/fetch-syncthing.sh "$RUNNER_TEMP/syncthing" && "$RUNNER_TEMP/syncthing/syncthing" --version
@@ -144,6 +148,12 @@ jobs:
       # Opens the app it just built, as somebody would, and fails if it doesn't stay open or can't
       # start the server it carries. The Intel build runs under Rosetta.
       - run: ./scripts/smoke-macos-app.sh artifacts/app-${{ matrix.runtime }}/Uncloud.app
+
+      # Then as a host for real: the app's one-time setup, which macOS runs as root through its
+      # password prompt, run here with CI's passwordless sudo. It checks that everybody's files
+      # belong to Uncloud's own account and that the person signed in at the Mac can't list them —
+      # moved across from a host that ran as that person, read from a drive, and turned off.
+      - run: ./scripts/smoke-macos-host.sh artifacts/app-${{ matrix.runtime }}/Uncloud.app
 
       - uses: actions/upload-artifact@v4
         with:

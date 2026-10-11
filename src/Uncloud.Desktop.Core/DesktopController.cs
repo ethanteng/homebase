@@ -184,13 +184,17 @@ public sealed class DesktopController(
                 : $"Uncloud has stopped. {_server?.LastError}".Trim();
         if (_install.InstalledServer is { } program && !File.Exists(program))
             return "Uncloud was set up from a copy of the app that isn’t there any more. Choose Repair Uncloud.";
+        // Asked every few seconds by the menu, so it is not kept waiting long by a server that
+        // hasn't come up yet.
+        using var patience = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        patience.CancelAfter(TimeSpan.FromSeconds(3));
         try
         {
-            using var answer = await http.GetAsync(new Uri(HostAddress, "/api/health"), cancellationToken);
+            using var answer = await http.GetAsync(new Uri(HostAddress, "/api/health"), patience.Token);
             if (answer.IsSuccessStatusCode) return "Uncloud is running";
         }
         catch (HttpRequestException) { }
-        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { }
         return "Uncloud isn’t answering. It starts again by itself; if it doesn’t, restart this Mac.";
     }
 

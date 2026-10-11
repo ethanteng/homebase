@@ -18,6 +18,9 @@
 #   uncloud-host.sh uninstall
 #       Stops the service and takes it out. Everybody's files and the accounts stay where they
 #       are, still locked to Uncloud's account; installing again picks them up.
+# What it says reaches people in the Uncloud app, written the way Uncloud writes everywhere else:
+# “quoted” names and apostrophes are typography here, not shell quoting.
+# shellcheck disable=SC1111
 set -euo pipefail
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 export PATH
@@ -123,7 +126,7 @@ is_uncloud_folder() {
   grep -qx users <<<"$entries" || return 1
   [[ -d "$1/users" && ! -L "$1/users" ]] || return 1
   entries="$(ls -A "$1/users")"
-  ! grep -qvE '^[0-9a-f]{32}$' <<<"$entries"
+  [[ -z "$entries" ]] || ! grep -qvE '^[0-9a-f]{32}$' <<<"$entries"
 }
 
 # The top of a drive, as opposed to a folder on it.
@@ -136,21 +139,28 @@ reachable() {
   sudo -u "$account" /bin/test -x "$1"
 }
 
-# Folders that are never Uncloud's to take, by where they are: the system's, and everybody's
-# homes as a whole. Judged before anything is made, so nothing is left behind by a refusal.
+# Folders that are never Uncloud's to take, by where they are: the system's, and anything in
+# somebody's home folder, which nobody else may pass through — Uncloud's account included — and
+# where a folder only Uncloud could open would be a puzzle to whoever lives there. Judged before
+# anything is made, so nothing is left behind by a refusal.
 refuse_path() {
-  local path="${1%/}" parts
+  local path="$1" parts part
   [[ "$path" == /* ]] || fail "Uncloud needs the folder’s full path, starting with /."
   case "$path" in
     "$base" | "$base"/*) return 0 ;;
   esac
   IFS=/ read -r -a parts <<<"${path#/}"
+  for part in "${parts[@]}"; do
+    if [[ -z "$part" || "$part" == . || "$part" == .. ]]; then fail "Choose “$path” by its own path, without . or .. in it."; fi
+  done
   if ((${#parts[@]} < 2)); then fail "“$path” is one of this Mac’s own folders. Choose a folder inside it instead."; fi
   case "/${parts[0]}" in
     /System | /Library | /Applications | /private | /usr | /bin | /sbin | /etc | /var | /tmp | /cores | /opt | /dev)
       fail "“$path” is one of this Mac’s own folders. Choose one of yours, or a drive." ;;
     /Users)
-      if ((${#parts[@]} < 3)); then fail "“$path” is a home folder. Choose a folder outside it, or a drive."; fi ;;
+      if [[ "${parts[1]}" != Shared || ${#parts[@]} -lt 3 ]]; then
+        fail "“$path” is in a home folder, which only its owner can open. Choose a drive, or a folder in /Users/Shared."
+      fi ;;
   esac
 }
 
@@ -202,9 +212,12 @@ protect() {
 # Uncloud's, and a new folder called Uncloud inside it otherwise, so nothing already there changes
 # hands. Every refusal comes before the new folder is made.
 target_in() {
-  local chosen="${1%/}" target
+  local chosen="$1" target
+  while [[ "$chosen" == */ && "$chosen" != / ]]; do chosen="${chosen%/}"; done
   [[ "$chosen" == /* ]] || fail "Uncloud needs the folder’s full path, starting with /."
   [[ -d "$chosen" && ! -L "$chosen" ]] || fail "“$chosen” isn’t a folder on this Mac."
+  # The top of the startup disk is the one place a folder can't be made in: it is the system's.
+  if [[ "$chosen" == / ]]; then fail "“/” is this Mac’s own disk. Choose a drive, or a folder in /Users/Shared."; fi
   private_volume "$chosen"
   if is_uncloud_folder "$chosen" || { is_empty "$chosen" && ! is_mount_point "$chosen"; }; then
     target="$chosen"
