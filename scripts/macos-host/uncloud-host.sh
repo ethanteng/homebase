@@ -118,12 +118,14 @@ is_empty() {
   [[ -z "$(grep -v '^\.DS_Store$' <<<"$entries" || true)" ]]
 }
 
-# A folder Uncloud has kept everybody's files in: a "users" folder, spelled exactly so, holding
-# nothing but accounts' folders, which are named by 32-character ids.
+# A folder Uncloud has kept everybody's files in, and nothing else: a "users" folder, spelled
+# exactly so, holding nothing but accounts' folders, which are named by 32-character ids. Hidden
+# entries count too — a folder holding anything of anybody else's isn't Uncloud's to take whole.
 is_uncloud_folder() {
   local entries
-  entries="$(ls "$1")"
+  entries="$(ls -A "$1")"
   grep -qx users <<<"$entries" || return 1
+  ! grep -qvxE 'users|\.homebase|\.DS_Store' <<<"$entries" || return 1
   [[ -d "$1/users" && ! -L "$1/users" ]] || return 1
   entries="$(ls -A "$1/users")"
   [[ -z "$entries" ]] || ! grep -qvE '^[0-9a-f]{32}$' <<<"$entries"
@@ -285,6 +287,10 @@ migrate() {
       mv "$host" "$from" || true
       fail "Uncloud couldn’t move its files out of “$old”. Move that folder somewhere outside your home folder, choose it in Uncloud’s Settings, and try again."
     fi
+    # Everything in it changes hands with it: the person it belonged to can't open it from here on,
+    # and Uncloud's account has to be able to.
+    find "$files" -xdev -exec chown -h "$account:$account" {} +
+    chmod 700 "$files"
     sqlite3 "$host/homebase.db" \
       "INSERT OR REPLACE INTO host_settings(key, value) VALUES ('root_path', '${files//\'/\'\'}')"
   elif [[ -n "$old" ]]; then
