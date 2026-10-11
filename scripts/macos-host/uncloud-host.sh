@@ -264,7 +264,8 @@ protect() {
 
 # Where in the chosen folder everyone's files go: the folder itself when it is empty or already
 # Uncloud's, and a new folder called Uncloud inside it otherwise, so nothing already there changes
-# hands. Every refusal comes before the new folder is made.
+# hands. Every refusal comes before the new folder is made, which is left to the caller: this runs
+# in a subshell, where nothing it remembered would reach the undo.
 target_in() {
   local chosen="$1" target
   while [[ "$chosen" == */ && "$chosen" != / ]]; do chosen="${chosen%/}"; done
@@ -285,8 +286,6 @@ target_in() {
     if [[ -e "$target" || -L "$target" ]]; then
       { [[ -d "$target" && ! -L "$target" ]] && { is_uncloud_folder "$target" || is_empty "$target"; }; } ||
         fail "There’s already something called Uncloud in “$chosen”. Choose another folder."
-    else
-      mkdir "$target"
     fi
   fi
   printf '%s\n' "$target"
@@ -322,6 +321,8 @@ owners=()
 lists=()
 root_was=""
 made_root=""
+made_target=""
+empty_target=""
 
 # Gives a folder to Uncloud's account, remembering how it was, if it was somebody else's: who owned
 # whatever in it isn't the person's, the folder's own mode, and its access list. One already
@@ -378,6 +379,11 @@ undo() {
   done
   # A folder made to hold what moved, empty again now.
   if [[ -n "$made_root" ]]; then rmdir "$made_root" 2>/dev/null || true; fi
+  # A new host's folder: what the server began in it goes, and so does the folder if this made it.
+  for i in "$made_target" "$empty_target"; do
+    if [[ -n "$i" ]]; then rm -rf -- "$i/users" "$i/.homebase"; fi
+  done
+  if [[ -n "$made_target" ]]; then rmdir "$made_target" 2>/dev/null || true; fi
   if [[ -n "$migrated_from" ]]; then
     find "$host" -xdev -exec chown -h "$owner:$group" {} +
     mv "$host" "$migrated_from"
@@ -403,7 +409,7 @@ undo() {
 }
 
 migrate() {
-  local from="$1" home old new_root="" whole=false entry
+  local from="$1" home old settings new_root="" whole=false entry
   [[ -d "$from" && ! -L "$from" ]] || return 0
   [[ -f "$from/homebase.db" ]] || return 0
   # Already moved in once: whatever is in Host now is the real one.
@@ -421,6 +427,11 @@ migrate() {
     [[ -d "$old" && ! -L "$old" ]] ||
       fail "Everyone’s files are in “$old”, which isn’t there right now. If it’s on a drive, plug it in, then try again."
     refuse_links "$old"
+    # Settings and files are moved apart, so one can't be inside the other.
+    settings="$(physical "$from")"
+    if [[ "$old" == "$settings" || "$old" == "$settings"/* || "$settings" == "$old"/* ]]; then
+      fail "Everyone’s files and Uncloud’s settings are in the same folder, “$old”. In Uncloud’s Settings, choose a different folder for everyone’s files, then try again."
+    fi
     home="$(attribute "/Users/$owner" NFSHomeDirectory)"
     case "$old" in
       "$home"/*)
@@ -619,6 +630,12 @@ install() {
       fail "Uncloud already keeps everyone’s files on this Mac, from before it was turned off. Turn it on without choosing a folder; to move them, use Use Another Folder… afterwards."
     fi
     start_root="$(target_in "$root")"
+    if [[ ! -e "$start_root" ]]; then
+      mkdir "$start_root"
+      made_target="$start_root"
+    elif is_empty "$start_root"; then
+      empty_target="$start_root"
+    fi
     check_protectable "$start_root"
     give "$start_root"
   fi
@@ -634,6 +651,7 @@ prepare() {
   [[ -n "$folder" ]] || fail "Say which folder: --folder."
   dscl . -read "/Users/$account" UniqueID >/dev/null 2>&1 || fail "Set Uncloud up on this Mac first."
   target="$(target_in "$folder")"
+  if [[ ! -e "$target" ]]; then mkdir "$target"; fi
   protect "$target"
   printf '%s\n' "$target"
 }
