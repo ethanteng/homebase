@@ -183,6 +183,9 @@ export interface ImportSources {
   // Only somebody who looks after this Uncloud can read the computer it runs on.
   canAddFolders: boolean;
   canPickFolder: boolean;
+  // Why the folders on the computer Uncloud runs on can't be read just now — on a Mac where it runs
+  // in an account of its own, because the Uncloud app isn't open there — or null when they can.
+  computerUnavailable?: string | null;
 }
 
 export interface DropboxAppSettings {

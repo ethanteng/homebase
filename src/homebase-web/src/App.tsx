@@ -55,7 +55,21 @@ export default function App() {
       window.history.replaceState(null, "", window.location.pathname + window.location.hash);
     return outcome;
   });
-  const [dialog, setDialog] = useState<Dialog>(() => (arriving ? "add" : null));
+  const [dialog, setDialog] = useState<Dialog>(() => {
+    if (arriving) return "add";
+    // Sent from the Uncloud menu on the host Mac, which opens Settings rather than leaving
+    // somebody to find it. Taken off the address, like the others, so a reload doesn't reopen it.
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("settings")) return null;
+    params.delete("settings");
+    const rest = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + (rest ? `?${rest}` : "") + window.location.hash,
+    );
+    return "host";
+  });
   // Arriving from the QR code the Uncloud app shows on a computer it's setting up: that computer
   // has asked to be added, and this person approves it on My computers — after signing in, if
   // they have to. Taken off the address too, so a reload later doesn't ask all over again.
@@ -177,6 +191,12 @@ export default function App() {
       if (!dialogElement?.open) dialogElement?.showModal();
     } else dialogElement?.close();
   }, [dialog, dialogElement]);
+
+  // Settings are for whoever looks after this Uncloud. Anybody else sent to them gets nothing to
+  // close instead of an empty dialog.
+  useEffect(() => {
+    if (dialog === "host" && me && !me.isAdmin) setDialog(null);
+  }, [dialog, me]);
 
   useEffect(() => {
     if (dialog && dropboxFocus)

@@ -50,5 +50,5 @@ public sealed class UserWorkspace
     public IImportSource Source(string? sourceId) =>
         sourceId is null || sourceId.Length == 0 || sourceId == DropboxApi.ProviderName
             ? Dropbox
-            : new LocalFolderSource(_places.Require(sourceId, UserId));
+            : _places.Open(_places.Require(sourceId, UserId));
 }

@@ -11,7 +11,12 @@ public sealed class HostService
     private readonly Lock _lock = new();
     private string? _root;
 
-    public HostService(ControlDatabase database, SettingsStore? legacy = null)
+    /// <param name="initial">
+    /// The folder to start with when nobody has chosen one yet. The Mac app chooses it when it sets
+    /// Uncloud up in an account of its own, because it is the one that can open a folder to that
+    /// account. Once anybody chooses a folder here, that choice is the one kept.
+    /// </param>
+    public HostService(ControlDatabase database, SettingsStore? legacy = null, string? initial = null)
     {
         _database = database;
         _root = Read();
@@ -22,7 +27,21 @@ public sealed class HostService
             Write(adopted);
             _root = adopted;
         }
+        if (_root is null && !string.IsNullOrWhiteSpace(initial))
+        {
+            // Only a folder that is there and can hold accounts. Otherwise this host starts with no
+            // folder, as any other does, and an administrator is asked for one.
+            try { SelectRoot(initial); }
+            catch (Exception failure) when (failure is LibraryException or IOException or UnauthorizedAccessException) { }
+        }
     }
+
+    /// <summary>
+    /// Whether this host runs in an operating-system account of its own, which nobody signs in to.
+    /// It can then only use a folder that has been opened to that account, and saying so is more
+    /// use to somebody than "that folder doesn't exist".
+    /// </summary>
+    public bool OwnAccount { get; init; }
 
     public string? RootPath
     {
@@ -36,12 +55,16 @@ public sealed class HostService
 
     public string SelectRoot(string path)
     {
-        var root = PathPolicy.NormalizeRoot(path);
+        string root;
+        // A folder this account can't reach looks to it exactly like one that isn't there.
+        try { root = PathPolicy.NormalizeRoot(path); }
+        catch (LibraryException missing) when (OwnAccount && missing.Code == "not_found") { throw NotOpenedToUs(); }
         if (root.Split(Path.DirectorySeparatorChar).Any(part => part.Equals(".homebase", StringComparison.OrdinalIgnoreCase)))
             throw new LibraryException("Choose your files folder, not a .homebase metadata folder.");
         // Made now rather than on the first sign-in, so a folder that can't hold accounts is
         // refused while somebody is still looking at the folder chooser.
-        Directory.CreateDirectory(Path.Combine(root, UserPaths.UsersDirectory));
+        try { Directory.CreateDirectory(Path.Combine(root, UserPaths.UsersDirectory)); }
+        catch (UnauthorizedAccessException) when (OwnAccount) { throw NotOpenedToUs(); }
         lock (_lock)
         {
             Write(root);
@@ -49,6 +72,12 @@ public sealed class HostService
         }
         return root;
     }
+
+    private static LibraryException NotOpenedToUs() => new(
+        "Uncloud can’t use that folder. On this Mac it keeps everyone’s files in an account of its "
+        + "own, so it can only use a folder that’s been opened to it. On the host, choose Use Another "
+        + "Folder… in the Uncloud menu, then enter the folder it gives you here.",
+        "forbidden");
 
     private string? Read() => _database.Setting(RootKey);
 

@@ -23,9 +23,18 @@ public sealed record SuggestedPlace(string Name, string Path, string Kind);
 /// other account's files, and a place that contains the preference directory would hand them the
 /// password hashes and the key that seals everybody's Dropbox tokens. Both are refused when a
 /// place is added and again every time one is used, because the storage root can move afterwards.
+///
+/// The folders themselves are read through <see cref="IHostFolders"/>: directly, or through the
+/// Uncloud app of whoever is signed in at the host when Uncloud runs in an account of its own.
+/// Uncloud's own folders — its settings and everybody's files — are always this process's to
+/// resolve, whichever reads the places.
 /// </summary>
-public sealed class ImportPlaces(ControlDatabase database, HostService host, string configDirectory)
+public sealed class ImportPlaces(
+    ControlDatabase database, HostService host, string configDirectory, IHostFolders? folders = null)
 {
+    private readonly LocalHostFolders _local = new();
+    private IHostFolders Folders => folders ?? _local;
+
     /// <summary>
     /// How many times resolving a path may rewrite it before Uncloud decides it doesn't know where
     /// the folder really is. A pass follows every link in the path to its final target, so another
@@ -36,12 +45,10 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
     public int Rewrites { get; init; } = 8;
 
     /// <summary>This computer's home folder, where suggestions come from; replaced in tests.</summary>
-    public string Home { get; init; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    public string Home { get => _local.Home; init => _local.Home = value; }
 
     /// <summary>Where this computer mounts drives plugged into it; replaced in tests.</summary>
-    public IReadOnlyList<string> DriveFolders { get; init; } = OperatingSystem.IsMacOS()
-        ? ["/Volumes"]
-        : OperatingSystem.IsLinux() ? [$"/media/{Environment.UserName}", $"/run/media/{Environment.UserName}"] : [];
+    public IReadOnlyList<string> DriveFolders { get => _local.DriveFolders; init => _local.DriveFolders = value; }
 
     private const string Columns = """
         SELECT p.id, p.name, p.path, p.added_at, p.owner_id, p.shared, u.display_name
@@ -80,7 +87,7 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
     public ImportPlace Require(string id, string userId)
     {
         var place = Find(id, userId);
-        if (!Directory.Exists(place.Path))
+        if (!Folders.Exists(place.Path))
             throw new LibraryException(
                 $"“{place.Name}” isn’t on this computer right now. If it’s on a drive, plug the drive back in.",
                 "unavailable");
@@ -97,7 +104,7 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
     /// </summary>
     public ImportPlace? Conflicting(string root)
     {
-        var resolved = Safe(root);
+        var resolved = Own(root, out _);
         return List().FirstOrDefault(place => Nested(Safe(place.Path), resolved));
     }
 
@@ -107,8 +114,7 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
     /// </summary>
     public ImportPlace Add(string ownerId, string? path, string? name = null)
     {
-        var resolved = PathPolicy.NormalizeRoot(path ?? "");
-        PathPolicy.RejectLink(resolved);
+        var resolved = Folders.Normalize(path ?? "");
         if (Refusal(resolved) is { } refusal) throw new LibraryException(refusal, "forbidden");
         var own = Owned(ownerId);
         if (own.FirstOrDefault(place => Same(Safe(place.Path), Safe(resolved))) is { } already) return already;
@@ -208,8 +214,9 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
     public IReadOnlyList<SuggestedPlace> Suggestions(string ownerId)
     {
         var taken = Owned(ownerId);
-        return Candidates()
-            .Where(candidate => !taken.Any(place => Same(Safe(place.Path), Safe(candidate.Path))))
+        return Candidates().Folders
+            .Where(candidate => !taken.Any(place => Same(Safe(place.Path), candidate.Real)))
+            .Select(candidate => new SuggestedPlace(candidate.Name, candidate.Path, candidate.Kind))
             .ToArray();
     }
 
@@ -219,181 +226,78 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
     /// </summary>
     public Func<string, string> Kinds()
     {
-        var candidates = Candidates().Select(candidate => (Real: Safe(candidate.Path), candidate.Kind)).ToArray();
-        var drives = DriveFolders.Select(Safe).ToArray();
+        var (drives, candidates) = Candidates();
         return path =>
         {
             var real = Safe(path);
             if (drives.Any(folder => Inside(folder, real))) return "drive";
-            return candidates.FirstOrDefault(candidate => Same(candidate.Real, real)).Kind ?? "folder";
-        };
-    }
-
-    private IReadOnlyList<SuggestedPlace> Candidates()
-    {
-        var home = Home;
-        if (home.Length == 0) return [];
-        var candidates = new List<SuggestedPlace>();
-
-        void Offer(string name, string path, string kind)
-        {
-            if (Directory.Exists(path)) candidates.Add(new SuggestedPlace(name, path, kind));
-        }
-
-        // The folders people keep their own things in come first: they are what most people are
-        // looking for, and they need nothing else installed.
-        foreach (var name in new[] { "Desktop", "Documents", "Downloads", "Pictures", "Movies", "Music" })
-            Offer(name, Path.Combine(home, name), "folder");
-
-        Offer("Dropbox", Path.Combine(home, "Dropbox"), "cloud");
-        Offer("Google Drive", Path.Combine(home, "Google Drive"), "cloud");
-        Offer("OneDrive", Path.Combine(home, "OneDrive"), "cloud");
-        // Where macOS mounts the file providers of Google Drive, OneDrive, Box and the rest, under
-        // names that carry the signed-in address. Nobody wants "GoogleDrive-me@example.com" as a
-        // folder in their library, so the service's own name is what gets offered.
-        var cloudStorage = Path.Combine(home, "Library", "CloudStorage");
-        try
-        {
-            if (Directory.Exists(cloudStorage))
-                foreach (var directory in Directory.EnumerateDirectories(cloudStorage).Order(StringComparer.OrdinalIgnoreCase))
-                    candidates.Add(new SuggestedPlace(ServiceName(Path.GetFileName(directory)), directory, "cloud"));
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-        {
-            // A file provider Uncloud isn't allowed to look at is one fewer thing to offer, not a
-            // reason to offer nothing: the folders around it are still worth suggesting.
-        }
-
-        // Drives plugged into this computer: an old backup drive is one of the commonest places a
-        // household's files are waiting. The startup disk appears among them on a Mac as a link to
-        // the root of everything, which is not a drive anybody means, so links are passed over.
-        // So is an app's installer left open after installing it — Uncloud's own among them.
-        foreach (var drives in DriveFolders)
-        {
-            try
-            {
-                if (!Directory.Exists(drives)) continue;
-                foreach (var drive in new DirectoryInfo(drives).EnumerateDirectories()
-                             .OrderBy(drive => drive.Name, StringComparer.OrdinalIgnoreCase))
-                    if (drive.LinkTarget is null && !drive.Attributes.HasFlag(FileAttributes.ReparsePoint)
-                        && !drive.Name.StartsWith('.') && !Installer(drive))
-                        candidates.Add(new SuggestedPlace(drive.Name, drive.FullName, "drive"));
-            }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-            {
-                // Drives that can't be listed are simply not offered.
-            }
-        }
-
-        return candidates
-            // A drive holding everybody's Uncloud files, or a home folder that does, is left out
-            // exactly as it would be refused if somebody chose it by hand.
-            .Where(candidate => Refusal(Safe(candidate.Path)) is null)
-            // Two entries can resolve to the same folder — ~/Dropbox is often a link into
-            // CloudStorage — and offering it twice would just be a way to add it twice.
-            .DistinctBy(candidate => Safe(candidate.Path), StringComparer.OrdinalIgnoreCase)
-            .DistinctBy(candidate => ImportPlace.FolderName(candidate.Name), StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
-
-    /// <summary>
-    /// Whether this drive is an app's installer: a disk image holding the app and a shortcut to
-    /// Applications to drag it onto, and nothing else anybody would see. macOS mounts one every
-    /// time it is opened and numbers them when they pile up, so six downloads left open are six
-    /// "drives" called Uncloud, Uncloud 1, Uncloud 2… none of which has anybody's files on it.
-    ///
-    /// Read only until the first thing that couldn't be in an installer, which on a drive with
-    /// files on it is almost always the first thing there. A drive that can't be read is still
-    /// offered: opening it is what explains why it can't be.
-    /// </summary>
-    private static bool Installer(DirectoryInfo drive)
-    {
-        // Both are needed: a drive of nothing but apps, with no shortcut to drag them onto, is as
-        // likely to be somebody's archive of old software as an installer.
-        var apps = false;
-        var shortcut = false;
-        try
-        {
-            foreach (var entry in drive.EnumerateFileSystemInfos())
-            {
-                // What Finder hides — .DS_Store, the background picture, the volume's icon — is
-                // how an installer is dressed, not what it holds.
-                if (entry.Name.StartsWith('.') || entry.Attributes.HasFlag(FileAttributes.Hidden)) continue;
-                if (entry.LinkTarget is { } target)
-                {
-                    if (!Same(target, "/Applications")) return false;
-                    shortcut = true;
-                }
-                else if (entry is DirectoryInfo && entry.Name.EndsWith(".app", StringComparison.OrdinalIgnoreCase))
-                    apps = true;
-                else
-                    return false;
-            }
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-        return apps && shortcut;
-    }
-
-    /// <summary>"GoogleDrive-me@example.com" as a person would say it.</summary>
-    private static string ServiceName(string directory)
-    {
-        var service = directory.Split('-', 2)[0];
-        return service switch
-        {
-            "GoogleDrive" => "Google Drive",
-            "OneDrive" => "OneDrive",
-            "Dropbox" => "Dropbox",
-            "Box" => "Box",
-            "ProtonDrive" => "Proton Drive",
-            _ => service.Length == 0 ? directory : service
+            return candidates.FirstOrDefault(candidate => Same(candidate.Real, real))?.Kind ?? "folder";
         };
     }
 
     /// <summary>
-    /// The real folder behind a path, whatever it is spelled as, so two names for one folder
-    /// compare equal. Resolving once is not enough: a link is resolved to the target it stores,
-    /// and that target can itself run through a link — /var/… on macOS, where every temporary
-    /// folder and many a home directory lives. So it is resolved until it stops moving.
-    ///
-    /// Used where an unsettled answer is no worse than a settled one, such as offering
-    /// suggestions. Anything that refuses on a comparison uses <see cref="Settle"/> instead.
+    /// Whether the place's folder is there to read now. Said plainly rather than discovered by
+    /// trying: an unplugged drive is a normal thing for a household to have, not an error, and so is
+    /// a host whose folders can't be read this minute.
     /// </summary>
-    private string Safe(string path) => Settle(path, out _);
+    public bool Available(ImportPlace place)
+    {
+        try { return Folders.Exists(place.Path); }
+        catch (LibraryException) { return false; }
+    }
+
+    /// <summary>A place <see cref="Require"/> handed back, as something the import engine can read.</summary>
+    public IImportSource Open(ImportPlace place) => Folders.Open(place);
 
     /// <summary>
-    /// As above, saying whether it got there. <paramref name="settled"/> is false only when the
-    /// path was still moving after <see cref="Rewrites"/> passes, which is the one case where the
-    /// answer is not the real folder and must not be compared against anything: a chain of links
-    /// long enough to outlast the bound would otherwise let a folder be matched under a name that
-    /// hides where it really is. A path that cannot be resolved at all is a different matter and
-    /// comes back as it went in — it has no real folder to hide.
+    /// Why the host's folders can't be offered at the moment, or null when they can. Nothing is
+    /// offered while they can't, and somebody looking for one is owed the reason.
     /// </summary>
-    private string Settle(string path, out bool settled)
+    public string? Unavailable()
     {
-        var current = path;
-        // Bounded: a cycle of links would otherwise be an infinite loop rather than a refusal.
-        for (var attempt = 0; attempt < Rewrites; attempt++)
+        try
         {
-            string resolved;
-            try { resolved = PathPolicy.NormalizeRoot(current); }
-            catch (Exception failure) when (failure is LibraryException or IOException)
-            {
-                settled = true;
-                return current;
-            }
-            if (resolved == current)
-            {
-                settled = true;
-                return current;
-            }
-            current = resolved;
+            Folders.Candidates(Rewrites);
+            return null;
         }
-        settled = false;
-        return current;
+        catch (LibraryException failure) { return failure.Message; }
     }
+
+    private HostFolderCandidates Candidates()
+    {
+        HostFolderCandidates found;
+        try { found = Folders.Candidates(Rewrites); }
+        catch (LibraryException)
+        {
+            // Folders that can't be looked at are not offered; Unavailable says why.
+            return new HostFolderCandidates([], []);
+        }
+        return found with
+        {
+            Folders = found.Folders
+                // A drive holding everybody's Uncloud files, or a home folder that does, is left out
+                // exactly as it would be refused if somebody chose it by hand.
+                .Where(candidate => Refusal(candidate.Real, candidate.Settled) is null)
+                // Two entries can resolve to the same folder — ~/Dropbox is often a link into
+                // CloudStorage — and offering it twice would just be a way to add it twice.
+                .DistinctBy(candidate => candidate.Real, StringComparer.OrdinalIgnoreCase)
+                .DistinctBy(candidate => ImportPlace.FolderName(candidate.Name), StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+        };
+    }
+
+    /// <summary>
+    /// The real folder behind a place's path, for comparing, as whoever reads the host's folders
+    /// sees it. Used where an unsettled answer is no worse than a settled one, such as offering
+    /// suggestions. Anything that refuses on a comparison uses <see cref="Refusal(string)"/>.
+    /// </summary>
+    private string Safe(string path) => Folders.Settle(path, Rewrites, out _);
+
+    /// <summary>
+    /// The real folder behind one of Uncloud's own paths — its settings, or everybody's files —
+    /// which only this process may look inside, wherever the places are read.
+    /// </summary>
+    private string Own(string path, out bool settled) => LocalHostFolders.Resolve(path, Rewrites, out settled);
 
     /// <summary>Why this folder can't be a place, or null when it can.</summary>
     private string? Refusal(string path)
@@ -402,8 +306,14 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
         // paths, so a folder reached one way and named another — /var against /private/var on
         // macOS, or any symbolic link above it — would be two strings that don't match and a
         // check that quietly passes on a spelling.
-        var folder = Settle(path, out var folderSettled);
-        var settings = Settle(configDirectory, out var settingsSettled);
+        var folder = Folders.Settle(path, Rewrites, out var settled);
+        return Refusal(folder, settled);
+    }
+
+    /// <summary>The same, for a folder already resolved by whoever reads the host's folders.</summary>
+    private string? Refusal(string folder, bool folderSettled)
+    {
+        var settings = Own(configDirectory, out var settingsSettled);
         // A path that never stops moving is one Uncloud cannot say the real folder of, and every
         // check below is a comparison against that folder. Refusing is the only safe answer:
         // letting it through would be deciding it is not the host's folder on the strength of a
@@ -414,7 +324,7 @@ public sealed class ImportPlaces(ControlDatabase database, HostService host, str
             return "That folder holds Uncloud’s own settings, which includes everybody’s passwords. Choose another one.";
         if (host.RootPath is { } root)
         {
-            var library = Settle(root, out var librarySettled);
+            var library = Own(root, out var librarySettled);
             if (!librarySettled || Nested(folder, library))
                 return "That folder holds everybody’s Uncloud files. Bringing files in from it would let anyone here read everybody else’s, so choose a folder outside it.";
         }

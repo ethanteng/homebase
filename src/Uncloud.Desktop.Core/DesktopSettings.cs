@@ -23,6 +23,12 @@ public sealed record DesktopSettings
     /// <summary>On the host: whether to open the tunnel so the host can be reached from anywhere.</summary>
     public bool ReachFromAnywhere { get; init; }
 
+    /// <summary>
+    /// On a host that runs Uncloud as the person signed in here: whether they have been asked once
+    /// to move it into an account of its own. After that the menu offers it, without asking again.
+    /// </summary>
+    public bool AskedToKeepPrivate { get; init; }
+
     public bool IsPaired => Mode is DesktopMode.Computer && HostDeviceId is { Length: > 0 };
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)

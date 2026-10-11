@@ -6,6 +6,7 @@ using Avalonia.Platform;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
+using Homebase.Core;
 using Microsoft.Extensions.Logging;
 
 namespace Uncloud.Desktop;
@@ -88,8 +89,6 @@ public sealed class App : Application
         try
         {
             await _controller.StartAsync(CancellationToken.None);
-            if (_controller.Settings.Mode is DesktopMode.Host && _controller.Server is { } server)
-                _status = "Uncloud is running";
         }
         catch (Exception error)
         {
@@ -97,6 +96,13 @@ public sealed class App : Application
             _status = error.Message;
         }
         if (_controller.Settings.Mode is DesktopMode.Unset || StartupLink is not null) ShowSetup(StartupLink);
+        // A host still running as whoever is signed in here is asked once, after an update, whether
+        // to keep everyone's files private. After that the menu offers it.
+        else if (_controller.CanKeepPrivate && !_controller.Settings.AskedToKeepPrivate)
+        {
+            _controller.AskedToKeepPrivate();
+            ShowSetup(null, SetupStart.KeepPrivate);
+        }
         await RefreshAsync();
     }
 
@@ -112,9 +118,7 @@ public sealed class App : Application
                     _paused = status.Summary == "Paused";
                     break;
                 case DesktopMode.Host:
-                    _status = _controller.Server is { IsRunning: true }
-                        ? "Uncloud is running"
-                        : $"Uncloud has stopped. {_controller.Server?.LastError}".Trim();
+                    _status = await _controller.HostStatusAsync(CancellationToken.None);
                     break;
                 default:
                     _status = "Not set up yet";
@@ -148,10 +152,23 @@ public sealed class App : Application
                 menu.Add(new NativeMenuItemSeparator());
                 menu.Add(Item(_paused ? "Resume Syncing" : "Pause Syncing",
                     () => Guard(() => _controller.PauseAsync(!_paused, CancellationToken.None))));
-                menu.Add(Item("Disconnect This Computer…", () => ShowSetup(null, disconnect: true)));
+                menu.Add(Item("Disconnect This Computer…", () => ShowSetup(null, SetupStart.Disconnect)));
+                break;
+            case DesktopMode.Host when _controller.RunsInOwnAccount:
+                menu.Add(Item("Open Uncloud", () => Open(DesktopController.HostAddress.ToString())));
+                // Its settings are its own account's, so they're changed where everybody else
+                // changes them, in Settings.
+                menu.Add(Item("Reach From Anywhere…", () => Open(new Uri(DesktopController.HostAddress, "/?settings").ToString())));
+                menu.Add(Item("Use Another Folder…", () => ShowSetup(null, SetupStart.UseAnotherFolder)));
+                if (_controller.NeedsRepair)
+                    menu.Add(Item("Repair Uncloud…", () => Guard(() => _controller.KeepPrivateAsync(null, CancellationToken.None))));
+                menu.Add(new NativeMenuItemSeparator());
+                menu.Add(Item("Turn Off Uncloud on This Mac…", () => ShowSetup(null, SetupStart.TurnOff)));
                 break;
             case DesktopMode.Host:
-                menu.Add(Item("Open Uncloud", () => Open(_controller.Server?.Address.ToString() ?? $"http://127.0.0.1:{HostServer.Port}")));
+                menu.Add(Item("Open Uncloud", () => Open(_controller.Server?.Address.ToString() ?? DesktopController.HostAddress.ToString())));
+                if (_controller.CanKeepPrivate)
+                    menu.Add(Item("Keep Everyone’s Files Private…", () => ShowSetup(null, SetupStart.KeepPrivate)));
                 var reach = new NativeMenuItem("Reach From Anywhere")
                 {
                     ToggleType = NativeMenuItemToggleType.CheckBox,
@@ -175,7 +192,8 @@ public sealed class App : Application
             atLogin.Click += (_, _) => { login.Set(!login.IsEnabled); RebuildMenu(); };
             menu.Add(atLogin);
         }
-        menu.Add(Item("Quit Uncloud", Quit));
+        // Uncloud itself carries on without the menu when it runs in an account of its own.
+        menu.Add(Item(_controller.RunsInOwnAccount ? "Quit Uncloud Menu" : "Quit Uncloud", Quit));
 
         // Only when something changed: the status is checked every few seconds, and replacing the
         // items each time would redraw a menu somebody might have open.
@@ -199,10 +217,10 @@ public sealed class App : Application
         await RefreshAsync();
     }
 
-    private void ShowSetup(string? link, bool disconnect = false)
+    private void ShowSetup(string? link, SetupStart start = SetupStart.Next)
     {
         _setup?.Close();
-        _setup = new SetupWindow(_controller, link, disconnect);
+        _setup = new SetupWindow(_controller, link, start);
         _setup.Closed += async (_, _) =>
         {
             _setup = null;
