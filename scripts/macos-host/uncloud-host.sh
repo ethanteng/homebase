@@ -27,13 +27,18 @@ export PATH
 umask 022
 
 label=life.uncloud.host
-account=_uncloud
+# The account Uncloud runs as: _uncloud, unless that name was already somebody else's when Uncloud
+# was set up, in which case the first of _uncloud_1, _uncloud_2… that wasn't. Settled by
+# choose_account, and kept in $base/account so every later step uses the same one.
+account=""
+name="Uncloud Service"
 base="/Library/Application Support/Uncloud"
 host="$base/Host"
 files="$base/Files"
 bridge="$base/Bridge"
 payload="$base/Server"
 logs=/Library/Logs/Uncloud
+record="$base/account"
 plist="/Library/LaunchDaemons/$label.plist"
 rotation=/etc/newsyslog.d/life.uncloud.host.conf
 port=5210
@@ -85,7 +90,7 @@ ensure_account() {
   if ! dscl . -read "/Groups/$account" PrimaryGroupID >/dev/null 2>&1; then
     dscl . -create "/Groups/$account"
     dscl . -create "/Groups/$account" PrimaryGroupID "$id"
-    dscl . -create "/Groups/$account" RealName "Uncloud"
+    dscl . -create "/Groups/$account" RealName "$name"
     dscl . -create "/Groups/$account" Password '*'
   fi
   gid="$(attribute "/Groups/$account" PrimaryGroupID)"
@@ -95,11 +100,49 @@ ensure_account() {
     dscl . -create "/Users/$account" PrimaryGroupID "$gid"
     dscl . -create "/Users/$account" UserShell /usr/bin/false
     dscl . -create "/Users/$account" NFSHomeDirectory "$host"
-    dscl . -create "/Users/$account" RealName "Uncloud"
+    dscl . -create "/Users/$account" RealName "$name"
     dscl . -create "/Users/$account" Password '*'
     dscl . -create "/Users/$account" IsHidden 1
   fi
   verify_account
+  # Its full name is one nobody signing in would type. macOS accepts a full name wherever it asks for
+  # a user name, and its password prompt fills in the person's own: a Mac whose administrator is
+  # called "Uncloud" would otherwise have two accounts answering to it, and one with no password.
+  dscl . -create "/Users/$account" RealName "$name"
+  dscl . -create "/Groups/$account" RealName "$name"
+}
+
+# Which name was chosen, kept where only an administrator can change it, for every later step.
+remember_account() {
+  [[ ! -L "$record" ]] || fail "$record is a link, which Uncloud won't follow. Remove it and try again."
+  printf '%s\n' "$account" >"$record"
+  chown root:wheel "$record"
+  chmod 644 "$record"
+}
+
+# Whether this name is free for Uncloud's account, or already the account Uncloud made.
+free_or_ours() {
+  ! dscl . -read "/Users/$1" >/dev/null 2>&1 && ! dscl . -read "/Groups/$1" >/dev/null 2>&1 && return 0
+  looks_like_ours "$1"
+}
+
+# Which account Uncloud runs as: the one recorded when it was set up, or else the first name that
+# is free or already Uncloud's. Another account that merely has the name — somebody made an
+# _uncloud for something else — is left alone, and the next name tried.
+choose_account() {
+  local candidate
+  if [[ -f "$record" && ! -L "$record" ]]; then
+    account="$(head -n 1 "$record")"
+    [[ "$account" =~ ^_uncloud(_[0-9]+)?$ ]] || fail "$record doesn’t name an account Uncloud would have made."
+    return 0
+  fi
+  for candidate in _uncloud _uncloud_{1..9}; do
+    if free_or_ours "$candidate"; then
+      account="$candidate"
+      return 0
+    fi
+  done
+  fail "This Mac already has accounts called _uncloud to _uncloud_9 that Uncloud didn’t set up, so there’s no name left for its own."
 }
 
 # One attribute of a user or group, read as a property list, so a value with spaces in it — a
@@ -113,19 +156,22 @@ attribute() {
 # group, and Uncloud's folder for a home. One that is anything else — made by somebody, for
 # something else — is refused rather than trusted.
 verify_account() {
-  local id gid group shell home
-  id="$(attribute "/Users/$account" UniqueID)"
-  gid="$(attribute "/Users/$account" PrimaryGroupID)"
-  group="$(attribute "/Groups/$account" PrimaryGroupID)"
-  shell="$(attribute "/Users/$account" UserShell)"
-  home="$(attribute "/Users/$account" NFSHomeDirectory)"
-  if ! [[ "$id" =~ ^[0-9]+$ ]] || ((id < 450 || id > 499)) ||
-    [[ "$gid" != "$group" || "$shell" != /usr/bin/false || "$home" != "$host" ]] ||
-    [[ -n "$(attribute "/Users/$account" AuthenticationAuthority)" ]] ||
-    [[ "$(attribute "/Users/$account" Password)" != "*" ]] ||
-    [[ -n "$(attribute "/Groups/$account" GroupMembership)" ]]; then
+  looks_like_ours "$account" ||
     fail "This Mac already has an account called $account that Uncloud didn’t set up, so Uncloud won’t give it everyone’s files. An administrator can remove it in System Settings → Users & Groups, or with: sudo dscl . -delete /Users/$account"
-  fi
+}
+
+looks_like_ours() {
+  local id gid group shell home
+  id="$(attribute "/Users/$1" UniqueID)"
+  gid="$(attribute "/Users/$1" PrimaryGroupID)"
+  group="$(attribute "/Groups/$1" PrimaryGroupID)"
+  shell="$(attribute "/Users/$1" UserShell)"
+  home="$(attribute "/Users/$1" NFSHomeDirectory)"
+  [[ "$id" =~ ^[0-9]+$ ]] && ((id >= 450 && id <= 499)) &&
+    [[ -n "$gid" && "$gid" == "$group" && "$shell" == /usr/bin/false && "$home" == "$host" ]] &&
+    [[ -z "$(attribute "/Users/$1" AuthenticationAuthority)" ]] &&
+    [[ "$(attribute "/Users/$1" Password)" == "*" ]] &&
+    [[ -z "$(attribute "/Groups/$1" GroupMembership)" ]]
 }
 
 # --- Folders -------------------------------------------------------------------------------------
@@ -607,11 +653,13 @@ install() {
   fi
 
   if [[ -f "$plist" ]]; then had_service=true; fi
+  choose_account
   ensure_account
   # From here on, anything that fails is undone.
   changing=true
   stop_service
   own_dir "$base" root:wheel 755
+  remember_account
   install_payload
   if [[ ! -e "$host" ]]; then made_host=true; fi
   own_dir "$host" "$account:$account" 700
@@ -649,7 +697,9 @@ install() {
 prepare() {
   local target
   [[ -n "$folder" ]] || fail "Say which folder: --folder."
-  dscl . -read "/Users/$account" UniqueID >/dev/null 2>&1 || fail "Set Uncloud up on this Mac first."
+  choose_account
+  { dscl . -read "/Users/$account" UniqueID >/dev/null 2>&1 && looks_like_ours "$account"; } ||
+    fail "Set Uncloud up on this Mac first."
   target="$(target_in "$folder")"
   if [[ ! -e "$target" ]]; then mkdir "$target"; fi
   protect "$target"
