@@ -179,36 +179,88 @@ public sealed class HostInstall(string serverDirectory, ILogger? logger = null) 
         var result = Path.Combine(folder, "result");
         var error = Path.Combine(folder, "error");
         var status = Path.Combine(folder, "status");
+        var decision = Path.Combine(folder, "decision");
         var command = Path.Combine(folder, "Uncloud.command");
-        await File.WriteAllTextAsync(command, TerminalScript(ShellCommand(Script, verb, options), result, error, status),
-            cancellationToken);
+        await File.WriteAllTextAsync(command,
+            TerminalScript(ShellCommand(Script, verb, options), result, error, status, decision), cancellationToken);
         if (!OperatingSystem.IsWindows())
             File.SetUnixFileMode(command, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         _logger.LogInformation("Asking for an administrator’s password in Terminal, to {Verb}", verb);
         using (var open = Process.Start(new ProcessStartInfo("/usr/bin/open") { ArgumentList = { "-a", "Terminal", command } }))
             if (open is not null) await open.WaitForExitAsync(cancellationToken);
-        while (!File.Exists(status)) await Task.Delay(500, cancellationToken);
+
+        var cancelled = false;
+        while (!File.Exists(status))
+        {
+            if (cancellationToken.IsCancellationRequested && !cancelled)
+            {
+                if (Decide(decision))
+                {
+                    _logger.LogInformation("{Verb} in Terminal was cancelled before it began", verb);
+                    throw new OperationCanceledException(cancellationToken);
+                }
+                // Too late: it's already running as root, and stopping it part way would be worse than
+                // letting it finish. So this waits, and whoever asked hears how it went.
+                cancelled = true;
+                _logger.LogInformation("{Verb} was already running in Terminal when it was cancelled; waiting for it", verb);
+            }
+            await Task.Delay(500, CancellationToken.None);
+        }
         var code = File.ReadAllText(status).Trim();
         var said = File.Exists(error) ? File.ReadAllText(error).Trim() : "";
-        _logger.LogInformation("{Verb} in Terminal ended with exit code {Code}. {Said}", verb, code, said);
+        _logger.LogInformation("{Verb} in Terminal ended with {Code}. {Said}", verb, code, said);
         if (code == "0") return File.Exists(result) ? File.ReadAllText(result) : "";
+        if (code == "cancelled") throw new OperationCanceledException(cancellationToken);
+        if (code == "no-password") throw new InvalidOperationException("No password was given in Terminal, so nothing was changed.");
         throw new InvalidOperationException(said.Length > 0 ? said : "It didn’t finish in Terminal. What went wrong is shown there.");
     }
 
     /// <summary>
-    /// What Terminal runs: the script, with sudo, its answer and its complaints kept for the app,
-    /// and the outcome written last, all at once, so the app never reads half of one.
+    /// Settles, once, that what waits in Terminal isn't to run: true when that's settled, false
+    /// when Terminal got there first and it's already running. Whichever side makes the decision
+    /// file first wins, and the file system makes sure only one can.
     /// </summary>
-    internal static string TerminalScript(string command, string result, string error, string status) => $"""
+    internal static bool Decide(string decision)
+    {
+        try
+        {
+            using var claim = new FileStream(decision, FileMode.CreateNew, FileAccess.Write);
+            claim.Write("cancel\n"u8);
+            return true;
+        }
+        catch (IOException) when (File.Exists(decision))
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// What Terminal runs. It takes the password first, with nothing changed yet; then it claims
+    /// the right to go ahead, which the app may have taken first by cancelling; then it runs the
+    /// script, keeping its answer and complaints for the app, and writes the outcome last, all at
+    /// once, so the app never reads half of one.
+    /// </summary>
+    internal static string TerminalScript(string command, string result, string error, string status, string decision) => $$"""
         #!/bin/bash
         clear
+        finish() { printf '%s\n' "$1" >{{Quote(status + ".new")}} && mv {{Quote(status + ".new")}} {{Quote(status)}}; }
         echo "Uncloud needs an administrator’s password to keep everyone’s files private on this Mac."
         echo "Type your Mac password and press Return. Nothing shows as you type."
         echo
-        sudo {command} >{Quote(result)} 2>{Quote(error)}
+        if ! sudo -v; then
+          finish no-password
+          echo "No password was given, so nothing was changed. You can close this window."
+          exit
+        fi
+        if ! ( set -o noclobber; echo run >{{Quote(decision)}} ) 2>/dev/null; then
+          finish cancelled
+          echo "This was cancelled in Uncloud, so nothing was changed. You can close this window."
+          exit
+        fi
+        sudo -n {{command}} >{{Quote(result)}} 2>{{Quote(error)}}
         code=$?
-        cat {Quote(error)} >&2
-        printf '%s\n' "$code" >{Quote(status + ".new")} && mv {Quote(status + ".new")} {Quote(status)}
+        cat {{Quote(error)}} >&2
+        finish "$code"
         echo
         if [ "$code" -eq 0 ]; then echo "Done. You can close this window."; else echo "That didn’t finish, for the reason above. Nothing was left changed."; fi
         """;

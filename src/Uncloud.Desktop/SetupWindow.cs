@@ -513,7 +513,14 @@ public sealed class SetupWindow : Window
             IsVisible = false
         };
         var cancel = new Button { Content = "Cancel", IsVisible = false };
-        cancel.Click += (_, _) => _work?.Cancel();
+        cancel.Click += (_, _) =>
+        {
+            // Settled with Terminal rather than just stopped waiting: anything that has already begun
+            // there finishes first, and this window carries on from however it ends.
+            cancel.IsEnabled = false;
+            waiting.Text = "Stopping… If it has already begun in Terminal, it finishes there first.";
+            _work?.Cancel();
+        };
         var retry = new Button { Content = "Try Again" };
         retry.Click += (_, _) => again();
         var terminal = new Button { Content = "Finish in Terminal", Background = Accent, Foreground = Brushes.White };

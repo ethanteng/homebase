@@ -65,20 +65,46 @@ public sealed class HostInstallTests : IAsyncDisposable
         var result = Path.Combine(_temporary, "result");
         var error = Path.Combine(_temporary, "error");
         var status = Path.Combine(_temporary, "status");
+        var decision = Path.Combine(_temporary, "decision");
         var terminal = Path.Combine(_temporary, "Uncloud.command");
-        await File.WriteAllTextAsync(terminal,
-            HostInstall.TerminalScript(command, result, error, status).Replace("sudo ", "").Replace("clear\n", ""));
+        await File.WriteAllTextAsync(terminal, HostInstall.TerminalScript(command, result, error, status, decision)
+            .Replace("sudo -v", "true").Replace("sudo -n ", "").Replace("clear\n", ""));
 
         await RunAsync("/bin/bash", terminal);
         Assert.Equal("0", (await File.ReadAllTextAsync(status)).Trim());
         Assert.Equal(["prepare", "--folder", Awkward], (await File.ReadAllTextAsync(result)).TrimEnd('\n').Split('\n'));
         Assert.Equal("and a complaint", (await File.ReadAllTextAsync(error)).Trim());
+        // It went ahead, and said so first, so a cancel arriving now can't pretend it didn't.
+        Assert.False(HostInstall.Decide(decision));
 
         // A failure is told apart, with what the script said.
         File.Delete(status);
+        File.Delete(decision);
         await File.WriteAllTextAsync(terminal, "export EXIT=3\n" + await File.ReadAllTextAsync(terminal));
         await RunAsync("/bin/bash", terminal);
         Assert.Equal("3", (await File.ReadAllTextAsync(status)).Trim());
+    }
+
+    [Fact]
+    public async Task Cancelling_before_Terminal_begins_means_it_never_does()
+    {
+        // The app cancelled while Terminal was still waiting for a password. Typing it afterwards
+        // changes nothing: the script finds the decision already made, and doesn't run.
+        var ran = Path.Combine(_temporary, "ran");
+        var script = Path.Combine(_temporary, "would change things.sh");
+        await File.WriteAllTextAsync(script, $"touch {HostInstall.Quote(ran)}\n");
+        var status = Path.Combine(_temporary, "status");
+        var decision = Path.Combine(_temporary, "decision");
+        var terminal = Path.Combine(_temporary, "Uncloud.command");
+        await File.WriteAllTextAsync(terminal, HostInstall.TerminalScript(
+                HostInstall.ShellCommand(script, "install", []), Path.Combine(_temporary, "result"),
+                Path.Combine(_temporary, "error"), status, decision)
+            .Replace("sudo -v", "true").Replace("sudo -n ", "").Replace("clear\n", ""));
+
+        Assert.True(HostInstall.Decide(decision));
+        await RunAsync("/bin/bash", terminal);
+        Assert.Equal("cancelled", (await File.ReadAllTextAsync(status)).Trim());
+        Assert.False(File.Exists(ran));
     }
 
     [Fact]
