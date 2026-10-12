@@ -30,7 +30,7 @@ public sealed class DesktopController(
     public static readonly Uri HostAddress = new($"http://127.0.0.1:{HostServer.Port}");
 
     private readonly ILogger _logger = loggers.CreateLogger("Uncloud.Desktop");
-    private readonly IHostInstall _install = install ?? new HostInstall(serverDirectory);
+    private readonly IHostInstall _install = install ?? new HostInstall(serverDirectory, loggers.CreateLogger("Uncloud.Install"));
     private readonly string _hostConfig = hostConfig ?? HostPaths.DefaultConfigDirectory;
     private SyncthingProcess? _syncthing;
     private ComputerSync? _computer;
@@ -92,13 +92,14 @@ public sealed class DesktopController(
     /// Makes this computer the host. Packaged, it runs Uncloud in an account of its own, with
     /// everyone's files in <paramref name="root"/>, or in a folder on this Mac when that is null.
     /// </summary>
-    public async Task BecomeHostAsync(string? root, CancellationToken cancellationToken)
+    /// <param name="inTerminal">Whether to ask for the password in Terminal rather than in macOS's prompt.</param>
+    public async Task BecomeHostAsync(string? root, CancellationToken cancellationToken, bool inTerminal = false)
     {
         if (Settings.IsPaired)
             throw new InvalidOperationException("This computer already syncs with an Uncloud. Disconnect it first.");
         if (_install.Packaged)
         {
-            await KeepPrivateAsync(root, cancellationToken);
+            await KeepPrivateAsync(root, cancellationToken, inTerminal);
             Save(Settings with { Mode = DesktopMode.Host });
             return;
         }
@@ -125,7 +126,7 @@ public sealed class DesktopController(
     /// host that ran as this person already had. Asks for an administrator's password. Until it
     /// succeeds nothing changes, and a host that was running carries on as it was.
     /// </summary>
-    public async Task KeepPrivateAsync(string? root, CancellationToken cancellationToken)
+    public async Task KeepPrivateAsync(string? root, CancellationToken cancellationToken, bool inTerminal = false)
     {
         if (_install.CannotInstall is { } why) throw new InvalidOperationException(why);
         var legacy = _hostConfig;
@@ -140,10 +141,15 @@ public sealed class DesktopController(
         }
         try
         {
-            await _install.InstallAsync(root, File.Exists(Path.Combine(legacy, "homebase.db")) ? legacy : null, cancellationToken);
+            await _install.InstallAsync(root, File.Exists(Path.Combine(legacy, "homebase.db")) ? legacy : null,
+                cancellationToken, inTerminal);
         }
-        catch
+        catch (Exception failure)
         {
+            if (failure is OperationCanceledException)
+                _logger.LogInformation("Setting Uncloud up in its own account was cancelled; nothing changed");
+            else
+                _logger.LogWarning(failure, "Setting Uncloud up in its own account didn’t finish");
             // Nobody in the household is left without Uncloud because a password wasn't typed.
             if (hadServer)
                 try { await StartServerAsync(CancellationToken.None); }
@@ -160,17 +166,17 @@ public sealed class DesktopController(
     /// Opens a folder or drive to Uncloud's account, which asks for an administrator's password,
     /// and says which folder to choose in Settings to keep everyone's files there.
     /// </summary>
-    public Task<string> PrepareFolderAsync(string folder, CancellationToken cancellationToken) =>
-        _install.PrepareAsync(folder, cancellationToken);
+    public Task<string> PrepareFolderAsync(string folder, CancellationToken cancellationToken, bool inTerminal = false) =>
+        _install.PrepareAsync(folder, cancellationToken, inTerminal);
 
     /// <summary>
     /// Stops Uncloud on this Mac, which asks for an administrator's password. Everybody's files and
     /// accounts stay, still locked to Uncloud's account, and making this Mac the host again picks
     /// them up where they were.
     /// </summary>
-    public async Task TurnOffAsync(CancellationToken cancellationToken)
+    public async Task TurnOffAsync(CancellationToken cancellationToken, bool inTerminal = false)
     {
-        await _install.UninstallAsync(cancellationToken);
+        await _install.UninstallAsync(cancellationToken, inTerminal);
         if (_bridge is not null)
         {
             await _bridge.DisposeAsync();
@@ -255,6 +261,27 @@ public sealed class DesktopController(
     }
 
     public Task RestartServerAsync(CancellationToken cancellationToken) => StartServerAsync(cancellationToken);
+
+    private DateTimeOffset _restartedAt = DateTimeOffset.MinValue;
+
+    /// <summary>
+    /// Starts Uncloud again if it stopped by itself, on a host that runs it as this app's child —
+    /// rather than leaving the household without it until somebody here notices and clicks. Not
+    /// more than twice a minute, so a server that can't stay up isn't started over and over. In an
+    /// account of its own, launchd does this instead.
+    /// </summary>
+    public async Task KeepServerRunningAsync(CancellationToken cancellationToken)
+    {
+        if (Settings.Mode is not DesktopMode.Host || _install.IsInstalled || _server is not { IsRunning: false }) return;
+        if (DateTimeOffset.UtcNow - _restartedAt < TimeSpan.FromSeconds(30)) return;
+        _restartedAt = DateTimeOffset.UtcNow;
+        _logger.LogWarning("Starting Uncloud again after it stopped by itself");
+        try { await StartServerAsync(cancellationToken); }
+        catch (Exception error) when (error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            _logger.LogWarning(error, "Uncloud didn’t start again");
+        }
+    }
 
     /// <summary>
     /// Pairs this computer with an Uncloud and sets up everything it syncs under ~/Uncloud. The

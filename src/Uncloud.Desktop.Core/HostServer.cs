@@ -17,6 +17,8 @@ public sealed class HostServer(
     // takes ".Server" for an extension and looks for a process called "Homebase".
     private const string ProcessName = "Homebase.Server";
     private Process? _process;
+    // Set while it is being stopped on purpose, so that going is only called unexpected when it is.
+    private bool _stopping;
 
     public Uri Address { get; } = new($"http://127.0.0.1:{port}");
     public string Executable => Path.Combine(serverDirectory, OperatingSystem.IsWindows() ? ProcessName + ".exe" : ProcessName);
@@ -69,8 +71,20 @@ public sealed class HostServer(
         // Whether this host can be reached from outside is the server's own setting, kept beside
         // its accounts and changeable from Settings while it runs. Naming a provider here
         // would take that switch away from everybody who is not sitting at this Mac.
+        _stopping = false;
         var process = Process.Start(start) ?? throw new IOException("Uncloud didn’t start.");
         _process = process;
+        // Said in the log the moment it happens, with how it ended, so "it stopped" can be answered
+        // from the log rather than guessed at.
+        process.EnableRaisingEvents = true;
+        process.Exited += (_, _) =>
+        {
+            if (_stopping) return;
+            int? code = null;
+            try { code = process.ExitCode; }
+            catch (InvalidOperationException) { }
+            logger.LogWarning("Uncloud’s server stopped by itself, with exit code {Code}. {Why}", code, LastError);
+        };
         // Drained, or a server that fills an unread pipe stops answering while looking alive.
         process.OutputDataReceived += (_, line) => { if (line.Data is { Length: > 0 }) logger.LogInformation("server: {Line}", line.Data); };
         process.ErrorDataReceived += (_, line) =>
@@ -188,6 +202,7 @@ public sealed class HostServer(
     public async Task StopAsync()
     {
         if (!IsRunning) return;
+        _stopping = true;
         try
         {
             _process!.Kill(entireProcessTree: true);

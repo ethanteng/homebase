@@ -56,6 +56,72 @@ public sealed class HostInstallTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task In_Terminal_the_script_gets_the_same_folder_name_and_the_app_hears_how_it_went()
+    {
+        // Run as Terminal would run it, minus sudo, which needs a person to type a password.
+        var script = Path.Combine(_temporary, "says back.sh");
+        await File.WriteAllTextAsync(script, "printf '%s\\n' \"$@\"; echo 'and a complaint' >&2; exit \"${EXIT:-0}\"\n");
+        var command = HostInstall.ShellCommand(script, "prepare", [("--folder", Awkward)]);
+        var result = Path.Combine(_temporary, "result");
+        var error = Path.Combine(_temporary, "error");
+        var status = Path.Combine(_temporary, "status");
+        var decision = Path.Combine(_temporary, "decision");
+        var terminal = Path.Combine(_temporary, "Uncloud.command");
+        await File.WriteAllTextAsync(terminal, HostInstall.TerminalScript(command, result, error, status, decision)
+            .Replace("sudo -v", "true").Replace("sudo -n ", "").Replace("clear\n", ""));
+
+        await RunAsync("/bin/bash", terminal);
+        Assert.Equal("0", (await File.ReadAllTextAsync(status)).Trim());
+        Assert.Equal(["prepare", "--folder", Awkward], (await File.ReadAllTextAsync(result)).TrimEnd('\n').Split('\n'));
+        Assert.Equal("and a complaint", (await File.ReadAllTextAsync(error)).Trim());
+        // It went ahead, and said so first, so a cancel arriving now can't pretend it didn't.
+        Assert.False(HostInstall.Decide(decision));
+
+        // A failure is told apart, with what the script said.
+        File.Delete(status);
+        File.Delete(decision);
+        await File.WriteAllTextAsync(terminal, "export EXIT=3\n" + await File.ReadAllTextAsync(terminal));
+        await RunAsync("/bin/bash", terminal);
+        Assert.Equal("3", (await File.ReadAllTextAsync(status)).Trim());
+    }
+
+    [Fact]
+    public async Task Cancelling_before_Terminal_begins_means_it_never_does()
+    {
+        // The app cancelled while Terminal was still waiting for a password. Typing it afterwards
+        // changes nothing: the script finds the decision already made, and doesn't run.
+        var ran = Path.Combine(_temporary, "ran");
+        var script = Path.Combine(_temporary, "would change things.sh");
+        await File.WriteAllTextAsync(script, $"touch {HostInstall.Quote(ran)}\n");
+        var status = Path.Combine(_temporary, "status");
+        var decision = Path.Combine(_temporary, "decision");
+        var terminal = Path.Combine(_temporary, "Uncloud.command");
+        await File.WriteAllTextAsync(terminal, HostInstall.TerminalScript(
+                HostInstall.ShellCommand(script, "install", []), Path.Combine(_temporary, "result"),
+                Path.Combine(_temporary, "error"), status, decision)
+            .Replace("sudo -v", "true").Replace("sudo -n ", "").Replace("clear\n", ""));
+
+        Assert.True(HostInstall.Decide(decision));
+        await RunAsync("/bin/bash", terminal);
+        Assert.Equal("cancelled", (await File.ReadAllTextAsync(status)).Trim());
+        Assert.False(File.Exists(ran));
+    }
+
+    [Fact]
+    public async Task Each_step_can_ask_for_the_password_in_Terminal_instead()
+    {
+        var controller = Controller();
+        await controller.BecomeHostAsync(null, CancellationToken.None, inTerminal: true);
+        Assert.True(_install.LastInTerminal);
+        await controller.KeepPrivateAsync(null, CancellationToken.None);
+        Assert.False(_install.LastInTerminal);
+        await controller.PrepareFolderAsync("/Volumes/Big", CancellationToken.None, inTerminal: true);
+        Assert.True(_install.LastInTerminal);
+        await controller.TurnOffAsync(CancellationToken.None, inTerminal: true);
+        Assert.True(_install.LastInTerminal);
+    }
+
+    [Fact]
     public void What_the_script_says_reaches_the_person_and_cancelling_is_not_an_error()
     {
         var failed = HostInstall.Failure(
@@ -247,22 +313,28 @@ public sealed class HostInstallTests : IAsyncDisposable
         public string BridgeSocket { get; } = Path.Combine(Path.GetTempPath(), "uc-" + Guid.NewGuid().ToString("N")[..8], "b.sock");
         public IReadOnlyList<string> Private { get; } = [];
         public Exception? Refusal { get; set; }
+        public bool LastInTerminal { get; private set; }
         public List<(string? Root, string? Legacy)> Installs { get; } = [];
         public int Uninstalls { get; private set; }
 
-        public Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken)
+        public Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken, bool inTerminal = false)
         {
+            LastInTerminal = inTerminal;
             if (Refusal is not null) throw Refusal;
             Installs.Add((root, legacyConfig));
             Installed = true;
             return Task.CompletedTask;
         }
 
-        public Task<string> PrepareAsync(string folder, CancellationToken cancellationToken) =>
-            Task.FromResult(Path.Combine(folder, "Uncloud"));
-
-        public Task UninstallAsync(CancellationToken cancellationToken)
+        public Task<string> PrepareAsync(string folder, CancellationToken cancellationToken, bool inTerminal = false)
         {
+            LastInTerminal = inTerminal;
+            return Task.FromResult(Path.Combine(folder, "Uncloud"));
+        }
+
+        public Task UninstallAsync(CancellationToken cancellationToken, bool inTerminal = false)
+        {
+            LastInTerminal = inTerminal;
             Uninstalls++;
             Installed = false;
             return Task.CompletedTask;
