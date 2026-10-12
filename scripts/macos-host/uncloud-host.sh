@@ -64,6 +64,16 @@ while (($#)); do
   esac
 done
 
+# One value from the property list on standard input, or nothing at all. Only an answer plutil
+# says it found is taken: on older macOS — Monterey, at least — it writes its complaint about a
+# value that isn't there where the value would have gone, and that complaint would otherwise be
+# read as the value. That is how a missing password setting once looked like one that was set.
+extract() {
+  local value
+  value="$(plutil -extract "$1" raw -o - - 2>/dev/null)" || return 0
+  printf '%s' "$value"
+}
+
 # --- The account -------------------------------------------------------------------------------
 
 # Whether a user or group already has this number.
@@ -75,7 +85,7 @@ taken() {
 # A role account: named with an underscore, numbered 450–499, which macOS keeps off the login
 # window and out of System Settings, with no password and no shell, so nobody can sign in as it.
 ensure_account() {
-  local id="" gid candidate
+  local id="" gid candidate made=false
   if dscl . -read "/Users/$account" UniqueID >/dev/null 2>&1; then
     id="$(dscl . -read "/Users/$account" UniqueID | awk '{ print $2 }')"
   else
@@ -103,8 +113,18 @@ ensure_account() {
     dscl . -create "/Users/$account" RealName "$name"
     dscl . -create "/Users/$account" Password '*'
     dscl . -create "/Users/$account" IsHidden 1
+    made=true
+    # Remembered at once: whatever happens next, the next attempt uses this account rather than
+    # making another beside it.
+    remember_account
   fi
-  verify_account
+  if ! looks_like_ours "$account"; then
+    if $made; then
+      fail "Uncloud made its own account, $account, but couldn’t confirm afterwards that it’s as it should be, so it stopped there. Nothing else was changed."
+    fi
+    verify_account
+  fi
+  remember_account
   # Its full name is one nobody signing in would type. macOS accepts a full name wherever it asks for
   # a user name, and its password prompt fills in the person's own: a Mac whose administrator is
   # called "Uncloud" would otherwise have two accounts answering to it, and one with no password.
@@ -148,7 +168,7 @@ choose_account() {
 # One attribute of a user or group, read as a property list, so a value with spaces in it — a
 # home folder in Application Support — comes back whole.
 attribute() {
-  dscl -plist . -read "$1" "$2" 2>/dev/null | plutil -extract "dsAttrTypeStandard:$2.0" raw -o - - 2>/dev/null || true
+  dscl -plist . -read "$1" "$2" 2>/dev/null | extract "dsAttrTypeStandard:$2.0" || true
 }
 
 # Everybody's files are about to belong to this account, so it has to be the one Uncloud made, or
@@ -272,7 +292,7 @@ refuse_unsafe() {
   if is_mount_point "$1"; then fail "“$1” is a whole drive. Choose a folder on it instead."; fi
 }
 
-value() { diskutil info -plist "$1" | plutil -extract "$2" raw -o - - 2>/dev/null || true; }
+value() { diskutil info -plist "$1" | extract "$2" || true; }
 
 # A drive formatted so that a folder on it can belong to one account alone, with macOS honouring
 # that. External drives usually arrive with "Ignore ownership on this volume" ticked, which would
@@ -465,7 +485,7 @@ migrate() {
   old="$(setting "$from")"
   # A library from before accounts kept its folder in settings.json instead.
   if [[ -z "$old" && -f "$from/settings.json" ]]; then
-    old="$(plutil -extract RootPath raw -o - "$from/settings.json" 2>/dev/null || true)"
+    old="$(extract RootPath <"$from/settings.json")"
   fi
 
   # Everything that could refuse is asked first, while nothing has moved.
@@ -554,7 +574,7 @@ install_payload() {
   rm -rf "$payload.new"
   # Without the app's access lists too, any of which could let somebody change the copy.
   ditto --noqtn --noacl "$app/Contents/MacOS" "$payload.new"
-  version="$(plutil -extract CFBundleVersion raw -o - "$app/Contents/Info.plist" 2>/dev/null || true)"
+  version="$(extract CFBundleVersion <"$app/Contents/Info.plist")"
   printf '%s\n' "${version:-unknown}" >"$payload.new/.uncloud-version"
   chown -R root:wheel "$payload.new"
   chmod -R go-w "$payload.new"
@@ -654,12 +674,11 @@ install() {
 
   if [[ -f "$plist" ]]; then had_service=true; fi
   choose_account
+  own_dir "$base" root:wheel 755
   ensure_account
   # From here on, anything that fails is undone.
   changing=true
   stop_service
-  own_dir "$base" root:wheel 755
-  remember_account
   install_payload
   if [[ ! -e "$host" ]]; then made_host=true; fi
   own_dir "$host" "$account:$account" 700
