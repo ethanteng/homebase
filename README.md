@@ -387,6 +387,12 @@ the host's menu bar: it says whether Uncloud is running. Uncloud starts again by
 stops, and when the Mac restarts. From Terminal, check the window from step 2 is still open, and
 start it again if the computer restarted.
 
+**macOS didn't ask for my password.** On some Macs, macOS won't show its password prompt to an app
+in the menu bar, and answers as though it had been cancelled. Uncloud then offers **Finish in
+Terminal**: a Terminal window opens and asks for the same password there, and the Uncloud window
+carries on by itself once it's done. What macOS answered is in the app's log,
+`~/Library/Application Support/Uncloud/uncloud.log`.
+
 **The host's menu says to update Uncloud.** After you update the app on the host, Uncloud itself
 follows once an administrator's password is given: it runs from a copy only an administrator can
 change, so nobody can swap in something that reads everyone's files. Choose **Update Uncloud…**.

@@ -122,6 +122,7 @@ public sealed class App : Application
                     _paused = status.Summary == "Paused";
                     break;
                 case DesktopMode.Host:
+                    await _controller.KeepServerRunningAsync(CancellationToken.None);
                     _status = await _controller.HostStatusAsync(CancellationToken.None);
                     break;
                 default:
@@ -159,6 +160,14 @@ public sealed class App : Application
                 menu.Add(Item("Disconnect This Computer…", () => ShowSetup(null, SetupStart.Disconnect)));
                 break;
             case DesktopMode.Host when _controller.RunsInOwnAccount:
+                // Said, ticked, where people look for it: whether anybody signed in here can look
+                // through everybody's files.
+                menu.Add(new NativeMenuItem("Everyone’s Files Are Private")
+                {
+                    ToggleType = NativeMenuItemToggleType.CheckBox,
+                    IsChecked = true,
+                    IsEnabled = false
+                });
                 menu.Add(Item("Open Uncloud", () => Open(DesktopController.HostAddress.ToString())));
                 // Its settings are its own account's, so they're changed where everybody else
                 // changes them, in Settings.
@@ -172,7 +181,16 @@ public sealed class App : Application
             case DesktopMode.Host:
                 menu.Add(Item("Open Uncloud", () => Open(_controller.Server?.Address.ToString() ?? DesktopController.HostAddress.ToString())));
                 if (_controller.CanKeepPrivate)
-                    menu.Add(Item("Keep Everyone’s Files Private…", () => ShowSetup(null, SetupStart.KeepPrivate)));
+                {
+                    // Not ticked until it's done: Uncloud still runs as whoever is signed in here.
+                    var keep = new NativeMenuItem("Keep Everyone’s Files Private…")
+                    {
+                        ToggleType = NativeMenuItemToggleType.CheckBox,
+                        IsChecked = false
+                    };
+                    keep.Click += (_, _) => ShowSetup(null, SetupStart.KeepPrivate);
+                    menu.Add(keep);
+                }
                 var reach = new NativeMenuItem("Reach From Anywhere")
                 {
                     ToggleType = NativeMenuItemToggleType.CheckBox,

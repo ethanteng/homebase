@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Uncloud.Desktop;
 
@@ -55,18 +57,24 @@ public interface IHostInstall
     /// new host — null for a folder on this Mac. <paramref name="legacyConfig"/> is the settings of
     /// an Uncloud that ran as the person signed in here until now, which are moved in with its files.
     /// </summary>
-    Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken);
+    /// <param name="inTerminal">
+    /// Whether to ask for the password in Terminal, with sudo, rather than in macOS's own prompt —
+    /// for when macOS answers that prompt as cancelled without having shown it.
+    /// </param>
+    Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken, bool inTerminal = false);
 
     /// <summary>Opens a folder or drive to Uncloud's account, and says which folder to choose in Settings.</summary>
-    Task<string> PrepareAsync(string folder, CancellationToken cancellationToken);
+    Task<string> PrepareAsync(string folder, CancellationToken cancellationToken, bool inTerminal = false);
 
     /// <summary>Stops the service. Everybody's files and accounts stay, still locked to Uncloud's account.</summary>
-    Task UninstallAsync(CancellationToken cancellationToken);
+    Task UninstallAsync(CancellationToken cancellationToken, bool inTerminal = false);
 }
 
 /// <summary>The one a Mac has: the script in the app, run with an administrator's password.</summary>
-public sealed class HostInstall(string serverDirectory) : IHostInstall
+public sealed class HostInstall(string serverDirectory, ILogger? logger = null) : IHostInstall
 {
+    private readonly ILogger _logger = logger ?? NullLogger.Instance;
+
     public const string Label = "life.uncloud.host";
     /// <summary>Where the service keeps everything. Only Uncloud's account can look inside.</summary>
     public const string Base = "/Library/Application Support/Uncloud";
@@ -115,22 +123,25 @@ public sealed class HostInstall(string serverDirectory) : IHostInstall
 
     public string? Version => ValueIn(Path.Combine(App, "Contents", "Info.plist"), "CFBundleVersion");
 
-    public async Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken)
+    public async Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken, bool inTerminal = false)
     {
         var options = new List<(string, string)> { ("--app", App), ("--owner", Environment.UserName) };
         if (root is not null) options.Add(("--root", root));
         if (legacyConfig is not null) options.Add(("--legacy-config", legacyConfig));
-        await RunAsync("install", options, cancellationToken);
+        await RunAsync("install", options, inTerminal, cancellationToken);
     }
 
-    public async Task<string> PrepareAsync(string folder, CancellationToken cancellationToken) =>
-        (await RunAsync("prepare", [("--folder", folder)], cancellationToken)).Trim();
+    public async Task<string> PrepareAsync(string folder, CancellationToken cancellationToken, bool inTerminal = false) =>
+        (await RunAsync("prepare", [("--folder", folder)], inTerminal, cancellationToken)).Trim();
 
-    public Task UninstallAsync(CancellationToken cancellationToken) => RunAsync("uninstall", [], cancellationToken);
+    public Task UninstallAsync(CancellationToken cancellationToken, bool inTerminal = false) =>
+        RunAsync("uninstall", [], inTerminal, cancellationToken);
 
-    private async Task<string> RunAsync(string verb, IEnumerable<(string Flag, string Value)> options, CancellationToken cancellationToken)
+    private async Task<string> RunAsync(
+        string verb, IReadOnlyList<(string Flag, string Value)> options, bool inTerminal, CancellationToken cancellationToken)
     {
         if (!Packaged) throw new InvalidOperationException(CannotInstall);
+        if (inTerminal) return await RunInTerminalAsync(verb, options, cancellationToken);
         var start = new ProcessStartInfo("/usr/bin/osascript")
         {
             RedirectStandardOutput = true,
@@ -139,15 +150,68 @@ public sealed class HostInstall(string serverDirectory) : IHostInstall
         };
         start.ArgumentList.Add("-e");
         start.ArgumentList.Add(AppleScript(ShellCommand(Script, verb, options), Prompt));
+        _logger.LogInformation("Asking macOS for an administrator’s password, to {Verb}", verb);
+        var clock = Stopwatch.StartNew();
         using var process = Process.Start(start) ?? throw new IOException("macOS didn’t ask for a password.");
         var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var error = process.StandardError.ReadToEndAsync(cancellationToken);
         // Not timed: somebody may take a while to type a password, and giving a large library to
         // Uncloud's account takes as long as there are files.
         await process.WaitForExitAsync(cancellationToken);
+        var said = await error;
+        // What macOS said goes in the log whichever way it went: "cancelled" a moment after asking is
+        // macOS declining to show its prompt, which nobody can tell from the window alone.
+        _logger.LogInformation("{Verb} ended after {Seconds:0.0}s with exit code {Code}. {Said}",
+            verb, clock.Elapsed.TotalSeconds, process.ExitCode, said.Trim());
         if (process.ExitCode == 0) return await output;
-        throw Failure(await error);
+        throw Failure(said);
     }
+
+    /// <summary>
+    /// The same, in a Terminal window that asks for the password with sudo. It needs nothing from
+    /// macOS's own prompt, which on some Macs comes back cancelled without ever being shown to an
+    /// app in the menu bar. The person sees exactly what runs; this waits for it to finish.
+    /// </summary>
+    private async Task<string> RunInTerminalAsync(
+        string verb, IReadOnlyList<(string Flag, string Value)> options, CancellationToken cancellationToken)
+    {
+        var folder = Directory.CreateTempSubdirectory("uncloud-").FullName;
+        var result = Path.Combine(folder, "result");
+        var error = Path.Combine(folder, "error");
+        var status = Path.Combine(folder, "status");
+        var command = Path.Combine(folder, "Uncloud.command");
+        await File.WriteAllTextAsync(command, TerminalScript(ShellCommand(Script, verb, options), result, error, status),
+            cancellationToken);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(command, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        _logger.LogInformation("Asking for an administrator’s password in Terminal, to {Verb}", verb);
+        using (var open = Process.Start(new ProcessStartInfo("/usr/bin/open") { ArgumentList = { "-a", "Terminal", command } }))
+            if (open is not null) await open.WaitForExitAsync(cancellationToken);
+        while (!File.Exists(status)) await Task.Delay(500, cancellationToken);
+        var code = File.ReadAllText(status).Trim();
+        var said = File.Exists(error) ? File.ReadAllText(error).Trim() : "";
+        _logger.LogInformation("{Verb} in Terminal ended with exit code {Code}. {Said}", verb, code, said);
+        if (code == "0") return File.Exists(result) ? File.ReadAllText(result) : "";
+        throw new InvalidOperationException(said.Length > 0 ? said : "It didn’t finish in Terminal. What went wrong is shown there.");
+    }
+
+    /// <summary>
+    /// What Terminal runs: the script, with sudo, its answer and its complaints kept for the app,
+    /// and the outcome written last, all at once, so the app never reads half of one.
+    /// </summary>
+    internal static string TerminalScript(string command, string result, string error, string status) => $"""
+        #!/bin/bash
+        clear
+        echo "Uncloud needs an administrator’s password to keep everyone’s files private on this Mac."
+        echo "Type your Mac password and press Return. Nothing shows as you type."
+        echo
+        sudo {command} >{Quote(result)} 2>{Quote(error)}
+        code=$?
+        cat {Quote(error)} >&2
+        printf '%s\n' "$code" >{Quote(status + ".new")} && mv {Quote(status + ".new")} {Quote(status)}
+        echo
+        if [ "$code" -eq 0 ]; then echo "Done. You can close this window."; else echo "That didn’t finish, for the reason above. Nothing was left changed."; fi
+        """;
 
     /// <summary>A command for /bin/sh, every value in single quotes, which leave everything alone but a quote.</summary>
     internal static string ShellCommand(string script, string verb, IEnumerable<(string Flag, string Value)> options) =>

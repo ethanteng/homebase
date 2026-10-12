@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Avalonia;
 using Homebase.Core;
 using Microsoft.Extensions.Logging;
@@ -28,6 +29,20 @@ internal static class Program
             AppDomain.CurrentDomain.UnhandledException += (_, unhandled) => Fatal(paths, unhandled.ExceptionObject as Exception);
             App.Paths = paths;
             App.ServerDirectory = ServerDirectory();
+            // And how it closed, whenever it closes. Told to by something outside — a kill, a logout,
+            // macOS shutting it down — leaves no exception behind, and "the icon just went" would
+            // otherwise have nothing to answer it. Only being killed outright, or crashing in native
+            // code, says nothing here; macOS keeps a crash report for those.
+            using var closing = new FileLoggerProvider(paths.Log);
+            var said = closing.CreateLogger("Uncloud");
+            said.LogInformation("Uncloud {Version} is opening", new HostInstall(App.ServerDirectory).Version ?? "(built from source)");
+            AppDomain.CurrentDomain.ProcessExit += (_, _) => said.LogInformation("Uncloud is closing");
+            var signals = OperatingSystem.IsMacOS() || OperatingSystem.IsLinux()
+                ? new[] { PosixSignal.SIGTERM, PosixSignal.SIGHUP, PosixSignal.SIGINT, PosixSignal.SIGQUIT }
+                    .Select(signal => PosixSignalRegistration.Create(signal,
+                        context => said.LogWarning("Uncloud was told to close ({Signal})", context.Signal)))
+                    .ToArray()
+                : [];
             App.StartupLink = args.FirstOrDefault(argument => argument.StartsWith(PairingLink.Scheme + "://", StringComparison.OrdinalIgnoreCase));
             try
             {
@@ -37,6 +52,10 @@ internal static class Program
             {
                 Fatal(paths, error);
                 throw;
+            }
+            finally
+            {
+                foreach (var signal in signals) signal.Dispose();
             }
         }
     }

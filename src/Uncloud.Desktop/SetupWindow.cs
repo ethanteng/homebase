@@ -348,29 +348,15 @@ public sealed class SetupWindow : Window
             }
         }
         var start = new Button { Content = "Start Uncloud Here", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
-        start.Click += async (_, _) =>
-        {
-            start.IsEnabled = false;
-            start.Content = "Starting…";
-            try
+        start.Click += async (_, _) => await AdministerAsync("Make this Mac the host", start, "Starting…",
+            (inTerminal, stop) => _controller.BecomeHostAsync(root, stop, inTerminal),
+            again: () => ShowHost(root),
+            done: () =>
             {
-                await _controller.BecomeHostAsync(root, CancellationToken.None);
                 OpenAtLogin();
                 App.Open(DesktopController.HostAddress.ToString());
                 Close();
-            }
-            catch (OperationCanceledException)
-            {
-                start.IsEnabled = true;
-                start.Content = "Start Uncloud Here";
-            }
-            catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
-            {
-                Problem(error.Message);
-                start.IsEnabled = true;
-                start.Content = "Start Uncloud Here";
-            }
-        };
+            });
         _body.Children.Add(_problem);
         _body.Children.Add(start);
         if (_controller.CannotSetUpPrivately is { } why)
@@ -396,26 +382,17 @@ public sealed class SetupWindow : Window
         var later = new Button { Content = "Not Now" };
         later.Click += (_, _) => Close();
         var go = new Button { Content = "Continue", Background = Accent, Foreground = Brushes.White };
-        go.Click += async (_, _) =>
-        {
-            go.IsEnabled = later.IsEnabled = false;
-            go.Content = "Moving everything across…";
-            try
+        go.Click += async (_, _) => await AdministerAsync("Keep everyone’s files private", go, "Moving everything across…",
+            (inTerminal, stop) => _controller.KeepPrivateAsync(null, stop, inTerminal),
+            again: ShowKeepPrivate,
+            done: () =>
             {
-                await _controller.KeepPrivateAsync(null, CancellationToken.None);
                 OpenAtLogin();
                 Reset("Everyone’s files are private",
                     "They belong to Uncloud’s own account now. Nobody signed in to this Mac can look through them, and Uncloud starts with the Mac.");
                 Done();
-            }
-            catch (OperationCanceledException) { ShowKeepPrivate(); }
-            catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
-            {
-                Problem(error.Message);
-                go.IsEnabled = later.IsEnabled = true;
-                go.Content = "Continue";
-            }
-        };
+            },
+            later);
         _body.Children.Add(_problem);
         _body.Children.Add(Buttons(later, go));
         if (_controller.CannotSetUpPrivately is { } why)
@@ -437,34 +414,23 @@ public sealed class SetupWindow : Window
         choose.Click += async (_, _) =>
         {
             if (await ChooseFolderAsync() is not { } chosen) return;
-            choose.IsEnabled = false;
-            choose.Content = "Opening it to Uncloud…";
-            try
-            {
-                var folder = await _controller.PrepareFolderAsync(chosen, CancellationToken.None);
-                Reset("Now choose it in Settings",
-                    "In Uncloud’s Settings, enter this folder as where everyone’s files are kept. The files already in Uncloud stay where they are until you move them.");
-                var path = new TextBox { Text = folder, IsReadOnly = true };
-                _body.Children.Add(path);
-                var settings = new Button { Content = "Open Settings", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
-                settings.Click += (_, _) =>
+            string? folder = null;
+            await AdministerAsync("Keep everyone’s files somewhere else", choose, "Opening it to Uncloud…",
+                async (inTerminal, stop) => folder = await _controller.PrepareFolderAsync(chosen, stop, inTerminal),
+                again: ShowAnotherFolder,
+                done: () =>
                 {
-                    App.Open(new Uri(DesktopController.HostAddress, "/?settings").ToString());
-                    Close();
-                };
-                _body.Children.Add(settings);
-            }
-            catch (OperationCanceledException)
-            {
-                choose.IsEnabled = true;
-                choose.Content = "Choose Folder…";
-            }
-            catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
-            {
-                Problem(error.Message);
-                choose.IsEnabled = true;
-                choose.Content = "Choose Folder…";
-            }
+                    Reset("Now choose it in Settings",
+                        "In Uncloud’s Settings, enter this folder as where everyone’s files are kept. The files already in Uncloud stay where they are until you move them.");
+                    _body.Children.Add(new TextBox { Text = folder, IsReadOnly = true });
+                    var settings = new Button { Content = "Open Settings", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
+                    settings.Click += (_, _) =>
+                    {
+                        App.Open(new Uri(DesktopController.HostAddress, "/?settings").ToString());
+                        Close();
+                    };
+                    _body.Children.Add(settings);
+                });
         };
         _body.Children.Add(_problem);
         _body.Children.Add(choose);
@@ -481,23 +447,9 @@ public sealed class SetupWindow : Window
         var later = new Button { Content = "Not Now" };
         later.Click += (_, _) => Close();
         var go = new Button { Content = "Update", Background = Accent, Foreground = Brushes.White };
-        go.Click += async (_, _) =>
-        {
-            go.IsEnabled = later.IsEnabled = false;
-            go.Content = "Updating…";
-            try
-            {
-                await _controller.KeepPrivateAsync(null, CancellationToken.None);
-                Close();
-            }
-            catch (OperationCanceledException) { ShowUpdate(); }
-            catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
-            {
-                Problem(error.Message);
-                go.IsEnabled = later.IsEnabled = true;
-                go.Content = "Update";
-            }
-        };
+        go.Click += async (_, _) => await AdministerAsync("Finish updating Uncloud", go, "Updating…",
+            (inTerminal, stop) => _controller.KeepPrivateAsync(null, stop, inTerminal),
+            again: ShowUpdate, done: Close, later);
         _body.Children.Add(_problem);
         _body.Children.Add(Buttons(later, go));
     }
@@ -507,23 +459,92 @@ public sealed class SetupWindow : Window
         Reset("Turn off Uncloud on this Mac?",
             "Nobody can reach Uncloud until it’s on again, and other computers stop syncing. Everyone’s files and accounts stay here, still private to Uncloud’s own account, and making this Mac the host again picks them up. macOS asks for an administrator’s password.");
         var off = new Button { Content = "Turn Off", HorizontalAlignment = HorizontalAlignment.Right };
-        off.Click += async (_, _) =>
+        off.Click += async (_, _) => await AdministerAsync("Turn off Uncloud on this Mac?", off, "Turning off…",
+            (inTerminal, stop) => _controller.TurnOffAsync(stop, inTerminal),
+            again: ShowTurnOff, done: Close);
+        _body.Children.Add(_problem);
+        _body.Children.Add(off);
+    }
+
+    /// <summary>
+    /// Runs something that needs an administrator's password, asking in macOS's own prompt first.
+    /// That prompt can come back cancelled without ever having been shown — some Macs won't show it
+    /// for an app in the menu bar — so cancelled is never taken as the end of it: the same step is
+    /// offered in Terminal, where sudo asks instead.
+    /// </summary>
+    /// <param name="heading">The panel's own heading, kept if it has to offer Terminal.</param>
+    /// <param name="work">The step, told whether to ask in Terminal, and when to stop waiting for it there.</param>
+    /// <param name="again">The panel as it was, for trying again.</param>
+    /// <param name="done">What happens once it has worked.</param>
+    /// <param name="others">Buttons beside <paramref name="go"/> that wait with it.</param>
+    private async Task AdministerAsync(string heading, Button go, string busy,
+        Func<bool, CancellationToken, Task> work, Action again, Action done, params Button[] others)
+    {
+        var idle = go.Content;
+        go.IsEnabled = false;
+        foreach (var other in others) other.IsEnabled = false;
+        go.Content = busy;
+        try
         {
-            off.IsEnabled = false;
+            await work(false, CancellationToken.None);
+            done();
+        }
+        catch (OperationCanceledException)
+        {
+            OfferTerminal(heading, work, again, done);
+        }
+        catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+        {
+            Problem(error.Message);
+            go.IsEnabled = true;
+            foreach (var other in others) other.IsEnabled = true;
+            go.Content = idle;
+        }
+    }
+
+    private void OfferTerminal(string heading, Func<bool, CancellationToken, Task> work, Action again, Action done)
+    {
+        Reset(heading,
+            "macOS didn’t ask for your password, or the request was cancelled, so nothing has changed. You can finish in Terminal instead: a window opens where you type the same password, and this window carries on by itself once it’s done.");
+        var waiting = new TextBlock
+        {
+            Text = "In the Terminal window that opened, type your Mac’s password and press Return. Nothing shows as you type.",
+            TextWrapping = TextWrapping.Wrap,
+            IsVisible = false
+        };
+        var cancel = new Button { Content = "Cancel", IsVisible = false };
+        cancel.Click += (_, _) => _work?.Cancel();
+        var retry = new Button { Content = "Try Again" };
+        retry.Click += (_, _) => again();
+        var terminal = new Button { Content = "Finish in Terminal", Background = Accent, Foreground = Brushes.White };
+        terminal.Click += async (_, _) =>
+        {
+            var stop = Begin();
+            terminal.IsEnabled = retry.IsEnabled = false;
+            terminal.Content = "Waiting for Terminal…";
+            waiting.IsVisible = cancel.IsVisible = true;
+            _problem.IsVisible = false;
             try
             {
-                await _controller.TurnOffAsync(CancellationToken.None);
-                Close();
+                await work(true, stop);
+                done();
             }
-            catch (OperationCanceledException) { off.IsEnabled = true; }
+            // Stopped waiting, or the window closed: whatever ran as this person before runs again.
+            catch (OperationCanceledException)
+            {
+                if (IsVisible) again();
+            }
             catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
             {
                 Problem(error.Message);
-                off.IsEnabled = true;
+                terminal.IsEnabled = retry.IsEnabled = true;
+                terminal.Content = "Finish in Terminal";
+                waiting.IsVisible = cancel.IsVisible = false;
             }
         };
+        _body.Children.Add(waiting);
         _body.Children.Add(_problem);
-        _body.Children.Add(off);
+        _body.Children.Add(Buttons(cancel, retry, terminal));
     }
 
     private async Task<string?> ChooseFolderAsync()
