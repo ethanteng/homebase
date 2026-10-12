@@ -27,32 +27,18 @@ if (names.length > 1) {
   update();
 }
 
-// The signup form is LaunchList's widget, an iframe from another origin. The head code kept in
-// launchlist-head.html runs inside it and posts an event name here; nothing typed ever crosses.
-// Every landing page carries the widget twice, in the hero and at the close; either one counts.
-const widgets = [...document.querySelectorAll(".launchlist-widget")];
+// "Reserve your spot" leaves for Buy Me a Coffee, which takes the $5 reservation; whether it was
+// paid never comes back to this page. A click on any of the page's reserve buttons is the cta_click,
+// once per page view. GA4's enhanced measurement records the outbound click itself as well.
+const reserveLinks = [...document.querySelectorAll("[data-reserve]")];
+let reserveClicked = false;
 
-if (widgets.length) {
-  const events = new Map([
-    ["uncloud:signup_attempt", "cta_click"],
-    ["uncloud:signup_sent", "generate_lead"],
-  ]);
-  const measured = new Set();
-  const frames = () => widgets.map((widget) => widget.querySelector("iframe")).filter(Boolean);
-
-  window.addEventListener("message", (message) => {
-    if (message.origin !== "https://getlaunchlist.com" || !frames().some((frame) => message.source === frame.contentWindow)) return;
-    const event = events.get(message.data && message.data.type);
-    // The widget stays after a signup, so a second address is possible; count each event once.
-    if (!event || measured.has(event)) return;
-    measured.add(event);
+for (const link of reserveLinks) {
+  link.addEventListener("click", () => {
+    if (reserveClicked) return;
+    reserveClicked = true;
     window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push({ event });
-  });
-
-  // widget.js adds its iframe without a title, which leaves screen readers announcing a nameless frame.
-  document.addEventListener("DOMContentLoaded", () => {
-    for (const frame of frames()) frame.title = "Early access signup";
+    window.dataLayer.push({ event: "cta_click" });
   });
 }
 

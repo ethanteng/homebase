@@ -108,7 +108,7 @@
 }
 
 .hardware-join h2 { max-width: 760px; margin-inline: auto; }
-.hardware-join .access-offer { max-width: 690px; margin: 28px auto 22px; text-wrap: balance; }
+.hardware-join .reserve-offer { margin-top: 28px; }
 .hardware-join .primary-link { display: inline-flex; align-items: center; justify-content: center; padding: 0 28px; }
 
 @media (max-width: 620px) {

@@ -2,11 +2,11 @@
 
 Configured September 20, 2026. The public page is https://www.uncloud.life/.
 
-## Signup events from the LaunchList widget
+## Reserve clicks
 
-As of September 25, 2026 the early-access form is a LaunchList widget (see [README.md](README.md#early-access-signups)): a cross-origin iframe whose clicks never reach this page's data layer, and whose form submits into a new tab on getlaunchlist.com. The events come from inside it instead. [`launchlist-head.html`](launchlist-head.html), pasted into LaunchList's **Integration → Custom code → Head code**, posts `uncloud:signup_attempt` to the page when the form is submitted and `uncloud:signup_sent` when LaunchList's own checks pass and it sends the address. `main.js` accepts those only from the widget's iframe on `https://getlaunchlist.com` and pushes `cta_click` and `generate_lead`, each at most once per page view. Only the event name crosses; the address never leaves the iframe except to LaunchList.
+As of October 12, 2026 there is no signup form. Each call to action is a “Reserve your spot – $5” link to the $5 reservation on Buy Me a Coffee (see [README.md](README.md#early-access-reservations)). `main.js` pushes `cta_click` the first time any reserve button on the page is clicked, once per page view; GA4's enhanced measurement also records the outbound `click`, with the button's placement as `link_id`. The reservation is paid on buymeacoffee.com and nothing about it comes back to the page, so **the site no longer pushes `generate_lead`**, and the Ads conversion below, which is built on it, stops receiving events. Buy Me a Coffee is the authority on how many people reserved. GTM and GA4 needed no change.
 
-The head code lives in LaunchList's dashboard, not in any deployment. If it is removed or LaunchList stops loading it, the widget keeps taking signups and both events stop without an error anywhere; a drop to zero leads with signups still arriving in LaunchList means that. GTM and GA4 needed no change.
+From September 25 to October 12, 2026 the form was a LaunchList widget whose head code posted signup events to the page: `cta_click` was then the first submit attempt and `generate_lead` a sent address. Compare across that date with care.
 
 ## Accounts and implementation
 
@@ -28,8 +28,8 @@ The landing HTML loads GTM only on `uncloud.life` and `www.uncloud.life`. There 
 | --- | --- | --- |
 | `page_view` / sessions | Arrival, with Google Ads auto-tagging and campaign attribution | Diagnostic |
 | GA4 engaged sessions / `user_engagement` | Standard GA4 engagement; use engagement rate and average engagement time | Diagnostic |
-| `cta_click` | First attempt to submit Get early access in the widget on that page, including invalid/empty input; Enter key also counts | Diagnostic only |
-| `generate_lead` | The address passed LaunchList's checks and the widget sent it to LaunchList | Primary business outcome |
+| `cta_click` | First click on a “Reserve your spot – $5” button on that page (until October 12, 2026: first submit attempt in the LaunchList form) | Diagnostic only |
+| `generate_lead` | No longer sent (until October 12, 2026: the address passed LaunchList's checks and the widget sent it) | Primary business outcome |
 
 `generate_lead` is a GA4 key event, counted once per session, with no default monetary value. This is a waitlist request, not a paid customer, verified email, or activated user.
 
@@ -39,11 +39,10 @@ The event tag includes `landing_version=cloud-subscriptions-v1`, registered as t
 
 ## Counting and data boundaries
 
-- `generate_lead` means the widget sent the address, not that LaunchList confirmed storing it: that answer arrives in a tab the page cannot see. Empty and malformed addresses stop at LaunchList's checks and never count. An address that is already on the list counts again when it is sent from a new session.
-- The homepage and each acquisition page have the form twice, in the hero and at the close. The events do not say which one was used, and each counts once per page view whichever form sends it.
-- A page view records at most one lead, however many addresses are sent from it, and GA4 counts one per session. LaunchList is the authority on how many people signed up; GA4 is the authority on which campaigns brought them.
-- The widget passes the page's query string to LaunchList, so each LaunchList signup carries the visit's `utm_*` parameters and click IDs. These go to LaunchList only; they are never pushed into the data layer.
-- Email addresses, typed form contents, validation errors, and user IDs are never pushed into the data layer or event parameters.
+- `cta_click` means a visitor clicked through to Buy Me a Coffee, not that they paid.
+- The homepage and each acquisition page have three reserve buttons (hero, pricing card, close), and the FAQ and storage pages one each. `cta_click` doesn't say which was used; the outbound `click`'s `link_id` does.
+- The link doesn't carry the page's `utm_*` parameters or click IDs, so a reservation in Buy Me a Coffee can't be tied to a campaign. GA4 is the authority on which campaigns brought the clicks.
+- Email addresses, payment details and user IDs never reach the data layer or event parameters.
 - GA4 email redaction remains enabled. Avoid personal data in campaign parameters or URLs.
 - Google signals and advertising personalization signals are disabled by the page; personalized advertising is disabled on the GA4–Ads link. No enhanced conversions or remarketing audience was configured.
 - Analytics cookies/tag collection follow the existing site behavior; no consent manager is implemented by this change. Evaluate the consent experience before expanding the geographic scope of paid traffic.
@@ -58,7 +57,7 @@ For the first experiment, compare message-focused ad groups while keeping audien
 utm_source=google&utm_medium=cpc&utm_campaign=uncloud_demand_v1&utm_content={creative}&utm_term={keyword}
 ```
 
-Use Google Ads campaign/ad/ad-group dimensions for click-to-lead performance. In GA4 Traffic acquisition, compare sessions, engagement rate, CTA users and generate_lead key-event rate by session campaign. Explore a funnel of page_view → cta_click → generate_lead, broken down by campaign. Use Landing version when comparing the custom CTA/lead events (that parameter is not attached to automatic page views). Evaluate cost per confirmed waitlist request alongside downstream lead quality; CTA rate alone does not validate demand.
+Use Google Ads campaign/ad/ad-group dimensions for click-to-lead performance. In GA4 Traffic acquisition, compare sessions, engagement rate, CTA users and generate_lead key-event rate by session campaign. Explore a funnel of page_view → cta_click, broken down by campaign, and set it against reservations in Buy Me a Coffee. Use Landing version when comparing the custom CTA/lead events (that parameter is not attached to automatic page views). Evaluate cost per confirmed waitlist request alongside downstream lead quality; CTA rate alone does not validate demand.
 
 Choose the Uncloud conversion explicitly for future Uncloud campaigns. Existing Ask Linc campaigns must retain their current conversion goals. No campaigns, budgets or ads are created by this measurement setup.
 

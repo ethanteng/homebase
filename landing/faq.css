@@ -34,7 +34,7 @@
   text-wrap: balance;
 }
 
-.faq-join .access-offer { max-width: 690px; margin: 28px auto 22px; text-wrap: balance; }
+.faq-join .reserve-offer { margin-top: 28px; }
 .faq-join .primary-link { display: inline-flex; align-items: center; justify-content: center; padding: 0 28px; }
 
 @media (max-width: 620px) {

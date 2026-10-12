@@ -20,13 +20,10 @@
 .hero-value-number > span { display: grid; gap: 4px; font-size: .9rem; font-weight: 650; line-height: 1.3; white-space: nowrap; }
 .hero-value-number small { color: #52637b; font-size: .76rem; font-weight: 400; }
 .hero-value-number s { text-decoration-thickness: 1.5px; }
-.hero-lock-in { margin-top: 10px; color: var(--ink); font-size: .9rem; font-weight: 600; line-height: 1.5; text-wrap: balance; }
-/* LaunchList sizes its form to its content, about 660px wide at the font set in its dashboard, and
-   crops it in any narrower frame down to 426px; at 425px and below it stacks the field over the
-   button. The hero column is narrower than 660px, so its form stays at the stacked width. */
-.hero-signup { max-width: 420px; margin-top: 4px; }
-/* The form leaves blank room under its button; draw what follows up into it. */
-.hero-signup .launchlist-widget { min-height: 176px; margin-bottom: -14px; }
+.hero-signup { margin-top: 18px; }
+.hero-signup .primary-link { width: 100%; max-width: 420px; }
+.hero-signup .reserve-offer { font-size: .9rem; }
+.hero-signup .access-note { font-size: .8rem; }
 .homepage .primary-link { display: inline-flex; align-items: center; justify-content: center; gap: 28px; border-radius: 9px; }
 .hero-film { max-width: 1000px; margin: 48px auto 0; }
 .film-caption { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 0 2px 14px; }
@@ -102,10 +99,8 @@
 .homepage .pricing-card { max-width: none; box-shadow: none; }
 .homepage .pricing { padding-bottom: 0; }
 .signup-close { max-width: 780px; padding: clamp(76px, 9vw, 120px) 0; margin: 0 auto; }
-.signup-close .access-offer { border: 0; background: none; padding: 0; margin-top: 24px; margin-bottom: 22px; font-size: 1.1rem; letter-spacing: -.02em; }
-/* Stacked like the hero's: see .hero-signup. */
-.signup-close .launchlist-widget { max-width: 420px; min-height: 176px; margin: 0 auto; }
-.signup-note { margin-top: 8px; font-size: .8rem; color: var(--muted); line-height: 1.6; }
+.signup-close .reserve-offer { margin-top: 30px; }
+.signup-close .primary-link { padding: 0 28px; }
 .peerlist-badge { display: flex; justify-content: center; padding-bottom: 40px; }
 .peerlist-badge img { display: block; width: auto; height: 72px; }
 @media (min-width: 1100px) {
@@ -164,8 +159,7 @@
   .hero-value-number strong { font-size: 3.6rem; }
   .hero-value-number > span { font-size: .9rem; }
   .hero-value-number small { font-size: .8rem; }
-  .hero-lock-in { margin-top: 6px; text-align: center; font-size: .9rem; }
-  .hero-signup { margin: 10px auto 0; }
+  .hero-signup { margin-top: 14px; text-align: center; }
   .hero-film { margin-top: 36px; }
   /* The player is right here, so a link to watch it in another tab is clutter. The heading stays for screen readers. */
   .film-caption { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -189,7 +183,6 @@
   .homepage .savings-example { padding: 24px 20px; }
   .homepage .pricing .section-heading { text-align: center; }
   .signup-close { padding-inline: 5px; }
-  .signup-close .access-offer { font-size: .98rem; line-height: 1.6; }
 }
 @media (max-width: 360px) {
   .homepage h1 { font-size: 2.5rem; }
