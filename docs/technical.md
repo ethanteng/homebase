@@ -487,9 +487,11 @@ folder at the top of My files; a second folder with the same name is numbered ra
 
 A browser on the host itself isn't offered **Host computer** at all: the files in front of it are
 already **This device**, and two cards for one machine read as two different places. "On the host"
-is the test Dropbox's one-click sign-in uses — a loopback connection, with no proxy somebody else
-configured in between (`atTheComputer` on `/api/imports/sources`). When that can't be told, both
-cards stay, so nobody far away loses the host's folders on a guess.
+is the test Dropbox's one-click sign-in uses (`atTheComputer` on `/api/imports/sources`): a
+loopback connection that didn't arrive under the tunnel's name or through a proxy somebody else
+configured. With remote access on, the tunnel names loopback as a proxy for itself, so somebody
+else's proxy is recognised by the forwarding headers it adds. When that can't be told, both cards
+stay, so nobody far away loses the host's folders on a guess.
 
 Only someone who looks after the host (an administrator) is offered this computer at all, because
 Uncloud runs as one operating-system user and can read whatever that user can — the administrator's

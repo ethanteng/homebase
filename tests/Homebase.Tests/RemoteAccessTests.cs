@@ -166,6 +166,41 @@ public sealed class RemoteAccessTests : IDisposable
     }
 
     [Fact]
+    public async Task With_a_tunnel_open_only_a_browser_on_this_computer_is_taken_for_one()
+    {
+        // A tunnel names loopback as a proxy for itself, and a reverse proxy somebody runs on this
+        // machine reaches Uncloud from loopback too. Neither makes everybody behind it somebody
+        // sitting at the host, which would leave a remote administrator without the host's folders.
+        const string Announced = "home.tail9f3a.ts.net";
+        using var tunnels = Open("tailscale", Announced);
+        using var app = new TestHost(_config, settings: new Dictionary<string, string?>
+        {
+            ["Homebase:TrustedProxies"] = "127.0.0.1",
+            ["Homebase:AllowedHosts"] = "files.example.com"
+        });
+        using var owner = await app.SignUpAsync("ada");
+        await TestHost.SetHostRootAsync(owner, _host);
+
+        async Task<JsonElement> AtTheComputerAsync(HttpClient client) =>
+            (await client.GetFromJsonAsync<JsonElement>("/api/imports/sources")).GetProperty("atTheComputer");
+        async Task<HttpClient> SignedInThroughAsync(string hostname)
+        {
+            var client = Through(app, hostname);
+            var response = await client.PostAsJsonAsync("/api/session",
+                new { username = "ada", password = TestHost.Password });
+            response.EnsureSuccessStatusCode();
+            KeepSession(client, response);
+            return client;
+        }
+
+        Assert.True((await AtTheComputerAsync(owner)).GetBoolean());
+        using var throughTheirProxy = await SignedInThroughAsync("files.example.com");
+        Assert.False((await AtTheComputerAsync(throughTheirProxy)).GetBoolean());
+        using var throughTheTunnel = await SignedInThroughAsync(Announced);
+        Assert.False((await AtTheComputerAsync(throughTheTunnel)).GetBoolean());
+    }
+
+    [Fact]
     public async Task Only_an_administrator_is_told_the_public_address()
     {
         const string Announced = "home.tail9f3a.ts.net";

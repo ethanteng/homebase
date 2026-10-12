@@ -209,16 +209,32 @@ string? RelayCannotFinish(HttpContext context)
 // Whether the browser asking is on the computer Uncloud runs on, or null when that can't be told.
 bool? AtTheComputer(HttpContext context)
 {
+    // Whoever arrives under the tunnel's name is reaching this host from outside. The tunnel passes
+    // them on from loopback, with their own address beside it only if it sends one.
+    if (remote.Answers(context.Request.Host.Host)) return false;
     // X-Forwarded-For is believed only from a tunnel Uncloud opened itself, so behind a proxy
     // somebody else configured the address below is the proxy's — often loopback, which would read
-    // as "sitting at the machine" for somebody who is nowhere near it.
-    if (binding.TrustedProxies.Count > 0 && !remote.IsEnabled) return null;
+    // as "sitting at the machine" for somebody who is nowhere near it. With no tunnel, any proxy
+    // named is somebody else's. With one, the tunnel's own loopback is named as well, so somebody
+    // else's proxy is told apart by what it adds: a browser talking straight to Uncloud says
+    // nothing about having been forwarded.
+    if (binding.TrustedProxies.Count > 0 && (!remote.IsEnabled || WasForwarded(context.Request)))
+        return null;
     // A dual-stack socket reports a local browser as ::ffff:127.0.0.1, which has to be read as
     // loopback or everybody at the machine reads as somewhere else.
     var from = context.Connection.RemoteIpAddress;
     if (from is { IsIPv4MappedToIPv6: true }) from = from.MapToIPv4();
     return from is not null && IPAddress.IsLoopback(from);
 }
+// Whether a proxy passed this request on: the headers it adds, or what this host kept of them once
+// it believed them.
+static bool WasForwarded(HttpRequest request) =>
+    new[]
+    {
+        ForwardedHeadersDefaults.XForwardedForHeaderName, ForwardedHeadersDefaults.XForwardedHostHeaderName,
+        ForwardedHeadersDefaults.XForwardedProtoHeaderName, ForwardedHeadersDefaults.XOriginalHostHeaderName,
+        ForwardedHeadersDefaults.XOriginalProtoHeaderName, "Forwarded"
+    }.Any(request.Headers.ContainsKey);
 (string RedirectUri, Func<string, string>? WayBack) DropboxReturn(string userId) =>
     appKeys.UsesRelay(userId)
         ? (relay.Callback, state => DropboxRelay.StateWithWayBack(state, binding.IsSecure, binding.Port))
