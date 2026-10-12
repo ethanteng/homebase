@@ -141,6 +141,14 @@ function describeTotal(total: Total): string {
   return text;
 }
 
+/**
+ * Whether the host's own folders are offered. Sitting at the host, the computer in front of somebody
+ * is "This device" already, and a second card for the same machine reads as two different places.
+ */
+function hostOffered(sources: ImportSources): boolean {
+  return sources.canAddFolders && !sources.atTheComputer;
+}
+
 function readLastSource(): string | null {
   try {
     return window.localStorage.getItem(LAST_SOURCE);
@@ -231,7 +239,7 @@ export default function AddFiles({
       if (outcome) return setWhere({ at: "account", id: "dropbox" });
       // Picking up where they left off saves a click for the common case of one favourite place.
       const last = readLastSource();
-      if (last === "computer" && latest.canAddFolders) setWhere({ at: "computer" });
+      if (last === "computer" && hostOffered(latest)) setWhere({ at: "computer" });
       else if (last === "device") setWhere({ at: "device" });
       else if (last && latest.accounts.some((account) => account.id === last))
         setWhere({ at: "account", id: last });
@@ -514,7 +522,7 @@ export default function AddFiles({
         <h3 className="add-question">Where are your files?</h3>
         {messages}
         <div className="source-grid">
-          {sources.canAddFolders && (
+          {hostOffered(sources) && (
             <SourceCard
               icon={<Laptop size={22} strokeWidth={1.5} />}
               name="Host computer"

@@ -668,6 +668,32 @@ public sealed class PlaceTests : IDisposable
         Assert.Contains("isn’t on this computer", problem.GetProperty("detail").GetString());
     }
 
+    [Fact]
+    public async Task Add_files_knows_when_the_browser_is_on_the_host_itself()
+    {
+        // At the host, the computer in front of somebody is "This device" already, so the page
+        // leaves out the card for the host's folders rather than offer the same machine twice.
+        async Task<bool> AtTheComputerAsync(IPAddress caller, params (string Key, string? Value)[] extra)
+        {
+            using var app = new TestHost(Path.Combine(_temporary, Guid.NewGuid().ToString("N")),
+                settings: extra.ToDictionary(setting => setting.Key, setting => setting.Value), caller: caller);
+            var (client, _) = await StartAsync(app);
+            using var __ = client;
+            var sources = await client.GetFromJsonAsync<JsonElement>("/api/imports/sources");
+            Assert.True(sources.GetProperty("canAddFolders").GetBoolean());
+            return sources.GetProperty("atTheComputer").GetBoolean();
+        }
+
+        Assert.True(await AtTheComputerAsync(IPAddress.Loopback));
+        // A dual-stack socket's way of saying the same thing.
+        Assert.True(await AtTheComputerAsync(IPAddress.Loopback.MapToIPv6()));
+        Assert.False(await AtTheComputerAsync(IPAddress.Parse("192.168.1.50"),
+            ("Homebase:Bind", "0.0.0.0"), ("Homebase:AllowedHosts", "uncloud.local")));
+        // Behind somebody else's proxy every request arrives from it, often over loopback. Not
+        // knowing where the browser is must not cost anybody far away the host's folders.
+        Assert.False(await AtTheComputerAsync(IPAddress.Loopback, ("Homebase:TrustedProxies", "127.0.0.1")));
+    }
+
     /// <summary>Starts an import and waits for it, which is how the panel watches one too.</summary>
     private static async Task<JsonElement> BringHomeAsync(HttpClient client, string source, string remotePath)
     {

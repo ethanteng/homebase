@@ -70,11 +70,11 @@ export const PAGES = {
       steps: [
         { title: "Install Uncloud", body: "Use a Mac, PC or Linux computer you already own." },
         { title: "Download your Drive files", body: "Download files from Drive. Export Google Docs, Sheets and Slides, too." },
-        { title: "Add them to Uncloud", body: "Choose Add files, then Host computer. Your Google Drive originals stay put." },
+        { title: "Add them to Uncloud", body: "Choose Add files, then This device. Your Google Drive originals stay put." },
       ] },
     faqHeading: "Before you switch",
     faq: [
-      { q: "How do I bring my Google Drive files over?", a: "Download your Drive files, including exports of Google Docs, Sheets and Slides. In Uncloud, choose Add files, then Host computer, and select the downloaded folder." },
+      { q: "How do I bring my Google Drive files over?", a: "Download your Drive files, including exports of Google Docs, Sheets and Slides. In Uncloud, choose Add files, then This device, and select the downloaded folder." },
       { q: "Does Uncloud replace Gmail or Google Photos?", a: "No. Uncloud stores your files. Gmail, Google Photos and other Google plan benefits are separate." },
       A.privacy, A.storage, A.cost,
     ],
@@ -99,7 +99,7 @@ export const PAGES = {
       steps: [
         { title: "Install Uncloud", body: "Use a Mac, PC or Linux computer you already own." },
         { title: "Download your iCloud files", body: "On a Mac, keep your iCloud Drive files downloaded. Or download them from iCloud.com." },
-        { title: "Add them to Uncloud", body: "Choose Add files, then Host computer. Your iCloud originals stay put." },
+        { title: "Add them to Uncloud", body: "Choose Add files, then This device. Your iCloud originals stay put." },
       ] },
     faqHeading: "Before you switch",
     faq: [
@@ -130,11 +130,11 @@ export const PAGES = {
       steps: [
         { title: "Install Uncloud", body: "Use a Mac, PC or Linux computer you already own." },
         { title: "Download your OneDrive files", body: "Choose Always keep on this device, or download your files from OneDrive on the web." },
-        { title: "Add them to Uncloud", body: "Choose Add files, then Host computer. Your OneDrive originals stay put." },
+        { title: "Add them to Uncloud", body: "Choose Add files, then This device. Your OneDrive originals stay put." },
       ] },
     faqHeading: "Before you switch",
     faq: [
-      { q: "How do I bring my OneDrive files over?", a: "Set your OneDrive folder to Always keep on this device, or download your files from the web. In Uncloud, choose Add files, then Host computer, and select the downloaded folder." },
+      { q: "How do I bring my OneDrive files over?", a: "Set your OneDrive folder to Always keep on this device, or download your files from the web. In Uncloud, choose Add files, then This device, and select the downloaded folder." },
       { q: "Does Uncloud replace Word, Excel or Outlook?", a: "No. Uncloud stores your files. Microsoft 365 apps and Outlook mail remain separate." },
       A.family, A.storage, A.cost,
     ],

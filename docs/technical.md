@@ -485,6 +485,12 @@ thing. **Choose another folder…** opens the folder chooser on the host, with a
 for anyone not sitting at the host. Files from a folder called *Documents* land in a `Documents/`
 folder at the top of My files; a second folder with the same name is numbered rather than refused.
 
+A browser on the host itself isn't offered **Host computer** at all: the files in front of it are
+already **This device**, and two cards for one machine read as two different places. "On the host"
+is the test Dropbox's one-click sign-in uses — a loopback connection, with no proxy somebody else
+configured in between (`atTheComputer` on `/api/imports/sources`). When that can't be told, both
+cards stay, so nobody far away loses the host's folders on a guess.
+
 Only someone who looks after the host (an administrator) is offered this computer at all, because
 Uncloud runs as one operating-system user and can read whatever that user can — the administrator's
 own files included. Letting a member name a folder would be a way around the isolation between
