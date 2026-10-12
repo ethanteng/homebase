@@ -39,8 +39,19 @@ internal static class Program
             AppDomain.CurrentDomain.ProcessExit += (_, _) => said.LogInformation("Uncloud is closing");
             var signals = OperatingSystem.IsMacOS() || OperatingSystem.IsLinux()
                 ? new[] { PosixSignal.SIGTERM, PosixSignal.SIGHUP, PosixSignal.SIGINT, PosixSignal.SIGQUIT }
-                    .Select(signal => PosixSignalRegistration.Create(signal,
-                        context => said.LogWarning("Uncloud was told to close ({Signal})", context.Signal)))
+                    .Select(signal => PosixSignalRegistration.Create(signal, context =>
+                    {
+                        // A hang-up means a terminal went away, and a menu-bar app has none: the one
+                        // that ever arrived here came from the server it runs being stopped, which is
+                        // no reason for the app to go too. Everything else closes it, as it should.
+                        if (context.Signal == PosixSignal.SIGHUP)
+                        {
+                            context.Cancel = true;
+                            said.LogWarning("Uncloud was sent a hang-up (SIGHUP), and stays open");
+                            return;
+                        }
+                        said.LogWarning("Uncloud was told to close ({Signal})", context.Signal);
+                    }))
                     .ToArray()
                 : [];
             App.StartupLink = args.FirstOrDefault(argument => argument.StartsWith(PairingLink.Scheme + "://", StringComparison.OrdinalIgnoreCase));

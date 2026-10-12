@@ -173,7 +173,8 @@ public sealed class SyncthingProcess(string home, string binary, int port, ILogg
         if (_process is null || _process.HasExited) return;
         try
         {
-            _process.Kill(entireProcessTree: true);
+            // Not .NET's own tree kill, which can hang the Mac app up along with it: see ProcessTree.
+            ProcessTree.Kill(_process);
             await _process.WaitForExitAsync(cancellationToken);
         }
         catch (Exception error) when (error is InvalidOperationException or SystemException)
