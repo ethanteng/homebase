@@ -195,23 +195,46 @@ string? RelayCannotFinish(HttpContext context)
         return "This Uncloud answers on its own secure address, which Uncloud's own Dropbox app "
              + "can't finish a sign-in on. Set up your own Dropbox app under My account — it takes "
              + "a couple of minutes and works either way.";
+    return AtTheComputer(context) switch
+    {
+        null => "This Uncloud is behind a proxy, so it can't tell whether you're at the computer it "
+              + "runs on — and Uncloud's own Dropbox app only works there. Set up your own Dropbox "
+              + "app under My account — it takes a couple of minutes and works either way.",
+        false => "Uncloud's own Dropbox app can only finish a sign-in on the computer Uncloud is "
+               + "running on. You're reaching it from somewhere else, so set up your own Dropbox app "
+               + "under My account — it takes a couple of minutes and works from anywhere.",
+        true => null
+    };
+}
+// Whether the browser asking is on the computer Uncloud runs on, or null when that can't be told.
+bool? AtTheComputer(HttpContext context)
+{
+    // Whoever arrives under the tunnel's name is reaching this host from outside. The tunnel passes
+    // them on from loopback, with their own address beside it only if it sends one.
+    if (remote.Answers(context.Request.Host.Host)) return false;
     // X-Forwarded-For is believed only from a tunnel Uncloud opened itself, so behind a proxy
     // somebody else configured the address below is the proxy's — often loopback, which would read
-    // as "sitting at the machine" for somebody who is nowhere near it.
-    if (binding.TrustedProxies.Count > 0 && !remote.IsEnabled)
-        return "This Uncloud is behind a proxy, so it can't tell whether you're at the computer it "
-             + "runs on — and Uncloud's own Dropbox app only works there. Set up your own Dropbox "
-             + "app under My account — it takes a couple of minutes and works either way.";
+    // as "sitting at the machine" for somebody who is nowhere near it. With no tunnel, any proxy
+    // named is somebody else's. With one, the tunnel's own loopback is named as well, so somebody
+    // else's proxy is told apart by what it adds: a browser talking straight to Uncloud says
+    // nothing about having been forwarded.
+    if (binding.TrustedProxies.Count > 0 && (!remote.IsEnabled || WasForwarded(context.Request)))
+        return null;
     // A dual-stack socket reports a local browser as ::ffff:127.0.0.1, which has to be read as
-    // loopback or everybody at the machine gets turned away.
+    // loopback or everybody at the machine reads as somewhere else.
     var from = context.Connection.RemoteIpAddress;
     if (from is { IsIPv4MappedToIPv6: true }) from = from.MapToIPv4();
-    if (from is null || !IPAddress.IsLoopback(from))
-        return "Uncloud's own Dropbox app can only finish a sign-in on the computer Uncloud is "
-             + "running on. You're reaching it from somewhere else, so set up your own Dropbox app "
-             + "under My account — it takes a couple of minutes and works from anywhere.";
-    return null;
+    return from is not null && IPAddress.IsLoopback(from);
 }
+// Whether a proxy passed this request on: the headers it adds, or what this host kept of them once
+// it believed them.
+static bool WasForwarded(HttpRequest request) =>
+    new[]
+    {
+        ForwardedHeadersDefaults.XForwardedForHeaderName, ForwardedHeadersDefaults.XForwardedHostHeaderName,
+        ForwardedHeadersDefaults.XForwardedProtoHeaderName, ForwardedHeadersDefaults.XOriginalHostHeaderName,
+        ForwardedHeadersDefaults.XOriginalProtoHeaderName, "Forwarded"
+    }.Any(request.Headers.ContainsKey);
 (string RedirectUri, Func<string, string>? WayBack) DropboxReturn(string userId) =>
     appKeys.UsesRelay(userId)
         ? (relay.Callback, state => DropboxRelay.StateWithWayBack(state, binding.IsSecure, binding.Port))
@@ -835,6 +858,10 @@ app.MapGet("/api/imports/sources", (HttpContext context, CurrentUser user, UserW
         // has been shared with them, and nothing about the rest of this computer.
         canAddFolders = user.IsAdmin,
         canPickFolder = user.IsAdmin && picker.IsSupported,
+        // Whether the browser asking is on this computer, where its own files are already "this
+        // device" and offering the host's folders as well would read as the same thing twice. Not
+        // being able to tell counts as somewhere else, so nothing goes missing on a guess.
+        atTheComputer = AtTheComputer(context) == true,
         // Why this computer's folders can't be read just now — on a Mac where Uncloud runs in an
         // account of its own, because the Uncloud app isn't open there to read them — or null.
         computerUnavailable = user.IsAdmin || visible.Count > 0 ? places.Unavailable() : null

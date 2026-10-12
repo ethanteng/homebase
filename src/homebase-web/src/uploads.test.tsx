@@ -191,6 +191,43 @@ describe("adding files from this device", () => {
     ]);
   });
 
+  it("is the only way to the computer somebody is sitting at, even when that's the host", async () => {
+    const sources = (atTheComputer: boolean) =>
+      json({ accounts: [], places: [], suggestions: [], canAddFolders: true, canPickFolder: true, atTheComputer });
+    const dialog = () => (
+      <AddFiles
+        importing={false}
+        uploading={false}
+        isAdmin
+        folder=""
+        storage={null}
+        arrivedFromDropbox={null}
+        onStarted={() => {}}
+        onUpload={async () => {}}
+        onSetUpDropbox={() => {}}
+      />
+    );
+    // Somebody who went to the host's folders last time, now sitting at the host: they start from
+    // the list of places, not inside one they can no longer see the way back to.
+    window.localStorage.setItem("uncloud.add-files.source", "computer");
+    try {
+      answer = () => sources(true);
+      const here = render(dialog());
+      expect(await screen.findByText("Where are your files?")).toBeInTheDocument();
+      expect(screen.getByText("This device")).toBeInTheDocument();
+      expect(screen.queryByText("Host computer")).not.toBeInTheDocument();
+      here.unmount();
+    } finally {
+      window.localStorage.removeItem("uncloud.add-files.source");
+    }
+
+    // From anywhere else the host is somewhere different, so it is offered as well.
+    answer = () => sources(false);
+    render(dialog());
+    expect(await screen.findByText("Host computer")).toBeInTheDocument();
+    expect(screen.getByText("This device")).toBeInTheDocument();
+  });
+
   it("says why, in the dialog, when Uncloud won't take them", async () => {
     answer = () =>
       json({ accounts: [], places: [], suggestions: [], canAddFolders: false, canPickFolder: false });

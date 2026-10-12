@@ -269,6 +269,8 @@ On **My files**, click **Add files** and choose where they are:
 - **Host computer** (for whoever looks after Uncloud): the folders and drives on the host, such as
   Documents, Pictures, an old backup drive, or the folder your Dropbox or Google Drive app keeps.
   Open one to look inside, or add the whole thing. **Choose another folder…** finds anything else.
+  It's only offered when you're using Uncloud from another device: on the host itself, its files
+  are already **This device**.
 - **Dropbox.** Click **Connect Dropbox** and sign in — there is nothing to set up first. Uncloud can
   only read your Dropbox, never change it.
 
@@ -282,7 +284,7 @@ On **My files**, click **Add files** and choose where they are:
 like. Files you already added stay where they are; only Uncloud's way back into Dropbox goes.
 
 Google Drive and Evernote are coming. Until then, the folder the Google Drive app keeps on the host
-works under **Host computer**.
+works under **This device** when you're at the host, or **Host computer** from anywhere else.
 
 Click **Add** next to a file or folder to bring just that. To bring more at once, the row above the
 list shows how big everything in the folder you're looking at is — all of Dropbox, at its top — and
