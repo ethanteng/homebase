@@ -206,7 +206,11 @@ see [Keeping the host private](#keeping-the-host-private).
 ### Keeping the host private
 
 A host set up with the Mac app runs Uncloud as `_uncloud`, a hidden role account (an ID in
-450–499, no password, no shell, kept off the login window) that nobody signs in to. Everything above
+450–499, no password, no shell, kept off the login window, full name "Uncloud Service") that
+nobody signs in to. If an account called `_uncloud` already exists that Uncloud didn't make, it's
+left alone and Uncloud takes the first free name of `_uncloud_1` to `_uncloud_9`. The name it
+chose is kept in `/Library/Application Support/Uncloud/account`, so every later step uses the same
+one. Everything above
 belongs to it and is `0700`, so the person signed in at the Mac — whoever set it up included —
 gets "Permission denied" in Finder and Terminal. An administrator of the Mac can still get in on
 purpose, with their password (`sudo`): the operating system can't keep an administrator out of
@@ -246,11 +250,12 @@ The app sets this up once, through macOS's password prompt, with
   `uninstall`:
 
   ```sh
+  account="$(cat "/Library/Application Support/Uncloud/account")"
+  sudo dscl . -delete "/Users/$account" && sudo dscl . -delete "/Groups/$account"
   sudo rm -rf "/Library/Application Support/Uncloud" /Library/Logs/Uncloud
-  sudo dscl . -delete /Users/_uncloud && sudo dscl . -delete /Groups/_uncloud
   ```
 
-  The first line deletes everybody's files and accounts unless they were on a drive; copy them out
+  The last line deletes everybody's files and accounts unless they were on a drive; copy them out
   first (as root) if they're wanted.
 
 `_uncloud` can't read anybody's folders, so **Host computer** under **Add files** reaches them

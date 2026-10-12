@@ -87,6 +87,15 @@ private() {
   sudo find "$folder" -name "$name" | grep -q . || fail "$name isn't in $folder at all."
 }
 
+# --- Somebody already has the name -----------------------------------------------------------------
+# An administrator made an _uncloud of their own, for something else, with a shell and everything.
+# Uncloud mustn't hand it everybody's files: it takes the next name, and says which in its record.
+sudo dscl . -create /Users/_uncloud
+sudo dscl . -create /Users/_uncloud UniqueID 4321
+sudo dscl . -create /Users/_uncloud PrimaryGroupID 20
+sudo dscl . -create /Users/_uncloud UserShell /bin/zsh
+sudo dscl . -create /Users/_uncloud NFSHomeDirectory /var/empty
+
 # --- An Uncloud that ran as the person signed in here, with its files in their home folder -------
 sudo rm -rf "$app"
 sudo ditto "$built" "$app"
@@ -124,6 +133,12 @@ if said="$(sudo /bin/bash "$broken/Contents/Resources/uncloud-host.sh" install -
   fail "Setting up a server that can't start reported success."
 fi
 grep -q "put back as it was" <<<"$said" || fail "A failed move didn't say what happened: $said"
+account="$(cat "$base/account")"
+[[ "$account" == _uncloud_1 ]] || fail "With _uncloud already somebody else's, Uncloud chose $account."
+[[ "$(dscl -plist . -read /Users/_uncloud UserShell | plutil -extract dsAttrTypeStandard:UserShell.0 raw -o - -)" == /bin/zsh ]] ||
+  fail "The _uncloud that was already here changed."
+[[ "$(dscl -plist . -read "/Users/$account" RealName | plutil -extract dsAttrTypeStandard:RealName.0 raw -o - -)" == "Uncloud Service" ]] ||
+  fail "Uncloud's account doesn't have a full name of its own."
 [[ -f "$legacy/homebase.db" ]] || fail "A failed move didn't put the settings back in $legacy."
 [[ "$(stat -f %Su "$legacy/homebase.db")" == "$USER" ]] || fail "A failed move left the settings with Uncloud's account."
 find "$old_files/users" -name "$diary" | grep -q . || fail "A failed move didn't put everybody's files back."
@@ -154,7 +169,10 @@ answering
 [[ "$(api GET /api/session | json user username)" == ada ]] || fail "Ada's session didn't survive the move."
 [[ "$(api GET /api/host | json rootPath)" == "$base/Files" ]] || fail "Everybody's files aren't in $base/Files."
 listed "$diary" || fail "Ada's diary didn't come across."
-[[ "$(sudo stat -f %Su "$base/Files")" == _uncloud ]] || fail "$base/Files doesn't belong to Uncloud's account."
+[[ "$(sudo stat -f %Su "$base/Files")" == "$account" ]] || fail "$base/Files doesn't belong to Uncloud's account."
+if sudo find "$base/Files" -user _uncloud -print -quit | grep -q .; then
+  fail "Something of everybody's belongs to the _uncloud that was already here."
+fi
 [[ "$(sudo stat -f %Lp "$base/Files")" == 700 ]] || fail "$base/Files is open to others."
 private "$base/Files" "$diary"
 # The service runs a copy of Uncloud only an administrator can change, not the app this user owns.
@@ -197,7 +215,7 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 [[ -S "$socket" ]] || fail "The app didn't hand over this Mac's folders."
-sudo -u _uncloud curl -fsS --unix-socket "$socket" "http://app/candidates" | grep -q Documents ||
+sudo -u "$account" curl -fsS --unix-socket "$socket" "http://app/candidates" | grep -q Documents ||
   fail "Uncloud's account can't reach the app's folders."
 if sudo -u nobody curl -fsS --unix-socket "$socket" "http://app/candidates" >/dev/null 2>&1; then
   fail "Somebody other than Uncloud's account can reach the app's folders."
