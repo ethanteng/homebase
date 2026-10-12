@@ -25,20 +25,37 @@ public static class ProcessTree
         }
         // Found before anything goes: once their parent has gone, its children belong to launchd and
         // can't be told apart from anybody else's.
-        var descendants = Descendants(process.Id);
-        process.Kill();
+        Kill(process, Descendants(process.Id));
+    }
+
+    /// <summary>The same, with its descendants already found.</summary>
+    internal static void Kill(Process process, IReadOnlyList<int> descendants)
+    {
+        // It may have gone by itself since its children were found. They haven't necessarily, and
+        // with nobody left to stop them they would carry on — a Syncthing or a tunnel holding its
+        // port — so they're stopped whatever became of it.
+        Stop(process);
         foreach (var id in descendants)
         {
             try
             {
                 using var child = Process.GetProcessById(id);
-                child.Kill();
+                Stop(child);
             }
-            catch (Exception failure) when (failure is ArgumentException or InvalidOperationException
-                or System.ComponentModel.Win32Exception or NotSupportedException)
+            catch (ArgumentException)
             {
-                // Gone already, or not this process's to stop.
+                // Gone already.
             }
+        }
+    }
+
+    private static void Stop(Process process)
+    {
+        try { process.Kill(); }
+        catch (Exception failure) when (failure is InvalidOperationException
+            or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            // Gone already, or not this process's to stop.
         }
     }
 
