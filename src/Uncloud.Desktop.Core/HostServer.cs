@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using Homebase.Core;
 using Microsoft.Extensions.Logging;
 
 namespace Uncloud.Desktop;
@@ -143,7 +144,7 @@ public sealed class HostServer(
                         || process.MainModule?.FileName is not { } path
                         || !string.Equals(Path.GetFullPath(path), mine, StringComparison.Ordinal))
                         continue;
-                    process.Kill(entireProcessTree: true);
+                    ProcessTree.Kill(process);
                     process.WaitForExit(5000);
                     stopped++;
                 }
@@ -205,8 +206,20 @@ public sealed class HostServer(
         _stopping = true;
         try
         {
-            _process!.Kill(entireProcessTree: true);
-            await _process.WaitForExitAsync();
+            // Asked first, the way it stops when this app goes: closing its standard input. It then
+            // stops Syncthing and the tunnel itself, cleanly. Only one that hasn't gone in ten
+            // seconds is killed — never with .NET's own tree kill, whose way of freezing each process
+            // first gets this app hung up along with the server (see ProcessTree).
+            try { _process!.StandardInput.Close(); }
+            catch (Exception error) when (error is IOException or ObjectDisposedException or InvalidOperationException) { }
+            using var patience = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            try { await _process!.WaitForExitAsync(patience.Token); }
+            catch (OperationCanceledException)
+            {
+                logger.LogWarning("Uncloud didn’t stop when asked, so it was stopped");
+                ProcessTree.Kill(_process!);
+                await _process!.WaitForExitAsync();
+            }
         }
         catch (Exception error) when (error is InvalidOperationException or SystemException)
         {

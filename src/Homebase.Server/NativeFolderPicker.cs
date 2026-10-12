@@ -51,7 +51,7 @@ public sealed class NativeFolderPicker(bool onScreen = true) : IFolderPicker
             }
             catch (OperationCanceledException)
             {
-                if (!process.HasExited) process.Kill(entireProcessTree: true);
+                if (!process.HasExited) ProcessTree.Kill(process);
                 if (cancellationToken.IsCancellationRequested) throw;
                 throw new LibraryException("The folder chooser timed out. Try again or enter a folder path.", "picker_failed");
             }

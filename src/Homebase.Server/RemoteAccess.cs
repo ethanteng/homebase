@@ -730,8 +730,9 @@ public sealed class ProcessTunnel(RemoteAccessOptions options, ILogger logger) :
         {
             if (!process.HasExited)
             {
-                // The whole tree: cloudflared and tailscale both leave children behind.
-                process.Kill(entireProcessTree: true);
+                // The whole tree: cloudflared and tailscale both leave children behind. Not .NET's own
+                // tree kill, which can hang up the Mac app this server runs under: see ProcessTree.
+                ProcessTree.Kill(process);
                 await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
             }
         }
