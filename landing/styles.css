@@ -258,21 +258,6 @@ h1 span {
   scroll-margin-top: 24px;
 }
 
-.access-offer {
-  margin-bottom: 22px;
-  padding: 18px 24px;
-  border: 1px solid #b9d5fa;
-  border-radius: 16px;
-  background: #eaf3ff;
-  color: var(--ink);
-  font-size: clamp(1.2rem, 2.2vw, 1.65rem);
-  font-weight: 650;
-  line-height: 1.4;
-  letter-spacing: -.025em;
-  text-wrap: balance;
-}
-.access-offer strong { color: var(--blue-strong); font-weight: 800; white-space: nowrap; }
-
 .primary-link {
   min-height: 56px;
   border: 0;
@@ -452,7 +437,12 @@ h1 span {
   margin-top: 24px;
 }
 
-.access-note { max-width: 340px; margin-top: 16px; color: var(--ink); font-size: .95rem; font-weight: 600; line-height: 1.5; text-wrap: balance; }
+/* Around each reserve button: the offer above it, bold and a step larger, and what the $5 does
+   below it, smaller and in italics. Each is one line wherever it fits, so neither is held to a narrow measure. */
+.reserve-offer { color: var(--ink); font-size: 1.05rem; font-weight: 700; line-height: 1.5; text-wrap: pretty; }
+.reserve-offer + .primary-link { margin-top: 40px; }
+.access-note { margin-top: 12px; color: var(--ink); font-size: .9rem; font-style: italic; line-height: 1.5; text-wrap: pretty; }
+.pricing-offer .reserve-offer { margin-top: 20px; }
 .pricing-includes { padding-left: clamp(24px, 4vw, 48px); border-left: 1px solid #d1e1f3; }
 
 .included-features {

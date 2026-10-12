@@ -5,7 +5,7 @@ Messaging approved for the homepage on September 24, 2026. Prices are USD.
 | Item | Included |
 | --- | --- |
 | Regular price | $99 one-time |
-| Early-access founding price | $79 one-time, locked in at signup for when Uncloud is ready |
+| Early-access founding price | $79 one-time, for those who reserve a spot before launch |
 | Household | Unlimited household members |
 | Devices | Unlimited |
 | Host | 1 primary host computer |
@@ -16,9 +16,9 @@ Messaging approved for the homepage on September 24, 2026. Prices are USD.
 
 There are no monthly storage fees, capacity tiers, or per-member charges in this offer. The homepage emphasizes reusing a computer and storage people already own, with setup in minutes. File transfers can take longer; keep the host on and online for remote access.
 
-The website currently collects early-access email signups. Joining the list locks in the $79 one-time price when the product is ready; it does not take payment. The calls to action, pricing card, and signup confirmation make that distinction explicit. When checkout becomes available, update the action and confirmation together.
+The website takes $5 early-access reservations through Buy Me a Coffee (https://buymeacoffee.com/ethanteng/e/586408). A reservation gets early access at the introductory $79 one-time price, and the $5 goes toward that purchase at launch; it is not the purchase. Before October 12, 2026 the site collected free email signups through LaunchList instead, saying “Sign up today to lock in $79. No credit card needed.” When checkout becomes available, update the action and confirmation together.
 
-Each signup point (hero, pricing card, closing signup) carries one pricing note: “Sign up today to lock in $79. No credit card needed.” Keep the hero’s $79 early-access offer and $99 regular price, pricing card, closing signup, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
+Each signup point (hero, pricing card, closing signup) carries the “Reserve your spot – $5” button, with **“Get early access to Uncloud at our introductory $79 price.”** in bold above it and “Your $5 reservation goes toward your purchase when we launch.” below it. Keep the hero’s $79 early-access offer and $99 regular price, pricing card, closing signup, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
 
 ## Household savings example
 

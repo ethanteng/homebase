@@ -125,8 +125,8 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
 
 **Also in this repository**
 
-- A landing page for [www.uncloud.life](https://www.uncloud.life/) with an early-access signup
-  through a LaunchList widget ([`landing/`](../landing/README.md)).
+- A landing page for [www.uncloud.life](https://www.uncloud.life/) that takes $5 early-access
+  reservations through Buy Me a Coffee ([`landing/`](../landing/README.md)).
 - Integration tests over real temporary files and SQLite, and front-end tests that render the app
   in jsdom, run by `./scripts/check.sh` in CI on macOS and Linux.
 
