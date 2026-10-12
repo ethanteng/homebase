@@ -6,7 +6,6 @@ Messaging approved for the homepage on September 24, 2026. Prices are USD.
 | --- | --- |
 | Regular price | $99 one-time |
 | Early-access founding price | $79 one-time, locked in at signup for when Uncloud is ready |
-| Trial | 30 days free, no credit card |
 | Household | Unlimited household members |
 | Devices | Unlimited |
 | Host | 1 primary host computer |
@@ -17,9 +16,9 @@ Messaging approved for the homepage on September 24, 2026. Prices are USD.
 
 There are no monthly storage fees, capacity tiers, or per-member charges in this offer. The homepage emphasizes reusing a computer and storage people already own, with setup in minutes. File transfers can take longer; keep the host on and online for remote access.
 
-The website currently collects early-access email signups. Joining the list locks in the $79 one-time price when the product is ready; it does not activate a trial or take payment. The calls to action, trial note, pricing card, and signup confirmation make that distinction explicit. When trial delivery or checkout becomes available, update the action and confirmation together.
+The website currently collects early-access email signups. Joining the list locks in the $79 one-time price when the product is ready; it does not take payment. The calls to action, pricing card, and signup confirmation make that distinction explicit. When checkout becomes available, update the action and confirmation together.
 
-Keep the hero’s $79 early-access offer and $99 regular price, pricing card, closing signup, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
+Each signup point (hero, pricing card, closing signup) carries one pricing note: “Sign up today to lock in $79. No credit card needed.” Keep the hero’s $79 early-access offer and $99 regular price, pricing card, closing signup, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
 
 ## Household savings example
 

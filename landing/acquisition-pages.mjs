@@ -9,7 +9,7 @@ const ORIGIN = "https://www.uncloud.life";
 const SRC = "U.S. prices · USD · monthly billing · checked October 2026";
 
 const A = {
-  cost: { q: "What does Uncloud cost?", a: "Join early access to lock in $79 at launch ($99 regular), paid once. Household members, devices, remote access, file migration and updates are included. No payment today; try it free for 30 days when you get access." },
+  cost: { q: "What does Uncloud cost?", a: "Join early access to lock in $79 at launch ($99 regular), paid once. Household members, devices, remote access, file migration and updates are included." },
   storage: { q: "How much storage do I get?", a: "As much as your computer and connected drives can hold. Add a bigger drive when you need more room. No storage tiers or per-person charges." },
   family: { q: "Does everyone get their own space?", a: "Yes. Each person gets their own account and private files. Unlimited household members and devices are included." },
   privacy: { q: "Where do my files live?", a: "On your own computer and drives. Each person has a private space, and files travel encrypted between your devices." },
@@ -190,9 +190,8 @@ const X = '<svg viewBox="-1.5 -1.5 27 27" width="22" height="22" aria-hidden="tr
 const GITHUB = '<svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>';
 
 const WIDGET = '<div class="launchlist-widget" data-key-id="IH5CSi"></div>';
-const ACCESS = `<p class="access-offer">Join early access to <strong>lock in $79 at launch.</strong></p>
-${WIDGET}
-<p class="trust-note">30-day free trial when you get access. <span>No credit card.</span></p>`;
+const ACCESS = `<p class="access-offer">Sign up today to <strong>lock in $79.</strong> No credit card needed.</p>
+${WIDGET}`;
 
 /** The footer's links to every acquisition page; the homepage uses it too. */
 export function compareNav(current) {
@@ -327,11 +326,10 @@ ${indent(jsonLd(structuredData(slug, p)), 6)}
           <div class="compare-offer">
             <div>
               <p class="compare-price"><strong>$79</strong><span>one-time<small><s>$99</s> regular</small></span></p>
-              <p class="compare-lock">Early access locks in $79 at launch.</p>
+              <p class="compare-lock">Sign up today to lock in&nbsp;$79. No credit card needed.</p>
             </div>
             <div class="compare-signup">
               ${WIDGET}
-              <p>No payment today.</p>
             </div>
           </div>
 
@@ -411,8 +409,7 @@ ${indent(steps, 12)}
               <p class="price"><s class="standard-price"><span class="sr-only">Standard price </span>$99</s> <strong><span class="sr-only">Early-access price </span>$79</strong> <span>one-time</span></p>
               <p class="price-promise">No monthly storage fees.</p>
               <a class="primary-link" href="#early-access">Get early access</a>
-              <p class="trial-note">30-day free trial. No credit card.</p>
-              <p class="access-note">Early access locks in $79 at launch. No payment today.</p>
+              <p class="access-note">Sign up today to lock in&nbsp;$79. No credit card needed.</p>
             </div>
             <div class="pricing-includes">
               <h3>Included for your household</h3>
