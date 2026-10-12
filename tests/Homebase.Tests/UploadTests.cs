@@ -547,8 +547,21 @@ public sealed class UploadTests : IDisposable
     /// <summary>Everything gathered so far in uploads under <paramref name="root"/>.</summary>
     private static long Arrived(string root) =>
         Directory.Exists(Uploads(root))
-            ? Directory.EnumerateFiles(Uploads(root), "*", SearchOption.AllDirectories).Sum(file => new FileInfo(file).Length)
+            ? Directory.EnumerateFiles(Uploads(root), "*",
+                    // Parts are kept in .parts, which is hidden, and still have to be counted.
+                    new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = 0 })
+                .Sum(Size)
             : 0;
+
+    /// <summary>
+    /// How big a part is — or nothing, for one an upload gave up on and took away between its being
+    /// listed and measured. Asked while uploads are still arriving, that is an ordinary moment.
+    /// </summary>
+    private static long Size(string file)
+    {
+        try { return new FileInfo(file).Length; }
+        catch (Exception gone) when (gone is FileNotFoundException or DirectoryNotFoundException) { return 0; }
+    }
 
     /// <summary>
     /// A file sent a piece at a time, handing over to whatever else is running between pieces, and
