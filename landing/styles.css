@@ -271,7 +271,7 @@ h1 span {
   letter-spacing: -.025em;
   text-wrap: balance;
 }
-.access-offer strong { color: var(--blue-strong); font-weight: 800; }
+.access-offer strong { color: var(--blue-strong); font-weight: 800; white-space: nowrap; }
 
 .primary-link {
   min-height: 56px;
@@ -291,19 +291,6 @@ h1 span {
 }
 
 .primary-link:disabled { opacity: .62; cursor: default; }
-
-.trust-note {
-  margin-top: 14px;
-  color: var(--ink);
-  font-size: clamp(1.05rem, 1.5vw, 1.2rem);
-  font-weight: 500;
-  line-height: 1.55;
-}
-
-.trust-note span {
-  color: var(--ink);
-  font-weight: 750;
-}
 
 .setup {
   padding: clamp(64px, 8vw, 110px) 0;
@@ -465,8 +452,7 @@ h1 span {
   margin-top: 24px;
 }
 
-.trial-note { margin-top: 16px; font-size: .9rem; font-weight: 600; line-height: 1.5; }
-.access-note { max-width: 320px; margin-top: 8px; color: var(--muted); font-size: .85rem; line-height: 1.5; }
+.access-note { max-width: 340px; margin-top: 16px; color: var(--ink); font-size: .95rem; font-weight: 600; line-height: 1.5; text-wrap: balance; }
 .pricing-includes { padding-left: clamp(24px, 4vw, 48px); border-left: 1px solid #d1e1f3; }
 
 .included-features {

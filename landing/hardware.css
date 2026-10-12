@@ -110,8 +110,6 @@
 .hardware-join h2 { max-width: 760px; margin-inline: auto; }
 .hardware-join .access-offer { max-width: 690px; margin: 28px auto 22px; text-wrap: balance; }
 .hardware-join .primary-link { display: inline-flex; align-items: center; justify-content: center; padding: 0 28px; }
-.hardware-join .trial-note { margin-top: 14px; font-size: clamp(1.05rem, 1.5vw, 1.2rem); font-weight: 500; line-height: 1.55; }
-.hardware-join .trial-note span { font-weight: 750; }
 
 @media (max-width: 620px) {
   .hardware-join { border-radius: 22px; }
