@@ -3,6 +3,8 @@ using Homebase.Core.Providers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Uncloud.Desktop;
@@ -48,6 +50,9 @@ public sealed class HostFoldersBridge : IAsyncDisposable
 
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
+        // The app decides when it closes, not this. Left to .NET's default, a kill from Terminal —
+        // or macOS's at shutdown — would stop only this, and keep the app open without it.
+        builder.Services.AddSingleton<IHostLifetime, AppLifetime>();
         builder.WebHost.ConfigureKestrel(options => options.ListenUnixSocket(socket));
         var app = builder.Build();
         Map(app, folders, refused);
@@ -124,6 +129,13 @@ public sealed class HostFoldersBridge : IAsyncDisposable
             inner.StartsWith(Trim(outer) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         return Trim(first).Equals(Trim(second), StringComparison.OrdinalIgnoreCase)
             || Inside(first, second) || Inside(second, first);
+    }
+
+    /// <summary>Starts and stops with the app, and leaves its signals alone.</summary>
+    private sealed class AppLifetime : IHostLifetime
+    {
+        public Task WaitForStartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     public async ValueTask DisposeAsync()
