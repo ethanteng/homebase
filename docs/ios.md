@@ -13,7 +13,7 @@ and the end of this document says what they will need so that nothing built now 
 - [Testing and shipping](#testing-and-shipping)
 - [Server changes worth making](#server-changes-worth-making)
 - [After viewing: uploading and syncing](#after-viewing-uploading-and-syncing)
-- [Decisions to make](#decisions-to-make) and [milestones](#milestones)
+- [Decisions](#decisions) and [milestones](#milestones)
 
 ## Why an app
 
@@ -35,7 +35,7 @@ page. So the first version is built as the foundation for those (the API client,
 transfers) and kept small everywhere else.
 
 It is a native app, not a web view around the existing pages. A web view gets none of the three
-things above, and App Review turns down apps that are a website in a frame (guideline 4.2).
+things above, and couldn't grow into the background uploads and Files app that come next.
 
 ## What the first version does
 
@@ -260,12 +260,24 @@ Five things to get right, each with a test:
   side, a test that pins the "native client" assumptions from [Signing in](#signing-in) keeps a
   future hardening change from shutting the app out without anyone noticing.
 - **CI** gets a macOS job: `swift test` for `UncloudKit`, and `xcodebuild build` for the simulator.
-- **TestFlight first,** for the household and friends. It needs the same Apple Developer membership
-  that signs the Mac app; the bundle id would be `life.uncloud.ios`, beside the host's
-  `life.uncloud.host`.
-- **The App Store needs a host App Review can reach.** Review requires a working demo account for an
-  app you sign in to (guideline 2.1), so somebody has to keep a demo Uncloud running with something
-  in it, for every review.
+- **TestFlight only.** It needs the same Apple Developer membership that signs the Mac app; the
+  bundle id is `life.uncloud.ios`, beside the host's `life.uncloud.host`. TestFlight has two kinds of
+  tester, and the difference is who has to be reachable:
+  - **Internal testers**, up to 100, are people added to the team in App Store Connect. Their builds
+    need no review at all. This is the one to use for the household. Each person is added to App
+    Store Connect with the narrowest role it has, limited to this app so they see nothing else the
+    team publishes, and installs the TestFlight app.
+  - **External testers**, by invitation or a public link, see a build only after Beta App Review,
+    once for each new version. That review asks for an account to sign in with, so a demo Uncloud
+    has to be up, with something in it, while each version is reviewed. Only needed once the app
+    goes past the household.
+- **A build stops opening 90 days after it was uploaded.** CI should upload a TestFlight build from
+  `main`, signed the way the Mac app already is, so nobody's app expires because nothing changed for
+  three months.
+- **iPhone and iPad, one app.** The same screens on both for now; a two-column layout on iPad can
+  come later. A share sheet the app opens itself, rather than Quick Look's, is a SwiftUI `ShareLink`:
+  on iPad a share sheet must be anchored to what was tapped, and one shown without an anchor crashes.
+  CI builds for both, and the tests run on an iPhone and an iPad simulator.
 
 ## Server changes worth making
 
@@ -311,22 +323,19 @@ What the first version does so this isn't in the way: `UncloudKit` has no UIKit 
 extension; the session is in a Keychain item that can be shared; downloads go through `Transfers`,
 which uploads will use too.
 
-## Decisions to make
+## Decisions
 
-1. **The oldest iOS supported.** iOS 18 is recommended: it covers almost every phone in use and
-   everything this needs. iOS 17 would work too; anything older loses `@Observable`.
-2. **TestFlight only, or the App Store.** The App Store means keeping a demo host up for review, for
-   as long as the app is listed.
-3. **Thumbnails before or after the first version ships.** Recommended after, but soon: photos are
-   most of what a family will look at on a phone, and that is where the first version will feel
-   thinnest.
-4. **iPhone only, or iPad too.** Recommended both. With SwiftUI the iPad comes nearly free; a
-   two-column layout for it can wait.
+1. **iOS 18 and later.** It covers almost every phone in use and everything this needs.
+2. **TestFlight only,** with the household as internal testers. Not the App Store, so there is no
+   demo host to keep up for App Review; one is needed only if the app goes to external testers.
+3. **Thumbnails after the first version,** as the next thing after it: photos are most of what a
+   family will look at on a phone, and that is where the first version will feel thinnest.
+4. **iPhone and iPad.** One app, the same screens on both to start with.
 
 ## Milestones
 
-1. **Viewing.** Typed address, sign-in, browsing, Quick Look, sharing, sign-out. `UncloudKit` tests.
-   On TestFlight for the household.
+1. **Viewing.** Typed address, sign-in, browsing, Quick Look, sharing, sign-out, on iPhone and iPad.
+   `UncloudKit` tests. On TestFlight for the household, uploaded by CI from `main`.
 2. **Finish.** Finding the host over Bonjour, room left, managing the cache, asking before large
    downloads, the contract test in CI, `version` in `/api/health`.
 3. **Thumbnails.** The server endpoint, and a grid for folders that are mostly photos.
