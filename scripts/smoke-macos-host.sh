@@ -353,10 +353,13 @@ held_awake || fail "Turned on again and asked to, nothing holds this Mac awake: 
 echo "Turned off, everything stayed locked; turned on again, everything was where it was, and it stays awake."
 
 # --- Updated, still awake; turned off, asleep -------------------------------------------------------
-# An update says nothing about staying awake, and changes nothing about it.
+# An update says nothing about staying awake, and changes nothing about it: what holds it awake
+# isn't even stopped and started again.
+holding="$(awake_pid)"
 sudo /bin/bash "$script" install --app "$app" --owner "$USER"
 answering
 held_awake || fail "Updating Uncloud let this Mac sleep."
+[[ "$(awake_pid)" == "$holding" ]] || fail "Updating Uncloud stopped what holds this Mac awake, and started another."
 sudo /bin/bash "$script" uninstall
 if [[ -e "$awake_plist" ]] || ! let_go; then fail "Turning Uncloud off left something holding this Mac awake."; fi
 if can_restart; then

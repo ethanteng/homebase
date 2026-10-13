@@ -51,6 +51,8 @@ rotation=/etc/newsyslog.d/life.uncloud.host.conf
 port=5210
 awake_label=life.uncloud.awake
 awake_plist="/Library/LaunchDaemons/$awake_label.plist"
+# The one that was keeping this Mac awake, while a new one takes over.
+awake_before="$base/awake-before.plist"
 # Whether this Mac started up by itself after a power cut before Uncloud asked it to, for putting
 # back when it stops asking.
 restart_was="$base/autorestart-before"
@@ -707,7 +709,27 @@ PLIST
   plutil -lint "$awake_plist.new" >/dev/null || fail "Uncloud wrote a service description macOS can’t read."
   chown root:wheel "$awake_plist.new"
   chmod 644 "$awake_plist.new"
-  mv "$awake_plist.new" "$awake_plist"
+}
+
+awake_loaded() { launchctl print "system/$awake_label" >/dev/null 2>&1; }
+
+# Takes it out, and waits until launchd has: bootout returns before then, and the same service
+# started again in the meantime fails.
+awake_out() {
+  launchctl bootout "system/$awake_label" 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    awake_loaded || return 0
+    sleep 0.5
+  done
+}
+
+awake_in() {
+  launchctl enable "system/$awake_label"
+  for _ in 1 2 3; do
+    if launchctl bootstrap system "$awake_plist" 2>/dev/null; then return 0; fi
+    sleep 1
+  done
+  return 1
 }
 
 # Whether this Mac can start up by itself when the power comes back. A laptop can't — it has a
@@ -722,12 +744,30 @@ restart_setting() {
 
 keep_awake() {
   local was
-  launchctl bootout "system/$awake_label" 2>/dev/null || true
   write_awake
-  launchctl enable "system/$awake_label"
-  if ! launchctl bootstrap system "$awake_plist"; then
-    rm -f "$awake_plist"
-    fail "macOS wouldn’t start what keeps this Mac awake, so it may still go to sleep."
+  if [[ -f "$awake_plist" ]] && cmp -s "$awake_plist.new" "$awake_plist" && awake_loaded; then
+    # Already holding it awake, exactly as it would be: an update has nothing to change, and
+    # nothing is stopped.
+    rm -f "$awake_plist.new"
+  else
+    awake_out
+    rm -f "$awake_before"
+    if [[ -f "$awake_plist" ]]; then mv "$awake_plist" "$awake_before"; fi
+    mv "$awake_plist.new" "$awake_plist"
+    if ! awake_in; then
+      # The one that was holding it awake goes back, rather than leaving it free to sleep.
+      awake_out
+      rm -f "$awake_plist"
+      if [[ -f "$awake_before" ]]; then
+        mv "$awake_before" "$awake_plist"
+        if awake_in; then
+          fail "macOS wouldn’t start Uncloud’s new way of keeping this Mac awake, so the one before carries on."
+        fi
+        rm -f "$awake_plist"
+      fi
+      fail "macOS wouldn’t start what keeps this Mac awake, so it may still go to sleep."
+    fi
+    rm -f "$awake_before"
   fi
   if can_restart; then
     # What it did before is kept once, the first time, so asking again doesn't lose it.
@@ -744,8 +784,8 @@ keep_awake() {
 
 let_sleep() {
   local was
-  launchctl bootout "system/$awake_label" 2>/dev/null || true
-  rm -f "$awake_plist"
+  awake_out
+  rm -f "$awake_plist" "$awake_before"
   if [[ -f "$restart_was" && ! -L "$restart_was" ]]; then
     was="$(head -n 1 "$restart_was")"
     if [[ "$was" =~ ^[01]$ ]] && can_restart; then pmset -a autorestart "$was"; fi
