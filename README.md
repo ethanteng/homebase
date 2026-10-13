@@ -156,8 +156,8 @@ If the drive is this computer's own and you don't want Uncloud filling it, open 
 under **How much of the drive Uncloud may use**, give it a set amount (say, 500 GB) or a share of
 the free space (say, 50%). A share counts what Uncloud already holds as well as what's free, so it
 doesn't shrink as everyone's files grow. Once it's used up, nobody can add more until you give
-Uncloud more room or files are deleted; nothing is ever deleted to fit. Files a laptop syncs aren't
-held to it yet: they count towards it, but keep arriving.
+Uncloud more room or files are deleted; nothing is ever deleted to fit. Files a laptop syncs stop
+at it too: they wait on the laptop, and **My computers** says how many are waiting for room.
 
 With the Mac app, you chose this when you set the host up. To keep everyone's files somewhere else
 later, click the **U** in the menu bar and choose **Use Another Folder…**. Pick a drive, or a folder

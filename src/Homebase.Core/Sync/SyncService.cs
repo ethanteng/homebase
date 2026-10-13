@@ -21,7 +21,8 @@ public sealed partial class SyncService(
     SyncOwnership ownership,
     HostService host,
     UserStore users,
-    ILogger<SyncService> logger)
+    ILogger<SyncService> logger,
+    StorageAllotment? allotment = null)
 {
     public const string IgnoreFile = ".stignore";
 
@@ -56,7 +57,8 @@ public sealed partial class SyncService(
                 : new SyncDevice(device.DeviceId, device.Name, false, null)).ToArray(),
             folders.Select(folder => liveFolders.TryGetValue(folder.FolderId, out var state)
                 ? new SyncFolder(folder.FolderId, folder.Path, Label(folder.Path),
-                    state.DeviceIds.Where(mine.Contains).ToArray(), state.State, state.Error, state.Files, state.Bytes)
+                    state.DeviceIds.Where(mine.Contains).ToArray(), state.State, state.Error, state.Files, state.Bytes,
+                    state.WaitingForRoom)
                 : new SyncFolder(folder.FolderId, folder.Path, Label(folder.Path), [], null, null, 0, 0)).ToArray(),
             // Only offers made by this account's own computers, for folders nobody here has yet.
             offers.Where(offer => mine.Contains(offer.DeviceId) && !liveFolders.ContainsKey(offer.FolderId))
@@ -389,6 +391,7 @@ public sealed partial class SyncService(
                 if (Directory.Exists(expected)) GuardMetadata(expected);
             }
 
+
             foreach (var device in ownership.Devices())
             {
                 var disabled = users.Find(device.UserId) is not { IsActive: true };
@@ -400,12 +403,54 @@ public sealed partial class SyncService(
                 if (state.Paused != disabled)
                     await syncthing.PauseDeviceAsync(device.DeviceId, disabled, cancellationToken);
             }
+
+            // Last, so a Syncthing that refuses it has still had everything above put right. Asked
+            // again rather than reusing the list above: folders of deleted accounts are gone.
+            await HoldAsync(await syncthing.FoldersAsync(cancellationToken), cancellationToken);
         }
         finally
         {
             _gate.Release();
         }
     }
+
+    /// <summary>
+    /// Tells Syncthing how much of the drive to leave free in every folder, so what computers send
+    /// stops at the storage allotment as everything else Uncloud writes does. Run when the allotment
+    /// changes and every so often after, because what has to be left free moves when something
+    /// else on the computer takes space or gives it back.
+    /// </summary>
+    public async Task HoldToAllotmentAsync(CancellationToken cancellationToken)
+    {
+        if (allotment is null || !syncthing.IsAvailable) return;
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await HoldAsync(await syncthing.FoldersAsync(cancellationToken), cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task HoldAsync(IReadOnlyList<SyncthingFolder> folders, CancellationToken cancellationToken)
+    {
+        // Nothing synced, nothing to tell — and no reason to measure what Uncloud holds.
+        if (allotment is null || folders.Count == 0) return;
+        var keep = allotment.KeepFree();
+        foreach (var folder in folders)
+            if (!CloseEnough(folder.KeepFree, keep))
+                await syncthing.SetKeepFreeAsync(folder.Id, keep, cancellationToken);
+    }
+
+    /// <summary>
+    /// Whether a folder already leaves about what it should. Changing a folder's configuration
+    /// restarts it in Syncthing, so it isn't done for every few megabytes something else on the
+    /// computer writes or deletes — only past the room Uncloud holds back from its own writes.
+    /// </summary>
+    internal static bool CloseEnough(long? leaves, long? wanted) =>
+        leaves is { } now ? wanted is { } bytes && Math.Abs(now - bytes) < Storage.Headroom : wanted is null;
 
     /// <summary>A stable id per account and path, so the same folder is recognisable again.</summary>
     public static string FolderId(string userId, string relativePath)
@@ -466,7 +511,8 @@ public sealed partial class SyncService(
             throw new LibraryException("That folder is already syncing.", "conflict");
         try
         {
-            await syncthing.AddFolderAsync(id, Label(path), fullPath, devices, cancellationToken);
+            // Held to the allotment from the start, not from the next time anybody looks.
+            await syncthing.AddFolderAsync(id, Label(path), fullPath, devices, allotment?.KeepFree(), cancellationToken);
         }
         catch
         {
