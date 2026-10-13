@@ -15,6 +15,11 @@ import PairApproval from "./PairApproval";
 
 function describe(folder: SyncFolder) {
   if (folder.error) return folder.error;
+  // Held back by Syncthing until there's room, which is worth saying before anything else: from
+  // the computer it looks as though they've been sent.
+  const waiting = folder.waitingForRoom ?? 0;
+  if (waiting > 0)
+    return `${waiting} file${waiting === 1 ? " is" : "s are"} waiting for room on this Uncloud`;
   const state =
     folder.state === "idle"
       ? "up to date"
@@ -441,7 +446,7 @@ export default function SyncPanel({
                     <FolderSync size={19} strokeWidth={1.6} />
                     <div>
                       <strong>{folder.path || "All of your files"}</strong>
-                      <span className={folder.error ? "error-message" : "muted"}>
+                      <span className={folder.error || folder.waitingForRoom ? "error-message" : "muted"}>
                         {describe(folder)} · with {folder.deviceIds.length}{" "}
                         computer{folder.deviceIds.length === 1 ? "" : "s"}
                       </span>

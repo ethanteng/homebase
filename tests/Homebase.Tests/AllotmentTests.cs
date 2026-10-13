@@ -76,6 +76,35 @@ public sealed class AllotmentTests : IDisposable
     }
 
     [Fact]
+    public void What_the_drive_must_keep_free_is_what_Uncloud_could_have_less_its_share()
+    {
+        var drive = new StorageReport(500 * GB, 1000 * GB);
+
+        // 20 GB held and 500 free: 520 Uncloud could have, so a 100 GB allotment leaves 420 free.
+        Assert.Equal(420 * GB, StorageAllotment.KeepFree(new Allotment(AllotmentUnit.Bytes, 100 * GB), 20 * GB, drive));
+        Assert.Equal(260 * GB, StorageAllotment.KeepFree(new Allotment(AllotmentUnit.Percent, 50), 20 * GB, drive));
+        // An allotment the drive can't give has nothing to keep.
+        Assert.Null(StorageAllotment.KeepFree(new Allotment(AllotmentUnit.Bytes, 600 * GB), 20 * GB, drive));
+        // Never less than the hundredth of the drive Syncthing keeps free by itself.
+        Assert.Equal(10 * GB, StorageAllotment.KeepFree(
+            new Allotment(AllotmentUnit.Percent, 99), 0, new StorageReport(100 * GB, 1000 * GB)));
+    }
+
+    [Fact]
+    public void What_the_drive_must_keep_free_doesnt_move_as_Uncloud_fills_it()
+    {
+        var free = 500 * GB;
+        var (allotment, _) = Create(() => free, () => 20 * GB);
+        Assert.Null(allotment.KeepFree());
+        allotment.Set(new Allotment(AllotmentUnit.Bytes, 100 * GB));
+
+        Assert.Equal(420 * GB, allotment.KeepFree());
+        // A laptop sends 50 GB: the drive goes down, and what it must keep is just the same.
+        free -= 50 * GB;
+        Assert.Equal(420 * GB, allotment.KeepFree());
+    }
+
+    [Fact]
     public void Without_an_allotment_it_is_the_drive_and_nothing_is_walked()
     {
         var walks = 0;

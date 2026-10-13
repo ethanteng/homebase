@@ -53,6 +53,8 @@ public sealed record Allotment(AllotmentUnit Unit, long Amount)
 /// written asks <see cref="Space"/>, which answers as though Uncloud's share were the whole drive,
 /// so a copy, an upload and an import all stop at the allotment for the same reasons and in the
 /// same words as they stop at a full drive. Without an allotment it is the drive, as it always was.
+/// Syncthing writes what computers send without asking first, so it is told <see cref="KeepFree"/>
+/// instead: how much of the drive to leave free, which comes to the same place.
 ///
 /// What Uncloud holds is measured by walking everybody's folders, which is far too slow to do for
 /// every megabyte of an upload. So it is walked now and then, and in between whatever the drive has
@@ -148,6 +150,22 @@ public sealed class StorageAllotment(ControlDatabase database, HostService host)
         lock (_lock) _measured = null;
     }
 
+    /// <summary>
+    /// Walks now, rather than in the background, if the last walk has gone stale: for a caller with
+    /// time to wait that would otherwise act on the old one and only see the new one next time.
+    /// </summary>
+    public void Refresh()
+    {
+        if (Current is null || host.RootPath is not { } root) return;
+        _walking.Wait();
+        try
+        {
+            if (Latest(root) is { } measured && DateTimeOffset.UtcNow - measured.At < Freshness) return;
+            Walk(root);
+        }
+        finally { _walking.Release(); }
+    }
+
     /// <summary>How much Uncloud holds under the host's folder, as near as can be said right now.</summary>
     public long Held(string root) => Used(root, Drive(root)?.FreeBytes);
 
@@ -158,11 +176,35 @@ public sealed class StorageAllotment(ControlDatabase database, HostService host)
     internal static StorageReport Apply(Allotment allotment, long used, StorageReport drive)
     {
         var possible = used + drive.FreeBytes;
-        var allotted = allotment.Unit == AllotmentUnit.Percent ? possible * allotment.Amount / 100 : allotment.Amount;
+        var allotted = Allotted(allotment, possible);
         return allotted >= possible
             ? drive
             : new StorageReport(Math.Max(0, allotted - used), allotted, Capped: true);
     }
+
+    /// <summary>
+    /// How much free space the drive has to keep for Uncloud to stay within its share, or null when
+    /// nothing is allotted or the drive would run out first. Syncthing is told this, because it
+    /// writes what computers send without asking Uncloud: it stops bringing a file in when that
+    /// would take the drive below it. Uncloud's own writes don't move it, since every byte Uncloud
+    /// adds is a byte less free; only something else on the computer, or a new allotment, does.
+    /// </summary>
+    public long? KeepFree()
+    {
+        if (Current is not { } allotment || host.RootPath is not { } root || Drive(root) is not { } drive) return null;
+        return KeepFree(allotment, Used(root, drive.FreeBytes), drive);
+    }
+
+    internal static long? KeepFree(Allotment allotment, long used, StorageReport drive)
+    {
+        var possible = used + drive.FreeBytes;
+        var allotted = Allotted(allotment, possible);
+        // Never less than Syncthing keeps free of its own accord, a hundredth of the drive.
+        return allotted >= possible ? null : Math.Max(possible - allotted, drive.TotalBytes / 100);
+    }
+
+    private static long Allotted(Allotment allotment, long possible) =>
+        allotment.Unit == AllotmentUnit.Percent ? possible * allotment.Amount / 100 : allotment.Amount;
 
     private long Used(string root, long? free)
     {

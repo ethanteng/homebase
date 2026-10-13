@@ -237,8 +237,8 @@ export default function HostStorage({ onSaved }: Props) {
         )}
       </p>
       <p className="field-help">
-        Files a computer syncs aren’t held to this yet: they still count towards it, but keep
-        arriving once it’s full.
+        Files people’s computers sync stop here too: once it’s full, they wait on the computer
+        until there’s room.
       </p>
       {error && (
         <p className="error-message" role="alert">

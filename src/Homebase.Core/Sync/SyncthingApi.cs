@@ -95,6 +95,7 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
             string? state = null, error = null;
             var files = 0;
             long bytes = 0;
+            var waiting = 0;
             try
             {
                 using var status = await GetAsync($"/rest/db/status?folder={Uri.EscapeDataString(id)}", cancellationToken);
@@ -102,6 +103,9 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
                 error = status.RootElement.TryGetProperty("error", out var problem) ? problem.GetString() : null;
                 files = status.RootElement.TryGetProperty("localFiles", out var count) ? count.GetInt32() : 0;
                 bytes = status.RootElement.TryGetProperty("localBytes", out var size) ? size.GetInt64() : 0;
+                // Only asked about when there's something to tell: the usual answer is none.
+                if (status.RootElement.TryGetProperty("errors", out var failed) && failed.TryGetInt32(out var failures) && failures > 0)
+                    waiting = await WaitingForRoomAsync(id, cancellationToken);
             }
             catch (LibraryException)
             {
@@ -111,7 +115,8 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
             folders.Add(new SyncthingFolder(id,
                 folder.TryGetProperty("label", out var label) ? label.GetString() ?? id : id,
                 folder.TryGetProperty("path", out var path) ? path.GetString() ?? "" : "",
-                devices, state, string.IsNullOrEmpty(error) ? null : error, files, bytes, versioned));
+                devices, state, string.IsNullOrEmpty(error) ? null : error, files, bytes, versioned,
+                KeepFree(folder), waiting));
         }
         return folders;
     }
@@ -134,7 +139,7 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
         return offers;
     }
 
-    public Task AddFolderAsync(string id, string label, string path, IReadOnlyList<string> deviceIds, CancellationToken cancellationToken) =>
+    public Task AddFolderAsync(string id, string label, string path, IReadOnlyList<string> deviceIds, long? keepFree, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Post, "/rest/config/folders", JsonSerializer.Serialize(new
         {
             id,
@@ -146,8 +151,51 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
             fsWatcherEnabled = true,
             fsWatcherDelayS = 10,
             versioning = Versioning(),
+            minDiskFree = MinDiskFree(keepFree),
             devices = deviceIds.Select(deviceId => new { deviceID = deviceId }).ToArray()
         }), cancellationToken);
+
+    public Task SetKeepFreeAsync(string id, long? keepFree, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Patch, $"/rest/config/folders/{Uri.EscapeDataString(id)}",
+            JsonSerializer.Serialize(new { minDiskFree = MinDiskFree(keepFree) }), cancellationToken);
+
+    /// <summary>
+    /// Syncthing's size for it: millions of bytes, rounded up so it never leaves less than asked,
+    /// or the hundredth of the drive Syncthing leaves free by itself.
+    /// </summary>
+    private static object MinDiskFree(long? keepFree) => keepFree is { } bytes
+        ? new { value = Math.Ceiling(bytes / 1_000_000d), unit = "MB" }
+        : new { value = 1d, unit = "%" };
+
+    /// <summary>What a folder's configuration says it leaves free, read the way Syncthing reads it.</summary>
+    internal static long? KeepFree(JsonElement folder)
+    {
+        if (!folder.TryGetProperty("minDiskFree", out var size)
+            || !size.TryGetProperty("value", out var value) || !value.TryGetDouble(out var amount))
+            return null;
+        var unit = size.TryGetProperty("unit", out var text) ? text.GetString() ?? "" : "";
+        if (unit.Contains('%')) return null;
+        // Syncthing goes by the first letter, in thousands.
+        var scale = unit.Length == 0 ? 1d : char.ToLowerInvariant(unit[0]) switch
+        {
+            'k' => 1e3, 'm' => 1e6, 'g' => 1e9, 't' => 1e12, _ => 1d
+        };
+        return (long)(amount * scale);
+    }
+
+    /// <summary>
+    /// How many files Syncthing is holding back from a folder because bringing them in would take
+    /// the drive below what it leaves free. Each is one of the folder's errors, worded as such.
+    /// </summary>
+    private async Task<int> WaitingForRoomAsync(string id, CancellationToken cancellationToken)
+    {
+        using var document = await GetAsync($"/rest/folder/errors?folder={Uri.EscapeDataString(id)}", cancellationToken);
+        return document.RootElement.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Array
+            ? errors.EnumerateArray().Count(entry =>
+                entry.TryGetProperty("error", out var message)
+                && message.GetString()?.Contains("insufficient space in folder", StringComparison.Ordinal) == true)
+            : 0;
+    }
 
     public Task RemoveFolderAsync(string id, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Delete, $"/rest/config/folders/{Uri.EscapeDataString(id)}", null, cancellationToken);

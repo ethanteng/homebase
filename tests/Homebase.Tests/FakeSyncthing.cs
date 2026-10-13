@@ -60,12 +60,22 @@ public sealed class FakeSyncthing : ISyncthingApi
         Task.FromResult<IReadOnlyList<SyncthingOffer>>(
             Offers.Where(offer => !Folders.ContainsKey(offer.FolderId)).ToArray());
 
-    public Task AddFolderAsync(string id, string label, string path, IReadOnlyList<string> deviceIds, CancellationToken cancellationToken)
+    public Task AddFolderAsync(string id, string label, string path, IReadOnlyList<string> deviceIds, long? keepFree, CancellationToken cancellationToken)
     {
         if (Folders.ContainsKey(id)) throw new InvalidOperationException($"{id} added twice");
         var ignore = Path.Combine(path, SyncService.IgnoreFile);
         IgnoresWhenAdded[id] = File.Exists(ignore) ? File.ReadAllText(ignore) : null;
-        Folders[id] = new SyncthingFolder(id, label, path, deviceIds, "idle", null, 0, 0, true);
+        Folders[id] = new SyncthingFolder(id, label, path, deviceIds, "idle", null, 0, 0, true, keepFree);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>How many times a folder's free space has been changed, since changing it restarts the folder.</summary>
+    public int KeepFreeChanges { get; private set; }
+
+    public Task SetKeepFreeAsync(string id, long? keepFree, CancellationToken cancellationToken)
+    {
+        Folders[id] = Folders[id] with { KeepFree = keepFree };
+        KeepFreeChanges++;
         return Task.CompletedTask;
     }
 

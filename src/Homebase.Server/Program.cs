@@ -290,11 +290,25 @@ if (app.Configuration.GetValue("Homebase:Announce", true)
 // syncs, so there is nothing to be out of line.
 _ = app.Services.GetRequiredService<SyncthingHost>().Ready.ContinueWith(async _ =>
 {
-    try { await app.Services.GetRequiredService<SyncService>().ReconcileAsync(app.Lifetime.ApplicationStopping); }
+    var sync = app.Services.GetRequiredService<SyncService>();
+    try { await sync.ReconcileAsync(app.Lifetime.ApplicationStopping); }
     catch (Exception error) when (error is LibraryException or IOException or UnauthorizedAccessException or OperationCanceledException)
     {
         app.Logger.LogWarning(error, "Couldn’t bring Syncthing in line with Uncloud’s accounts");
     }
+    // What Syncthing has to leave free for Uncloud to stay within its allotment moves whenever
+    // something else on the computer takes space or gives it back, which nothing here hears about.
+    using var timer = new PeriodicTimer(TimeSpan.FromMinutes(10));
+    try
+    {
+        while (await timer.WaitForNextTickAsync(app.Lifetime.ApplicationStopping))
+            try { await sync.HoldToAllotmentAsync(app.Lifetime.ApplicationStopping); }
+            catch (Exception error) when (error is LibraryException or IOException or UnauthorizedAccessException)
+            {
+                app.Logger.LogWarning(error, "Couldn’t tell Syncthing how much of the drive to leave free");
+            }
+    }
+    catch (OperationCanceledException) { }
 }, TaskScheduler.Default);
 
 const string SessionCookie = "uncloud_session";
@@ -978,12 +992,21 @@ app.MapPut("/api/host", async (SelectRoot request, CurrentUser user, HostService
 app.MapGet("/api/host/storage", (HostService host, StorageAllotment allotment) =>
     Results.Ok(HostStorage(host.RequireRoot(), allotment)));
 
-app.MapPut("/api/host/storage", (SetAllotment request, HostService host, StorageAllotment allotment) =>
+app.MapPut("/api/host/storage", async (SetAllotment request, HostService host, StorageAllotment allotment, SyncService sync, CancellationToken cancellationToken) =>
 {
     var root = host.RequireRoot();
     allotment.Set(Allotment.From(request.Bytes, request.Percent));
+    await HoldSyncToAllotment(sync, cancellationToken);
     return Results.Ok(HostStorage(root, allotment));
 });
+
+// What computers send is held to the allotment too. Syncthing being down doesn't undo saving one:
+// it is told when it next starts, and every ten minutes after.
+async Task HoldSyncToAllotment(SyncService sync, CancellationToken cancellationToken)
+{
+    try { await sync.HoldToAllotmentAsync(cancellationToken); }
+    catch (LibraryException error) { app.Logger.LogWarning(error, "Couldn’t tell Syncthing how much of the drive to leave free"); }
+}
 
 static object HostStorage(string root, StorageAllotment allotment)
 {
@@ -1006,7 +1029,7 @@ static object HostStorage(string root, StorageAllotment allotment)
 app.MapGet("/api/host/unclaimed", (HostService host) =>
     Results.Ok(new { entries = UserPaths.Unclaimed(host.RequireRoot()) }));
 
-app.MapPost("/api/host/unclaimed", (CurrentUser user, HostService host, UserWorkspaces workspaces, UsageService usage, StorageAllotment allotment) =>
+app.MapPost("/api/host/unclaimed", async (CurrentUser user, HostService host, UserWorkspaces workspaces, UsageService usage, StorageAllotment allotment, SyncService sync, CancellationToken cancellationToken) =>
 {
     var root = host.RequireRoot();
     var destination = workspaces.For(user.Account).Root;
@@ -1036,8 +1059,10 @@ app.MapPost("/api/host/unclaimed", (CurrentUser user, HostService host, UserWork
         }
     }
     usage.Invalidate(destination);
-    // Moved, not written: the drive's free space didn't change, so the allotment has to look again.
+    // Moved, not written: the drive's free space didn't change, so the allotment has to look again,
+    // and what Syncthing leaves free moves with it.
     allotment.Invalidate();
+    await HoldSyncToAllotment(sync, cancellationToken);
     return Results.Ok(new { moved, skipped });
 });
 

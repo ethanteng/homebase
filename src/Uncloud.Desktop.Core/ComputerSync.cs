@@ -33,7 +33,7 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths)
             var path = FolderPath(folder);
             Directory.CreateDirectory(path);
             SyncService.GuardMetadata(path);
-            await syncthing.AddFolderAsync(folder.Id, folder.Label, path, [pairing.HostDeviceId], cancellationToken);
+            await syncthing.AddFolderAsync(folder.Id, folder.Label, path, [pairing.HostDeviceId], null, cancellationToken);
         }
     }
 

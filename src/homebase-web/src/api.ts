@@ -316,6 +316,8 @@ export interface SyncFolder {
   error: string | null;
   files: number;
   bytes: number;
+  // Files from your computers that can't arrive until this Uncloud has room.
+  waitingForRoom?: number;
 }
 export interface SyncOffer {
   folderId: string;
