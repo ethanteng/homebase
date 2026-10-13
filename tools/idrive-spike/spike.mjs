@@ -151,11 +151,23 @@ async function run({ sizeMb, quotaTest, keep }) {
   const { main, other } = state.buckets;
 
   const leftBehind = () => console.log(`\nThe test user is still there. To remove it:\n  node spike.mjs cleanup ${id}`);
-  process.once("SIGINT", () => {
-    record.write();
-    if (state.userCreated && !state.removed) leftBehind();
-    process.exit(130);
-  });
+  // Ctrl-C is a run stopping early like any other: restic and any waiting stop, no further step
+  // starts, and the test user is removed unless --keep. A second Ctrl-C leaves straight away.
+  const stopping = new AbortController();
+  record.signal = stopping.signal;
+  const interrupt = () => {
+    if (stopping.signal.aborted) {
+      record.write();
+      if (state.userCreated && !state.removed) leftBehind();
+      process.exit(130);
+    }
+    console.log(keep || !state.userCreated
+      ? "\nStopping."
+      : "\nStopping, and removing the test user first. Press Ctrl-C again to leave it.");
+    stopping.abort();
+  };
+  process.on("SIGINT", interrupt);
+  const signal = stopping.signal;
   console.log(`Run ${id}, test user ${state.email}`);
 
   let admin;
@@ -208,6 +220,7 @@ async function run({ sizeMb, quotaTest, keep }) {
     await record.step("Make a full-access key, as the service would hold", async () => {
       admin = await newKey(reseller, state, "spike-admin", { permissions: 2 });
       const seconds = await secondsUntilWorks(() => admin.s3.send(new ListBucketsCommand({})), {
+        signal,
         onError: (error) => adoptRegion(error, state, admin, record),
       });
       save();
@@ -231,7 +244,8 @@ async function run({ sizeMb, quotaTest, keep }) {
         disable_delete_bucket: true,
         disable_delete_version: true,
       });
-      const seconds = await secondsUntilWorks(() => host.s3.send(new ListObjectsV2Command({ Bucket: main, MaxKeys: 1 })));
+      const seconds = await secondsUntilWorks(
+        () => host.s3.send(new ListObjectsV2Command({ Bucket: main, MaxKeys: 1 })), { signal });
       const keys = await reseller.listAccessKeys(state.email, state.storageDn);
       return `Works after ${seconds}s. list_access_keys answers ${shapeOf(keys)}.`;
     });
@@ -245,10 +259,20 @@ async function run({ sizeMb, quotaTest, keep }) {
       };
       const said = [];
       const allowed = [];
+      // Only a deliberate no from the store counts. A probe that failed some other way didn't show
+      // the key was stopped, so it fails the step rather than passing it.
+      const unclear = [];
       for (const [what, action] of Object.entries(probes)) {
         const result = await attempt(action);
-        said.push(`${what}: ${result.allowed ? "ALLOWED" : `refused, ${result.error}`}`);
-        if (result.allowed) allowed.push(what);
+        if (result.allowed) {
+          allowed.push(what);
+          said.push(`${what}: ALLOWED`);
+        } else if (result.refused) {
+          said.push(`${what}: refused, ${result.error}`);
+        } else {
+          unclear.push(what);
+          said.push(`${what}: neither allowed nor refused, ${result.error}`);
+        }
       }
       // Undo whatever a probe managed, so the rest of the run starts where it should.
       if (allowed.includes("create a bucket")) await admin.s3.send(new DeleteBucketCommand({ Bucket: `${main}-x` }));
@@ -262,7 +286,7 @@ async function run({ sizeMb, quotaTest, keep }) {
       } catch (error) {
         said.push(`listing buckets: refused, ${errorLabel(error)}`);
       }
-      return { outcome: allowed.length ? "fail" : "pass", detail: `${said.join("; ")}.` };
+      return { outcome: allowed.length || unclear.length ? "fail" : "pass", detail: `${said.join("; ")}.` };
     });
 
     restic = createRestic({
@@ -271,6 +295,7 @@ async function run({ sizeMb, quotaTest, keep }) {
       password: randomBytes(24).toString("base64url"),
       ...host.credentials,
       region: state.s3Region,
+      signal,
     });
 
     await record.step("Back up a made-up library with the host's key", async () => {
@@ -309,21 +334,31 @@ async function run({ sizeMb, quotaTest, keep }) {
       const current = before.versions.filter((v) => v.IsLatest);
       let hidden = 0;
       let destroyed = 0;
+      let refused = 0;
+      // Attempts that got neither a yes nor a no, which prove nothing about the key.
+      const unclear = [];
       for (const v of current) {
-        if ((await attempt(() => host.s3.send(new DeleteObjectCommand({ Bucket: main, Key: v.Key })))).allowed) hidden++;
+        const result = await attempt(() => host.s3.send(new DeleteObjectCommand({ Bucket: main, Key: v.Key })));
+        if (result.allowed) hidden++;
+        else if (!result.refused) unclear.push(result.error);
       }
       for (const v of before.versions) {
         const result = await attempt(() => host.s3.send(new DeleteObjectCommand({ Bucket: main, Key: v.Key, VersionId: v.VersionId })));
         if (result.allowed) destroyed++;
+        else if (result.refused) refused++;
+        else unclear.push(result.error);
       }
       wiped = new Set(current.map((v) => v.Key));
       const after = await restic.run(["snapshots"], { allowFailure: true });
       const opened = after.code === 0 ? "restic still opens the repository" : `restic can't open the repository (exit ${after.code})`;
+      const doubt = unclear.length
+        ? ` ${unclear.length} attempts got neither a yes nor a no (${[...new Set(unclear)].join(", ")}), so this proves less than it should.`
+        : "";
       return {
-        outcome: destroyed === 0 ? "pass" : "fail",
+        outcome: destroyed === 0 && unclear.length === 0 ? "pass" : "fail",
         detail: `Hid ${hidden} of ${current.length} objects behind delete markers. ${destroyed
           ? `DESTROYED ${destroyed} of ${before.versions.length} versions.`
-          : `Every attempt to destroy one of the ${before.versions.length} versions was refused.`} Afterwards ${opened}.`,
+          : `Refused ${refused} of ${before.versions.length} attempts to destroy a version.`} Afterwards ${opened}.${doubt}`,
       };
     }, { carryOn: true });
 
@@ -366,20 +401,19 @@ async function run({ sizeMb, quotaTest, keep }) {
           { allowFailure: true });
         return {
           outcome: "note",
-          detail: `Quota set to 1 GB with about 1.3 GB stored. /users says read_only_mode ${user?.read_only_mode}. A new write was ${write.allowed
-            ? "still accepted"
-            : `refused, ${write.error}`}. Restoring a file without a lock ${read.code === 0 ? "worked" : `failed (exit ${read.code})`}. iDrive says usage can take up to 24 hours to count, so run "node spike.mjs stats ${id}" later.`,
+          detail: `Quota set to 1 GB with about 1.3 GB stored. /users says read_only_mode ${user?.read_only_mode}. A new write was ${answered(write)}. Restoring a file without a lock ${read.code === 0 ? "worked" : `failed (exit ${read.code})`}. iDrive says usage can take up to 24 hours to count, so run "node spike.mjs stats ${id}" later.`,
         };
       }, { carryOn: true });
     }
 
     await record.step("Revoke the host's key: how soon does it stop working?", async () => {
       await reseller.removeAccessKey(state.email, state.storageDn, host.accessKey);
-      const refused = await secondsUntilRefused(() =>
-        host.s3.send(new ListObjectsV2Command({ Bucket: main, MaxKeys: 1 })));
-      return refused
-        ? `Refused after ${refused.seconds}s, ${refused.error}.`
-        : { outcome: "fail", detail: "Still working five minutes after it was revoked." };
+      const refused = await secondsUntilRefused(
+        () => host.s3.send(new ListObjectsV2Command({ Bucket: main, MaxKeys: 1 })), { signal });
+      const trouble = refused.trouble ? ` Other errors on the way, not counted: ${refused.trouble}.` : "";
+      return refused.seconds === null
+        ? { outcome: "fail", detail: `Not refused five minutes after it was revoked.${trouble}` }
+        : `Refused after ${refused.seconds}s, ${refused.error}.${trouble}`;
     }, { carryOn: true });
 
     if (keep) {
@@ -388,15 +422,20 @@ async function run({ sizeMb, quotaTest, keep }) {
       await removeUser(record, reseller, state, save, admin);
     }
   } catch (error) {
-    if (!error?.recorded) console.error(error);
+    if (signal.aborted) record.fact("Stopped", "With Ctrl-C, before the run finished.");
+    else if (!error?.recorded) console.error(error);
     if (!keep && state.userCreated && !state.removed) {
       console.log("\nStopped early. Removing the test user anyway.");
+      // Removing it has to go ahead even though the run was told to stop.
+      record.signal = null;
       await removeUser(record, reseller, state, save, admin).catch(() => {});
     }
   } finally {
+    process.removeListener("SIGINT", interrupt);
     record.write();
-    record.close();
+    await record.close();
     if (state.userCreated && !state.removed && !keep) leftBehind();
+    if (signal.aborted) process.exitCode = 130;
     if (record.troubled) {
       console.log(`\nThe test files are left in ${data}, for a look.`);
       process.exitCode = 1;
@@ -425,7 +464,7 @@ async function stats(id) {
     await record.step("Does the account still take writes?", async () => {
       const write = await attempt(() =>
         key.s3.send(new PutObjectCommand({ Bucket: state.buckets.main, Key: `probe/${stamp()}.txt`, Body: "probe" })));
-      return { outcome: "note", detail: write.allowed ? "Yes: a new object was accepted." : `No: ${write.error}.` };
+      return { outcome: "note", detail: `A new object was ${answered(write)}.` };
     }, { carryOn: true });
     await record.step("Remove the short-lived key", async () => {
       await reseller.removeAccessKey(state.email, state.storageDn, key.accessKey);
@@ -433,7 +472,7 @@ async function stats(id) {
     }, { carryOn: true });
   } finally {
     record.write();
-    record.close();
+    await record.close();
     console.log(`\nReport: ${join(dir, record.file)}`);
   }
 }
@@ -449,7 +488,7 @@ async function cleanupRun(id) {
     await removeUser(record, reseller, state, save);
   } finally {
     record.write();
-    record.close();
+    await record.close();
     console.log(`\nReport: ${join(dir, record.file)}`);
   }
 }
@@ -540,6 +579,12 @@ function adoptRegion(error, state, key, record) {
   state.s3Region = asked;
   key.s3 = s3Client({ endpoint: state.endpoint, region: asked, ...key.credentials });
   record.fact("S3 signing region", `${asked}, which the endpoint asked for`);
+}
+
+/** How the store answered an attempt, in words. */
+function answered(result) {
+  if (result.allowed) return "accepted";
+  return result.refused ? `refused, ${result.error}` : `neither accepted nor refused (${result.error})`;
 }
 
 function turnOnVersioning(key, bucket) {

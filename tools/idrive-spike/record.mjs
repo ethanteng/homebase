@@ -5,6 +5,8 @@ import { createWriteStream, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SECRET = /secret|password|token|authorization|invite_url|reset_link/i;
+// An access key's id goes by more than one name: `access_key` when it's made, `key_id` when listed.
+const KEY_ID = /^(access_key|access_key_id|key_id)$/i;
 
 /** A copy with secrets removed and access key ids cut short. */
 export function redact(value) {
@@ -12,7 +14,7 @@ export function redact(value) {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).map(([key, inner]) => {
     if (SECRET.test(key)) return [key, "[removed]"];
-    if (key === "access_key" && typeof inner === "string") return [key, `${inner.slice(0, 4)}…`];
+    if (KEY_ID.test(key) && typeof inner === "string") return [key, `${inner.slice(0, 4)}…`];
     return [key, redact(inner)];
   }));
 }
@@ -36,6 +38,8 @@ export class Recorder {
     this.facts = [];
     this.steps = [];
     this.calls = createWriteStream(join(dir, "calls.jsonl"), { flags: "a" });
+    // Once this is aborted, no further step starts.
+    this.signal = null;
   }
 
   fact(label, value) {
@@ -54,6 +58,7 @@ export class Recorder {
    * `carryOn` says the rest is still worth doing.
    */
   async step(name, action, { carryOn = false } = {}) {
+    this.signal?.throwIfAborted();
     console.log(`\n▶ ${name}`);
     const start = Date.now();
     try {
@@ -100,7 +105,8 @@ export class Recorder {
     writeFileSync(join(this.dir, this.file), lines.join("\n"));
   }
 
+  /** Resolves once every call is on disk. */
   close() {
-    this.calls.end();
+    return new Promise((resolve) => this.calls.end(resolve));
   }
 }

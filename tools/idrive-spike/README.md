@@ -43,15 +43,23 @@ become the service's client later.
 A step that doesn't go as the design hopes is marked ❌ and the run carries on wherever later steps
 still mean something. Each step is timed.
 
+Only a deliberate refusal from the store counts as a key being stopped: `AccessDenied`, or a key
+that is no longer valid. A dropped connection, throttling or a server error is retried. If it
+keeps happening, the step fails rather than passing, because a probe that merely failed proves
+nothing about what the key may do. The revocation timing likewise ends only at a real refusal.
+
 ## What it touches
 
 One new user on your reseller account, named from `SPIKE_EMAIL`. That user stores about 200 MB for
 a few minutes, or about 1.3 GB with `--quota-test`, and is removed at the end unless you pass
-`--keep`. If a run without `--keep` stops partway, it removes the user anyway. If even that fails, it prints the
+`--keep`. If a run without `--keep` stops partway, it removes the user anyway. That includes
+pressing Ctrl-C, which stops restic and any waiting, starts no further step, and removes the user.
+Pressing Ctrl-C a second time leaves at once. If the user can't be removed, the script prints the
 command that removes it.
 
 Keys and passwords live only in memory while the script runs. They are never printed, and never
-written to the report, the state file or the raw-call log. The test library and restores are
+written to the report, the state file or the raw-call log. Access key IDs are cut to their first
+four characters wherever they're recorded. The test library and restores are
 written under `runs/<id>/data` and deleted after a clean run. When a step fails they are kept, so
 you can look at them; with `--quota-test` they come to about 3 GB.
 

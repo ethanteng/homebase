@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
  * restic for one repository and key. Any RESTIC_* or AWS_* settings in the shell are dropped, so
  * nothing from the environment changes which repository or key is used.
  */
-export function createRestic({ binary = "restic", repository, password, accessKey, secretKey, region }) {
+export function createRestic({ binary = "restic", repository, password, accessKey, secretKey, region, signal }) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(RESTIC_|AWS_)/.test(name)));
   Object.assign(env, {
     RESTIC_REPOSITORY: repository,
@@ -18,7 +18,8 @@ export function createRestic({ binary = "restic", repository, password, accessKe
   const options = ["--no-cache", "-o", "s3.bucket-lookup=path", ...(region ? ["-o", `s3.region=${region}`] : [])];
 
   const restic = {
-    run: (args, settings) => run(binary, options, args, env, settings),
+    // Aborting `signal` stops restic wherever it is.
+    run: (args, settings) => run(binary, options, args, env, { ...settings, signal }),
 
     /** Backs `path` up and returns restic's summary, plus how long it took. */
     async backup(path) {
@@ -36,10 +37,10 @@ export async function resticVersion(binary = "restic") {
   return stdout.trim();
 }
 
-function run(binary, options, args, env, { allowFailure = false } = {}) {
+function run(binary, options, args, env, { allowFailure = false, signal } = {}) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
-    const child = spawn(binary, [...options, ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(binary, [...options, ...args], { env, signal, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk));

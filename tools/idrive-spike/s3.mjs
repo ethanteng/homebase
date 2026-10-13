@@ -1,5 +1,6 @@
 // The data side: talking to a household's bucket over S3 with a key the reseller API made.
 
+import { setTimeout as wait } from "node:timers/promises";
 import {
   DeleteObjectCommand,
   ListObjectVersionsCommand,
@@ -32,24 +33,49 @@ export function errorLabel(error) {
   return status ? `${name} (${status})` : `${name}: ${error?.message ?? error}`;
 }
 
-/** Whether `action` was allowed, and if not, what the store said. */
-export async function attempt(action) {
-  try {
-    await action();
-    return { allowed: true };
-  } catch (error) {
-    return { allowed: false, error: errorLabel(error) };
+const REFUSALS = new Set(["AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch", "AllAccessDisabled", "AccountProblem"]);
+
+/**
+ * Whether the store said no on purpose: the key isn't allowed to, or isn't a key any more. A
+ * dropped connection or a 503 says nothing about what a key may do, and mustn't be read as if it
+ * did, or a probe that merely failed would pass for a key that was stopped.
+ */
+export function isRefusal(error) {
+  const status = error?.$metadata?.httpStatusCode;
+  return status === 401 || status === 403 || REFUSALS.has(error?.Code ?? error?.name);
+}
+
+/** Worth asking again: no answer at all, a timeout, throttling, or the server's own trouble. */
+function isPassing(error) {
+  const status = error?.$metadata?.httpStatusCode;
+  return status === undefined || status === 408 || status === 429 || status >= 500;
+}
+
+/**
+ * Tries `action`, asking again while the failure is passing trouble. `refused` is true only when
+ * the store said no on purpose. An answer that is neither allowed nor refused proves nothing either
+ * way, and whoever asked has to treat it so.
+ */
+export async function attempt(action, { tries = 3, every = 2000 } = {}) {
+  for (let tried = 1; ; tried++) {
+    try {
+      await action();
+      return { allowed: true, refused: false };
+    } catch (error) {
+      if (isRefusal(error)) return { allowed: false, refused: true, error: errorLabel(error) };
+      if (!isPassing(error) || tried >= tries) return { allowed: false, refused: false, error: errorLabel(error) };
+      await wait(every);
+    }
   }
 }
 
-export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const secondsSince = (start) => Math.round((Date.now() - start) / 100) / 10;
 
 /**
  * Seconds until `probe` first succeeds. A new key can take a while to reach the storage servers,
  * and how long is one of the things worth knowing.
  */
-export async function secondsUntilWorks(probe, { timeout = 180, onError } = {}) {
+export async function secondsUntilWorks(probe, { timeout = 180, every = 2000, signal, onError } = {}) {
   const start = Date.now();
   for (;;) {
     try {
@@ -58,22 +84,28 @@ export async function secondsUntilWorks(probe, { timeout = 180, onError } = {}) 
     } catch (error) {
       onError?.(error);
       if (secondsSince(start) > timeout) throw new Error(`Still failing after ${timeout}s: ${errorLabel(error)}`);
-      await sleep(2000);
+      await wait(every, undefined, { signal });
     }
   }
 }
 
-/** Seconds until `probe` first fails, or null if it still worked at `timeout`. */
-export async function secondsUntilRefused(probe, { timeout = 300 } = {}) {
+/**
+ * Seconds until the store refuses `probe`: `{ seconds, error }`, or `{ seconds: null }` if it never
+ * did by `timeout`. Any other failure on the way is passing trouble, not the refusal being timed,
+ * so it keeps asking, and the last such failure comes back as `trouble`.
+ */
+export async function secondsUntilRefused(probe, { timeout = 300, every = 2000, signal } = {}) {
   const start = Date.now();
+  let trouble;
   for (;;) {
     try {
       await probe();
     } catch (error) {
-      return { seconds: secondsSince(start), error: errorLabel(error) };
+      if (isRefusal(error)) return { seconds: secondsSince(start), error: errorLabel(error), trouble };
+      trouble = errorLabel(error);
     }
-    if (secondsSince(start) > timeout) return null;
-    await sleep(2000);
+    if (secondsSince(start) > timeout) return { seconds: null, trouble };
+    await wait(every, undefined, { signal });
   }
 }
 
