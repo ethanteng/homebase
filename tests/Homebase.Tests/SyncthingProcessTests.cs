@@ -131,6 +131,30 @@ public sealed class SyncthingProcessTests : IDisposable
         await process.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task One_that_wont_start_again_is_tried_until_it_does()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        // Goes the first time, and can't be run again until it's put right: a moment when there's
+        // nothing to start is no reason never to try again.
+        var syncthing = FakeSyncthing("""
+            if [ ! -f "$started.first" ]; then touch "$started.first"; chmod -x "$0"; exit 1; fi
+            exec sleep 60
+            """);
+        using var process = new SyncthingProcess(Home(), syncthing, FreePort(), NullLogger.Instance, new HttpClient())
+        {
+            RestartAfter = [TimeSpan.FromMilliseconds(50)]
+        };
+
+        await process.StartAsync(CancellationToken.None);
+        await Until(() => process.Unavailable?.Contains("couldn’t start Syncthing again") == true);
+        Assert.Equal(1, Starts);
+
+        File.SetUnixFileMode(syncthing, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        await Until(() => Starts == 2);
+        await process.StopAsync(CancellationToken.None);
+    }
+
     private string Started => Path.Combine(_application, "started");
     private int Starts => File.Exists(Started) ? File.ReadAllLines(Started).Length : 0;
 

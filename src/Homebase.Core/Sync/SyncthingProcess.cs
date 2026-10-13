@@ -158,26 +158,35 @@ public sealed class SyncthingProcess(string home, string binary, int port, ILogg
         int? code = null;
         try { code = process.ExitCode; }
         catch (InvalidOperationException) { }
-        var wait = RestartAfter[Math.Min(failures, RestartAfter.Count) - 1];
         Unavailable = failures == 1
             ? "Syncthing stopped, and Uncloud is starting it again."
             : "Syncthing keeps stopping. Uncloud keeps starting it again, and what it said is in Uncloud’s log.";
-        logger.LogWarning("Syncthing stopped by itself, with exit code {Code}. Starting it again in {Wait}", code, wait);
+        logger.LogWarning("Syncthing stopped by itself, with exit code {Code}. Starting it again in {Wait}",
+            code, RestartWait(failures));
         _ = Task.Run(async () =>
         {
-            try { await Task.Delay(wait, _stopping.Token); }
-            catch (OperationCanceledException) { return; }
-            try { Serve(); }
-            catch (Exception error) when (error is System.ComponentModel.Win32Exception or IOException
-                or UnauthorizedAccessException or InvalidOperationException)
+            // One that doesn't start never stops either, so nothing else would notice and try
+            // again: that is up to this, for as long as it takes.
+            for (var attempt = failures; ; attempt++)
             {
-                // Nothing started, so nothing will stop to try again from: this is the last word
-                // until Uncloud itself starts again.
-                Unavailable = $"Uncloud couldn’t start Syncthing again ({_binary}).";
-                logger.LogWarning(error, "Syncthing didn’t start again");
+                try { await Task.Delay(RestartWait(attempt), _stopping.Token); }
+                catch (OperationCanceledException) { return; }
+                try
+                {
+                    Serve();
+                    return;
+                }
+                catch (Exception error) when (error is System.ComponentModel.Win32Exception or IOException
+                    or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    Unavailable = $"Uncloud couldn’t start Syncthing again ({_binary}), and keeps trying.";
+                    logger.LogWarning(error, "Syncthing didn’t start again. Trying again in {Wait}", RestartWait(attempt + 1));
+                }
             }
         });
     }
+
+    private TimeSpan RestartWait(int failures) => RestartAfter[Math.Min(failures, RestartAfter.Count) - 1];
 
     /// <summary>Pins the GUI to loopback on our own port and returns the API key Syncthing generated.</summary>
     private string Configure()
