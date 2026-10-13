@@ -1,0 +1,15 @@
+{
+  "name": "uncloud-idrive-spike",
+  "private": true,
+  "description": "Phase 0 of Uncloud Backup: one household's whole backup lifecycle, run against IDrive e2 for real.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1151.0"
+  }
+}
