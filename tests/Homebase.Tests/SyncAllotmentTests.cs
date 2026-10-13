@@ -22,6 +22,9 @@ public sealed class SyncAllotmentTests : IDisposable
 
     private readonly string _temporary = Path.Combine(Path.GetTempPath(), "homebase-tests", Guid.NewGuid().ToString("N"));
     private readonly FakeSyncthing _syncthing = new();
+    private readonly ControlDatabase _database;
+    private readonly UserStore _users;
+    private readonly SyncOwnership _ownership;
     private readonly HostService _host;
     private readonly StorageAllotment _allotment;
     private readonly SyncService _sync;
@@ -34,27 +37,34 @@ public sealed class SyncAllotmentTests : IDisposable
     public SyncAllotmentTests()
     {
         Directory.CreateDirectory(_temporary);
-        var database = new ControlDatabase(Path.Combine(_temporary, "Config"));
-        var users = new UserStore(database);
-        _host = new HostService(database);
+        _database = new ControlDatabase(Path.Combine(_temporary, "Config"));
+        _users = new UserStore(_database);
+        _ownership = new SyncOwnership(_database);
+        _host = new HostService(_database);
         _host.SelectRoot(PathPolicy.NormalizeRoot(Directory.CreateDirectory(Path.Combine(_temporary, "Host")).FullName));
         // 500 GB free and 20 GB of everybody's files on a 1 TB drive.
-        _allotment = new StorageAllotment(database, _host)
-        {
-            Drive = _ => new StorageReport(500 * GB, 1000 * GB),
-            Holding = _ => _held
-        };
-        _sync = new SyncService(_syncthing, new SyncOwnership(database), _host, users,
-            NullLogger<SyncService>.Instance, _allotment);
-        _ada = users.CreateFirstAdmin("ada", "Ada", TestHost.Password);
+        _allotment = Allotment();
+        _sync = Sync(_allotment);
+        _ada = _users.CreateFirstAdmin("ada", "Ada", TestHost.Password);
         _adaRoot = UserPaths.RootFor(_host.RequireRoot(), _ada.Id);
         Directory.CreateDirectory(Path.Combine(_adaRoot, "Documents"));
     }
 
-    private async Task<SyncthingFolder> ShareAsync()
+    private StorageAllotment Allotment(TimeSpan? freshness = null) => new(_database, _host)
     {
-        await _sync.PairAsync(_ada.Id, Laptop, "Ada’s laptop", CancellationToken.None);
-        var shared = await _sync.ShareAsync(_ada.Id, _adaRoot, "Documents", null, CancellationToken.None);
+        Drive = _ => new StorageReport(500 * GB, 1000 * GB),
+        Holding = _ => _held,
+        Freshness = freshness ?? TimeSpan.FromMinutes(5)
+    };
+
+    private SyncService Sync(StorageAllotment allotment) =>
+        new(_syncthing, _ownership, _host, _users, NullLogger<SyncService>.Instance, allotment);
+
+    private async Task<SyncthingFolder> ShareAsync(SyncService? sync = null)
+    {
+        sync ??= _sync;
+        await sync.PairAsync(_ada.Id, Laptop, "Ada’s laptop", CancellationToken.None);
+        var shared = await sync.ShareAsync(_ada.Id, _adaRoot, "Documents", null, CancellationToken.None);
         return _syncthing.Folders[shared.Id];
     }
 
@@ -107,6 +117,43 @@ public sealed class SyncAllotmentTests : IDisposable
         await _sync.HoldToAllotmentAsync(CancellationToken.None);
         Assert.Equal(1, _syncthing.KeepFreeChanges);
         Assert.Equal(_held + 500 * GB - 100 * GB, _syncthing.Folders[folder].KeepFree);
+    }
+
+    [Fact]
+    public async Task A_folder_in_Syncthing_that_isnt_Uncloud_s_is_left_as_it_is()
+    {
+        var ours = (await ShareAsync()).Id;
+        // Added in Syncthing's own interface, somewhere else entirely, and set to what its owner chose.
+        _syncthing.Folders["elsewhere"] = new SyncthingFolder("elsewhere", "Elsewhere",
+            Path.Combine(_temporary, "Elsewhere"), [], "idle", null, 0, 0, true, KeepFree: 5 * GB);
+        _allotment.Set(new Allotment(AllotmentUnit.Bytes, 100 * GB));
+
+        await _sync.HoldToAllotmentAsync(CancellationToken.None);
+        await _sync.ReconcileAsync(CancellationToken.None);
+        Assert.Equal(420 * GB, _syncthing.Folders[ours].KeepFree);
+        Assert.Equal(5 * GB, _syncthing.Folders["elsewhere"].KeepFree);
+
+        _allotment.Set(null);
+        await _sync.HoldToAllotmentAsync(CancellationToken.None);
+        Assert.Null(_syncthing.Folders[ours].KeepFree);
+        Assert.Equal(5 * GB, _syncthing.Folders["elsewhere"].KeepFree);
+    }
+
+    [Fact]
+    public async Task Checking_on_a_stale_walk_walks_again_and_acts_on_what_it_finds_at_once()
+    {
+        // Every walk stale as soon as it's made, as one is ten minutes later.
+        var allotment = Allotment(TimeSpan.Zero);
+        var sync = Sync(allotment);
+        allotment.Set(new Allotment(AllotmentUnit.Bytes, 100 * GB));
+        var folder = (await ShareAsync(sync)).Id;
+        Assert.Equal(420 * GB, _syncthing.Folders[folder].KeepFree);
+
+        // 50 GB put there by hand: the drive can't say it was Uncloud's, only a walk can.
+        _held += 50 * GB;
+        await sync.HoldToAllotmentAsync(CancellationToken.None);
+
+        Assert.Equal(470 * GB, _syncthing.Folders[folder].KeepFree);
     }
 
     [Fact]
@@ -167,14 +214,16 @@ public sealed class SyncAllotmentTests : IDisposable
         using var app = new TestHost(config, syncthing: syncthing);
         using var admin = await app.SignUpAsync("ada");
         await TestHost.SetHostRootAsync(admin, _host.RequireRoot());
-        syncthing.Folders["docs"] = new SyncthingFolder("docs", "Docs",
-            Path.Combine(_host.RequireRoot(), UserPaths.UsersDirectory, "someone", "Docs"), [], "idle", null, 0, 0, true);
+        (await admin.PostAsJsonAsync("/api/sync/devices", new { deviceId = Laptop, name = "Laptop" })).EnsureSuccessStatusCode();
+        (await admin.PostAsJsonAsync("/api/sync/folders", new { path = "" })).EnsureSuccessStatusCode();
+        var folder = Assert.Single(syncthing.Folders).Key;
+        Assert.Null(syncthing.Folders[folder].KeepFree);
 
         (await admin.PutAsJsonAsync("/api/host/storage", new { bytes = 1024 * 1024 })).EnsureSuccessStatusCode();
-        Assert.NotNull(syncthing.Folders["docs"].KeepFree);
+        Assert.NotNull(syncthing.Folders[folder].KeepFree);
 
         (await admin.PutAsJsonAsync("/api/host/storage", new { })).EnsureSuccessStatusCode();
-        Assert.Null(syncthing.Folders["docs"].KeepFree);
+        Assert.Null(syncthing.Folders[folder].KeepFree);
     }
 
     /// <summary>Syncthing's REST API, as far as these need it, keeping what was sent to it.</summary>

@@ -612,13 +612,15 @@ whatever the drive gains or loses is put down to Uncloud, which keeps an upload'
 megabyte at a time without walking anything.
 
 Syncthing writes what computers send without asking Uncloud, so it is held to the allotment its own
-way: every folder's `minDiskFree` is set to the free space the drive has to keep for Uncloud to stay
+way: the `minDiskFree` of every folder Uncloud keeps for an account (anything else in Syncthing's
+configuration is left alone) is set to the free space the drive has to keep for Uncloud to stay
 within its share — what Uncloud could have, less the allotment, and never under the 1% Syncthing
 keeps by itself. Syncthing then refuses to bring in any file that would take the drive below it,
 and tries again later. Uncloud's own writes don't move that figure (each byte written is a byte
 less free), so it only changes when the allotment does or something else on the computer takes or
 frees space. It is set when a folder is added, when Syncthing starts, when an allotment is saved,
-after files are moved in from the top of the host's folder, and checked every ten minutes after,
+after files are moved in from the top of the host's folder, and checked every ten minutes after
+(walking `users/` first if the last walk is stale, so a check acts on what it finds),
 changing a folder only when it is out by more than 256 MB, because a configuration change restarts
 the folder. Without an allotment, folders are put back to Syncthing's 1%. Files held back show in
 **My computers** as waiting for room, counted from Syncthing's `insufficient space in folder` errors.

@@ -422,7 +422,11 @@ public sealed partial class SyncService(
     /// </summary>
     public async Task HoldToAllotmentAsync(CancellationToken cancellationToken)
     {
-        if (allotment is null || !syncthing.IsAvailable) return;
+        if (allotment is null || !syncthing.IsAvailable || ownership.Folders().Count == 0) return;
+        // Measured afresh first if the last walk has gone stale, and outside the gate, since a walk
+        // can take a while: answering from the old walk would leave whatever changed since for the
+        // next time round.
+        await Task.Run(allotment.Refresh, cancellationToken);
         await _gate.WaitAsync(cancellationToken);
         try
         {
@@ -436,10 +440,13 @@ public sealed partial class SyncService(
 
     private async Task HoldAsync(IReadOnlyList<SyncthingFolder> folders, CancellationToken cancellationToken)
     {
+        // Only folders Uncloud keeps for somebody. Anything else in Syncthing's configuration is
+        // left as it is, here as everywhere: it may not even be on the same drive.
+        var ours = folders.Where(folder => ownership.FindFolder(folder.Id) is not null).ToArray();
         // Nothing synced, nothing to tell — and no reason to measure what Uncloud holds.
-        if (allotment is null || folders.Count == 0) return;
+        if (allotment is null || ours.Length == 0) return;
         var keep = allotment.KeepFree();
-        foreach (var folder in folders)
+        foreach (var folder in ours)
             if (!CloseEnough(folder.KeepFree, keep))
                 await syncthing.SetKeepFreeAsync(folder.Id, keep, cancellationToken);
     }

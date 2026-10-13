@@ -150,6 +150,22 @@ public sealed class StorageAllotment(ControlDatabase database, HostService host)
         lock (_lock) _measured = null;
     }
 
+    /// <summary>
+    /// Walks now, rather than in the background, if the last walk has gone stale: for a caller with
+    /// time to wait that would otherwise act on the old one and only see the new one next time.
+    /// </summary>
+    public void Refresh()
+    {
+        if (Current is null || host.RootPath is not { } root) return;
+        _walking.Wait();
+        try
+        {
+            if (Latest(root) is { } measured && DateTimeOffset.UtcNow - measured.At < Freshness) return;
+            Walk(root);
+        }
+        finally { _walking.Release(); }
+    }
+
     /// <summary>How much Uncloud holds under the host's folder, as near as can be said right now.</summary>
     public long Held(string root) => Used(root, Drive(root)?.FreeBytes);
 
