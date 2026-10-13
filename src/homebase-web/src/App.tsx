@@ -19,6 +19,7 @@ import AddFiles from "./AddFiles";
 import ImportStatus, { useImportJob } from "./ImportStatus";
 import UploadStatus, { useUpload } from "./Uploads";
 import HostDropbox from "./HostDropbox";
+import HostStorage from "./HostStorage";
 import { StorageCard, StoragePill } from "./StorageMeter";
 import FileBrowser from "./FileBrowser";
 import Bin from "./Bin";
@@ -555,6 +556,14 @@ export default function App() {
               compact
               onSaved={() => setRevision((value) => value + 1)}
             />
+            {/* The storage meter shows the allotment, so it is read again once one is saved. A
+                new host folder can be a different drive, so the card starts again for it. */}
+            {hasFolder && (
+              <HostStorage
+                key={library!.rootPath!}
+                onSaved={() => setRevision((value) => value + 1)}
+              />
+            )}
             <HostDropbox expanded={dropboxFocus} />
           </>
         )}

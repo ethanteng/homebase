@@ -1,7 +1,10 @@
 namespace Homebase.Core;
 
-/// <summary>Space on the volume a library folder sits on.</summary>
-public sealed record StorageReport(long FreeBytes, long TotalBytes);
+/// <summary>
+/// Space on the volume a library folder sits on, or the share of it an administrator has allotted
+/// Uncloud. <paramref name="Capped"/> says which: the allotment, not the drive, is what runs out.
+/// </summary>
+public sealed record StorageReport(long FreeBytes, long TotalBytes, bool Capped = false);
 
 public static class Storage
 {

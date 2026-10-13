@@ -101,9 +101,31 @@ export interface EditedEntry {
 
 export interface StorageReport {
   // The volume is shared by everyone on this host; the usage is the signed-in account's own.
+  // With an allotment set, free and total are Uncloud's share of the volume rather than all of it.
   freeBytes: number | null;
   totalBytes: number | null;
   usedBytes: number;
+  // The allotment, rather than the drive, is what is running out.
+  capped?: boolean;
+}
+
+/// How much of the drive Uncloud may fill. A percent is of what's free plus what Uncloud holds.
+export interface Allotment {
+  unit: "Bytes" | "Percent";
+  amount: number;
+}
+
+export interface HostStorage {
+  // Null when Uncloud may fill the whole drive.
+  allotment: Allotment | null;
+  driveFreeBytes: number | null;
+  driveTotalBytes: number | null;
+  // Everybody's files together, which is what an allotment is measured against.
+  uncloudBytes: number;
+  // What everybody is shown and every write is checked against.
+  freeBytes: number | null;
+  totalBytes: number | null;
+  capped: boolean;
 }
 
 export interface ImportEstimate {

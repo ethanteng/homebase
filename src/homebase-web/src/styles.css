@@ -1557,7 +1557,8 @@ tbody tr.selected {
   max-width: 72ch;
 }
 
-.account-dropbox h3 {
+.account-dropbox h3,
+.host-storage h3 {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1565,7 +1566,8 @@ tbody tr.selected {
   font-size: 15px;
   font-weight: 600;
 }
-.account-dropbox h3 svg {
+.account-dropbox h3 svg,
+.host-storage h3 svg {
   flex-shrink: 0;
   color: var(--muted);
 }
@@ -1574,7 +1576,8 @@ tbody tr.selected {
 .settings-dialog:has(.account-dropbox) {
   width: 620px;
 }
-.account-dropbox {
+.account-dropbox,
+.host-storage {
   margin-top: 30px;
   padding-top: 26px;
   border-top: 1px solid var(--line);
@@ -1762,6 +1765,47 @@ tbody tr.selected {
 }
 .account-dropbox .button.primary {
   margin-top: 21px;
+}
+/* How much of the drive Uncloud may use: three choices, two with a number to give. */
+.host-storage {
+  display: flex;
+  flex-direction: column;
+}
+.host-storage .button.primary {
+  align-self: flex-start;
+  margin-top: 21px;
+}
+.allotment-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 16px 0 4px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.allotment-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.allotment-choice input[type="radio"] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent, currentColor);
+}
+.allotment-choice .path-input {
+  width: 92px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.allotment-choice select.path-input {
+  width: auto;
 }
 /* A quiet action that shouldn't compete with the buttons beside it. */
 .link-button {
