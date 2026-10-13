@@ -74,9 +74,11 @@ export function StorageCard({ storage, isAdmin }: CardProps) {
             <p className="storage-warning">
               <TriangleAlert size={13} />
               {level === "critical" ? "Almost full. " : "Running low. "}
-              {isAdmin
-                ? "Free up space on the Uncloud computer’s drive before anyone adds more."
-                : "Let whoever looks after this Uncloud know."}
+              {!isAdmin
+                ? "Let whoever looks after this Uncloud know."
+                : storage.capped
+                  ? "Give Uncloud more of the drive in Settings, or clear some files out, before anyone adds more."
+                  : "Free up space on the Uncloud computer’s drive before anyone adds more."}
             </p>
           )}
         </>
@@ -99,7 +101,7 @@ export function StoragePill({ storage }: { storage: StorageReport | null }) {
   return (
     <span
       className={`storage-pill level-${level}`}
-      title={`${formatSize(storage.freeBytes)} free${storage.totalBytes != null ? ` of ${formatSize(storage.totalBytes)}` : ""} on this Uncloud’s drive · ${formatSize(storage.usedBytes)} is yours`}
+      title={`${formatSize(storage.freeBytes)} free${storage.totalBytes != null ? ` of ${formatSize(storage.totalBytes)}` : ""} ${storage.capped ? "set aside for this Uncloud" : "on this Uncloud’s drive"} · ${formatSize(storage.usedBytes)} is yours`}
     >
       {level === "ok" ? <HardDrive size={14} /> : <TriangleAlert size={14} />}
       <strong>{formatSize(storage.freeBytes)}</strong> free

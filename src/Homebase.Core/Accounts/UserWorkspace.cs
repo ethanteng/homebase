@@ -28,15 +28,18 @@ public sealed class UserWorkspace
         ImportLog log,
         IDropboxConnection dropbox,
         ImportPlaces places,
-        ILoggerFactory loggers)
+        ILoggerFactory loggers,
+        Func<string, StorageReport?>? space = null)
     {
         UserId = userId;
         Root = root;
         Dropbox = dropbox;
         _places = places;
-        Library = new LibraryService(root, index);
+        // Everybody's room comes out of the one allotment, so it is asked about rather than the drive.
+        space ??= Storage.For;
+        Library = new LibraryService(root, index) { Space = space };
         Library.Initialize();
-        Imports = new ImportService(Library, log, loggers.CreateLogger<ImportService>());
+        Imports = new ImportService(Library, log, loggers.CreateLogger<ImportService>()) { Space = space };
         // One import at a time per account, rather than one for the whole host: somebody else
         // bringing a folder home is no reason to be told to wait.
         Jobs = new ImportJobs(Imports, loggers.CreateLogger<ImportJobs>());

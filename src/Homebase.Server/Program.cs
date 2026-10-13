@@ -99,6 +99,9 @@ builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<ConnectorStore>();
 builder.Services.AddSingleton<LoginThrottle>();
 builder.Services.AddSingleton<UsageService>();
+// How much of the drive an administrator lets Uncloud fill. Every account's workspace asks it,
+// rather than the drive, how much room is left.
+builder.Services.AddSingleton<StorageAllotment>();
 // Running in an operating-system account of its own, which the Mac app sets Uncloud up in so that
 // nobody signed in at the Mac can look through everybody's files. Nobody signs in to that account,
 // so nothing here can open a window, and only folders opened to it can be used.
@@ -579,16 +582,20 @@ app.MapGet("/api/library", (CurrentUser user, UserWorkspaces workspaces, HostSer
     });
 });
 
-app.MapGet("/api/storage", (CurrentUser user, UserWorkspaces workspaces, HostService host, UsageService usage) =>
+app.MapGet("/api/storage", (CurrentUser user, UserWorkspaces workspaces, HostService host, UsageService usage, StorageAllotment allotment) =>
 {
-    // Free space is the volume's, and the volume is shared — that is the arrangement. What is
-    // this account's alone is how much of it they are using.
-    var report = Storage.For(host.RequireRoot());
+    // Free space is the volume's, or the share of it an administrator has allotted Uncloud, and
+    // either way it is shared — that is the arrangement. What is this account's alone is how much
+    // of it they are using.
+    var report = allotment.Space(host.RequireRoot());
     return Results.Ok(new
     {
         freeBytes = report?.FreeBytes,
         totalBytes = report?.TotalBytes,
-        usedBytes = usage.UsedBytes(workspaces.For(user.Account).Root)
+        usedBytes = usage.UsedBytes(workspaces.For(user.Account).Root),
+        // Whether the allotment, rather than the drive, is what is running out: what an
+        // administrator does about it differs.
+        capped = report?.Capped ?? false
     });
 });
 
@@ -966,6 +973,35 @@ app.MapPut("/api/host", async (SelectRoot request, CurrentUser user, HostService
     return Results.Ok(new { rootPath = root });
 });
 
+// How much of the drive Uncloud may fill: all of it, a set amount, or a share. Shown with what the
+// drive and Uncloud hold now, so whoever sets it can see what each choice comes to.
+app.MapGet("/api/host/storage", (HostService host, StorageAllotment allotment) =>
+    Results.Ok(HostStorage(host.RequireRoot(), allotment)));
+
+app.MapPut("/api/host/storage", (SetAllotment request, HostService host, StorageAllotment allotment) =>
+{
+    var root = host.RequireRoot();
+    allotment.Set(Allotment.From(request.Bytes, request.Percent));
+    return Results.Ok(HostStorage(root, allotment));
+});
+
+static object HostStorage(string root, StorageAllotment allotment)
+{
+    var drive = allotment.Drive(root);
+    var room = allotment.Space(root);
+    return new
+    {
+        allotment = allotment.Current,
+        driveFreeBytes = drive?.FreeBytes,
+        driveTotalBytes = drive?.TotalBytes,
+        uncloudBytes = allotment.Held(root),
+        // What everybody here is shown, and what every write is checked against.
+        freeBytes = room?.FreeBytes,
+        totalBytes = room?.TotalBytes,
+        capped = room?.Capped ?? false
+    };
+}
+
 // What a v0 library left sitting at the top of the host's folder, belonging to no account.
 app.MapGet("/api/host/unclaimed", (HostService host) =>
     Results.Ok(new { entries = UserPaths.Unclaimed(host.RequireRoot()) }));
@@ -1260,6 +1296,8 @@ public sealed record FinishUpload(string? Destination);
 /// <param name="Ids">Things in the bin, by the ids it lists them with.</param>
 public sealed record BinItems(IReadOnlyList<string>? Ids);
 public sealed record ReachFromAnywhere(bool Enabled);
+/// <summary>A set amount or a share of the drive for Uncloud; neither leaves it the whole drive.</summary>
+public sealed record SetAllotment(long? Bytes, int? Percent);
 public sealed record SignIn(string? Username, string? Password);
 public sealed record CreateUser(string? Username, string? DisplayName, string? Password, bool IsAdmin = false);
 public sealed record UpdateUser(string? DisplayName, string? Password, bool? IsAdmin, bool? Disabled);
