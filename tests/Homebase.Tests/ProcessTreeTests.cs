@@ -87,6 +87,52 @@ public sealed class ProcessTreeTests
     }
 
     [Fact]
+    public async Task A_process_can_stop_everything_it_started_and_carry_on()
+    {
+        // What Uncloud does on its way out when it has stopped answering: its Syncthing and tunnel
+        // go first, so they don't hold their ports against the Uncloud that starts next. The parent
+        // here waits for its children as Uncloud does, so the ones stopped don't linger unreaped,
+        // and then carries on.
+        if (OperatingSystem.IsWindows()) return;
+        using var parent = Process.Start(new ProcessStartInfo("/bin/sh")
+        {
+            ArgumentList = { "-c", "sleep 60 & sleep 60 & wait; read line" },
+            RedirectStandardInput = true,
+            UseShellExecute = false
+        })!;
+        try
+        {
+            IReadOnlyList<int> children = [];
+            for (var attempt = 0; attempt < 50 && children.Count < 2; attempt++)
+            {
+                await Task.Delay(100);
+                children = ProcessTree.Descendants(parent.Id);
+            }
+            Assert.Equal(2, children.Count);
+
+            ProcessTree.KillDescendants(parent.Id);
+
+            foreach (var id in children)
+            {
+                var gone = false;
+                for (var attempt = 0; attempt < 50 && !gone; attempt++)
+                {
+                    try
+                    {
+                        using var child = Process.GetProcessById(id);
+                        gone = child.HasExited;
+                    }
+                    catch (ArgumentException) { gone = true; }
+                    if (!gone) await Task.Delay(100);
+                }
+                Assert.True(gone, $"Process {id} was left running.");
+            }
+            Assert.False(parent.HasExited);
+        }
+        finally { ProcessTree.Kill(parent); }
+    }
+
+    [Fact]
     public void A_process_that_started_nothing_has_no_descendants()
     {
         if (OperatingSystem.IsWindows()) return;
