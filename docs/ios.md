@@ -1,8 +1,15 @@
 # Uncloud for iPhone
 
-The design for an iPhone app that signs in to an Uncloud host and shows the person their files.
-Nothing here is built yet. The first version is for viewing only; uploading and syncing come after,
+The design for an iPhone and iPad app that signs in to an Uncloud host and shows the person their
+files, and how to build it. The first version is for viewing only; uploading and syncing come after,
 and the end of this document says what they will need so that nothing built now is in their way.
+
+**Milestone 1 is built**, in [`src/Uncloud.iOS`](../src/Uncloud.iOS): typing the address, signing
+in, browsing, opening files in Quick Look, sharing them, and signing out, on iPhone and iPad. The
+rest of [milestone 2](#milestones) isn't yet: resuming a dropped download, asking before a large
+one, the cache's size limit and its line on the account screen, how much room is left, and finding
+the host over Bonjour. This document describes all of it; where something is still to come, the
+milestones say so.
 
 - [Why an app](#why-an-app)
 - [What the first version does](#what-the-first-version-does)
@@ -10,7 +17,7 @@ and the end of this document says what they will need so that nothing built now 
 - [Connecting](#connecting) and [signing in](#signing-in)
 - [Browsing](#browsing) and [opening a file](#opening-a-file)
 - [The code](#the-code)
-- [Testing and shipping](#testing-and-shipping)
+- [Testing and shipping](#testing-and-shipping), and [building it](#building-it)
 - [Server changes worth making](#server-changes-worth-making)
 - [After viewing: uploading and syncing](#after-viewing-uploading-and-syncing)
 - [Decisions](#decisions) and [milestones](#milestones)
@@ -65,7 +72,8 @@ What follows from that:
 - **The certificate is a real one** (Tailscale gets it from Let's Encrypt), so App Transport
   Security accepts it and the app needs no exceptions. A host somebody has put on their own network
   with a self-signed certificate (`Homebase__Certificate__Path`) won't work in the first version.
-  Debug builds allow plain HTTP to loopback, for a simulator talking to a server run from source.
+  Plain HTTP is allowed to loopback alone, for a simulator talking to a server run from source on
+  the same Mac.
 - **Funnel is bandwidth-limited** ([technical.md](technical.md#which-tunnel-and-what-it-costs-you)).
   Browsing and everyday files are fine; a 4 GB video is not. This is why the app asks before large
   downloads, keeps what it has downloaded, and why thumbnails are the first server change after the
@@ -210,14 +218,20 @@ src/Uncloud.iOS/
   Uncloud/            the app: SwiftUI screens, Quick Look, the share sheet
   UncloudKit/         a Swift package: everything that talks to the host, and none of UIKit
     Sources/UncloudKit/
-      UncloudClient.swift    one method per endpoint, async, throwing UncloudError
-      Models.swift           Session, User, DirectoryListing, LibraryEntry, StorageReport
-      Credentials.swift      the token in the Keychain, one per host
+      UncloudClient.swift    one method per endpoint, async
+      UncloudError.swift     every refusal, worded for the person holding the device
+      Models.swift           User, SessionState, DirectoryListing, LibraryEntry
+      Timestamp.swift        the host's dates
+      TokenStore.swift       the token in the Keychain, one per host
       Transfers.swift        downloads now, uploads later, behind one interface
-      FileCache.swift        what's downloaded, and evicting it
-      HostAddress.swift      reading a typed address; Bonjour
+      FileCache.swift        what's downloaded
+      HostAddress.swift      reading a typed address
     Tests/UncloudKitTests/
+  Uncloud-Info.plist  the keys Xcode doesn't write itself
 ```
+
+The project uses Xcode 16's synchronised folders, so a file added under `Uncloud/` is in the app
+without touching `project.pbxproj`.
 
 Named after `Uncloud.Desktop`, beside it in `src/`. `UncloudKit` is kept free of UIKit so that the
 share extension and the Files app extension that come later can use it as it is, and so its tests
@@ -252,14 +266,19 @@ Five things to get right, each with a test:
 ## Testing and shipping
 
 - **Unit tests** in `UncloudKit`, against canned responses through a `URLProtocol` stub: sign-in
-  reads the token, the five things above, the cache's keys and eviction.
-- **A contract test against the real server.** On the macOS CI runner, start the server from source
-  on loopback, make the first account with `/api/setup`, and run `UncloudKit`'s integration tests
-  against it. The server and the app are in one repository, so a change to the API that would break
-  the app fails the pull request that makes it, not somebody's phone afterwards. On the server's
-  side, a test that pins the "native client" assumptions from [Signing in](#signing-in) keeps a
-  future hardening change from shutting the app out without anyone noticing.
-- **CI** gets a macOS job: `swift test` for `UncloudKit`, and `xcodebuild build` for the simulator.
+  reads the token, the five things above, downloads, and the cache. They run with `swift test`,
+  which `./scripts/check.sh` does whenever there is a Swift 6 on the `PATH`, Linux included. On
+  Linux, Foundation traps finishing a download task that a stub fed, so the three tests that finish
+  one are skipped there and run on Apple's platforms, where the app does.
+- **The server pins what the app relies on.** `NativeClientTests` signs in, browses, downloads and
+  signs out the way the app does, with no `Origin` and the cookie sent by hand, and checks the `+`
+  and the dates. A hardening change that would shut the app out fails there.
+- **A contract test against the real server** (milestone 2). On the macOS CI runner, start the
+  server from source on loopback, make the first account with `/api/setup`, and run `UncloudKit`'s
+  integration tests against it, so a change to the API that would break the app fails the pull
+  request that makes it, not somebody's phone afterwards.
+- **CI's iOS job** runs `UncloudKit`'s tests on an iPhone and an iPad simulator, whichever this
+  Xcode has the newest iOS for, and builds the app for a device, unsigned.
 - **TestFlight only.** It needs the same Apple Developer membership that signs the Mac app; the
   bundle id is `life.uncloud.ios`, beside the host's `life.uncloud.host`. TestFlight has two kinds of
   tester, and the difference is who has to be reachable:
@@ -271,13 +290,43 @@ Five things to get right, each with a test:
     once for each new version. That review asks for an account to sign in with, so a demo Uncloud
     has to be up, with something in it, while each version is reviewed. Only needed once the app
     goes past the household.
-- **A build stops opening 90 days after it was uploaded.** CI should upload a TestFlight build from
-  `main`, signed the way the Mac app already is, so nobody's app expires because nothing changed for
-  three months.
+- **A build stops opening 90 days after it was uploaded.** CI's TestFlight job uploads one from
+  every push to `main`, so nobody's app expires because nothing changed for three months. It is off
+  until it has been set up ([below](#turning-on-testflight)).
 - **iPhone and iPad, one app.** The same screens on both for now; a two-column layout on iPad can
   come later. A share sheet the app opens itself, rather than Quick Look's, is a SwiftUI `ShareLink`:
   on iPad a share sheet must be anchored to what was tapped, and one shown without an anchor crashes.
-  CI builds for both, and the tests run on an iPhone and an iPad simulator.
+
+## Building it
+
+Open `src/Uncloud.iOS/Uncloud.xcodeproj` in Xcode 16 or later, choose your team under **Signing &
+Capabilities**, and run. To try it in the simulator against a host on the same Mac, start one with
+`./scripts/run.sh`, make its first account at `http://127.0.0.1:5210` in a browser, then type
+`http://127.0.0.1:5210` into the app. On a real iPhone or iPad, use the host's Reach From Anywhere
+address.
+
+`swift test --package-path src/Uncloud.iOS/UncloudKit` runs the library's tests without Xcode.
+
+### Turning on TestFlight
+
+Once, in this order:
+
+1. At [developer.apple.com](https://developer.apple.com/account/resources/identifiers/list), register
+   the App ID `life.uncloud.ios` under the team that signs the Mac app.
+2. In [App Store Connect](https://appstoreconnect.apple.com/apps), add a new iOS app with that bundle
+   ID. Its name has to be unique on the App Store even though it will never be listed there, so it
+   may need to be something like *Uncloud Home*; TestFlight shows that name, and the home screen
+   shows *Uncloud* either way.
+3. Under **Users and Access → Integrations → App Store Connect API**, make a team key with the
+   **Admin** role, which automatic signing needs to make the distribution certificate and profile
+   by itself. The key the Mac app notarizes with will do if it already has that role.
+4. In this repository's **Settings → Secrets and variables → Actions**, add the secrets
+   `APP_STORE_CONNECT_KEY` (the whole `.p8` file), `APP_STORE_CONNECT_KEY_ID` and
+   `APP_STORE_CONNECT_ISSUER_ID`, and the variables `APPLE_TEAM_ID` and `IOS_TESTFLIGHT` set to
+   `true`.
+5. Run **CI** by hand from the Actions tab to upload the first build, then add the household as
+   internal testers in App Store Connect under **TestFlight**. After that every push to `main`
+   uploads a build, numbered by the run.
 
 ## Server changes worth making
 
@@ -334,10 +383,12 @@ which uploads will use too.
 
 ## Milestones
 
-1. **Viewing.** Typed address, sign-in, browsing, Quick Look, sharing, sign-out, on iPhone and iPad.
-   `UncloudKit` tests. On TestFlight for the household, uploaded by CI from `main`.
-2. **Finish.** Finding the host over Bonjour, room left, managing the cache, asking before large
-   downloads, the contract test in CI, `version` in `/api/health`.
+1. **Viewing** (built). Typed address, sign-in, browsing, Quick Look, sharing, sign-out, on iPhone
+   and iPad. `UncloudKit` tests, and the server's `NativeClientTests`. On TestFlight for the
+   household, uploaded by CI from `main`, once it is [turned on](#turning-on-testflight).
+2. **Finish.** Finding the host over Bonjour, room left, the cache's size limit and its line on the
+   account screen, asking before large downloads and resuming dropped ones, the contract test in
+   CI, `version` in `/api/health`.
 3. **Thumbnails.** The server endpoint, and a grid for folders that are mostly photos.
 4. **Uploading.** From Photos, from Files, and from the share sheet in other apps.
 5. **Backing up and the Files app.** The camera roll, and the File Provider extension with the

@@ -59,6 +59,45 @@ jobs:
       # it here means a pin that no longer matches fails a pull request, not somebody's install.
       - run: ./scripts/fetch-syncthing.sh "$RUNNER_TEMP/syncthing" && "$RUNNER_TEMP/syncthing/syncthing" --version
 
+  # The iPhone and iPad app. Its library's tests run on an iPhone and an iPad simulator, and the app
+  # is built for both and for a real device, unsigned: signing is only for what goes to TestFlight.
+  ios:
+    name: iOS app
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Whichever iPhone and iPad this Xcode has the newest iOS for, rather than names that change
+      # with every Xcode.
+      - name: Find simulators
+        id: simulators
+        run: |
+          xcrun simctl list devices available --json | python3 -c '
+          import json, re, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          def version(runtime):
+              found = re.search(r"iOS-(\d+)-(\d+)", runtime)
+              return tuple(map(int, found.groups())) if found else None
+          ios = sorted((r for r in runtimes if version(r)), key=version, reverse=True)
+          for kind in ("iPhone", "iPad"):
+              device = next(d for r in ios for d in runtimes[r] if d["name"].startswith(kind))
+              print(kind.lower() + "=" + device["udid"])
+              print("Testing on " + device["name"] + " (" + device["udid"] + ")", file=sys.stderr)
+          ' >> "$GITHUB_OUTPUT"
+
+      - name: Test on iPhone and iPad
+        run: |
+          xcodebuild test -project src/Uncloud.iOS/Uncloud.xcodeproj -scheme Uncloud \
+            -destination "id=${{ steps.simulators.outputs.iphone }}" \
+            -destination "id=${{ steps.simulators.outputs.ipad }}" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build for a device
+        run: |
+          xcodebuild build -quiet -project src/Uncloud.iOS/Uncloud.xcodeproj -scheme Uncloud \
+            -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO
+
   # The Mac app: the menu-bar app with the server, Syncthing and the tunnel inside it, for Apple
   # Silicon and Intel. Built on a Mac because only a Mac can make the icon and sign it.
   app:
@@ -206,3 +245,56 @@ jobs:
             while read -r old; do gh release delete-asset mac-latest "$old" --yes; done
           gh api -X PATCH "repos/$GH_REPO/git/refs/tags/mac-latest" -f sha="$GITHUB_SHA" -F force=true
           gh release edit mac-latest --notes "$notes"
+
+  # Every build of main, to TestFlight for the household, and runs started by hand, which is how a
+  # change to signing gets tried on a branch. Off until the app exists in App Store Connect and the
+  # repository says so with the IOS_TESTFLIGHT variable (see docs/ios.md), so that nothing fails
+  # for want of an app nobody has made yet. Never from a pull request.
+  testflight:
+    name: TestFlight
+    if: >-
+      vars.IOS_TESTFLIGHT == 'true' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
+    needs: [ios]
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # Signed automatically with an App Store Connect API key, which lets Xcode make the
+      # distribution certificate and profile it needs, so there is no certificate to export and
+      # keep. The build number is this run's, so each upload is newer than the last.
+      - name: Archive and upload
+        env:
+          KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          for value in KEY KEY_ID ISSUER_ID TEAM_ID; do
+            if [[ -z "${!value}" ]]; then
+              echo "::error::TestFlight needs the APP_STORE_CONNECT_KEY, APP_STORE_CONNECT_KEY_ID and APP_STORE_CONNECT_ISSUER_ID secrets and the APPLE_TEAM_ID variable. See docs/ios.md."
+              exit 1
+            fi
+          done
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/AuthKey.p8"
+          auth=(-allowProvisioningUpdates -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8"
+            -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID")
+          xcodebuild archive -quiet -project src/Uncloud.iOS/Uncloud.xcodeproj -scheme Uncloud \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Uncloud.xcarchive" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" "${auth[@]}"
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Uncloud.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" "${auth[@]}"
+          rm "$RUNNER_TEMP/AuthKey.p8"

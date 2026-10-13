@@ -22,3 +22,10 @@ else
   echo "No Go on PATH; skipping the bundled tunnel." >&2
 fi
 ./scripts/dotnet.sh test Homebase.slnx --verbosity minimal
+# The iPhone app's library, when there is a Swift 6 to test it with: Xcode's on a Mac, or a toolchain
+# from swift.org on Linux. The app itself needs Xcode, and CI's iOS job builds it.
+if swift --version 2>/dev/null | grep -E 'Swift version ([6-9]|[1-9][0-9])\.' >/dev/null; then
+  swift test --package-path src/Uncloud.iOS/UncloudKit
+else
+  echo "No Swift 6 on PATH; skipping the iPhone app's library." >&2
+fi

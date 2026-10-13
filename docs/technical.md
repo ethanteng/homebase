@@ -3,7 +3,7 @@
 Everything about how Uncloud works, how to run it from source, and how to configure it. For what
 Uncloud is and how to set it up and use it, start with the [README](../README.md).
 [`multi-user.md`](multi-user.md) is the design for accounts and isolation.
-[`ios.md`](ios.md) is the design for the iPhone app, which isn't built yet.
+[`ios.md`](ios.md) is the design for the iPhone and iPad app, and how to build it.
 
 - [What's built](#whats-built)
 - [Running from source](#running-from-source)
