@@ -173,6 +173,14 @@ public sealed class App : Application
                 // changes them, in Settings.
                 menu.Add(Item("Reach From Anywhere…", () => Open(new Uri(DesktopController.HostAddress, "/?settings").ToString())));
                 menu.Add(Item("Use Another Folder…", () => ShowSetup(null, SetupStart.UseAnotherFolder)));
+                // Ticked while it does; either way, changing it asks for an administrator's password.
+                var awake = new NativeMenuItem("Keep This Mac Awake")
+                {
+                    ToggleType = NativeMenuItemToggleType.CheckBox,
+                    IsChecked = _controller.KeepsAwake
+                };
+                awake.Click += (_, _) => ShowSetup(null, SetupStart.KeepAwake);
+                menu.Add(awake);
                 if (_controller.NeedsUpdate)
                     menu.Add(Item("Update Uncloud…", () => ShowSetup(null, SetupStart.Update)));
                 menu.Add(new NativeMenuItemSeparator());

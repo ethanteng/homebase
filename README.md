@@ -58,8 +58,10 @@ plugged into it.
 ### What isn't ready yet
 
 - **The app is Mac only for now.**
-- **The host has to stay on and awake.** On a Mac, turn off sleep in System Settings. Uncloud starts
-  again by itself after a restart, before anyone signs in.
+- **The host has to stay on and awake.** On a Mac, Uncloud keeps it from going to sleep while
+  it's the host (**Keep This Mac Awake**, under the **U** in the menu bar), and has a desktop Mac
+  start up again by itself after a power cut. A laptop still sleeps when its lid is closed. Uncloud
+  starts again by itself after a restart, before anyone signs in.
 - **No sharing of files inside Uncloud** between people, and no storage limits per person. (A folder
   on the host can be shared for others to add from.)
 - **No built-in backup.** Uncloud keeps one copy of everything. [Set up a backup](#keeping-your-files-safe).
@@ -101,7 +103,8 @@ this Mac the Uncloud host**. Choose where everyone's files are kept: on this Mac
 macOS asks for an administrator's password, once. That's what keeps everyone's files private on
 the host: Uncloud runs in an account of its own, which nobody signs in to, and everyone's files
 belong to that account (see [Who can see what](#keeping-your-files-safe)). It also means Uncloud
-starts with the Mac, before anyone signs in. Your browser then opens: carry on from
+starts with the Mac, before anyone signs in. Leave **Keep this Mac awake** ticked: a Mac that's
+asleep can't hand anybody their files. Your browser then opens: carry on from
 [step 3](#3-make-your-account). Step 4 is already done.
 
 To run Uncloud from Terminal instead, or on Linux, follow steps 1 and 2. You'll need to be

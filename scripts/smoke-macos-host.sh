@@ -186,6 +186,47 @@ upload "$holiday" "Somewhere warm"
 private "$base/Files" "$holiday"
 echo "Moved into its own account, which nobody signed in here can look into."
 
+# --- Kept awake, and let sleep again ---------------------------------------------------------------
+# A Mac asleep hands nobody their files. Uncloud holds it awake with a service of its own, run as
+# its own account, and has it start up again after a power cut where the Mac can; letting it sleep
+# puts back what the Mac did before.
+awake_plist=/Library/LaunchDaemons/life.uncloud.awake.plist
+can_restart() { pmset -g cap | awk '$1 == "autorestart" { found = 1 } END { exit !found }'; }
+restart_setting() { pmset -g | awk '$1 == "autorestart" { print $2; exit }'; }
+awake_pid() { pgrep -u "$account" -x caffeinate || true; }
+# Whether Uncloud's account is holding this Mac awake, waiting a moment for launchd to start it.
+held_awake() {
+  local pid=""
+  for _ in $(seq 1 20); do
+    pid="$(awake_pid)"
+    if [[ -n "$pid" ]]; then break; fi
+    sleep 0.5
+  done
+  [[ -n "$pid" ]] || return 1
+  pmset -g assertions | grep "pid $pid(caffeinate)" | grep -q PreventUserIdleSystemSleep
+}
+let_go() {
+  for _ in $(seq 1 20); do
+    if [[ -z "$(awake_pid)" ]]; then return 0; fi
+    sleep 0.5
+  done
+  return 1
+}
+restart_before=""
+if can_restart; then restart_before="$(restart_setting)"; fi
+sudo /bin/bash "$script" keep-awake
+held_awake || fail "Nothing holds this Mac awake as $account: $(pmset -g assertions)"
+if can_restart; then
+  [[ "$(restart_setting)" == 1 ]] || fail "This Mac won't start up again by itself after a power cut."
+fi
+sudo /bin/bash "$script" let-sleep
+if [[ -e "$awake_plist" ]] || ! let_go; then fail "Letting this Mac sleep left something holding it awake."; fi
+if can_restart; then
+  [[ "$(restart_setting)" == "$restart_before" ]] ||
+    fail "Letting this Mac sleep didn't put back what it did after a power cut: $(restart_setting), not $restart_before."
+fi
+echo "Held awake as Uncloud's account, and let sleep again as it was."
+
 # --- An update that can't start leaves the one before running -------------------------------------
 sudo ditto "$built" "$broken"
 printf '#!/bin/sh\nexit 1\n' | sudo tee "$broken/Contents/MacOS/Homebase.Server" >/dev/null
@@ -304,8 +345,22 @@ if sudo /bin/bash "$script" install --app "$app" --owner "$USER" --root /Users/S
 fi
 [[ "$(stat -f %Su /Users/Shared/uncloud-smoke-unused)" == "$USER" && ! -e /Users/Shared/uncloud-smoke-unused/Uncloud ]] ||
   fail "Refusing a new folder on turning Uncloud on again changed it."
-sudo /bin/bash "$script" install --app "$app" --owner "$USER"
+sudo /bin/bash "$script" install --app "$app" --owner "$USER" --awake on
 answering
 [[ "$(api GET /api/session | json user username)" == ada ]] || fail "Turning it on again lost Ada."
 [[ "$(api GET /api/host | json rootPath)" == "$target" ]] || fail "Turning it on again lost where the files are."
-echo "Turned off, everything stayed locked; turned on again, everything was where it was."
+held_awake || fail "Turned on again and asked to, nothing holds this Mac awake: $(pmset -g assertions)"
+echo "Turned off, everything stayed locked; turned on again, everything was where it was, and it stays awake."
+
+# --- Updated, still awake; turned off, asleep -------------------------------------------------------
+# An update says nothing about staying awake, and changes nothing about it.
+sudo /bin/bash "$script" install --app "$app" --owner "$USER"
+answering
+held_awake || fail "Updating Uncloud let this Mac sleep."
+sudo /bin/bash "$script" uninstall
+if [[ -e "$awake_plist" ]] || ! let_go; then fail "Turning Uncloud off left something holding this Mac awake."; fi
+if can_restart; then
+  [[ "$(restart_setting)" == "$restart_before" ]] ||
+    fail "Turning Uncloud off didn't put back what this Mac did after a power cut."
+fi
+echo "An update kept this Mac awake, and turning Uncloud off let it sleep as it was."

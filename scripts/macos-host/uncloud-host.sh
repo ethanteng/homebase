@@ -7,17 +7,24 @@
 # in Contents/Resources, and is safe to run again: every step checks what is already there.
 #
 #   uncloud-host.sh install --app /Applications/Uncloud.app --owner <user>
-#                           [--root <folder>] [--legacy-config <folder>]
+#                           [--root <folder>] [--legacy-config <folder>] [--awake on|off]
 #       Makes the hidden _uncloud account, the folders it keeps everything in, and the background
 #       service that runs Uncloud from startup. --root is where everyone's files go (a folder on
 #       this Mac by default). --legacy-config is the settings folder of an Uncloud that ran as
-#       <user> until now: it is moved in, with its files, and nothing is lost.
+#       <user> until now: it is moved in, with its files, and nothing is lost. --awake does what
+#       keep-awake or let-sleep does as well; without it, whichever this Mac does now carries on.
+#   uncloud-host.sh keep-awake
+#       Keeps this Mac from going to sleep while Uncloud is set up on it, and has it start up again
+#       by itself after a power cut, where it can.
+#   uncloud-host.sh let-sleep
+#       Lets it sleep as it was set to again, and puts back what it did after a power cut.
 #   uncloud-host.sh prepare --folder <folder>
 #       Opens a folder or drive to Uncloud's account, so it can be chosen in Settings. Prints the
 #       folder to choose, which is <folder>/Uncloud unless <folder> is empty or already Uncloud's.
 #   uncloud-host.sh uninstall
-#       Stops the service and takes it out. Everybody's files and the accounts stay where they
-#       are, still locked to Uncloud's account; installing again picks them up.
+#       Stops the service and takes it out, and lets the Mac sleep again. Everybody's files and the
+#       accounts stay where they are, still locked to Uncloud's account; installing again picks
+#       them up.
 # What it says reaches people in the Uncloud app, written the way Uncloud writes everywhere else:
 # “quoted” names and apostrophes are typography here, not shell quoting.
 # shellcheck disable=SC1111
@@ -42,6 +49,11 @@ record="$base/account"
 plist="/Library/LaunchDaemons/$label.plist"
 rotation=/etc/newsyslog.d/life.uncloud.host.conf
 port=5210
+awake_label=life.uncloud.awake
+awake_plist="/Library/LaunchDaemons/$awake_label.plist"
+# Whether this Mac started up by itself after a power cut before Uncloud asked it to, for putting
+# back when it stops asking.
+restart_was="$base/autorestart-before"
 
 fail() {
   printf '%s\n' "$*" >&2
@@ -52,7 +64,7 @@ fail() {
 
 verb="${1:-}"
 if (($#)); then shift; fi
-app="" owner="" root="" legacy="" folder="" had_service=false
+app="" owner="" root="" legacy="" folder="" awake="" had_service=false
 while (($#)); do
   case "$1" in
     --app) app="${2:?}"; shift 2 ;;
@@ -60,9 +72,11 @@ while (($#)); do
     --root) root="${2:?}"; shift 2 ;;
     --legacy-config) legacy="${2:?}"; shift 2 ;;
     --folder) folder="${2:?}"; shift 2 ;;
+    --awake) awake="${2:?}"; shift 2 ;;
     *) fail "Unknown option: $1" ;;
   esac
 done
+[[ -z "$awake" || "$awake" == on || "$awake" == off ]] || fail "--awake is on or off, not “$awake”."
 
 # One value from the property list on standard input, or nothing at all. Only an answer plutil
 # says it found is taken: on older macOS — Monterey, at least — it writes its complaint about a
@@ -662,6 +676,90 @@ start_service() {
   fail "Uncloud didn’t start. What went wrong is in $logs, which only an administrator can open: sudo tail \"$logs/server.log\"."
 }
 
+# --- Staying awake ---------------------------------------------------------------------------------
+
+# A Mac asleep hands nobody their files, and out of the box a Mac sleeps after a few minutes with
+# nobody at it. Its own settings are left as its owner chose them, rather than changed for good:
+# instead a second service holds it awake the way an app playing a film does, for as long as it
+# runs — macOS's own caffeinate, as Uncloud's account. -i keeps it from sleeping with nobody at it;
+# -s, while it is plugged in, from sleeping at all. Taking the service away lets it sleep as it was
+# set to. Kept apart from Uncloud's own service, so that Uncloud starting again after a crash, which
+# takes it a moment, isn't a moment for the Mac to fall asleep in.
+write_awake() {
+  cat >"$awake_plist.new" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$awake_label</string>
+  <key>AssociatedBundleIdentifiers</key><array><string>life.uncloud.app</string></array>
+  <key>ProgramArguments</key><array><string>/usr/bin/caffeinate</string><string>-i</string><string>-s</string></array>
+  <key>UserName</key><string>$account</string>
+  <key>GroupName</key><string>$account</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>/dev/null</string>
+  <key>StandardErrorPath</key><string>/dev/null</string>
+</dict>
+</plist>
+PLIST
+  plutil -lint "$awake_plist.new" >/dev/null || fail "Uncloud wrote a service description macOS can’t read."
+  chown root:wheel "$awake_plist.new"
+  chmod 644 "$awake_plist.new"
+  mv "$awake_plist.new" "$awake_plist"
+}
+
+# Whether this Mac can start up by itself when the power comes back. A laptop can't — it has a
+# battery instead — and doesn't list it.
+can_restart() {
+  pmset -g cap 2>/dev/null | awk '$1 == "autorestart" { found = 1 } END { exit !found }'
+}
+
+restart_setting() {
+  pmset -g 2>/dev/null | awk '$1 == "autorestart" { print $2; exit }'
+}
+
+keep_awake() {
+  local was
+  launchctl bootout "system/$awake_label" 2>/dev/null || true
+  write_awake
+  launchctl enable "system/$awake_label"
+  if ! launchctl bootstrap system "$awake_plist"; then
+    rm -f "$awake_plist"
+    fail "macOS wouldn’t start what keeps this Mac awake, so it may still go to sleep."
+  fi
+  if can_restart; then
+    # What it did before is kept once, the first time, so asking again doesn't lose it.
+    [[ ! -L "$restart_was" ]] || fail "$restart_was is a link, which Uncloud won't follow. Remove it and try again."
+    if [[ ! -f "$restart_was" ]]; then
+      was="$(restart_setting)"
+      printf '%s\n' "${was:-0}" >"$restart_was"
+      chown root:wheel "$restart_was"
+      chmod 644 "$restart_was"
+    fi
+    pmset -a autorestart 1
+  fi
+}
+
+let_sleep() {
+  local was
+  launchctl bootout "system/$awake_label" 2>/dev/null || true
+  rm -f "$awake_plist"
+  if [[ -f "$restart_was" && ! -L "$restart_was" ]]; then
+    was="$(head -n 1 "$restart_was")"
+    if [[ "$was" =~ ^[01]$ ]] && can_restart; then pmset -a autorestart "$was"; fi
+    rm -f "$restart_was"
+  fi
+}
+
+# Uncloud's account has to be there, and be Uncloud's, before anything runs as it.
+set_up_already() {
+  choose_account
+  { dscl . -read "/Users/$account" UniqueID >/dev/null 2>&1 && looks_like_ours "$account"; } ||
+    fail "Set Uncloud up on this Mac first."
+}
+
 install() {
   local server start_root
   [[ -n "$app" && -n "$owner" ]] || fail "Say which app and whose Mac: --app and --owner."
@@ -711,14 +809,22 @@ install() {
   start_service
   rm -rf "$payload.old"
   finished=true
+
+  # Uncloud is running whatever happens here, so nothing is undone over it: a Mac left sleeping, or
+  # left awake, is said, and the menu offers the change again. Run as a script of its own, which
+  # stops at the first thing that fails — a step in an || list would carry on past it. One already
+  # kept awake is set up again, so an update brings what keeps it awake up to date.
+  if [[ "$awake" == off ]]; then
+    /bin/bash "$0" let-sleep || echo "Uncloud is running, but this Mac may still be kept awake." >&2
+  elif [[ "$awake" == on || -f "$awake_plist" ]]; then
+    /bin/bash "$0" keep-awake || echo "Uncloud is running, but this Mac may still go to sleep." >&2
+  fi
 }
 
 prepare() {
   local target
   [[ -n "$folder" ]] || fail "Say which folder: --folder."
-  choose_account
-  { dscl . -read "/Users/$account" UniqueID >/dev/null 2>&1 && looks_like_ours "$account"; } ||
-    fail "Set Uncloud up on this Mac first."
+  set_up_already
   target="$(target_in "$folder")"
   if [[ ! -e "$target" ]]; then mkdir "$target"; fi
   protect "$target"
@@ -728,11 +834,14 @@ prepare() {
 uninstall() {
   stop_service
   rm -f "$plist" "$rotation"
+  let_sleep
 }
 
 case "$verb" in
   install) install ;;
   prepare) prepare ;;
+  keep-awake) set_up_already; keep_awake ;;
+  let-sleep) let_sleep ;;
   uninstall) uninstall ;;
-  *) fail "Say what to do: install, prepare or uninstall." ;;
+  *) fail "Say what to do: install, prepare, keep-awake, let-sleep or uninstall." ;;
 esac

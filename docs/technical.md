@@ -246,9 +246,23 @@ The app sets this up once, through macOS's password prompt, with
   volume* (`diskutil enableOwnership`), which external drives usually arrive with, and which would
   otherwise leave everything on them open. A drive used from another Mac may then show that Mac's
   files on it as belonging to someone else.
-- **`uninstall`** stops and removes the service and leaves everything else as it is, still locked.
-  Running `install` again picks it all up. To remove Uncloud from the Mac completely, after
-  `uninstall`:
+- **`keep-awake`** keeps the Mac from going to sleep, which would take everybody's files away until
+  somebody woke it. It doesn't change the Mac's own sleep settings. Instead it adds a second
+  service, `/Library/LaunchDaemons/life.uncloud.awake.plist`, which runs `/usr/bin/caffeinate -i -s`
+  as `_uncloud`. That holds the same power assertion an app playing a film does: `-i` against idle
+  sleep, and `-s` against sleep at all while the Mac is plugged in. It is kept apart from Uncloud's
+  own service, so the Mac isn't given a moment to fall asleep while Uncloud restarts after a crash.
+  The screen still sleeps as usual, and a laptop still sleeps when its lid is closed. On a Mac that
+  lists `autorestart` in `pmset -g cap` (desktops, not laptops), it also sets `pmset -a autorestart 1`,
+  so the Mac starts up again by itself after a power cut. The setting it replaced is kept in
+  `/Library/Application Support/Uncloud/autorestart-before`. The app offers this, ticked, when it
+  sets a host up, on its next update for a host set up before, and from **Keep This Mac Awake** in
+  the menu. `install --awake on` (or `off`) does it as part of installing. Without `--awake`, a
+  host already kept awake has its service rewritten, and one that isn't is left alone.
+- **`let-sleep`** removes that service and puts `autorestart` back as it was.
+- **`uninstall`** stops and removes the service, lets the Mac sleep again as `let-sleep` does, and
+  leaves everything else as it is, still locked. Running `install` again picks it all up. To remove
+  Uncloud from the Mac completely, after `uninstall`:
 
   ```sh
   account="$(cat "/Library/Application Support/Uncloud/account")"

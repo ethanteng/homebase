@@ -29,6 +29,12 @@ public sealed record DesktopSettings
     /// </summary>
     public bool AskedToKeepPrivate { get; init; }
 
+    /// <summary>
+    /// On a host in an account of its own: whether somebody here has said whether to keep this Mac
+    /// awake, either way. Until then it is offered, ticked, wherever a password is asked anyway.
+    /// </summary>
+    public bool AskedToKeepAwake { get; init; }
+
     public bool IsPaired => Mode is DesktopMode.Computer && HostDeviceId is { Length: > 0 };
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)

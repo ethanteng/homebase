@@ -68,6 +68,15 @@ public sealed class DesktopController(
     /// <summary>Whether Uncloud's own account already keeps everybody's files here, from before it was turned off.</summary>
     public bool HasKeptHost => _install.HasKeptHost;
 
+    /// <summary>Whether Uncloud keeps this host awake, and starts it again after a power cut where it can.</summary>
+    public bool KeepsAwake => RunsInOwnAccount && _install.KeepsAwake;
+
+    /// <summary>
+    /// Whether to offer keeping this Mac awake where a password is asked anyway — on updating, say —
+    /// because it doesn't yet and nobody here has said not to.
+    /// </summary>
+    public bool OffersToKeepAwake => _install.Packaged && !_install.KeepsAwake && !Settings.AskedToKeepAwake;
+
     /// <summary>Picks up where the app left off: Uncloud on the host, Syncthing on a computer.</summary>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -93,13 +102,15 @@ public sealed class DesktopController(
     /// everyone's files in <paramref name="root"/>, or in a folder on this Mac when that is null.
     /// </summary>
     /// <param name="inTerminal">Whether to ask for the password in Terminal rather than in macOS's prompt.</param>
-    public async Task BecomeHostAsync(string? root, CancellationToken cancellationToken, bool inTerminal = false)
+    /// <param name="awake">Whether to keep this Mac awake as well; null leaves it as it is.</param>
+    public async Task BecomeHostAsync(string? root, CancellationToken cancellationToken, bool inTerminal = false,
+        bool? awake = null)
     {
         if (Settings.IsPaired)
             throw new InvalidOperationException("This computer already syncs with an Uncloud. Disconnect it first.");
         if (_install.Packaged)
         {
-            await KeepPrivateAsync(root, cancellationToken, inTerminal);
+            await KeepPrivateAsync(root, cancellationToken, inTerminal, awake);
             Save(Settings with { Mode = DesktopMode.Host });
             return;
         }
@@ -123,10 +134,13 @@ public sealed class DesktopController(
 
     /// <summary>
     /// Moves Uncloud into an account of its own, as a background service, taking along everything a
-    /// host that ran as this person already had. Asks for an administrator's password. Until it
-    /// succeeds nothing changes, and a host that was running carries on as it was.
+    /// host that ran as this person already had — or, for one already there, brings it up to date.
+    /// Asks for an administrator's password. Until it succeeds nothing changes, and a host that was
+    /// running carries on as it was.
     /// </summary>
-    public async Task KeepPrivateAsync(string? root, CancellationToken cancellationToken, bool inTerminal = false)
+    /// <param name="awake">Whether to keep this Mac awake as well; null leaves it as it is.</param>
+    public async Task KeepPrivateAsync(string? root, CancellationToken cancellationToken, bool inTerminal = false,
+        bool? awake = null)
     {
         if (_install.CannotInstall is { } why) throw new InvalidOperationException(why);
         var legacy = _hostConfig;
@@ -142,7 +156,7 @@ public sealed class DesktopController(
         try
         {
             await _install.InstallAsync(root, File.Exists(Path.Combine(legacy, "homebase.db")) ? legacy : null,
-                cancellationToken, inTerminal);
+                cancellationToken, inTerminal, awake);
         }
         catch (Exception failure)
         {
@@ -159,7 +173,21 @@ public sealed class DesktopController(
                 }
             throw;
         }
+        if (awake is not null) Save(Settings with { AskedToKeepAwake = true });
         await StartBridgeAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Keeps this Mac from going to sleep while it is the host, and has it start again by itself
+    /// after a power cut where it can — or lets it sleep as it was set to again. Asks for an
+    /// administrator's password.
+    /// </summary>
+    public async Task KeepAwakeAsync(bool awake, CancellationToken cancellationToken, bool inTerminal = false)
+    {
+        if (!RunsInOwnAccount)
+            throw new InvalidOperationException("Uncloud keeps this Mac awake once it runs in an account of its own.");
+        await _install.KeepAwakeAsync(awake, cancellationToken, inTerminal);
+        Save(Settings with { AskedToKeepAwake = true });
     }
 
     /// <summary>
