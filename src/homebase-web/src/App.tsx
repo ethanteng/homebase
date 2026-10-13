@@ -556,9 +556,13 @@ export default function App() {
               compact
               onSaved={() => setRevision((value) => value + 1)}
             />
-            {/* The storage meter shows the allotment, so it is read again once one is saved. */}
+            {/* The storage meter shows the allotment, so it is read again once one is saved. A
+                new host folder can be a different drive, so the card starts again for it. */}
             {hasFolder && (
-              <HostStorage onSaved={() => setRevision((value) => value + 1)} />
+              <HostStorage
+                key={library!.rootPath!}
+                onSaved={() => setRevision((value) => value + 1)}
+              />
             )}
             <HostDropbox expanded={dropboxFocus} />
           </>

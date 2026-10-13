@@ -1006,7 +1006,7 @@ static object HostStorage(string root, StorageAllotment allotment)
 app.MapGet("/api/host/unclaimed", (HostService host) =>
     Results.Ok(new { entries = UserPaths.Unclaimed(host.RequireRoot()) }));
 
-app.MapPost("/api/host/unclaimed", (CurrentUser user, HostService host, UserWorkspaces workspaces, UsageService usage) =>
+app.MapPost("/api/host/unclaimed", (CurrentUser user, HostService host, UserWorkspaces workspaces, UsageService usage, StorageAllotment allotment) =>
 {
     var root = host.RequireRoot();
     var destination = workspaces.For(user.Account).Root;
@@ -1036,6 +1036,8 @@ app.MapPost("/api/host/unclaimed", (CurrentUser user, HostService host, UserWork
         }
     }
     usage.Invalidate(destination);
+    // Moved, not written: the drive's free space didn't change, so the allotment has to look again.
+    allotment.Invalidate();
     return Results.Ok(new { moved, skipped });
 });
 

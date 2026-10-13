@@ -605,7 +605,9 @@ starts — and the space everybody is shown then see the allotment's remaining r
 the drive, so they stop at it in the same way and the same words; `/api/storage` adds `capped` when
 it's the allotment, not the drive, that is running out. An allotment below what Uncloud already holds
 deletes nothing and leaves no room until it's back under. What Uncloud holds is measured by walking
-`users/` once, then again in the background every five minutes while anything is asking; in between,
+`users/` once, then again in the background every five minutes while anything is asking, and afresh
+after files left at the top of the host's folder are moved into an account, since a rename doesn't
+change the drive's free space; in between,
 whatever the drive gains or loses is put down to Uncloud, which keeps an upload's room current a
 megabyte at a time without walking anything. Syncthing isn't held to the allotment: what a laptop
 syncs counts towards it, but keeps arriving once it's full.

@@ -101,6 +101,30 @@ describe("how much of the drive Uncloud may use", () => {
     expect(sent).toEqual([{ bytes: Math.round(0.2 * 1024 ** 4) }]);
   });
 
+  it("gives back an amount exactly as it was typed, with nothing left to save", async () => {
+    render(<HostStorage onSaved={vi.fn()} />);
+    const amount = await screen.findByLabelText("Amount");
+
+    fireEvent.focus(amount);
+    fireEvent.change(amount, { target: { value: "1.234" } });
+    await click(screen.getByRole("button", { name: "Save" }));
+
+    expect(sent).toEqual([{ bytes: Math.round(1.234 * GB) }]);
+    await screen.findByText(/^Saved\./);
+    expect(screen.getByLabelText("Amount")).toHaveValue(1.234);
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("doesn't offer to save an amount set elsewhere just because the form rounds it", async () => {
+    storage = { ...storage, allotment: { unit: "Bytes", amount: 200 * GB + 1 }, capped: true, totalBytes: 200 * GB + 1 };
+    render(<HostStorage onSaved={vi.fn()} />);
+
+    expect(await screen.findByLabelText("Amount")).toHaveValue(200);
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "201" } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
   it("shows what was set before, and takes it away again", async () => {
     storage = { ...storage, allotment: { unit: "Bytes", amount: 200 * GB }, capped: true, totalBytes: 200 * GB };
     render(<HostStorage onSaved={vi.fn()} />);

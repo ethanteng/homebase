@@ -138,6 +138,16 @@ public sealed class StorageAllotment(ControlDatabase database, HostService host)
         return Apply(allotment, Used(root, drive.FreeBytes), drive);
     }
 
+    /// <summary>
+    /// Forgets what Uncloud was measured to hold, so the next answer walks again first. For files
+    /// moved in from beside the folders it measures: a rename leaves the drive's free space where
+    /// it was, so nothing between walks would ever count them.
+    /// </summary>
+    public void Invalidate()
+    {
+        lock (_lock) _measured = null;
+    }
+
     /// <summary>How much Uncloud holds under the host's folder, as near as can be said right now.</summary>
     public long Held(string root) => Used(root, Drive(root)?.FreeBytes);
 

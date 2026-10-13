@@ -132,6 +132,22 @@ public sealed class AllotmentTests : IDisposable
     }
 
     [Fact]
+    public void Files_moved_in_without_writing_anything_are_counted_once_it_is_told_to_look_again()
+    {
+        var held = 20 * GB;
+        var (allotment, _) = Create(() => 500 * GB, () => held);
+        allotment.Set(new Allotment(AllotmentUnit.Bytes, 100 * GB));
+        Assert.Equal(80 * GB, allotment.Space(_host)!.FreeBytes);
+
+        // A folder left at the top of the host's folder, renamed into somebody's: same drive, same
+        // free space, so nothing between walks can see it arrive.
+        held = 60 * GB;
+        Assert.Equal(80 * GB, allotment.Space(_host)!.FreeBytes);
+        allotment.Invalidate();
+        Assert.Equal(40 * GB, allotment.Space(_host)!.FreeBytes);
+    }
+
+    [Fact]
     public void Somewhere_outside_the_hosts_folder_is_left_the_drive()
     {
         var (allotment, _) = Create(() => 500 * GB, () => 0);

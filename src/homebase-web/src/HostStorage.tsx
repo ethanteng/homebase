@@ -29,11 +29,14 @@ function wanted(
   return Number.isFinite(size) && size > 0 ? { bytes: Math.round(size * SIZES[unit]) } : null;
 }
 
-/** An amount in whichever unit reads more naturally, to two places — or enough not to read as 0. */
+/**
+ * An amount in whichever unit reads more naturally, with places enough to give back what was typed —
+ * 1.234 GB reads as 1.234, not 1.23 — and never as 0.
+ */
 function inUnits(bytes: number): { amount: string; unit: Unit } {
   const unit: Unit = bytes >= SIZES.TB ? "TB" : "GB";
   const size = bytes / SIZES[unit];
-  return { amount: String(Number(size.toFixed(2)) || Number(size.toPrecision(2))), unit };
+  return { amount: String(Number(size.toFixed(6)) || Number(size.toPrecision(2))), unit };
 }
 
 /**
@@ -80,13 +83,17 @@ export default function HostStorage({ onSaved }: Props) {
 
   const request = wanted(choice, percent, amount, unit);
   const current = storage.allotment;
+  // An amount set some other way may not be one the form can show exactly. Left as shown, it is
+  // still the one that's set, and saving it would only nudge it.
+  const shown = current?.unit === "Bytes" ? inUnits(current.amount) : null;
   const unchanged =
     request !== null &&
     (current === null
       ? request.percent === undefined && request.bytes === undefined
       : current.unit === "Percent"
         ? request.percent === current.amount
-        : request.bytes === current.amount);
+        : request.bytes === current.amount ||
+          (choice === "amount" && unit === shown!.unit && Number(amount) === Number(shown!.amount)));
 
   const held = storage.uncloudBytes;
   // Everything Uncloud could have: what's free, and what it already holds.
