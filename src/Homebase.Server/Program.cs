@@ -170,6 +170,8 @@ catch { StopTunnel(); throw; }
 // holding the port against the next copy of the app, which would then fail to start beside it.
 if (app.Configuration.GetValue("Homebase:StopWhenInputCloses", false))
     _ = ParentWatch.StopWhenClosed(Console.In, app.Lifetime.StopApplication);
+// Whatever runs Uncloud starts it again when it goes, but can't tell when it is stuck. This can.
+Watchdog.Start(app);
 var binding = app.Services.GetRequiredService<HostBinding>();
 // Where Dropbox returns the browser. Read per request rather than once, because a tunnel
 // allowed a minute after startup has an address this host could not have known then — and

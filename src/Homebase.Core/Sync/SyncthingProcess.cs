@@ -7,8 +7,8 @@ namespace Homebase.Core.Sync;
 /// <summary>
 /// One Syncthing, run as a child process with its own home directory and a loopback-only API on
 /// a port of its own: generated on first use, configured so only this process can drive it,
-/// never upgrading itself, and stopped with its parent. The Uncloud server runs one for the
-/// host, and the Uncloud app runs one for the computer it is on.
+/// never upgrading itself, started again if it stops by itself, and stopped with its parent. The
+/// Uncloud server runs one for the host, and the Uncloud app runs one for the computer it is on.
 /// </summary>
 public sealed class SyncthingProcess(string home, string binary, int port, ILogger logger, HttpClient client)
     : ISyncthingEndpoint, IDisposable
@@ -18,6 +18,24 @@ public sealed class SyncthingProcess(string home, string binary, int port, ILogg
     private readonly int _port = port;
     private Process? _process;
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // Held while a Syncthing is started or stopped, so one is never started after stopping began.
+    private readonly Lock _gate = new();
+    private readonly CancellationTokenSource _stopping = new();
+    private bool _stopped;
+    private DateTimeOffset _startedAt;
+    // How many times in a row it has stopped soon after starting.
+    private int _failures;
+
+    /// <summary>
+    /// How long to wait before starting Syncthing again: longer each time it stops again soon
+    /// after starting, so one that can't run isn't started over and over, then every few minutes,
+    /// in case whatever stopped it has gone.
+    /// </summary>
+    internal IReadOnlyList<TimeSpan> RestartAfter { get; init; } =
+        [TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(5)];
+
+    /// <summary>How long one has to have run for its stopping to count as a first time again.</summary>
+    internal TimeSpan SettledAfter { get; init; } = TimeSpan.FromMinutes(5);
 
     /// <summary>Where this Syncthing's identity, pairings and database are kept.</summary>
     public string Home => _home;
@@ -62,33 +80,7 @@ public sealed class SyncthingProcess(string home, string binary, int port, ILogg
 
             ApiKey = Configure();
             BaseAddress = new Uri($"http://127.0.0.1:{_port}");
-            var serve = new ProcessStartInfo(_binary)
-            {
-                ArgumentList = { "serve", "--home", _home, "--no-browser" },
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            };
-            // Uncloud decides which Syncthing it runs. A release build otherwise replaces its own
-            // binary, which would put an unpinned, unchecked version beside the application and
-            // break the signature of a signed build.
-            serve.Environment["STNOUPGRADE"] = "1";
-            _process = Process.Start(serve) ?? throw new IOException("Syncthing did not start.");
-            logger.LogInformation("Starting Syncthing from {Binary}", _binary);
-            // Redirected pipes must be drained. A long-running Syncthing that fills an unread
-            // buffer blocks on its next write and stops syncing while still looking healthy.
-            _process.OutputDataReceived += (_, line) =>
-            {
-                if (line.Data is { Length: > 0 }) logger.LogDebug("syncthing: {Line}", line.Data);
-            };
-            _process.ErrorDataReceived += (_, line) =>
-            {
-                if (line.Data is { Length: > 0 }) logger.LogWarning("syncthing: {Line}", line.Data);
-            };
-            _process.BeginOutputReadLine();
-            _process.BeginErrorReadLine();
-            // Readiness is awaited in the background: a slow Syncthing must not hold up the app.
-            _ = WaitForReadyAsync();
+            Serve();
         }
         catch (Exception error) when (error is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
         {
@@ -98,6 +90,103 @@ public sealed class SyncthingProcess(string home, string binary, int port, ILogg
             logger.LogWarning(error, "Syncthing unavailable");
         }
     }
+
+    /// <summary>Runs Syncthing itself, once it is set up, unless it is being stopped.</summary>
+    private void Serve()
+    {
+        var serve = new ProcessStartInfo(_binary)
+        {
+            ArgumentList = { "serve", "--home", _home, "--no-browser" },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        // Uncloud decides which Syncthing it runs. A release build otherwise replaces its own
+        // binary, which would put an unpinned, unchecked version beside the application and
+        // break the signature of a signed build.
+        serve.Environment["STNOUPGRADE"] = "1";
+        var process = new Process { StartInfo = serve, EnableRaisingEvents = true };
+        // Redirected pipes must be drained. A long-running Syncthing that fills an unread
+        // buffer blocks on its next write and stops syncing while still looking healthy.
+        process.OutputDataReceived += (_, line) =>
+        {
+            if (line.Data is { Length: > 0 }) logger.LogDebug("syncthing: {Line}", line.Data);
+        };
+        process.ErrorDataReceived += (_, line) =>
+        {
+            if (line.Data is { Length: > 0 }) logger.LogWarning("syncthing: {Line}", line.Data);
+        };
+        process.Exited += (_, _) => Stopped(process);
+        lock (_gate)
+        {
+            if (_stopped)
+            {
+                process.Dispose();
+                return;
+            }
+            try { process.Start(); }
+            catch
+            {
+                process.Dispose();
+                throw;
+            }
+            _process?.Dispose();
+            _process = process;
+            _startedAt = DateTimeOffset.UtcNow;
+        }
+        logger.LogInformation("Starting Syncthing from {Binary}", _binary);
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        // Readiness is awaited in the background: a slow Syncthing must not hold up the app.
+        _ = WaitForReadyAsync(process);
+    }
+
+    /// <summary>
+    /// Syncthing went. Unless it was stopped on purpose, nothing syncs until it's back, so it is
+    /// started again — and until then, nothing takes it for running.
+    /// </summary>
+    private void Stopped(Process process)
+    {
+        int failures;
+        lock (_gate)
+        {
+            if (_stopped || !ReferenceEquals(process, _process)) return;
+            _failures = DateTimeOffset.UtcNow - _startedAt >= SettledAfter ? 1 : _failures + 1;
+            failures = _failures;
+        }
+        IsReady = false;
+        int? code = null;
+        try { code = process.ExitCode; }
+        catch (InvalidOperationException) { }
+        Unavailable = failures == 1
+            ? "Syncthing stopped, and Uncloud is starting it again."
+            : "Syncthing keeps stopping. Uncloud keeps starting it again, and what it said is in Uncloud’s log.";
+        logger.LogWarning("Syncthing stopped by itself, with exit code {Code}. Starting it again in {Wait}",
+            code, RestartWait(failures));
+        _ = Task.Run(async () =>
+        {
+            // One that doesn't start never stops either, so nothing else would notice and try
+            // again: that is up to this, for as long as it takes.
+            for (var attempt = failures; ; attempt++)
+            {
+                try { await Task.Delay(RestartWait(attempt), _stopping.Token); }
+                catch (OperationCanceledException) { return; }
+                try
+                {
+                    Serve();
+                    return;
+                }
+                catch (Exception error) when (error is System.ComponentModel.Win32Exception or IOException
+                    or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    Unavailable = $"Uncloud couldn’t start Syncthing again ({_binary}), and keeps trying.";
+                    logger.LogWarning(error, "Syncthing didn’t start again. Trying again in {Wait}", RestartWait(attempt + 1));
+                }
+            }
+        });
+    }
+
+    private TimeSpan RestartWait(int failures) => RestartAfter[Math.Min(failures, RestartAfter.Count) - 1];
 
     /// <summary>Pins the GUI to loopback on our own port and returns the API key Syncthing generated.</summary>
     private string Configure()
@@ -132,17 +221,18 @@ public sealed class SyncthingProcess(string home, string binary, int port, ILogg
         return key;
     }
 
-    private async Task WaitForReadyAsync()
+    private async Task WaitForReadyAsync(Process process)
     {
         for (var attempt = 0; attempt < 60; attempt++)
         {
-            if (_process?.HasExited == true) break;
+            // What it going means is said where that is noticed.
+            if (HasExited(process)) return;
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(BaseAddress!, "/rest/system/ping"));
                 request.Headers.Add("X-API-Key", ApiKey ?? "");
                 using var response = await client.SendAsync(request);
-                if (response.IsSuccessStatusCode)
+                if (response.IsSuccessStatusCode && !HasExited(process))
                 {
                     IsReady = true;
                     Unavailable = null;
@@ -157,6 +247,13 @@ public sealed class SyncthingProcess(string home, string binary, int port, ILogg
         Unavailable = "Syncthing didn’t come up. Check that it is installed and can run.";
     }
 
+    // One that has been replaced since is as good as gone.
+    private static bool HasExited(Process process)
+    {
+        try { return process.HasExited; }
+        catch (InvalidOperationException) { return true; }
+    }
+
     private async Task RunAsync(string[] arguments, CancellationToken cancellationToken)
     {
         var start = new ProcessStartInfo(_binary) { RedirectStandardError = true, UseShellExecute = false };
@@ -169,13 +266,14 @@ public sealed class SyncthingProcess(string home, string binary, int port, ILogg
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        var process = Stop();
         IsReady = false;
-        if (_process is null || _process.HasExited) return;
+        if (process is null || process.HasExited) return;
         try
         {
             // Not .NET's own tree kill, which can hang the Mac app up along with it: see ProcessTree.
-            ProcessTree.Kill(_process);
-            await _process.WaitForExitAsync(cancellationToken);
+            ProcessTree.Kill(process);
+            await process.WaitForExitAsync(cancellationToken);
         }
         catch (Exception error) when (error is InvalidOperationException or SystemException)
         {
@@ -183,5 +281,24 @@ public sealed class SyncthingProcess(string home, string binary, int port, ILogg
         }
     }
 
-    public void Dispose() => _process?.Dispose();
+    /// <summary>Settles that nothing starts Syncthing again from now on, and says which one is running.</summary>
+    private Process? Stop()
+    {
+        Process? process;
+        lock (_gate)
+        {
+            _stopped = true;
+            process = _process;
+        }
+        // Outside the lock: whatever was waiting to start it again finds out here, and must not
+        // find the lock held.
+        _stopping.Cancel();
+        return process;
+    }
+
+    public void Dispose()
+    {
+        Stop();
+        _process?.Dispose();
+    }
 }

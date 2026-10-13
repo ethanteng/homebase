@@ -35,7 +35,19 @@ public static class ProcessTree
         // with nobody left to stop them they would carry on — a Syncthing or a tunnel holding its
         // port — so they're stopped whatever became of it.
         Stop(process);
-        foreach (var id in descendants)
+        Stop(descendants);
+    }
+
+    /// <summary>
+    /// Stops everything <paramref name="root"/> started, and everything they started, and leaves
+    /// <paramref name="root"/> itself running — for a process about to go that can't count on its
+    /// children going with it.
+    /// </summary>
+    public static void KillDescendants(int root) => Stop(Descendants(root));
+
+    private static void Stop(IReadOnlyList<int> processes)
+    {
+        foreach (var id in processes)
         {
             try
             {

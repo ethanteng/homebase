@@ -297,6 +297,20 @@ WantedBy=multi-user.target
 for macOS, with `-r linux-x64`). **Host computer** then only offers folders the `uncloud` user can
 read.
 
+### When it stops, or gets stuck
+
+Whatever runs Uncloud starts it again when it exits: launchd on a Mac host, the Uncloud app on a
+host that still runs it as the person signed in, systemd with `Restart=always`. None of them can
+tell when it is still running but has stopped answering, so Uncloud watches for that itself. Every
+30 seconds, from a thread of its own rather than the thread pool, it asks `/api/health` over the
+socket it listens on, the way a browser would, giving it 10 seconds. Any reply counts. After three
+unanswered in a row it logs why, stops its own Syncthing and tunnel so they don't hold their ports
+against the Uncloud that comes next, and ends at once with `Environment.FailFast`, which whatever
+runs it takes for a crash. Run from a terminal with `scripts/run.sh`, nothing starts it again, so
+run it again. `Homebase__Watchdog__Enabled=false` turns this off, and `Homebase__Watchdog__Interval`
+(`00:00:30` by default) sets how often it asks; it waits a third of that for each answer. It never
+stops a process with a debugger attached.
+
 
 ## Reaching the host
 
@@ -650,7 +664,10 @@ offline catches up when it reconnects. Open **My computers** in the sidebar.
 The sync protocol is [Syncthing](https://syncthing.net)'s, not Uncloud's: device identity,
 discovery, NAT traversal, encryption and conflict handling are all its work. The host runs one
 Syncthing, supervised by Uncloud with its own home directory under the preference directory and its
-own loopback-only API port, started and stopped with the app. Nothing needs installing on the
+own loopback-only API port, started and stopped with the app. If it stops by itself, **My
+computers** says so and Uncloud starts it again after five seconds, waiting longer each time it
+stops again soon after starting, up to five minutes; the Uncloud app does the same for a computer's
+own Syncthing. Nothing needs installing on the
 host: `scripts/fetch-syncthing.sh`, which the run and publish scripts call, downloads a pinned
 Syncthing release (macOS and Linux, Apple Silicon/arm64 and Intel/amd64), refuses it unless its
 SHA-256 matches the one pinned in the script — taken from the release's checksum file after checking

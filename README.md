@@ -393,7 +393,7 @@ Before you rely on Uncloud:
 
 **I can't reach Uncloud.** Check that the host is on and awake. With the app, click the **U** in
 the host's menu bar: it says whether Uncloud is running. Uncloud starts again by itself if it
-stops, and when the Mac restarts. From Terminal, check the window from step 2 is still open, and
+stops or gets stuck, and when the Mac restarts. From Terminal, check the window from step 2 is still open, and
 start it again if the computer restarted.
 
 **macOS didn't ask for my password.** On some Macs, macOS won't show its password prompt to an app
