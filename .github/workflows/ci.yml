@@ -60,7 +60,8 @@ jobs:
       - run: ./scripts/fetch-syncthing.sh "$RUNNER_TEMP/syncthing" && "$RUNNER_TEMP/syncthing/syncthing" --version
 
   # The iPhone and iPad app. Its library's tests run on an iPhone and an iPad simulator, and the app
-  # is built for both and for a real device, unsigned: signing is only for what goes to TestFlight.
+  # is built for the simulator and for a real device, unsigned: signing is only for what goes to
+  # TestFlight.
   ios:
     name: iOS app
     runs-on: macos-latest
@@ -86,17 +87,28 @@ jobs:
               print("Testing on " + device["name"] + " (" + device["udid"] + ")", file=sys.stderr)
           ' >> "$GITHUB_OUTPUT"
 
-      - name: Test on iPhone and iPad
+      # The package's own scheme, which Xcode makes for it: the app's scheme can't name a package's
+      # tests in a way xcodebuild finds. It is "UncloudKit-Package" once a package has more than
+      # one product, so whichever there is.
+      - name: Test the library on iPhone and iPad
+        working-directory: src/Uncloud.iOS/UncloudKit
         run: |
-          xcodebuild test -project src/Uncloud.iOS/Uncloud.xcodeproj -scheme Uncloud \
+          scheme="$(xcodebuild -list -json | python3 -c '
+          import json, sys
+          listed = json.load(sys.stdin)
+          schemes = (listed.get("workspace") or listed.get("project") or {}).get("schemes", [])
+          print("UncloudKit-Package" if "UncloudKit-Package" in schemes else "UncloudKit")
+          ')"
+          xcodebuild test -scheme "$scheme" \
             -destination "id=${{ steps.simulators.outputs.iphone }}" \
-            -destination "id=${{ steps.simulators.outputs.ipad }}" \
-            CODE_SIGNING_ALLOWED=NO
+            -destination "id=${{ steps.simulators.outputs.ipad }}"
 
-      - name: Build for a device
+      - name: Build the app for the simulator and for a device
         run: |
-          xcodebuild build -quiet -project src/Uncloud.iOS/Uncloud.xcodeproj -scheme Uncloud \
-            -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO
+          for destination in 'generic/platform=iOS Simulator' 'generic/platform=iOS'; do
+            xcodebuild build -quiet -project src/Uncloud.iOS/Uncloud.xcodeproj -scheme Uncloud \
+              -destination "$destination" CODE_SIGNING_ALLOWED=NO
+          done
 
   # The Mac app: the menu-bar app with the server, Syncthing and the tunnel inside it, for Apple
   # Silicon and Intel. Built on a Mac because only a Mac can make the icon and sign it.

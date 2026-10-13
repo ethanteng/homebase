@@ -278,7 +278,7 @@ Five things to get right, each with a test:
   integration tests against it, so a change to the API that would break the app fails the pull
   request that makes it, not somebody's phone afterwards.
 - **CI's iOS job** runs `UncloudKit`'s tests on an iPhone and an iPad simulator, whichever this
-  Xcode has the newest iOS for, and builds the app for a device, unsigned.
+  Xcode has the newest iOS for, and builds the app for the simulator and for a device, unsigned.
 - **TestFlight only.** It needs the same Apple Developer membership that signs the Mac app; the
   bundle id is `life.uncloud.ios`, beside the host's `life.uncloud.host`. TestFlight has two kinds of
   tester, and the difference is who has to be reachable:
