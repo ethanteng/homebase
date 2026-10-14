@@ -9,7 +9,9 @@ import { join } from "node:path";
 import { createReseller, findStorageDn, listIn, ResellerError } from "./reseller.mjs";
 import { Recorder, redact, shapeOf } from "./record.mjs";
 import { changeLibrary, compare, fingerprint, makeLibrary } from "./library.mjs";
-import { attempt, isRefusal, secondsUntilRefused } from "./s3.mjs";
+import { attempt, isRefusal, s3Client, secondsUntilRefused } from "./s3.mjs";
+import { createServer } from "node:http";
+import { PutObjectCommand, PutObjectLockConfigurationCommand } from "@aws-sdk/client-s3";
 
 const answer = (body, status = 200) => async () => new Response(JSON.stringify(body), { status });
 
@@ -118,6 +120,36 @@ test("a revoked key is timed to its refusal, not to the first error on the way",
   const never = await secondsUntilRefused(scripted(s3Error("InternalError", 500)).action, { every: 1, timeout: 0.05 });
   assert.equal(never.seconds, null);
   assert.equal(never.trouble, "InternalError (500)");
+});
+
+test("a request S3 insists has a checksum carries Content-MD5, and other requests carry none", async () => {
+  const seen = [];
+  const server = createServer((request, response) => {
+    seen.push({ path: request.url, headers: request.headers });
+    request.resume().on("end", () => response.end());
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const s3 = s3Client({
+      endpoint: `http://127.0.0.1:${server.address().port}`,
+      region: "us-east-1",
+      accessKey: "AKIAEXAMPLE",
+      secretKey: "secret",
+    });
+    await s3.send(new PutObjectLockConfigurationCommand({
+      Bucket: "b",
+      ObjectLockConfiguration: { ObjectLockEnabled: "Enabled", Rule: { DefaultRetention: { Mode: "GOVERNANCE", Days: 1 } } },
+    }));
+    await s3.send(new PutObjectCommand({ Bucket: "b", Key: "k", Body: "probe" }));
+  } finally {
+    server.close();
+  }
+  const [lock, put] = seen;
+  assert.match(lock.path, /^\/b\/?\?object-lock/);
+  assert.match(lock.headers["content-md5"] ?? "", /^[A-Za-z0-9+/]{22}==$/);
+  assert.deepEqual(Object.keys(lock.headers).filter((name) => name.startsWith("x-amz-checksum")), []);
+  assert.equal(put.headers["content-md5"], undefined);
+  assert.deepEqual(Object.keys(put.headers).filter((name) => name.startsWith("x-amz-checksum")), []);
 });
 
 test("no step starts once a run is told to stop, except what removing the user needs", async () => {

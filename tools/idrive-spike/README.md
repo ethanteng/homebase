@@ -16,7 +16,8 @@ become the service's client later.
 4. **Makes a full-access key**, like the one the service would hold, and times how long until it
    works.
 5. **Creates a bucket with versioning on**, plus a second bucket that the host's key shouldn't
-   reach.
+   reach. With `--object-lock`, the bucket also gets object lock: every version is kept for a day
+   in governance mode, which only a key given `bypass_governance_retention` can get past.
 6. **Makes the host's key:** limited to the one bucket, and unable to delete versions or the
    bucket.
 7. **Checks that key can't reach past its bucket:** it can't list or write the other bucket,
@@ -29,7 +30,10 @@ become the service's client later.
     markers behind, and this step checks restic still copes.
 11. **Checks every byte, restores, and compares** with the library, byte for byte.
 12. **Tries to wipe the bucket with the host's key**, deleting every object and every version.
-13. **Rolls the bucket back** with the service's key, then checks and restores again.
+    Then it lists what's left, since a store can answer yes to a delete and keep the version
+    anyway.
+13. **Rolls the bucket back** with the service's key, then checks and restores again. If any
+    object's versions are gone, it says how many and skips the restore.
 14. **Compares usage three ways:** what `/users`, `usage_stats` and `bucket_stats` report, against
     what the bucket really holds, older versions included.
 15. **Optionally, goes over quota** (with `--quota-test`). It stores about 1.3 GB, sets a 1 GB quota
@@ -82,6 +86,7 @@ node spike.mjs regions                  # read-only: checks the token works, lis
 node spike.mjs run                      # the whole lifecycle, removed afterwards
 node spike.mjs run --keep               # leave the user, to look again later
 node spike.mjs run --quota-test         # also go over quota (implies --keep)
+node spike.mjs run --object-lock        # protect versions with object lock too
 node spike.mjs stats <run id>           # hours later: has usage caught up? still writable?
 node spike.mjs cleanup <run id>         # remove a kept run's user and everything it stored
 ```
@@ -102,8 +107,10 @@ day, then `cleanup`.
 ## What the answers decide
 
 - **The host's key can't destroy versions (12), and the bucket can be rolled back (13).** This is
-  the protection against a compromised host or ransomware. If it fails, the design needs object
-  lock, or another way to keep history out of the host's reach.
+  the protection against a compromised host or ransomware. Run it both without and with
+  `--object-lock`: if `disable_delete_version` alone doesn't hold, object lock is the next way to
+  keep history out of the host's reach. Every version then stays billed for the retention
+  period.
 - **Prune works with versioning on (10).** If it doesn't, restic and the protection above can't
   both be used as planned.
 - **Older versions count toward usage (14).** If they do, deleted data keeps costing money until

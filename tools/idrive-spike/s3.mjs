@@ -1,5 +1,6 @@
 // The data side: talking to a household's bucket over S3 with a key the reseller API made.
 
+import { createHash } from "node:crypto";
 import { setTimeout as wait } from "node:timers/promises";
 import {
   DeleteObjectCommand,
@@ -13,7 +14,7 @@ export function endpointFor(storageDn) {
 }
 
 export function s3Client({ endpoint, region, accessKey, secretKey }) {
-  return new S3Client({
+  const client = new S3Client({
     endpoint,
     region,
     forcePathStyle: true,
@@ -24,6 +25,19 @@ export function s3Client({ endpoint, region, accessKey, secretKey }) {
     responseChecksumValidation: "WHEN_REQUIRED",
     maxAttempts: 2,
   });
+  // Where S3 does require one (object lock settings, deleting many objects at once), recent SDKs
+  // send a CRC32 header, while stores built to older S3 want Content-MD5. Send that instead.
+  client.middlewareStack.addRelativeTo((next) => async (args) => {
+    const { request } = args;
+    const headers = request?.headers ?? {};
+    const checksums = Object.keys(headers).filter((name) => /^x-amz-(checksum-|sdk-checksum-algorithm)/i.test(name));
+    if (checksums.length && (typeof request.body === "string" || request.body instanceof Uint8Array)) {
+      for (const name of checksums) delete headers[name];
+      headers["content-md5"] = createHash("md5").update(request.body).digest("base64");
+    }
+    return next(args);
+  }, { relation: "after", toMiddleware: "flexibleChecksumsMiddleware", name: "contentMd5Instead" });
+  return client;
 }
 
 /** What S3 said, short enough for a table cell: `AccessDenied (403)`. */
@@ -138,14 +152,22 @@ export function tally({ versions, markers }) {
   };
 }
 
-/** Deletes every version and marker, so the bucket itself can go. */
-export async function emptyBucket(s3, bucket) {
+/**
+ * Deletes every version and marker, so the bucket itself can go. A bucket under object lock needs
+ * `bypass`, and a key allowed to use it.
+ */
+export async function emptyBucket(s3, bucket, { bypass = false } = {}) {
   for (let pass = 0; pass < 5; pass++) {
     const { versions, markers } = await allVersions(s3, bucket);
     const everything = [...versions, ...markers];
     if (everything.length === 0) return;
     for (const item of everything) {
-      await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: item.Key, VersionId: item.VersionId }));
+      await s3.send(new DeleteObjectCommand({
+        Bucket: bucket,
+        Key: item.Key,
+        VersionId: item.VersionId,
+        ...(bypass ? { BypassGovernanceRetention: true } : {}),
+      }));
     }
   }
   throw new Error(`${bucket} still isn't empty after five passes.`);
