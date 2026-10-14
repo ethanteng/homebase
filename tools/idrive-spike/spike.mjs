@@ -19,11 +19,13 @@ import {
   DeleteBucketCommand,
   DeleteObjectCommand,
   GetBucketVersioningCommand,
+  GetObjectLockConfigurationCommand,
   HeadObjectCommand,
   ListBucketsCommand,
   ListObjectsV2Command,
   PutBucketVersioningCommand,
   PutObjectCommand,
+  PutObjectLockConfigurationCommand,
 } from "@aws-sdk/client-s3";
 import { createReseller, findStorageDn, listIn } from "./reseller.mjs";
 import {
@@ -42,6 +44,9 @@ import { createRestic, resticVersion, tail } from "./restic.mjs";
 import { Recorder, shapeOf } from "./record.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// How long object lock keeps a version, with --object-lock. Short, since every version stays billed
+// that long, and governance mode, so the cleanup can still get past it.
+const RETENTION_DAYS = 1;
 const RUNS = join(HERE, "runs");
 
 try {
@@ -57,6 +62,7 @@ const HELP = `Usage: node spike.mjs <command>
     --size-mb <n>         How big a library to back up (default 200).
     --keep                Leave the test user in place afterwards, to look again later.
     --quota-test          Also push the user over its quota (adds ~1.1 GB; implies --keep).
+    --object-lock         Protect versions with object lock (governance mode, one day) as well.
   stats <run id>        Look at a kept run's usage again, and whether it still takes writes.
   cleanup <run id>      Remove a run's test user and everything it stored.
 
@@ -74,6 +80,7 @@ async function main() {
       keep: { type: "boolean", default: false },
       "size-mb": { type: "string", default: "200" },
       "quota-test": { type: "boolean", default: false },
+      "object-lock": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -86,6 +93,7 @@ async function main() {
       return run({
         sizeMb: Number(values["size-mb"]),
         quotaTest: values["quota-test"],
+        objectLock: values["object-lock"],
         keep: values.keep || values["quota-test"],
       });
     case "stats":
@@ -120,7 +128,7 @@ async function listRegions() {
   console.table(regions.map((r) => ({ key: r.region_key, name: r.region_name, country: r.country, active: r.active })));
 }
 
-async function run({ sizeMb, quotaTest, keep }) {
+async function run({ sizeMb, quotaTest, objectLock, keep }) {
   const config = settings();
   if (!config.email?.includes("{id}")) {
     throw new Error('Set SPIKE_EMAIL to an address with {id} in it, like "spike-{id}@example.com", so every run makes a user nobody has used.');
@@ -137,6 +145,7 @@ async function run({ sizeMb, quotaTest, keep }) {
     email: config.email.replaceAll("{id}", id),
     buckets: { main: `uncloud-spike-${id}`, other: `uncloud-spike-${id}-other` },
     s3Region: config.s3Region,
+    objectLock,
     started: new Date().toISOString(),
   };
   const save = () => writeFileSync(join(dir, "state.json"), JSON.stringify(state, null, 2));
@@ -146,6 +155,9 @@ async function run({ sizeMb, quotaTest, keep }) {
   record.fact("Started", state.started);
   record.fact("Test user", state.email);
   record.fact("restic", version.split("\n")[0]);
+  record.fact("Protecting versions", objectLock
+    ? `object lock, governance mode, ${RETENTION_DAYS} day, and a host key without bypass_governance_retention or version deletion`
+    : "a host key without version deletion (disable_delete_version)");
   const reseller = createReseller({ token: config.token, onCall: (call) => record.call(call) });
   const data = join(dir, "data");
   const library = join(data, "library");
@@ -219,7 +231,10 @@ async function run({ sizeMb, quotaTest, keep }) {
     });
 
     await record.step("Make a full-access key, as the service would hold", async () => {
-      admin = await newKey(reseller, state, "spike-admin", { permissions: 2 });
+      admin = await newKey(reseller, state, "spike-admin", {
+        permissions: 2,
+        ...(objectLock ? { bypass_governance_retention: true } : {}),
+      });
       const seconds = await secondsUntilWorks(() => admin.s3.send(new ListBucketsCommand({})), {
         signal,
         onError: (error) => adoptRegion(error, state, admin, record),
@@ -229,13 +244,13 @@ async function run({ sizeMb, quotaTest, keep }) {
     });
 
     await record.step("Create the bucket with versioning on, and a second one", async () => {
-      for (const bucket of [main, other]) await admin.s3.send(new CreateBucketCommand({ Bucket: bucket }));
+      const locked = await makeMainBucket(admin, state);
+      await admin.s3.send(new CreateBucketCommand({ Bucket: other }));
       state.bucketsCreated = true;
       save();
-      await turnOnVersioning(admin, main);
       const { Status } = await admin.s3.send(new GetBucketVersioningCommand({ Bucket: main }));
       if (Status !== "Enabled") return { outcome: "fail", detail: `Versioning reads back as ${Status ?? "nothing"}.` };
-      return `${main}, versioning on. ${other} is there for the host's key not to reach.`;
+      return `${main}, versioning on${locked ? `, ${locked}` : ""}. ${other} is there for the host's key not to reach.`;
     });
 
     await record.step("Make the host's key: one bucket, no deleting versions or the bucket", async () => {
@@ -244,6 +259,7 @@ async function run({ sizeMb, quotaTest, keep }) {
         buckets: [main],
         disable_delete_bucket: true,
         disable_delete_version: true,
+        bypass_governance_retention: false,
       });
       const seconds = await secondsUntilWorks(
         () => host.s3.send(new ListObjectsV2Command({ Bucket: main, MaxKeys: 1 })), { signal });
@@ -278,8 +294,7 @@ async function run({ sizeMb, quotaTest, keep }) {
       // Undo whatever a probe managed, so the rest of the run starts where it should.
       if (allowed.includes("create a bucket")) await admin.s3.send(new DeleteBucketCommand({ Bucket: `${main}-x` }));
       if (allowed.includes("delete its own bucket")) {
-        await admin.s3.send(new CreateBucketCommand({ Bucket: main }));
-        await turnOnVersioning(admin, main);
+        await makeMainBucket(admin, state);
       }
       try {
         const { Buckets = [] } = await host.s3.send(new ListBucketsCommand({}));
@@ -334,7 +349,7 @@ async function run({ sizeMb, quotaTest, keep }) {
       const before = await allVersions(admin.s3, main);
       const current = before.versions.filter((v) => v.IsLatest);
       let hidden = 0;
-      let destroyed = 0;
+      let accepted = 0;
       let refused = 0;
       // Attempts that got neither a yes nor a no, which prove nothing about the key.
       const unclear = [];
@@ -345,10 +360,13 @@ async function run({ sizeMb, quotaTest, keep }) {
       }
       for (const v of before.versions) {
         const result = await attempt(() => host.s3.send(new DeleteObjectCommand({ Bucket: main, Key: v.Key, VersionId: v.VersionId })));
-        if (result.allowed) destroyed++;
+        if (result.allowed) accepted++;
         else if (result.refused) refused++;
         else unclear.push(result.error);
       }
+      // A store can answer yes and keep the version anyway, so what counts is what's left.
+      const left = new Set((await allVersions(admin.s3, main)).versions.map((v) => `${v.Key}\n${v.VersionId}`));
+      const destroyed = before.versions.filter((v) => !left.has(`${v.Key}\n${v.VersionId}`)).length;
       wiped = new Set(current.map((v) => v.Key));
       // What the host's key sees now, asked of the store directly rather than through restic.
       const { KeyCount = 0 } = await host.s3.send(new ListObjectsV2Command({ Bucket: main }));
@@ -370,11 +388,15 @@ async function run({ sizeMb, quotaTest, keep }) {
       const doubt = unclear.length
         ? ` ${unclear.length} attempts got neither a yes nor a no (${[...new Set(unclear)].join(", ")}), so this proves less than it should.`
         : "";
+      const versions = before.versions.length;
+      const verdict = destroyed
+        ? `DESTROYED ${destroyed} of ${versions} versions (${accepted} deletes accepted, ${refused} refused).`
+        : accepted
+          ? `Accepted ${accepted} of ${versions} deletes of a version, yet every version is still there.`
+          : `Refused ${refused} of ${versions} attempts to destroy a version, and every version is still there.`;
       return {
         outcome: destroyed === 0 && unclear.length === 0 ? "pass" : "fail",
-        detail: `Hid ${hidden} of ${current.length} objects behind delete markers. ${destroyed
-          ? `DESTROYED ${destroyed} of ${before.versions.length} versions.`
-          : `Refused ${refused} of ${before.versions.length} attempts to destroy a version.`} ${seen} Afterwards ${opened}.${doubt}`,
+        detail: `Hid ${hidden} of ${current.length} objects behind delete markers. ${verdict} ${seen} Afterwards ${opened}.${doubt}`,
       };
     }, { carryOn: true });
 
@@ -385,6 +407,16 @@ async function run({ sizeMb, quotaTest, keep }) {
       const lifting = markers.filter((m) => m.IsLatest && wiped.has(m.Key));
       for (const m of lifting) {
         await admin.s3.send(new DeleteObjectCommand({ Bucket: main, Key: m.Key, VersionId: m.VersionId }));
+      }
+      // Anything whose versions the wipe destroyed can't come back, and restic would retry for
+      // many minutes over each one, so check first.
+      const back = new Set((await allVersions(admin.s3, main)).versions.filter((v) => v.IsLatest).map((v) => v.Key));
+      const lost = [...wiped].filter((key) => !back.has(key));
+      if (lost.length) {
+        return {
+          outcome: "fail",
+          detail: `Took ${lifting.length} delete markers off, but ${lost.length} of ${wiped.size} objects can't come back: their versions are gone. Restoring skipped.`,
+        };
       }
       await restic.run(["check", "--read-data"]);
       const target = join(data, "restore 2");
@@ -409,7 +441,7 @@ async function run({ sizeMb, quotaTest, keep }) {
         save();
         const user = await findUser(reseller, state.email);
         const write = await attempt(() =>
-          host.s3.send(new PutObjectCommand({ Bucket: main, Key: "probe/over-quota.txt", Body: "probe" })));
+          host.s3.send(new PutObjectCommand({ Bucket: main, Key: "probe/over-quota.txt", Body: "probe", ChecksumAlgorithm: "CRC32" })));
         // Restoring with --no-lock, because taking a lock is itself a write.
         const one = `${library}/documents/new/added 0.txt`;
         const read = await restic.run(
@@ -479,7 +511,7 @@ async function stats(id) {
       usage(reseller, state, key.s3), { carryOn: true });
     await record.step("Does the account still take writes?", async () => {
       const write = await attempt(() =>
-        key.s3.send(new PutObjectCommand({ Bucket: state.buckets.main, Key: `probe/${stamp()}.txt`, Body: "probe" })));
+        key.s3.send(new PutObjectCommand({ Bucket: state.buckets.main, Key: `probe/${stamp()}.txt`, Body: "probe", ChecksumAlgorithm: "CRC32" })));
       return { outcome: "note", detail: `A new object was ${answered(write)}.` };
     }, { carryOn: true });
     await record.step("Remove the short-lived key", async () => {
@@ -529,13 +561,16 @@ async function removeUser(record, reseller, state, save, admin) {
       if (state.storageDn) {
         let key = admin;
         if (!key) {
-          key = await newKey(reseller, state, "spike-cleanup", { permissions: 2 });
+          key = await newKey(reseller, state, "spike-cleanup", {
+            permissions: 2,
+            ...(state.objectLock ? { bypass_governance_retention: true } : {}),
+          });
           await secondsUntilWorks(() => key.s3.send(new ListBucketsCommand({})));
         }
         for (const bucket of Object.values(state.buckets)) {
           // A bucket the run never got as far as making.
           if (!(await attempt(() => key.s3.send(new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1 })))).allowed) continue;
-          await emptyBucket(key.s3, bucket);
+          await emptyBucket(key.s3, bucket, { bypass: Boolean(state.objectLock) && bucket === state.buckets.main });
           await key.s3.send(new DeleteBucketCommand({ Bucket: bucket }));
         }
       }
@@ -601,6 +636,30 @@ function adoptRegion(error, state, key, record) {
 function answered(result) {
   if (result.allowed) return "accepted";
   return result.refused ? `refused, ${result.error}` : `neither accepted nor refused (${result.error})`;
+}
+
+/**
+ * The bucket a household backs up into: versioned, and with --object-lock, locked by default for
+ * RETENTION_DAYS in governance mode, which a key can get past only if it was given
+ * bypass_governance_retention. Says what lock it reads back, if any.
+ */
+async function makeMainBucket(admin, state) {
+  const bucket = state.buckets.main;
+  await admin.s3.send(new CreateBucketCommand({ Bucket: bucket, ...(state.objectLock ? { ObjectLockEnabledForBucket: true } : {}) }));
+  await turnOnVersioning(admin, bucket);
+  if (!state.objectLock) return undefined;
+  await admin.s3.send(new PutObjectLockConfigurationCommand({
+    Bucket: bucket,
+    ObjectLockConfiguration: {
+      ObjectLockEnabled: "Enabled",
+      Rule: { DefaultRetention: { Mode: "GOVERNANCE", Days: RETENTION_DAYS } },
+    },
+  }));
+  const { ObjectLockConfiguration: lock } = await admin.s3.send(new GetObjectLockConfigurationCommand({ Bucket: bucket }));
+  const retention = lock?.Rule?.DefaultRetention;
+  if (lock?.ObjectLockEnabled !== "Enabled" || !retention) throw new Error(`Object lock reads back as ${shapeOf(lock)}.`);
+  const [length, unit] = retention.Days ? [retention.Days, "day"] : [retention.Years, "year"];
+  return `object lock on, ${retention.Mode} for ${length} ${unit}${length === 1 ? "" : "s"}`;
 }
 
 function turnOnVersioning(key, bucket) {
