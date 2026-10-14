@@ -9,9 +9,22 @@ import { join } from "node:path";
 import { createReseller, findStorageDn, listIn, ResellerError } from "./reseller.mjs";
 import { Recorder, redact, shapeOf } from "./record.mjs";
 import { changeLibrary, compare, fingerprint, makeLibrary } from "./library.mjs";
-import { attempt, isRefusal, s3Client, secondsUntilRefused } from "./s3.mjs";
+import { attempt, isRefusal, s3Client, secondsUntilRefused, secondsUntilWorks } from "./s3.mjs";
 import { createServer } from "node:http";
-import { PutObjectCommand, PutObjectLockConfigurationCommand } from "@aws-sdk/client-s3";
+import {
+  CreateBucketCommand,
+  DeleteBucketCommand,
+  DeleteObjectCommand,
+  GetBucketVersioningCommand,
+  GetObjectLockConfigurationCommand,
+  HeadObjectCommand,
+  ListBucketsCommand,
+  ListObjectsV2Command,
+  ListObjectVersionsCommand,
+  PutBucketVersioningCommand,
+  PutObjectCommand,
+  PutObjectLockConfigurationCommand,
+} from "@aws-sdk/client-s3";
 
 const answer = (body, status = 200) => async () => new Response(JSON.stringify(body), { status });
 
@@ -122,34 +135,72 @@ test("a revoked key is timed to its refusal, not to the first error on the way",
   assert.equal(never.trouble, "InternalError (500)");
 });
 
-test("a request S3 insists has a checksum carries Content-MD5, and other requests carry none", async () => {
+test("every kind of request the spike makes gets sent, with Content-MD5 where a checksum is due", async () => {
   const seen = [];
   const server = createServer((request, response) => {
-    seen.push({ path: request.url, headers: request.headers });
+    seen.push(request.headers);
     request.resume().on("end", () => response.end());
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const s3 = s3Client({
+    endpoint: `http://127.0.0.1:${server.address().port}`,
+    region: "us-east-1",
+    accessKey: "AKIAEXAMPLE",
+    secretKey: "secret",
+  });
+  // Bucket "b", key "k": what each command is sent with, and whether a checksum is due.
+  const requests = [
+    [ListBucketsCommand, {}, false],
+    [CreateBucketCommand, { ObjectLockEnabledForBucket: true }, false],
+    [PutBucketVersioningCommand, { VersioningConfiguration: { Status: "Enabled" } }, true],
+    [GetBucketVersioningCommand, {}, false],
+    [PutObjectLockConfigurationCommand,
+      { ObjectLockConfiguration: { ObjectLockEnabled: "Enabled", Rule: { DefaultRetention: { Mode: "GOVERNANCE", Days: 1 } } } },
+      true],
+    [GetObjectLockConfigurationCommand, {}, false],
+    [ListObjectsV2Command, { MaxKeys: 1 }, false],
+    [ListObjectVersionsCommand, {}, false],
+    [PutObjectCommand, { Key: "k", Body: "probe" }, false],
+    [PutObjectCommand, { Key: "k", Body: "probe", ChecksumAlgorithm: "CRC32" }, true],
+    [HeadObjectCommand, { Key: "k" }, false],
+    [DeleteObjectCommand, { Key: "k", VersionId: "v", BypassGovernanceRetention: true }, false],
+    [DeleteBucketCommand, {}, false],
+  ];
   try {
-    const s3 = s3Client({
-      endpoint: `http://127.0.0.1:${server.address().port}`,
-      region: "us-east-1",
-      accessKey: "AKIAEXAMPLE",
-      secretKey: "secret",
-    });
-    await s3.send(new PutObjectLockConfigurationCommand({
-      Bucket: "b",
-      ObjectLockConfiguration: { ObjectLockEnabled: "Enabled", Rule: { DefaultRetention: { Mode: "GOVERNANCE", Days: 1 } } },
-    }));
-    await s3.send(new PutObjectCommand({ Bucket: "b", Key: "k", Body: "probe" }));
+    for (const [Command, input] of requests) {
+      await s3.send(new Command({ ...(Command === ListBucketsCommand ? {} : { Bucket: "b" }), ...input }));
+    }
   } finally {
     server.close();
   }
-  const [lock, put] = seen;
-  assert.match(lock.path, /^\/b\/?\?object-lock/);
-  assert.match(lock.headers["content-md5"] ?? "", /^[A-Za-z0-9+/]{22}==$/);
-  assert.deepEqual(Object.keys(lock.headers).filter((name) => name.startsWith("x-amz-checksum")), []);
-  assert.equal(put.headers["content-md5"], undefined);
-  assert.deepEqual(Object.keys(put.headers).filter((name) => name.startsWith("x-amz-checksum")), []);
+  assert.equal(seen.length, requests.length);
+  requests.forEach(([Command, , due], i) => {
+    const headers = seen[i];
+    const label = Command.name;
+    assert.deepEqual(Object.keys(headers).filter((name) => name.startsWith("x-amz-checksum")), [], label);
+    // Signed after the swap, or the signature wouldn't match what's sent.
+    const signed = /SignedHeaders=([^,]+)/.exec(headers.authorization)?.[1].split(";") ?? [];
+    if (due) {
+      assert.match(headers["content-md5"] ?? "", /^[A-Za-z0-9+/]{22}==$/, label);
+      assert.ok(signed.includes("content-md5"), `${label} signs Content-MD5`);
+    } else {
+      assert.equal(headers["content-md5"], undefined, label);
+    }
+  });
+});
+
+test("waiting for a key gives up at once on trouble that never left this computer", async () => {
+  let calls = 0;
+  const broken = async () => {
+    calls++;
+    throw new Error("a middleware that isn't there");
+  };
+  await assert.rejects(secondsUntilWorks(broken, { every: 1 }), /a middleware that isn't there/);
+  assert.equal(calls, 1);
+  // Whereas a key the store doesn't know yet is waited for.
+  const fresh = scripted(s3Error("InvalidAccessKeyId", 403), null);
+  assert.equal(typeof (await secondsUntilWorks(fresh.action, { every: 1 })), "number");
+  assert.equal(fresh.calls(), 2);
 });
 
 test("no step starts once a run is told to stop, except what removing the user needs", async () => {

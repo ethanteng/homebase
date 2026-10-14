@@ -26,8 +26,10 @@ export function s3Client({ endpoint, region, accessKey, secretKey }) {
     maxAttempts: 2,
   });
   // Where S3 does require one (object lock settings, deleting many objects at once), recent SDKs
-  // send a CRC32 header, while stores built to older S3 want Content-MD5. Send that instead.
-  client.middlewareStack.addRelativeTo((next) => async (args) => {
+  // send a CRC32 header, while stores built to older S3 want Content-MD5. Send that instead. This
+  // runs last in the build step, after any checksum is added and before the request is signed. It
+  // can't be placed relative to the checksum middleware itself, which most requests don't have.
+  client.middlewareStack.add((next) => async (args) => {
     const { request } = args;
     const headers = request?.headers ?? {};
     const checksums = Object.keys(headers).filter((name) => /^x-amz-(checksum-|sdk-checksum-algorithm)/i.test(name));
@@ -36,7 +38,7 @@ export function s3Client({ endpoint, region, accessKey, secretKey }) {
       headers["content-md5"] = createHash("md5").update(request.body).digest("base64");
     }
     return next(args);
-  }, { relation: "after", toMiddleware: "flexibleChecksumsMiddleware", name: "contentMd5Instead" });
+  }, { step: "build", priority: "low", name: "contentMd5Instead" });
   return client;
 }
 
@@ -96,6 +98,9 @@ export async function secondsUntilWorks(probe, { timeout = 180, every = 2000, si
       await probe();
       return secondsSince(start);
     } catch (error) {
+      // Only an answer from the store, or trouble reaching it, is worth waiting out. Anything else
+      // went wrong before a request left, and will go wrong the same way every time.
+      if (!error?.$metadata && !error?.code) throw error;
       onError?.(error);
       if (secondsSince(start) > timeout) throw new Error(`Still failing after ${timeout}s: ${errorLabel(error)}`);
       await wait(every, undefined, { signal });
