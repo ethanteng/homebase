@@ -19,6 +19,7 @@ import {
   DeleteBucketCommand,
   DeleteObjectCommand,
   GetBucketVersioningCommand,
+  HeadObjectCommand,
   ListBucketsCommand,
   ListObjectsV2Command,
   PutBucketVersioningCommand,
@@ -37,7 +38,7 @@ import {
   tally,
 } from "./s3.mjs";
 import { changeLibrary, compare, describe, fingerprint, makeFiller, makeLibrary, MB } from "./library.mjs";
-import { createRestic, resticVersion } from "./restic.mjs";
+import { createRestic, resticVersion, tail } from "./restic.mjs";
 import { Recorder, shapeOf } from "./record.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -349,8 +350,23 @@ async function run({ sizeMb, quotaTest, keep }) {
         else unclear.push(result.error);
       }
       wiped = new Set(current.map((v) => v.Key));
-      const after = await restic.run(["snapshots"], { allowFailure: true });
-      const opened = after.code === 0 ? "restic still opens the repository" : `restic can't open the repository (exit ${after.code})`;
+      // What the host's key sees now, asked of the store directly rather than through restic.
+      const { KeyCount = 0 } = await host.s3.send(new ListObjectsV2Command({ Bucket: main }));
+      const config = current.find((v) => v.Key.endsWith("/config"));
+      const read = config
+        ? await attempt(() => host.s3.send(new HeadObjectCommand({ Bucket: main, Key: config.Key })), { tries: 1 })
+        : undefined;
+      const seen = `The host's key now sees ${KeyCount} objects${read
+        ? `, and reading restic's hidden config gets ${read.allowed ? "it back" : read.error}`
+        : ""}.`;
+      // restic retries an error it doesn't recognise for many minutes before giving up; a minute
+      // shows which kind this is.
+      const after = await restic.run(["snapshots"], { allowFailure: true, timeout: 60_000 });
+      const opened = after.timedOut
+        ? `restic was still retrying a minute later (${tail(after.stderr, 2)})`
+        : after.code === 0
+          ? "restic still opens the repository"
+          : `restic can't open the repository (exit ${after.code}: ${tail(after.stderr, 1)})`;
       const doubt = unclear.length
         ? ` ${unclear.length} attempts got neither a yes nor a no (${[...new Set(unclear)].join(", ")}), so this proves less than it should.`
         : "";
@@ -358,7 +374,7 @@ async function run({ sizeMb, quotaTest, keep }) {
         outcome: destroyed === 0 && unclear.length === 0 ? "pass" : "fail",
         detail: `Hid ${hidden} of ${current.length} objects behind delete markers. ${destroyed
           ? `DESTROYED ${destroyed} of ${before.versions.length} versions.`
-          : `Refused ${refused} of ${before.versions.length} attempts to destroy a version.`} Afterwards ${opened}.${doubt}`,
+          : `Refused ${refused} of ${before.versions.length} attempts to destroy a version.`} ${seen} Afterwards ${opened}.${doubt}`,
       };
     }, { carryOn: true });
 
