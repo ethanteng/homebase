@@ -49,7 +49,7 @@ private struct Pending: Sendable {
     let continuation: CheckedContinuation<URL, any Error>
     var file: URL?
     var failure: (any Error)?
-    var reportedAt: ContinuousClock.Instant?
+    var reportedAt: Date?
 }
 
 private final class TransferDelegate: NSObject, URLSessionDownloadDelegate, Sendable {
@@ -63,10 +63,10 @@ private final class TransferDelegate: NSObject, URLSessionDownloadDelegate, Send
         _ session: URLSession, downloadTask: URLSessionDownloadTask,
         didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64
     ) {
-        let now = ContinuousClock.now
+        let now = Date()
         let report: (@Sendable (Int64, Int64?) -> Void, Int64?)? = pending.withLock { transfers in
             guard var transfer = transfers[downloadTask.taskIdentifier] else { return nil }
-            if let last = transfer.reportedAt, now - last < .milliseconds(100) { return nil }
+            if let last = transfer.reportedAt, now.timeIntervalSince(last) < 0.1 { return nil }
             transfer.reportedAt = now
             transfers[downloadTask.taskIdentifier] = transfer
             let expected = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : transfer.expected

@@ -230,6 +230,11 @@ src/Uncloud.iOS/
   Uncloud-Info.plist  the keys Xcode doesn't write itself
 ```
 
+`Uncloud/PrivacyInfo.xcprivacy` declares the one API on Apple's required-reason list the app uses,
+`UserDefaults`, for its own settings. App Store Connect refuses an upload that uses one of those
+without declaring it, so anything that starts reading file timestamps, disk space or the time since
+the device started adds it there too.
+
 The project uses Xcode 16's synchronised folders, so a file added under `Uncloud/` is in the app
 without touching `project.pbxproj`.
 
