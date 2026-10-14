@@ -16,6 +16,7 @@ import {
   DeleteBucketCommand,
   DeleteBucketLifecycleCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   GetBucketLifecycleConfigurationCommand,
   GetBucketVersioningCommand,
   GetObjectLockConfigurationCommand,
@@ -177,6 +178,7 @@ test("every kind of request the spike makes gets sent, with Content-MD5 where a 
     [PutObjectCommand, { Key: "k", Body: "probe" }, false],
     [PutObjectCommand, { Key: "k", Body: "probe", ChecksumAlgorithm: "CRC32" }, true],
     [HeadObjectCommand, { Key: "k" }, false],
+    [GetObjectCommand, { Key: "k", Range: "bytes=0-1048575" }, false],
     [DeleteObjectCommand, { Key: "k", VersionId: "v", BypassGovernanceRetention: true }, false],
     [DeleteBucketCommand, {}, false],
   ];
@@ -277,6 +279,14 @@ test("a faithful copy of the library compares identical, and a changed one doesn
     assert.ok(changed.missing.length > 0, "deleted files show as missing");
     assert.ok(changed.different.length > 0, "edited files show as different");
     assert.ok(changed.extra.length > 0, "added files show as extra");
+    assert.ok(!changed.missing.includes("video/holiday.mov"), "the video stays unless asked");
+
+    // However small the library, there's a video to drop.
+    const second = join(root, "second");
+    cpSync(library, second, { recursive: true, preserveTimestamps: true });
+    assert.ok(original.has("video/holiday.mov"));
+    changeLibrary(second, { dropVideo: true });
+    assert.ok(compare(original, await fingerprint(second)).missing.includes("video/holiday.mov"));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

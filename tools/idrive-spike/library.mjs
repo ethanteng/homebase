@@ -61,8 +61,10 @@ export function makeLibrary(root, sizeMb) {
     files++;
   }
 
+  // Photos stop short of three quarters, so however small the library, there's room for a video.
   for (let i = 0; bytes < budget / 2 && i < 24; i++) {
-    const size = Math.min(randomInt(MB, 4 * MB), budget - bytes);
+    const size = Math.min(randomInt(MB, 4 * MB), Math.floor(budget * 0.75) - bytes);
+    if (size <= 0) break;
     writeRandom(join(root, "photos", `IMG_${1000 + i}.jpg`), size);
     bytes += size;
     files++;
@@ -87,8 +89,11 @@ export function makeLibrary(root, sizeMb) {
   return { files, bytes };
 }
 
-/** A second day's changes: some documents deleted, some edited, some new, a photo gone. */
-export function changeLibrary(root) {
+/**
+ * A second day's changes: some documents deleted, some edited, some new, a photo gone. With
+ * `dropVideo`, the video goes too, which is about half the library.
+ */
+export function changeLibrary(root, { dropVideo = false } = {}) {
   let removed = 0;
   let edited = 0;
   let added = 0;
@@ -111,6 +116,12 @@ export function changeLibrary(root) {
   if (photos.length > 0) {
     rmSync(join(root, "photos", photos[0]));
     removed++;
+  }
+  if (dropVideo) {
+    for (const name of readdirSync(join(root, "video"))) {
+      rmSync(join(root, "video", name));
+      removed++;
+    }
   }
   return { removed, edited, added };
 }

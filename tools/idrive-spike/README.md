@@ -34,9 +34,12 @@ become the service's client later.
 10. **Backs up a made-up library** with restic, using the host's key. The library is 200 MB by
     default and includes documents, photos, a video, awkward names, a hidden file, an empty file
     and an empty folder. The step reports upload speed.
-11. **Changes the library and backs up again.**
+11. **Changes the library and backs up again.** With `--big-old-versions`, the change includes
+    deleting the video, about half the library.
 12. **Prunes the first backup** with the host's key. In a versioned bucket, deletes leave delete
-    markers behind, and this step checks restic still copes.
+    markers behind, and this step checks restic still copes. With `--big-old-versions`, restic
+    repacks everything (`--max-unused 0`), so the video's packs are deleted whole and stay behind
+    as old versions, big enough to see in usage and in whether they expire.
 13. **Checks every byte, restores, and compares** with the library, byte for byte.
 14. **Tries to wipe the bucket with the host's key**, deleting every object and every version.
     Then it lists what's left, since a store can answer yes to a delete and keep the version
@@ -97,7 +100,8 @@ node spike.mjs run                      # the whole lifecycle, removed afterward
 node spike.mjs run --keep               # leave the user, to look again later
 node spike.mjs run --quota-test         # also go over quota (implies --keep)
 node spike.mjs run --object-lock        # protect versions with object lock too
-node spike.mjs stats <run id>           # hours later: has usage caught up? still writable?
+node spike.mjs run --big-old-versions   # leave about half the library behind as old versions
+node spike.mjs stats <run id>           # later: has usage caught up? still readable? writable?
 node spike.mjs cleanup <run id>         # remove a kept run's user and everything it stored
 ```
 
@@ -108,7 +112,9 @@ Each run writes to `runs/<id>/`:
   aren't in iDrive's docs, so this is where they get learned.
 - `state.json`: the user, region, endpoint and buckets, and nothing secret.
 
-`stats` and `cleanup` add their own reports beside these.
+`stats` and `cleanup` add their own reports beside these. `stats` reports usage the same three ways
+as a run, downloads one whole object and the first megabyte of the largest to see whether the
+account can still be read, and tries one write.
 
 iDrive says usage can take up to 24 hours to count, and bucket stats are cached for hours. Old
 versions can't expire until a day after they're replaced, and expiry rules usually run once a
@@ -136,9 +142,12 @@ node spike.mjs cleanup <run id>
 - **Prune works with versioning on (12).** If it doesn't, restic and the protection above can't
   both be used as planned.
 - **Older versions count toward usage (16).** If they do, deleted data keeps costing money until
-  it expires, which affects pricing.
-- **Read-only still allows restores (17).** This decides whether over-quota and failed payments
-  can be handled by making the account read-only rather than disabling it.
+  it expires, which affects pricing. A run with `--big-old-versions` leaves enough behind to tell
+  from iDrive's figures.
+- **Read-only still allows restores (17, and `stats` once the quota has taken effect).** This
+  decides whether over-quota and failed payments can be handled by making the account read-only
+  rather than disabling it. The run can only restore before iDrive counts the usage, so the
+  downloads in `stats` are what show reads still work once it has.
 - **How fast keys start and stop working (4, 7, 18).** This sets how long signing up takes, and
   how quickly "this host was stolen" takes effect.
 - **Removing a user with its data in place (19).** This decides what cancellation looks like.
