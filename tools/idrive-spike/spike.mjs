@@ -199,6 +199,9 @@ async function run({ sizeMb, quotaTest, objectLock, keep }) {
   let snapshot;
   let expected;
   let wiped;
+  // The expiry rule iDrive accepted, in the shape it accepted, put back whenever something takes
+  // it away.
+  let expiry;
   try {
     await record.step("Pick a region", async () => {
       const regions = listIn(await reseller.regions(), "regions");
@@ -266,21 +269,19 @@ async function run({ sizeMb, quotaTest, objectLock, keep }) {
     await record.step("Set a rule that expires old versions, with the service's key", async () => {
       // If iDrive won't take the whole rule, one for old versions alone is the part that matters.
       let set = "the whole rule";
+      let rule = expiryRule();
       try {
-        await setExpiry(admin, main);
+        await putExpiry(admin, main, rule);
       } catch (error) {
         set = `a rule for old versions alone, after the whole rule was turned down (${errorLabel(error)})`;
-        await admin.s3.send(new PutBucketLifecycleConfigurationCommand({
-          Bucket: main,
-          LifecycleConfiguration: {
-            Rules: [{ ID: EXPIRY_RULE, Status: "Enabled", Filter: { Prefix: "" }, NoncurrentVersionExpiration: { NoncurrentDays: EXPIRE_DAYS } }],
-          },
-        }));
+        rule = oldVersionsRule();
+        await putExpiry(admin, main, rule);
       }
       const rules = await readExpiry(admin, main);
       state.expiry = rules.length > 0;
       save();
       if (!rules.length) return { outcome: "fail", detail: `Accepted ${set}, but it reads back as no rule at all.` };
+      expiry = rule;
       return {
         outcome: rules.some((rule) => rule.NoncurrentVersionExpiration?.NoncurrentDays) ? "pass" : "fail",
         detail: `Set ${set}. It reads back as: ${rules.map(describeRule).join("; ")}. Whether iDrive acts on it shows in "stats" over the next few days.`,
@@ -329,6 +330,8 @@ async function run({ sizeMb, quotaTest, objectLock, keep }) {
       if (allowed.includes("create a bucket")) await admin.s3.send(new DeleteBucketCommand({ Bucket: `${main}-x` }));
       if (allowed.includes("delete its own bucket")) {
         await makeMainBucket(admin, state);
+        // The expiry rule went with the bucket.
+        if (expiry) await putExpiry(admin, main, expiry);
       }
       try {
         const { Buckets = [] } = await host.s3.send(new ListBucketsCommand({}));
@@ -362,15 +365,16 @@ async function run({ sizeMb, quotaTest, objectLock, keep }) {
         () => host.s3.send(new PutBucketVersioningCommand({ Bucket: main, VersioningConfiguration: { Status: "Suspended" } })),
         async () => (await admin.s3.send(new GetBucketVersioningCommand({ Bucket: main }))).Status === "Enabled",
         () => turnOnVersioning(admin, main));
-      if (state.expiry) {
+      if (expiry) {
+        // The accepted rule under another name, so a no can only be about who's asking.
         await tryTo("replace the expiry rule",
-          () => setExpiry(host, main, "host-was-here"),
+          () => putExpiry(host, main, renamed(expiry, "host-was-here")),
           async () => !(await readExpiry(admin, main)).some((rule) => rule.ID === "host-was-here"),
-          () => setExpiry(admin, main));
+          () => putExpiry(admin, main, expiry));
         await tryTo("delete the expiry rule",
           () => host.s3.send(new DeleteBucketLifecycleCommand({ Bucket: main })),
           async () => (await readExpiry(admin, main)).length > 0,
-          () => setExpiry(admin, main));
+          () => putExpiry(admin, main, expiry));
       } else {
         said.push("the expiry rule: not set, so not tried");
       }
@@ -763,10 +767,10 @@ async function readLock(key, bucket) {
  * The expiry rule: a version goes EXPIRE_DAYS after it's replaced or deleted, as does a delete
  * marker left with nothing behind it, and an upload nobody finished.
  */
-function expiryRule(id = EXPIRY_RULE) {
+function expiryRule() {
   return {
     Rules: [{
-      ID: id,
+      ID: EXPIRY_RULE,
       Status: "Enabled",
       Filter: { Prefix: "" },
       NoncurrentVersionExpiration: { NoncurrentDays: EXPIRE_DAYS },
@@ -776,8 +780,25 @@ function expiryRule(id = EXPIRY_RULE) {
   };
 }
 
-function setExpiry(key, bucket, id) {
-  return key.s3.send(new PutBucketLifecycleConfigurationCommand({ Bucket: bucket, LifecycleConfiguration: expiryRule(id) }));
+/** The part of the expiry rule that matters most, for a store that won't take all of it. */
+function oldVersionsRule() {
+  return {
+    Rules: [{
+      ID: EXPIRY_RULE,
+      Status: "Enabled",
+      Filter: { Prefix: "" },
+      NoncurrentVersionExpiration: { NoncurrentDays: EXPIRE_DAYS },
+    }],
+  };
+}
+
+/** The same rules under another name. */
+function renamed(rules, id) {
+  return { Rules: rules.Rules.map((rule) => ({ ...rule, ID: id })) };
+}
+
+function putExpiry(key, bucket, rules) {
+  return key.s3.send(new PutBucketLifecycleConfigurationCommand({ Bucket: bucket, LifecycleConfiguration: rules }));
 }
 
 /** The bucket's expiry rules as the store reads them back: none is an empty list. */
