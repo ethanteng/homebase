@@ -400,8 +400,14 @@ async function run({ sizeMb, quotaTest, objectLock, bigOldVersions, keep }) {
             Bucket: main, Key: probe.Key, Body: "probe", ChecksumAlgorithm: "CRC32",
           })));
           until = await readRetention(admin, main, probe);
-          if (!until) said.push("a version's lock: a new version reads back with none, so not tried");
+          if (!until) {
+            // Nothing to bring forward, and worse: the bucket's default didn't lock a new version.
+            weakened.push("a new version's lock");
+            said.push("a new version's lock: NONE, so the bucket's default lock isn't being applied");
+          }
         } catch (error) {
+          // Nothing tried, so nothing shown either way.
+          unclear.push("a version's lock");
           said.push(`a version's lock: couldn't set one up to try (${errorLabel(error)})`);
         }
         if (until) {
