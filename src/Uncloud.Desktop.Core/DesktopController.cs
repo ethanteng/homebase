@@ -97,7 +97,11 @@ public sealed class DesktopController(
         }
     }
 
-    /// <summary>On the host, what could stop it staying on for everybody, worst first, as last checked.</summary>
+    /// <summary>
+    /// On the host, what could stop it staying on for everybody, worst first, as last checked — all
+    /// but FileVault, which is on for most Macs and nothing to put right. A line in the menu that
+    /// never goes away soon stops being read, so that one is said in Settings only.
+    /// </summary>
     public IReadOnlyList<PowerFinding> PowerFindings { get; private set; } = [];
 
     /// <summary>
@@ -115,7 +119,10 @@ public sealed class DesktopController(
         _powerCheckedAt = DateTimeOffset.UtcNow;
         _power = await Task.Run(_readPower, cancellationToken);
         _powerRead = true;
-        PowerFindings = _power is null ? [] : HostPower.Findings(_power, _install.KeepsAwake, RunsInOwnAccount);
+        PowerFindings = _power is null
+            ? []
+            : HostPower.Findings(_power, _install.KeepsAwake, RunsInOwnAccount)
+                .Where(finding => finding.Code != "filevault").ToList();
     }
 
     /// <summary>Has the next check read the power settings again, because something here just changed them.</summary>

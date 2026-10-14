@@ -416,6 +416,21 @@ public sealed class HostInstallTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task FileVault_is_left_to_Settings_rather_than_said_in_the_menu_for_good()
+    {
+        // On for most Macs, and nothing to put right: a line that never went away would stop being read.
+        var locked = new Homebase.Core.PowerState(10, false, false, false, true, true, false, []);
+        new DesktopSettings { Mode = DesktopMode.Host }.Save(_paths);
+        _install.Installed = true;
+        var controller = Controller(() => locked);
+
+        await controller.CheckPowerAsync(CancellationToken.None);
+
+        Assert.Equal(["sleeps", "no_autorestart"], controller.PowerFindings.Select(finding => finding.Code));
+        Assert.Contains("filevault", Homebase.Core.HostPower.Findings(locked, false, true).Select(finding => finding.Code));
+    }
+
+    [Fact]
     public async Task Only_the_host_is_told_about_staying_on()
     {
         // Somebody's own laptop needn't stay on for anybody.

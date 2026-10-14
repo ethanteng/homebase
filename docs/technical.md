@@ -346,8 +346,10 @@ shutdowns and restarts) and `fdesetup status`. From those it says, worst first:
 `GET /api/host/power`, for administrators, answers `{ checked, findings, state }`, where each
 finding has a `code`, a short `title`, a `message` and whether **Keep This Mac Awake** puts it right
 (`inMenu`). It reads the Mac afresh each time, and answers `checked: false` anywhere else. Settings
-shows the messages under **Keeping this host on**, and the menu on the host shows the titles,
-read again at most once a minute or straight away after it changes something.
+shows the messages under **Keeping this host on**, and the menu on the host shows the titles of
+all but FileVault's, read again at most once a minute or straight away after it changes something.
+FileVault is on for most Macs and nothing to put right, so it is said in Settings only, rather than
+as a line in the menu that never goes away.
 
 
 ## Reaching the host

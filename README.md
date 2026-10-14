@@ -397,8 +397,8 @@ Before you rely on Uncloud:
 ## Questions and problems
 
 **I can't reach Uncloud.** Check that the host is on and awake. With the app, click the **U** in
-the host's menu bar: it says whether Uncloud is running, and anything that could stop the host
-staying on. Uncloud starts again by itself if it stops or gets stuck, and when the Mac restarts —
+the host's menu bar: it says whether Uncloud is running, and warns if the host could go to sleep
+or stay off. Uncloud starts again by itself if it stops or gets stuck, and when the Mac restarts —
 but if FileVault is on, only once somebody has signed in at the Mac after the restart, so a power
 cut while everyone's away keeps it down until somebody does. From anywhere, **Settings → Keeping
 this host on** lists what could stop it. From Terminal, check the window from step 2 is still open,
