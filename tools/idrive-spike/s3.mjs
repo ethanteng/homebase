@@ -162,6 +162,9 @@ export function tally({ versions, markers }) {
     olderBytes: bytes(older),
     markers: markers.length,
     locks: current.filter((v) => v.Key.includes("/locks/")).length,
+    // When the oldest version kept only by versioning was written: what an expiry rule should be
+    // seen clearing, day by day.
+    oldestOlder: older.map((v) => v.LastModified).filter(Boolean).sort((a, b) => a - b)[0],
   };
 }
 
