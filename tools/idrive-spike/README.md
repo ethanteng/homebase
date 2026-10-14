@@ -28,9 +28,15 @@ become the service's client later.
 8. **Checks that key can't reach past its bucket:** it can't list or write the other bucket,
    create a bucket, or delete its own.
 9. **Checks that key can't weaken the bucket's protection:** suspend versioning, replace or delete
-   the expiry rule, or, with `--object-lock`, change object lock's retention. Each is judged by
-   reading the setting back with the service's key, and anything the host's key managed is put
-   back.
+   the expiry rule, or, with `--object-lock`, change object lock's retention. With object lock it
+   also writes a version and tries to bring that version's own lock date forward, once plainly and
+   once asking to bypass the lock. The bucket's default only governs what's written next; a
+   version's own date is what protects a backup already made. Each try is judged by reading the
+   setting back with the service's key, and anything the host's key managed is put back. Then, as
+   its own step, the full attack: write a version, bring its lock date to a few seconds out, wait,
+   and delete it; if the version ends up gone, object lock in this mode doesn't protect a backup
+   from a compromised host. With `--compliance` the shortening is refused and the attack stops at
+   step one.
 10. **Backs up a made-up library** with restic, using the host's key. The library is 200 MB by
     default and includes documents, photos, a video, awkward names, a hidden file, an empty file
     and an empty folder. The step reports upload speed.
@@ -42,8 +48,9 @@ become the service's client later.
     as old versions, big enough to see in usage and in whether they expire.
 13. **Checks every byte, restores, and compares** with the library, byte for byte.
 14. **Tries to wipe the bucket with the host's key**, deleting every object and every version.
-    Then it lists what's left, since a store can answer yes to a delete and keep the version
-    anyway.
+    With object lock, it tries every version again while asking to bypass the lock, which only a
+    key given `bypass_governance_retention` should get away with. Then it lists what's left, since
+    a store can answer yes to a delete and keep the version anyway.
 15. **Rolls the bucket back** with the service's key, then checks and restores again. If any
     object's versions are gone, it says how many and skips the restore.
 16. **Compares usage three ways:** what `/users`, `usage_stats` and `bucket_stats` report, against
@@ -99,7 +106,8 @@ node spike.mjs regions                  # read-only: checks the token works, lis
 node spike.mjs run                      # the whole lifecycle, removed afterwards
 node spike.mjs run --keep               # leave the user, to look again later
 node spike.mjs run --quota-test         # also go over quota (implies --keep)
-node spike.mjs run --object-lock        # protect versions with object lock too
+node spike.mjs run --object-lock        # protect versions with object lock too (governance)
+node spike.mjs run --compliance         # object lock in compliance mode (implies --object-lock)
 node spike.mjs run --big-old-versions   # leave about half the library behind as old versions
 node spike.mjs stats <run id>           # later: has usage caught up? still readable? writable?
 node spike.mjs cleanup <run id>         # remove a kept run's user and everything it stored
@@ -135,7 +143,13 @@ node spike.mjs cleanup <run id>
   period.
 - **The host's key can't weaken that protection (9).** If it could suspend versioning, shorten
   the expiry rule or change object lock, a compromised host could undo the protection first and
-  wipe the bucket after.
+  wipe the bucket after. Changing the bucket's default is the lesser risk: the service can check
+  for it and put it back. Bringing an existing version's lock date forward, or getting past the
+  lock by asking to bypass it (14), would leave no window for that. The full attack in step 9
+  carries a shortened lock through to a destroyed version, so a ❌ there is decisive. Compare a
+  governance run with a `--compliance` one: compliance refuses to shorten a lock at all, at the
+  cost that the service can't delete a version early either, only let its lock expire or remove
+  the whole account.
 - **The expiry rule is kept (6), and old versions really go (16, over the following days).** If
   iDrive doesn't expire them, the service needs its own job to delete old versions once their
   retention ends, or storage grows with every prune.

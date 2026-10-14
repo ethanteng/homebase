@@ -14,6 +14,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import {
   CreateBucketCommand,
@@ -24,6 +25,7 @@ import {
   GetBucketLifecycleConfigurationCommand,
   GetBucketVersioningCommand,
   GetObjectLockConfigurationCommand,
+  GetObjectRetentionCommand,
   HeadObjectCommand,
   ListBucketsCommand,
   ListObjectsV2Command,
@@ -31,6 +33,7 @@ import {
   PutBucketVersioningCommand,
   PutObjectCommand,
   PutObjectLockConfigurationCommand,
+  PutObjectRetentionCommand,
 } from "@aws-sdk/client-s3";
 import { createReseller, findStorageDn, listIn } from "./reseller.mjs";
 import {
@@ -74,6 +77,8 @@ const HELP = `Usage: node spike.mjs <command>
     --keep                Leave the test user in place afterwards, to look again later.
     --quota-test          Also push the user over its quota (adds ~1.1 GB; implies --keep).
     --object-lock         Protect versions with object lock (governance mode, one day) as well.
+    --compliance          Object lock in compliance mode instead of governance: a lock nobody,
+                          not even a key that asks to bypass it, can shorten. Implies --object-lock.
     --big-old-versions    Delete the library's video and prune it away, leaving about half the
                           library as old versions, to see whether they're billed and expire.
   stats <run id>        Look at a kept run's usage again, and whether it still takes writes.
@@ -94,6 +99,7 @@ async function main() {
       "size-mb": { type: "string", default: "200" },
       "quota-test": { type: "boolean", default: false },
       "object-lock": { type: "boolean", default: false },
+      compliance: { type: "boolean", default: false },
       "big-old-versions": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -108,6 +114,7 @@ async function main() {
         sizeMb: Number(values["size-mb"]),
         quotaTest: values["quota-test"],
         objectLock: values["object-lock"],
+        compliance: values.compliance,
         bigOldVersions: values["big-old-versions"],
         keep: values.keep || values["quota-test"],
       });
@@ -143,12 +150,14 @@ async function listRegions() {
   console.table(regions.map((r) => ({ key: r.region_key, name: r.region_name, country: r.country, active: r.active })));
 }
 
-async function run({ sizeMb, quotaTest, objectLock, bigOldVersions, keep }) {
+async function run({ sizeMb, quotaTest, objectLock, compliance, bigOldVersions, keep }) {
   const config = settings();
   if (!config.email?.includes("{id}")) {
     throw new Error('Set SPIKE_EMAIL to an address with {id} in it, like "spike-{id}@example.com", so every run makes a user nobody has used.');
   }
   if (!(sizeMb >= 5)) throw new Error("--size-mb has to be 5 or more.");
+  if (compliance) objectLock = true;
+  const lockMode = compliance ? "COMPLIANCE" : "GOVERNANCE";
   // Before anything is made, so a missing restic costs nothing.
   const version = await resticVersion(config.restic);
 
@@ -161,6 +170,7 @@ async function run({ sizeMb, quotaTest, objectLock, bigOldVersions, keep }) {
     buckets: { main: `uncloud-spike-${id}`, other: `uncloud-spike-${id}-other` },
     s3Region: config.s3Region,
     objectLock,
+    lockMode: objectLock ? lockMode : undefined,
     bigOldVersions,
     started: new Date().toISOString(),
   };
@@ -172,7 +182,7 @@ async function run({ sizeMb, quotaTest, objectLock, bigOldVersions, keep }) {
   record.fact("Test user", state.email);
   record.fact("restic", version.split("\n")[0]);
   record.fact("Protecting versions", objectLock
-    ? `object lock, governance mode, ${RETENTION_DAYS} day, and a host key without bypass_governance_retention or version deletion`
+    ? `object lock, ${lockMode} mode, ${RETENTION_DAYS} day, and a host key without bypass_governance_retention or version deletion`
     : "a host key without version deletion (disable_delete_version)");
   const reseller = createReseller({ token: config.token, onCall: (call) => record.call(call) });
   const data = join(dir, "data");
@@ -386,12 +396,81 @@ async function run({ sizeMb, quotaTest, objectLock, bigOldVersions, keep }) {
       }
       if (objectLock) {
         await tryTo("change object lock's retention",
-          () => setLock(host, main, RETENTION_DAYS + 1),
+          () => setLock(host, main, RETENTION_DAYS + 1, state.lockMode),
           async () => (await readLock(admin, main))?.Days === RETENTION_DAYS,
-          () => setLock(admin, main, RETENTION_DAYS));
+          () => setLock(admin, main, RETENTION_DAYS, state.lockMode));
+        // The bucket's default only governs what's written next. What protects a backup already
+        // made is each version's own lock date, so: can the host's key bring one forward?
+        const probe = { Key: "probe/locked.txt" };
+        let until;
+        try {
+          ({ VersionId: probe.VersionId } = await host.s3.send(new PutObjectCommand({
+            Bucket: main, Key: probe.Key, Body: "probe", ChecksumAlgorithm: "CRC32",
+          })));
+          until = await readRetention(admin, main, probe);
+          if (!until) {
+            // Nothing to bring forward, and worse: the bucket's default didn't lock a new version.
+            weakened.push("a new version's lock");
+            said.push("a new version's lock: NONE, so the bucket's default lock isn't being applied");
+          }
+        } catch (error) {
+          // Nothing tried, so nothing shown either way.
+          unclear.push("a version's lock");
+          said.push(`a version's lock: couldn't set one up to try (${errorLabel(error)})`);
+        }
+        if (until) {
+          const sooner = new Date(Date.now() + 2 * 60_000);
+          const intact = async () => (await readRetention(admin, main, probe))?.getTime() === until.getTime();
+          // Extending a lock is allowed in either mode, so put-back always works.
+          const putBack = () => setRetention(admin, main, probe, until, { bypass: true });
+          await tryTo("shorten a version's lock",
+            () => setRetention(host, main, probe, sooner, { mode: state.lockMode }), intact, putBack);
+          await tryTo("shorten a version's lock, asking to bypass it",
+            () => setRetention(host, main, probe, sooner, { bypass: true, mode: state.lockMode }), intact, putBack);
+        }
       }
       return { outcome: weakened.length || unclear.length ? "fail" : "pass", detail: `${said.join("; ")}.` };
     }, { carryOn: true });
+
+    if (objectLock) {
+      await record.step("The full attack: shorten a locked version, wait, then delete it", async () => {
+        // Whether a shorten the earlier step allowed can be carried through to a destroyed version:
+        // the real question object lock has to answer for a compromised host. Its own probe object,
+        // so the backup that follows is untouched.
+        const probe = { Key: "probe/attack.txt" };
+        try {
+          ({ VersionId: probe.VersionId } = await host.s3.send(new PutObjectCommand({
+            Bucket: main, Key: probe.Key, Body: "attack", ChecksumAlgorithm: "CRC32",
+          })));
+        } catch (error) {
+          return { outcome: "fail", detail: `Couldn't write a version to attack (${errorLabel(error)}).` };
+        }
+        const until = await readRetention(admin, main, probe);
+        if (!until) return { outcome: "fail", detail: "The new version came back with no lock, so the bucket default isn't protecting it." };
+        // Step one: bring the lock date to a few seconds out, asking to bypass it.
+        const soon = new Date(Date.now() + 8000);
+        const shortened = await attempt(() => setRetention(host, main, probe, soon, { bypass: true, mode: state.lockMode }));
+        const moved = await readRetention(admin, main, probe);
+        if (!(moved && moved.getTime() < until.getTime())) {
+          // The lock held, so the version can't be deleted until it ends on its own. Leave it;
+          // removing the user takes it.
+          return { outcome: "pass", detail: `Blocked at step one: bringing the lock forward was ${answered(shortened)}, and its date is unchanged. The version can't be deleted early.` };
+        }
+        // Step two: wait out the shortened lock, then delete the version.
+        await sleep(Math.max(0, moved.getTime() - Date.now()) + 2000);
+        const deleted = await attempt(() => host.s3.send(new DeleteObjectCommand({ Bucket: main, Key: probe.Key, VersionId: probe.VersionId })));
+        const gone = !(await allVersions(admin.s3, main)).versions.some((v) => v.VersionId === probe.VersionId);
+        if (gone) {
+          return {
+            outcome: "fail",
+            detail: `ATTACK SUCCEEDED: the host's key moved the lock from ${until.toISOString()} to ${moved.toISOString()}, waited it out and destroyed the version. Object lock in ${state.lockMode} mode doesn't protect a backup from a compromised host.`,
+          };
+        }
+        // The lock moved but the delete still didn't land: restore the date so cleanup isn't rushed.
+        await attempt(() => setRetention(admin, main, probe, until, { bypass: true }));
+        return { outcome: "pass", detail: `The lock moved, but deleting the version afterward was ${answered(deleted)} and it's still there.` };
+      }, { carryOn: true });
+    }
 
     restic = createRestic({
       binary: config.restic,
@@ -457,6 +536,19 @@ async function run({ sizeMb, quotaTest, objectLock, bigOldVersions, keep }) {
         else if (result.passing) unclear.push(result.error);
         else declined.push(result.error);
       }
+      // Under object lock, again while asking to bypass the lock, which only a key given
+      // bypass_governance_retention should get away with.
+      const bypassing = { accepted: 0, declined: [] };
+      if (objectLock) {
+        for (const v of before.versions) {
+          const result = await attempt(() => host.s3.send(new DeleteObjectCommand({
+            Bucket: main, Key: v.Key, VersionId: v.VersionId, BypassGovernanceRetention: true,
+          })));
+          if (result.allowed) bypassing.accepted++;
+          else if (result.passing) unclear.push(result.error);
+          else bypassing.declined.push(result.error);
+        }
+      }
       // A store can answer yes and keep the version anyway, so what counts is what's left.
       const left = new Set((await allVersions(admin.s3, main)).versions.map((v) => `${v.Key}\n${v.VersionId}`));
       const destroyed = before.versions.filter((v) => !left.has(`${v.Key}\n${v.VersionId}`)).length;
@@ -488,9 +580,14 @@ async function run({ sizeMb, quotaTest, objectLock, bigOldVersions, keep }) {
         : accepted
           ? `Accepted ${accepted} of ${versions} deletes of a version, yet every version is still there.`
           : `Every version is still there: the store turned down all ${declined.length} deletes${how}.`;
+      const askedToBypass = objectLock
+        ? ` Asked again to bypass the lock, it ${bypassing.accepted
+          ? `accepted ${bypassing.accepted}`
+          : "turned them all down"}${bypassing.declined.length ? ` (${[...new Set(bypassing.declined)].join("; ")})` : ""}.`
+        : "";
       return {
         outcome: destroyed === 0 && unclear.length === 0 ? "pass" : "fail",
-        detail: `Hid ${hidden} of ${current.length} objects behind delete markers. ${verdict} ${seen} Afterwards ${opened}.${doubt}`,
+        detail: `Hid ${hidden} of ${current.length} objects behind delete markers. ${verdict}${askedToBypass} ${seen} Afterwards ${opened}.${doubt}`,
       };
     }, { carryOn: true });
 
@@ -764,26 +861,26 @@ function answered(result) {
 
 /**
  * The bucket a household backs up into: versioned, and with --object-lock, locked by default for
- * RETENTION_DAYS in governance mode, which a key can get past only if it was given
- * bypass_governance_retention. Says what lock it reads back, if any.
+ * RETENTION_DAYS in the run's mode (governance, or compliance with --compliance). Says what lock it
+ * reads back, if any.
  */
 async function makeMainBucket(admin, state) {
   const bucket = state.buckets.main;
   await admin.s3.send(new CreateBucketCommand({ Bucket: bucket, ...(state.objectLock ? { ObjectLockEnabledForBucket: true } : {}) }));
   await turnOnVersioning(admin, bucket);
   if (!state.objectLock) return undefined;
-  await setLock(admin, bucket, RETENTION_DAYS);
+  await setLock(admin, bucket, RETENTION_DAYS, state.lockMode);
   const retention = await readLock(admin, bucket);
   if (!retention) throw new Error("Object lock reads back as off, or with no retention.");
   const [length, unit] = retention.Days ? [retention.Days, "day"] : [retention.Years, "year"];
   return `object lock on, ${retention.Mode} for ${length} ${unit}${length === 1 ? "" : "s"}`;
 }
 
-/** Locks every new version for `days`, in governance mode. */
-function setLock(key, bucket, days) {
+/** Locks every new version for `days`, in the given mode (governance unless told otherwise). */
+function setLock(key, bucket, days, mode = "GOVERNANCE") {
   return key.s3.send(new PutObjectLockConfigurationCommand({
     Bucket: bucket,
-    ObjectLockConfiguration: { ObjectLockEnabled: "Enabled", Rule: { DefaultRetention: { Mode: "GOVERNANCE", Days: days } } },
+    ObjectLockConfiguration: { ObjectLockEnabled: "Enabled", Rule: { DefaultRetention: { Mode: mode, Days: days } } },
   }));
 }
 
@@ -791,6 +888,31 @@ function setLock(key, bucket, days) {
 async function readLock(key, bucket) {
   const { ObjectLockConfiguration: lock } = await key.s3.send(new GetObjectLockConfigurationCommand({ Bucket: bucket }));
   return lock?.ObjectLockEnabled === "Enabled" ? lock.Rule?.DefaultRetention : undefined;
+}
+
+/** When a version's lock runs out, as the store reads it back, or undefined if it has none. */
+async function readRetention(key, bucket, { Key, VersionId }) {
+  try {
+    const { Retention } = await key.s3.send(new GetObjectRetentionCommand({ Bucket: bucket, Key, VersionId }));
+    return Retention?.RetainUntilDate ? new Date(Retention.RetainUntilDate) : undefined;
+  } catch (error) {
+    if (error?.$metadata?.httpStatusCode === 404) return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Moves a version's lock date. Pushing it later is always allowed; bringing it forward needs a key
+ * with bypass_governance_retention in governance mode, and is refused outright in compliance mode.
+ */
+function setRetention(key, bucket, { Key, VersionId }, until, { bypass = false, mode = "GOVERNANCE" } = {}) {
+  return key.s3.send(new PutObjectRetentionCommand({
+    Bucket: bucket,
+    Key,
+    VersionId,
+    Retention: { Mode: mode, RetainUntilDate: until },
+    ...(bypass ? { BypassGovernanceRetention: true } : {}),
+  }));
 }
 
 /**

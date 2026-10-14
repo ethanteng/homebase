@@ -20,6 +20,7 @@ import {
   GetBucketLifecycleConfigurationCommand,
   GetBucketVersioningCommand,
   GetObjectLockConfigurationCommand,
+  GetObjectRetentionCommand,
   HeadObjectCommand,
   ListBucketsCommand,
   ListObjectsV2Command,
@@ -28,6 +29,7 @@ import {
   PutBucketVersioningCommand,
   PutObjectCommand,
   PutObjectLockConfigurationCommand,
+  PutObjectRetentionCommand,
 } from "@aws-sdk/client-s3";
 
 const answer = (body, status = 200) => async () => new Response(JSON.stringify(body), { status });
@@ -168,6 +170,10 @@ test("every kind of request the spike makes gets sent, with Content-MD5 where a 
       { ObjectLockConfiguration: { ObjectLockEnabled: "Enabled", Rule: { DefaultRetention: { Mode: "GOVERNANCE", Days: 1 } } } },
       true],
     [GetObjectLockConfigurationCommand, {}, false],
+    [PutObjectRetentionCommand,
+      { Key: "k", VersionId: "v", Retention: { Mode: "GOVERNANCE", RetainUntilDate: new Date(0) }, BypassGovernanceRetention: true },
+      true],
+    [GetObjectRetentionCommand, { Key: "k", VersionId: "v" }, false],
     [PutBucketLifecycleConfigurationCommand,
       { LifecycleConfiguration: { Rules: [{ ID: "r", Status: "Enabled", Filter: { Prefix: "" }, NoncurrentVersionExpiration: { NoncurrentDays: 1 } }] } },
       true],
@@ -203,6 +209,39 @@ test("every kind of request the spike makes gets sent, with Content-MD5 where a 
       assert.equal(headers["content-md5"], undefined, label);
     }
   });
+});
+
+test("compliance mode reaches the wire in lock config and retention", async () => {
+  const seen = [];
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => (body += chunk));
+    request.on("end", () => {
+      seen.push(body);
+      response.end();
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const s3 = s3Client({
+    endpoint: `http://127.0.0.1:${server.address().port}`,
+    region: "us-east-1",
+    accessKey: "AKIAEXAMPLE",
+    secretKey: "secret",
+  });
+  try {
+    await s3.send(new PutObjectLockConfigurationCommand({
+      Bucket: "b",
+      ObjectLockConfiguration: { ObjectLockEnabled: "Enabled", Rule: { DefaultRetention: { Mode: "COMPLIANCE", Days: 1 } } },
+    }));
+    await s3.send(new PutObjectRetentionCommand({
+      Bucket: "b", Key: "k", VersionId: "v",
+      Retention: { Mode: "COMPLIANCE", RetainUntilDate: new Date(0) },
+    }));
+  } finally {
+    server.close();
+  }
+  assert.ok(seen[0].includes("<Mode>COMPLIANCE</Mode>"), "bucket default lock carries COMPLIANCE");
+  assert.ok(seen[1].includes("<Mode>COMPLIANCE</Mode>"), "a version's retention carries COMPLIANCE");
 });
 
 test("waiting for a key gives up at once on trouble that never left this computer", async () => {
