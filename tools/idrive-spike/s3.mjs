@@ -42,11 +42,18 @@ export function s3Client({ endpoint, region, accessKey, secretKey }) {
   return client;
 }
 
-/** What S3 said, short enough for a table cell: `AccessDenied (403)`. */
+/**
+ * What S3 said, short enough for a table cell: `AccessDenied (403)`. An unusual answer, like a 400
+ * where S3 would say 403, comes with the store's own message, since the name alone says little.
+ */
 export function errorLabel(error) {
   const status = error?.$metadata?.httpStatusCode;
   const name = error?.Code ?? error?.name ?? "Error";
-  return status ? `${name} (${status})` : `${name}: ${error?.message ?? error}`;
+  if (!status) return `${name}: ${error?.message ?? error}`;
+  const message = error?.message;
+  const telling = status >= 400 && status < 500 && ![401, 403, 404].includes(status)
+    && message && message !== name && message !== "UnknownError";
+  return telling ? `${name} (${status}): ${message}` : `${name} (${status})`;
 }
 
 const REFUSALS = new Set(["AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch", "AllAccessDisabled", "AccountProblem"]);
@@ -69,8 +76,8 @@ function isPassing(error) {
 
 /**
  * Tries `action`, asking again while the failure is passing trouble. `refused` is true only when
- * the store said no on purpose. An answer that is neither allowed nor refused proves nothing either
- * way, and whoever asked has to treat it so.
+ * the store said no on purpose. Any other failure says what was asked wasn't done, but not that the
+ * key is barred from doing it; `passing` says whether that was trouble reaching the store at all.
  */
 export async function attempt(action, { tries = 3, every = 2000 } = {}) {
   for (let tried = 1; ; tried++) {
@@ -79,7 +86,8 @@ export async function attempt(action, { tries = 3, every = 2000 } = {}) {
       return { allowed: true, refused: false };
     } catch (error) {
       if (isRefusal(error)) return { allowed: false, refused: true, error: errorLabel(error) };
-      if (!isPassing(error) || tried >= tries) return { allowed: false, refused: false, error: errorLabel(error) };
+      const passing = isPassing(error);
+      if (!passing || tried >= tries) return { allowed: false, refused: false, passing, error: errorLabel(error) };
       await wait(every);
     }
   }

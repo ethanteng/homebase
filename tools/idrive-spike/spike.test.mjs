@@ -114,13 +114,19 @@ test("passing trouble is asked again, and never passes for a refusal", async () 
   assert.equal(flaky.calls(), 2);
 
   const down = scripted(s3Error("InternalError", 500));
-  assert.deepEqual(await attempt(down.action, { every: 1 }), { allowed: false, refused: false, error: "InternalError (500)" });
+  assert.deepEqual(await attempt(down.action, { every: 1 }),
+    { allowed: false, refused: false, passing: true, error: "InternalError (500)" });
   assert.equal(down.calls(), 3);
 
-  // A plain answer isn't asked again, but isn't a refusal either.
+  // A plain answer isn't asked again, and isn't a refusal either.
   const missing = scripted(s3Error("NoSuchBucket", 404));
-  assert.equal((await attempt(missing.action, { every: 1 })).refused, false);
+  assert.deepEqual(await attempt(missing.action, { every: 1 }),
+    { allowed: false, refused: false, passing: false, error: "NoSuchBucket (404)" });
   assert.equal(missing.calls(), 1);
+
+  // An unusual no keeps the store's own words.
+  const locked = scripted(Object.assign(s3Error("InvalidRequest", 400), { message: "Object is WORM protected" }));
+  assert.equal((await attempt(locked.action, { every: 1 })).error, "InvalidRequest (400): Object is WORM protected");
 });
 
 test("a revoked key is timed to its refusal, not to the first error on the way", async () => {

@@ -352,19 +352,22 @@ async function run({ sizeMb, quotaTest, objectLock, keep }) {
       const current = before.versions.filter((v) => v.IsLatest);
       let hidden = 0;
       let accepted = 0;
-      let refused = 0;
-      // Attempts that got neither a yes nor a no, which prove nothing about the key.
+      // How the store turned deletes down. Listing the bucket afterwards is what says whether
+      // anything was destroyed, so any answer at all is enough here...
+      const declined = [];
+      // ...but not trouble reaching the store, which leaves a version standing without showing
+      // anything about the key.
       const unclear = [];
       for (const v of current) {
         const result = await attempt(() => host.s3.send(new DeleteObjectCommand({ Bucket: main, Key: v.Key })));
         if (result.allowed) hidden++;
-        else if (!result.refused) unclear.push(result.error);
+        else if (result.passing) unclear.push(result.error);
       }
       for (const v of before.versions) {
         const result = await attempt(() => host.s3.send(new DeleteObjectCommand({ Bucket: main, Key: v.Key, VersionId: v.VersionId })));
         if (result.allowed) accepted++;
-        else if (result.refused) refused++;
-        else unclear.push(result.error);
+        else if (result.passing) unclear.push(result.error);
+        else declined.push(result.error);
       }
       // A store can answer yes and keep the version anyway, so what counts is what's left.
       const left = new Set((await allVersions(admin.s3, main)).versions.map((v) => `${v.Key}\n${v.VersionId}`));
@@ -388,14 +391,15 @@ async function run({ sizeMb, quotaTest, objectLock, keep }) {
           ? "restic still opens the repository"
           : `restic can't open the repository (exit ${after.code}: ${tail(after.stderr, 1)})`;
       const doubt = unclear.length
-        ? ` ${unclear.length} attempts got neither a yes nor a no (${[...new Set(unclear)].join(", ")}), so this proves less than it should.`
+        ? ` ${unclear.length} attempts couldn't reach the store (${[...new Set(unclear)].join(", ")}), so this proves less than it should.`
         : "";
       const versions = before.versions.length;
+      const how = declined.length ? ` (${[...new Set(declined)].join("; ")})` : "";
       const verdict = destroyed
-        ? `DESTROYED ${destroyed} of ${versions} versions (${accepted} deletes accepted, ${refused} refused).`
+        ? `DESTROYED ${destroyed} of ${versions} versions (${accepted} deletes accepted, ${declined.length} turned down${how}).`
         : accepted
           ? `Accepted ${accepted} of ${versions} deletes of a version, yet every version is still there.`
-          : `Refused ${refused} of ${versions} attempts to destroy a version, and every version is still there.`;
+          : `Every version is still there: the store turned down all ${declined.length} deletes${how}.`;
       return {
         outcome: destroyed === 0 && unclear.length === 0 ? "pass" : "fail",
         detail: `Hid ${hidden} of ${current.length} objects behind delete markers. ${verdict} ${seen} Afterwards ${opened}.${doubt}`,
