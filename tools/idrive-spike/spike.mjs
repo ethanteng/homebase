@@ -48,6 +48,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // that long, and governance mode, so the cleanup can still get past it.
 const RETENTION_DAYS = 1;
 const RUNS = join(HERE, "runs");
+// What the reseller API calls an email it has no account for, spelling and all.
+const GONE = "account_non_existant";
 
 try {
   process.loadEnvFile(join(HERE, ".env"));
@@ -552,6 +554,7 @@ async function removeUser(record, reseller, state, save, admin) {
       await reseller.removeUser(state.email);
       return "Removed: disable_user, then remove_user, with the data in place.";
     } catch (error) {
+      if (error.code === GONE) return "Already gone: iDrive has no account with this email.";
       return { outcome: "note", detail: `Refused: ${error.message}. Emptying it first instead.` };
     }
   });
@@ -667,8 +670,13 @@ function turnOnVersioning(key, bucket) {
 }
 
 async function findUser(reseller, email) {
-  const users = listIn(await reseller.users(email), "users");
-  return users.find((user) => user.email?.toLowerCase() === email.toLowerCase());
+  try {
+    const users = listIn(await reseller.users(email), "users");
+    return users.find((user) => user.email?.toLowerCase() === email.toLowerCase());
+  } catch (error) {
+    if (error.code === GONE) return undefined;
+    throw error;
+  }
 }
 
 async function disable(reseller, email) {
