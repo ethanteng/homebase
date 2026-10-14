@@ -28,9 +28,11 @@ become the service's client later.
 8. **Checks that key can't reach past its bucket:** it can't list or write the other bucket,
    create a bucket, or delete its own.
 9. **Checks that key can't weaken the bucket's protection:** suspend versioning, replace or delete
-   the expiry rule, or, with `--object-lock`, change object lock's retention. Each is judged by
-   reading the setting back with the service's key, and anything the host's key managed is put
-   back.
+   the expiry rule, or, with `--object-lock`, change object lock's retention. With object lock it
+   also writes a version and tries to bring that version's own lock date forward, once plainly and
+   once asking to bypass the lock. The bucket's default only governs what's written next; a
+   version's own date is what protects a backup already made. Each try is judged by reading the
+   setting back with the service's key, and anything the host's key managed is put back.
 10. **Backs up a made-up library** with restic, using the host's key. The library is 200 MB by
     default and includes documents, photos, a video, awkward names, a hidden file, an empty file
     and an empty folder. The step reports upload speed.
@@ -42,8 +44,9 @@ become the service's client later.
     as old versions, big enough to see in usage and in whether they expire.
 13. **Checks every byte, restores, and compares** with the library, byte for byte.
 14. **Tries to wipe the bucket with the host's key**, deleting every object and every version.
-    Then it lists what's left, since a store can answer yes to a delete and keep the version
-    anyway.
+    With object lock, it tries every version again while asking to bypass the lock, which only a
+    key given `bypass_governance_retention` should get away with. Then it lists what's left, since
+    a store can answer yes to a delete and keep the version anyway.
 15. **Rolls the bucket back** with the service's key, then checks and restores again. If any
     object's versions are gone, it says how many and skips the restore.
 16. **Compares usage three ways:** what `/users`, `usage_stats` and `bucket_stats` report, against
@@ -135,7 +138,9 @@ node spike.mjs cleanup <run id>
   period.
 - **The host's key can't weaken that protection (9).** If it could suspend versioning, shorten
   the expiry rule or change object lock, a compromised host could undo the protection first and
-  wipe the bucket after.
+  wipe the bucket after. Changing the bucket's default is the lesser risk: the service can check
+  for it and put it back. Bringing an existing version's lock date forward, or getting past the
+  lock by asking to bypass it (14), would leave no window for that.
 - **The expiry rule is kept (6), and old versions really go (16, over the following days).** If
   iDrive doesn't expire them, the service needs its own job to delete old versions once their
   retention ends, or storage grows with every prune.

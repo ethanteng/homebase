@@ -20,6 +20,7 @@ import {
   GetBucketLifecycleConfigurationCommand,
   GetBucketVersioningCommand,
   GetObjectLockConfigurationCommand,
+  GetObjectRetentionCommand,
   HeadObjectCommand,
   ListBucketsCommand,
   ListObjectsV2Command,
@@ -28,6 +29,7 @@ import {
   PutBucketVersioningCommand,
   PutObjectCommand,
   PutObjectLockConfigurationCommand,
+  PutObjectRetentionCommand,
 } from "@aws-sdk/client-s3";
 
 const answer = (body, status = 200) => async () => new Response(JSON.stringify(body), { status });
@@ -168,6 +170,10 @@ test("every kind of request the spike makes gets sent, with Content-MD5 where a 
       { ObjectLockConfiguration: { ObjectLockEnabled: "Enabled", Rule: { DefaultRetention: { Mode: "GOVERNANCE", Days: 1 } } } },
       true],
     [GetObjectLockConfigurationCommand, {}, false],
+    [PutObjectRetentionCommand,
+      { Key: "k", VersionId: "v", Retention: { Mode: "GOVERNANCE", RetainUntilDate: new Date(0) }, BypassGovernanceRetention: true },
+      true],
+    [GetObjectRetentionCommand, { Key: "k", VersionId: "v" }, false],
     [PutBucketLifecycleConfigurationCommand,
       { LifecycleConfiguration: { Rules: [{ ID: "r", Status: "Enabled", Filter: { Prefix: "" }, NoncurrentVersionExpiration: { NoncurrentDays: 1 } }] } },
       true],
