@@ -469,7 +469,7 @@ public sealed class SetupWindow : Window
     /// Whether to keep this Mac awake, asked wherever an administrator's password is asked anyway.
     /// Ticked: a host asleep can't hand anybody their files.
     /// </summary>
-    private static CheckBox AwakeChoice() => new()
+    private CheckBox AwakeChoice() => new()
     {
         IsChecked = true,
         Content = new StackPanel
@@ -480,13 +480,25 @@ public sealed class SetupWindow : Window
                 new TextBlock { Text = "Keep this Mac awake, so everyone can reach their files", TextWrapping = TextWrapping.Wrap },
                 new TextBlock
                 {
-                    Text = "It won’t go to sleep while it’s the host, and starts up again by itself after a power cut where it can. The screen still turns off as usual.",
+                    Text = $"It won’t go to sleep while it’s the host{Besides()} The screen still turns off as usual.",
                     TextWrapping = TextWrapping.Wrap,
                     Opacity = 0.75
                 }
             }
         }
     };
+
+    /// <summary>
+    /// What else keeping this Mac awake comes to, as it is: a desktop starts up again after a power
+    /// cut, and a laptop still sleeps when its lid is closed, which nothing here can stop.
+    /// </summary>
+    private string Besides() =>
+        _controller.Power switch
+        {
+            { HasBattery: true, SleepDisabled: false } => ", but closing its lid still puts it to sleep, so keep it open.",
+            { CanAutoRestart: true } => ", and starts up again by itself after a power cut.",
+            _ => "."
+        };
 
     /// <summary>What was chosen, or null where nothing was asked, which leaves things as they are.</summary>
     private static bool? Chosen(CheckBox? awake) => awake is null ? null : awake.IsChecked == true;
@@ -498,7 +510,7 @@ public sealed class SetupWindow : Window
         var heading = awake ? "Let this Mac sleep again?" : "Keep this Mac awake";
         Reset(heading, awake
             ? "It goes back to sleeping as it’s set to in System Settings, and to what it did after a power cut before. While it’s asleep, nobody can reach their files and other computers stop syncing. macOS asks for an administrator’s password."
-            : "A Mac that’s asleep can’t hand anybody their files, and macOS puts one to sleep after a few minutes with nobody at it. Uncloud can keep it awake while it’s the host, and have it start up again by itself after a power cut where it can. The screen still turns off as usual, and turning Uncloud off puts everything back. macOS asks for an administrator’s password.");
+            : $"A Mac that’s asleep can’t hand anybody their files, and macOS puts one to sleep after a few minutes with nobody at it. Uncloud can keep this one from going to sleep while it’s the host{Besides()} The screen still turns off as usual, and turning Uncloud off puts everything back. macOS asks for an administrator’s password.");
         var later = new Button { Content = awake ? "Cancel" : "Not Now" };
         later.Click += (_, _) => Close();
         var go = awake

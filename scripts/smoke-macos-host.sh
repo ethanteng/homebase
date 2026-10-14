@@ -216,6 +216,15 @@ restart_before=""
 if can_restart; then restart_before="$(restart_setting)"; fi
 sudo /bin/bash "$script" keep-awake
 held_awake || fail "Nothing holds this Mac awake as $account: $(pmset -g assertions)"
+# What Settings says about staying on is read by Uncloud's own account, which is no administrator:
+# every part of it, FileVault included, has to be something that account can ask.
+report="$(api GET /api/host/power)"
+[[ "$(json checked <<<"$report")" == True ]] || fail "Uncloud's account couldn't read this Mac's power settings: $report"
+[[ "$(json state fileVault <<<"$report")" != None ]] || fail "Uncloud's account couldn't tell whether FileVault is on: $report"
+if python3 -c 'import json, sys
+sys.exit(0 if any(f["code"] == "sleeps" for f in json.load(sys.stdin)["findings"]) else 1)' <<<"$report"; then
+  fail "Kept awake, Uncloud still says this Mac goes to sleep: $report"
+fi
 if can_restart; then
   [[ "$(restart_setting)" == 1 ]] || fail "This Mac won't start up again by itself after a power cut."
 fi

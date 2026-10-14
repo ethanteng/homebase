@@ -1558,7 +1558,8 @@ tbody tr.selected {
 }
 
 .account-dropbox h3,
-.host-storage h3 {
+.host-storage h3,
+.host-power h3 {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1567,7 +1568,8 @@ tbody tr.selected {
   font-weight: 600;
 }
 .account-dropbox h3 svg,
-.host-storage h3 svg {
+.host-storage h3 svg,
+.host-power h3 svg {
   flex-shrink: 0;
   color: var(--muted);
 }
@@ -1577,10 +1579,39 @@ tbody tr.selected {
   width: 620px;
 }
 .account-dropbox,
-.host-storage {
+.host-storage,
+.host-power {
   margin-top: 30px;
   padding-top: 26px;
   border-top: 1px solid var(--line);
+}
+/* What could stop the host staying on. The words say it; the colour only marks each one out. */
+.power-findings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 72ch;
+}
+.power-findings li,
+.host-power .power-clear {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.power-findings svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--warn);
+}
+.host-power .power-clear svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--ok);
 }
 .account-dropbox .button {
   align-self: flex-start;

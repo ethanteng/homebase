@@ -25,10 +25,10 @@ public sealed class HostInstallTests : IAsyncDisposable
         _hostConfig = Path.Combine(_temporary, "Homebase");
     }
 
-    private DesktopController Controller()
+    private DesktopController Controller(Func<Homebase.Core.PowerState?>? power = null)
     {
         var controller = new DesktopController(_paths, Path.Combine(_temporary, "no-server-here"),
-            NullLoggerFactory.Instance, new HttpClient(), _install, _hostConfig);
+            NullLoggerFactory.Instance, new HttpClient(), _install, _hostConfig, power ?? (() => null));
         _controllers.Add(controller);
         return controller;
     }
@@ -387,6 +387,45 @@ public sealed class HostInstallTests : IAsyncDisposable
         var output = await RunAsync("/bin/bash", terminal);
 
         Assert.StartsWith("Uncloud wants to keep this Mac awake, so everyone’s “files” can't be $LOST. It needs an administrator’s password.\n", output);
+    }
+
+    [Fact]
+    public async Task The_menu_says_what_could_stop_the_host_and_looks_again_once_that_changes()
+    {
+        // A desktop as it comes: it would go to sleep after ten minutes.
+        var asleep = new Homebase.Core.PowerState(10, false, false, false, false, true, true, []);
+        var reads = 0;
+        new DesktopSettings { Mode = DesktopMode.Host }.Save(_paths);
+        _install.Installed = true;
+        var controller = Controller(() => { reads++; return asleep; });
+
+        await controller.CheckPowerAsync(CancellationToken.None);
+        var sleeps = Assert.Single(controller.PowerFindings);
+        Assert.Equal("sleeps", sleeps.Code);
+        Assert.True(sleeps.InMenu);
+
+        // Asked every few seconds by the menu, it reads the Mac again only now and then.
+        await controller.CheckPowerAsync(CancellationToken.None);
+        Assert.Equal(1, reads);
+
+        // Kept awake from here, it looks again straight away, and there's nothing left to say.
+        await controller.KeepAwakeAsync(true, CancellationToken.None);
+        await controller.CheckPowerAsync(CancellationToken.None);
+        Assert.Equal(2, reads);
+        Assert.Empty(controller.PowerFindings);
+    }
+
+    [Fact]
+    public async Task Only_the_host_is_told_about_staying_on()
+    {
+        // Somebody's own laptop needn't stay on for anybody.
+        var laptop = new Homebase.Core.PowerState(10, false, true, true, false, false, null, []);
+        var controller = Controller(() => laptop);
+
+        await controller.CheckPowerAsync(CancellationToken.None);
+        Assert.Empty(controller.PowerFindings);
+        // Though setting it up as the host is told it's a laptop, to say what keeping it awake can't do.
+        Assert.True(controller.Power?.HasBattery);
     }
 
     private static async Task<string> RunAsync(string program, params string[] arguments)

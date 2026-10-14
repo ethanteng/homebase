@@ -124,6 +124,7 @@ public sealed class App : Application
                 case DesktopMode.Host:
                     await _controller.KeepServerRunningAsync(CancellationToken.None);
                     _status = await _controller.HostStatusAsync(CancellationToken.None);
+                    await _controller.CheckPowerAsync(CancellationToken.None);
                     break;
                 default:
                     _status = "Not set up yet";
@@ -142,6 +143,11 @@ public sealed class App : Application
     {
         var menu = new List<NativeMenuItemBase>();
         menu.Add(new NativeMenuItem(_status) { IsEnabled = false });
+        // Whatever could stop the host staying on for everybody, said where the person looking after
+        // it looks. What Keep This Mac Awake puts right is put right from the item below.
+        if (_controller.Settings.Mode is DesktopMode.Host)
+            foreach (var finding in _controller.PowerFindings)
+                menu.Add(new NativeMenuItem("⚠︎ " + finding.Title) { IsEnabled = false });
         menu.Add(new NativeMenuItemSeparator());
         var settings = _controller.Settings;
         switch (settings.Mode)

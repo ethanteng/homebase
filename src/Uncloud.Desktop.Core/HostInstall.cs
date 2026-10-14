@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Homebase.Core;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
@@ -96,7 +97,7 @@ public sealed class HostInstall(string serverDirectory, ILogger? logger = null) 
     public const string Base = "/Library/Application Support/Uncloud";
     public static readonly string Plist = $"/Library/LaunchDaemons/{Label}.plist";
     /// <summary>The service that keeps this Mac awake, which is there for as long as it does.</summary>
-    public const string AwakePlist = "/Library/LaunchDaemons/life.uncloud.awake.plist";
+    public const string AwakePlist = HostPower.AwakeService;
     /// <summary>Where this app hands Uncloud the Mac's folders, in a folder only it and Uncloud can open.</summary>
     public string BridgeSocket { get; } = Path.Combine(Base, "Bridge", "host-folders.sock");
 
