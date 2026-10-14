@@ -20,6 +20,7 @@ import {
   DeleteBucketCommand,
   DeleteBucketLifecycleCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   GetBucketLifecycleConfigurationCommand,
   GetBucketVersioningCommand,
   GetObjectLockConfigurationCommand,
@@ -73,6 +74,8 @@ const HELP = `Usage: node spike.mjs <command>
     --keep                Leave the test user in place afterwards, to look again later.
     --quota-test          Also push the user over its quota (adds ~1.1 GB; implies --keep).
     --object-lock         Protect versions with object lock (governance mode, one day) as well.
+    --big-old-versions    Delete the library's video and prune it away, leaving about half the
+                          library as old versions, to see whether they're billed and expire.
   stats <run id>        Look at a kept run's usage again, and whether it still takes writes.
   cleanup <run id>      Remove a run's test user and everything it stored.
 
@@ -91,6 +94,7 @@ async function main() {
       "size-mb": { type: "string", default: "200" },
       "quota-test": { type: "boolean", default: false },
       "object-lock": { type: "boolean", default: false },
+      "big-old-versions": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -104,6 +108,7 @@ async function main() {
         sizeMb: Number(values["size-mb"]),
         quotaTest: values["quota-test"],
         objectLock: values["object-lock"],
+        bigOldVersions: values["big-old-versions"],
         keep: values.keep || values["quota-test"],
       });
     case "stats":
@@ -138,7 +143,7 @@ async function listRegions() {
   console.table(regions.map((r) => ({ key: r.region_key, name: r.region_name, country: r.country, active: r.active })));
 }
 
-async function run({ sizeMb, quotaTest, objectLock, keep }) {
+async function run({ sizeMb, quotaTest, objectLock, bigOldVersions, keep }) {
   const config = settings();
   if (!config.email?.includes("{id}")) {
     throw new Error('Set SPIKE_EMAIL to an address with {id} in it, like "spike-{id}@example.com", so every run makes a user nobody has used.');
@@ -156,6 +161,7 @@ async function run({ sizeMb, quotaTest, objectLock, keep }) {
     buckets: { main: `uncloud-spike-${id}`, other: `uncloud-spike-${id}-other` },
     s3Region: config.s3Region,
     objectLock,
+    bigOldVersions,
     started: new Date().toISOString(),
   };
   const save = () => writeFileSync(join(dir, "state.json"), JSON.stringify(state, null, 2));
@@ -405,7 +411,7 @@ async function run({ sizeMb, quotaTest, objectLock, keep }) {
     });
 
     await record.step("Change the library and back up again", async () => {
-      const changed = changeLibrary(library);
+      const changed = changeLibrary(library, { dropVideo: bigOldVersions });
       const second = await restic.backup(library);
       snapshot = second.snapshot_id;
       expected = await fingerprint(library);
@@ -413,7 +419,9 @@ async function run({ sizeMb, quotaTest, objectLock, keep }) {
     });
 
     await record.step("Prune the first backup with the host's key", async () => {
-      await restic.run(["forget", "--keep-last", "1", "--prune"]);
+      // restic normally leaves a pack in place while most of it is still used. With
+      // --big-old-versions it repacks everything, so the video's packs go as whole objects.
+      await restic.run(["forget", "--keep-last", "1", "--prune", ...(bigOldVersions ? ["--max-unused", "0"] : [])]);
       const held = tally(await allVersions(admin.s3, main));
       return `Pruned. The bucket shows ${held.current} objects (${mb(held.currentBytes)}); versioning keeps ${held.older} older versions (${mb(held.olderBytes)}) and ${held.markers} delete markers. Lock files left behind: ${held.locks}.`;
     }, { carryOn: true });
@@ -595,6 +603,28 @@ async function stats(id) {
     });
     await record.step("Usage, as iDrive reports it and as the bucket holds it", () =>
       usage(reseller, state, key.s3), { carryOn: true });
+    await record.step("Can the account still be read?", async () => {
+      const bucket = state.buckets.main;
+      const stored = (await allVersions(key.s3, bucket)).versions
+        .filter((v) => v.IsLatest && v.Size > 0)
+        .sort((a, b) => a.Size - b.Size);
+      if (!stored.length) return { outcome: "note", detail: "There's nothing in the bucket to read." };
+      const [smallest, largest] = [stored[0], stored.at(-1)];
+      const whole = await attempt(async () => {
+        const { Body } = await key.s3.send(new GetObjectCommand({ Bucket: bucket, Key: smallest.Key }));
+        const bytes = await Body.transformToByteArray();
+        if (bytes.length !== smallest.Size) throw new Error(`${bytes.length} of ${smallest.Size} bytes came back`);
+      });
+      const part = await attempt(async () => {
+        const { Body } = await key.s3.send(new GetObjectCommand({ Bucket: bucket, Key: largest.Key, Range: "bytes=0-1048575" }));
+        await Body.transformToByteArray();
+      });
+      const went = (result) => (result.allowed ? "worked" : answered(result));
+      return {
+        outcome: "note",
+        detail: `Downloading a whole object (${smallest.Size} bytes) ${went(whole)}; downloading the first megabyte of the largest (${mb(largest.Size)}) ${went(part)}.`,
+      };
+    }, { carryOn: true });
     await record.step("Does the account still take writes?", async () => {
       const write = await attempt(() =>
         key.s3.send(new PutObjectCommand({ Bucket: state.buckets.main, Key: `probe/${stamp()}.txt`, Body: "probe", ChecksumAlgorithm: "CRC32" })));
@@ -698,7 +728,7 @@ async function usage(reseller, state, s3) {
   }
   const held = tally(await allVersions(s3, state.buckets.main));
   const oldest = held.oldestOlder ? `, the oldest written ${hoursSince(held.oldestOlder)} hours ago` : "";
-  said.push(`The bucket really holds ${held.current} current objects (${mb(held.currentBytes)}) and ${held.older} older versions (${mb(held.olderBytes)})${oldest}`);
+  said.push(`The bucket really holds ${held.current} current objects (${mb(held.currentBytes)}) and ${held.older} older versions (${mb(held.olderBytes)})${oldest}: ${mb(held.currentBytes + held.olderBytes)} in all`);
   try {
     const rules = await readExpiry({ s3 }, state.buckets.main);
     said.push(rules.length ? `Expiry rule: ${rules.map(describeRule).join("; ")}` : "No expiry rule");
