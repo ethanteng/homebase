@@ -273,10 +273,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Signed automatically with an App Store Connect API key, which lets Xcode make the
-      # distribution certificate and profile it needs, so there is no certificate to export and
-      # keep. The build number is this run's, so each upload is newer than the last.
-      - name: Archive and upload
+      # Signed with an App Store Connect API key, which lets Xcode make the distribution certificate
+      # and profile it needs, so there is no certificate to export and keep. The build number is
+      # this run's, so each upload is newer than the last.
+      #
+      # The archive is built unsigned. Signing while archiving is development signing, which Apple
+      # only provisions for a team with a device registered, and which makes a new development
+      # certificate on every fresh runner. The App Store signature goes on at export instead, with
+      # a cloud-managed distribution certificate, and is checked before anything is uploaded.
+      - name: Archive, sign and upload
         env:
           KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -290,23 +295,46 @@ jobs:
             fi
           done
           printf '%s\n' "$KEY" > "$RUNNER_TEMP/AuthKey.p8"
+          trap 'rm -f "$RUNNER_TEMP/AuthKey.p8"' EXIT
           auth=(-allowProvisioningUpdates -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8"
             -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID")
+
           xcodebuild archive -quiet -project src/Uncloud.iOS/Uncloud.xcodeproj -scheme Uncloud \
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Uncloud.xcarchive" \
-            DEVELOPMENT_TEAM="$TEAM_ID" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" "${auth[@]}"
-          cat > "$RUNNER_TEMP/export.plist" <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>method</key><string>app-store-connect</string>
-            <key>destination</key><string>upload</string>
-            <key>signingStyle</key><string>automatic</string>
-            <key>teamID</key><string>$TEAM_ID</string>
-            <key>manageAppVersionAndBuildNumber</key><false/>
-          </dict></plist>
-          PLIST
+            DEVELOPMENT_TEAM="$TEAM_ID" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" CODE_SIGNING_ALLOWED=NO
+
+          # Export options for App Store Connect, either kept here as an .ipa or sent straight up.
+          options() {
+            plutil -create xml1 "$2"
+            plutil -insert method -string app-store-connect "$2"
+            plutil -insert destination -string "$1" "$2"
+            plutil -insert signingStyle -string automatic "$2"
+            plutil -insert teamID -string "$TEAM_ID" "$2"
+            plutil -insert manageAppVersionAndBuildNumber -bool NO "$2"
+          }
+
+          # Signed into an .ipa first, to look at. An app signed without its own identifier can't
+          # use the Keychain, so nobody could stay signed in; that is refused here, not found on a phone.
+          options export "$RUNNER_TEMP/export.plist"
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Uncloud.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" "${auth[@]}"
-          rm "$RUNNER_TEMP/AuthKey.p8"
+            -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/signed" "${auth[@]}"
+          mkdir "$RUNNER_TEMP/ipa"
+          unzip -q "$RUNNER_TEMP/signed/"*.ipa -d "$RUNNER_TEMP/ipa"
+          app="$(echo "$RUNNER_TEMP"/ipa/Payload/*.app)"
+          codesign --verify --strict "$app"
+          codesign -d --entitlements - --xml "$app" > "$RUNNER_TEMP/entitlements.plist" 2>/dev/null
+          echo "Signed with these entitlements:"
+          plutil -p "$RUNNER_TEMP/entitlements.plist"
+          # Its identifier is this app's, under whatever App ID prefix the account has, which is
+          # usually the team ID but needn't be; and the team that signed it is this one.
+          identifier="$(plutil -extract application-identifier raw "$RUNNER_TEMP/entitlements.plist" 2>/dev/null || true)"
+          team="$(plutil -extract com.apple.developer.team-identifier raw "$RUNNER_TEMP/entitlements.plist" 2>/dev/null || true)"
+          if [[ "$identifier" != ?*.life.uncloud.ios || "$team" != "$TEAM_ID" ]]; then
+            echo "::error::The signed app says application-identifier '$identifier' and team '$team', not something.life.uncloud.ios from team $TEAM_ID, so nothing was uploaded."
+            exit 1
+          fi
+
+          options upload "$RUNNER_TEMP/upload.plist"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Uncloud.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/upload.plist" -exportPath "$RUNNER_TEMP/upload" "${auth[@]}"
