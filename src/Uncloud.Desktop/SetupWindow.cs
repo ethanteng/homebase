@@ -20,7 +20,9 @@ public enum SetupStart
     UseAnotherFolder,
     TurnOff,
     /// <summary>Bringing Uncloud itself up to date with an app that was updated.</summary>
-    Update
+    Update,
+    /// <summary>Keeping this Mac awake for everybody, or letting it sleep again.</summary>
+    KeepAwake
 }
 
 /// <summary>
@@ -58,6 +60,7 @@ public sealed class SetupWindow : Window
         else if (start is SetupStart.UseAnotherFolder) ShowAnotherFolder();
         else if (start is SetupStart.TurnOff) ShowTurnOff();
         else if (start is SetupStart.Update) ShowUpdate();
+        else if (start is SetupStart.KeepAwake) ShowKeepAwake();
         else if (link is not null) ShowCode(link);
         else if (controller.Settings.Mode is DesktopMode.Computer) ShowFind();
         else ShowChoice();
@@ -347,9 +350,10 @@ public sealed class SetupWindow : Window
                     : Links(("Keep them on this Mac instead", () => ShowHost())));
             }
         }
+        var awake = _controller.CanSetUpPrivately ? AwakeChoice() : null;
         var start = new Button { Content = "Start Uncloud Here", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
         start.Click += async (_, _) => await AdministerAsync("Make this Mac the host", start, "Starting…",
-            (inTerminal, stop) => _controller.BecomeHostAsync(root, stop, inTerminal),
+            (inTerminal, stop) => _controller.BecomeHostAsync(root, stop, inTerminal, Chosen(awake)),
             again: () => ShowHost(root),
             done: () =>
             {
@@ -357,6 +361,7 @@ public sealed class SetupWindow : Window
                 App.Open(DesktopController.HostAddress.ToString());
                 Close();
             });
+        if (awake is not null) _body.Children.Add(awake);
         _body.Children.Add(_problem);
         _body.Children.Add(start);
         if (_controller.CannotSetUpPrivately is { } why)
@@ -379,11 +384,12 @@ public sealed class SetupWindow : Window
             Text = "Accounts, files and synced computers all carry on as they are. If everyone’s files are in your home folder, they move out of it, to a folder only Uncloud can open. macOS asks for an administrator’s password.",
             TextWrapping = TextWrapping.Wrap
         });
+        var awake = _controller.OffersToKeepAwake ? AwakeChoice() : null;
         var later = new Button { Content = "Not Now" };
         later.Click += (_, _) => Close();
         var go = new Button { Content = "Continue", Background = Accent, Foreground = Brushes.White };
         go.Click += async (_, _) => await AdministerAsync("Keep everyone’s files private", go, "Moving everything across…",
-            (inTerminal, stop) => _controller.KeepPrivateAsync(null, stop, inTerminal),
+            (inTerminal, stop) => _controller.KeepPrivateAsync(null, stop, inTerminal, Chosen(awake)),
             again: ShowKeepPrivate,
             done: () =>
             {
@@ -393,6 +399,7 @@ public sealed class SetupWindow : Window
                 Done();
             },
             later);
+        if (awake is not null) _body.Children.Add(awake);
         _body.Children.Add(_problem);
         _body.Children.Add(Buttons(later, go));
         if (_controller.CannotSetUpPrivately is { } why)
@@ -444,12 +451,62 @@ public sealed class SetupWindow : Window
     {
         Reset("Finish updating Uncloud",
             "This app has been updated. Uncloud itself runs from a copy only an administrator can change, so nobody can swap in something that reads everyone’s files. Updating that copy asks for an administrator’s password. Nobody is signed out, and it takes a moment.");
+        // Asked here, ticked, of a host that was set up before Uncloud could keep it awake: the
+        // password is being asked for anyway.
+        var awake = _controller.OffersToKeepAwake ? AwakeChoice() : null;
         var later = new Button { Content = "Not Now" };
         later.Click += (_, _) => Close();
         var go = new Button { Content = "Update", Background = Accent, Foreground = Brushes.White };
         go.Click += async (_, _) => await AdministerAsync("Finish updating Uncloud", go, "Updating…",
-            (inTerminal, stop) => _controller.KeepPrivateAsync(null, stop, inTerminal),
+            (inTerminal, stop) => _controller.KeepPrivateAsync(null, stop, inTerminal, Chosen(awake)),
             again: ShowUpdate, done: Close, later);
+        if (awake is not null) _body.Children.Add(awake);
+        _body.Children.Add(_problem);
+        _body.Children.Add(Buttons(later, go));
+    }
+
+    /// <summary>
+    /// Whether to keep this Mac awake, asked wherever an administrator's password is asked anyway.
+    /// Ticked: a host asleep can't hand anybody their files.
+    /// </summary>
+    private static CheckBox AwakeChoice() => new()
+    {
+        IsChecked = true,
+        Content = new StackPanel
+        {
+            Spacing = 2,
+            Children =
+            {
+                new TextBlock { Text = "Keep this Mac awake, so everyone can reach their files", TextWrapping = TextWrapping.Wrap },
+                new TextBlock
+                {
+                    Text = "It won’t go to sleep while it’s the host, and starts up again by itself after a power cut where it can. The screen still turns off as usual.",
+                    TextWrapping = TextWrapping.Wrap,
+                    Opacity = 0.75
+                }
+            }
+        }
+    };
+
+    /// <summary>What was chosen, or null where nothing was asked, which leaves things as they are.</summary>
+    private static bool? Chosen(CheckBox? awake) => awake is null ? null : awake.IsChecked == true;
+
+    /// <summary>From the menu: keeping this host awake, or letting it go back to sleeping as it was set to.</summary>
+    private void ShowKeepAwake()
+    {
+        var awake = _controller.KeepsAwake;
+        var heading = awake ? "Let this Mac sleep again?" : "Keep this Mac awake";
+        Reset(heading, awake
+            ? "It goes back to sleeping as it’s set to in System Settings, and to what it did after a power cut before. While it’s asleep, nobody can reach their files and other computers stop syncing. macOS asks for an administrator’s password."
+            : "A Mac that’s asleep can’t hand anybody their files, and macOS puts one to sleep after a few minutes with nobody at it. Uncloud can keep it awake while it’s the host, and have it start up again by itself after a power cut where it can. The screen still turns off as usual, and turning Uncloud off puts everything back. macOS asks for an administrator’s password.");
+        var later = new Button { Content = awake ? "Cancel" : "Not Now" };
+        later.Click += (_, _) => Close();
+        var go = awake
+            ? new Button { Content = "Let It Sleep" }
+            : new Button { Content = "Keep It Awake", Background = Accent, Foreground = Brushes.White };
+        go.Click += async (_, _) => await AdministerAsync(heading, go, awake ? "Letting it sleep…" : "Keeping it awake…",
+            (inTerminal, stop) => _controller.KeepAwakeAsync(!awake, stop, inTerminal),
+            again: ShowKeepAwake, done: Close, later);
         _body.Children.Add(_problem);
         _body.Children.Add(Buttons(later, go));
     }

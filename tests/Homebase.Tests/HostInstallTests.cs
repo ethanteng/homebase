@@ -117,6 +117,8 @@ public sealed class HostInstallTests : IAsyncDisposable
         Assert.False(_install.LastInTerminal);
         await controller.PrepareFolderAsync("/Volumes/Big", CancellationToken.None, inTerminal: true);
         Assert.True(_install.LastInTerminal);
+        await controller.KeepAwakeAsync(true, CancellationToken.None, inTerminal: true);
+        Assert.True(_install.LastInTerminal);
         await controller.TurnOffAsync(CancellationToken.None, inTerminal: true);
         Assert.True(_install.LastInTerminal);
     }
@@ -281,6 +283,112 @@ public sealed class HostInstallTests : IAsyncDisposable
         Assert.Equal(DesktopMode.Unset, DesktopSettings.Load(_paths).Mode);
     }
 
+    [Fact]
+    public async Task A_new_host_kept_awake_is_never_asked_about_it_again()
+    {
+        var controller = Controller();
+        Assert.True(controller.OffersToKeepAwake);
+
+        await controller.BecomeHostAsync(null, CancellationToken.None, awake: true);
+
+        Assert.Equal(true, Assert.Single(_install.AwakeAsked));
+        Assert.True(controller.KeepsAwake);
+        Assert.False(controller.OffersToKeepAwake);
+        Assert.True(DesktopSettings.Load(_paths).AskedToKeepAwake);
+    }
+
+    [Fact]
+    public async Task A_host_from_before_is_offered_it_once_and_a_no_is_remembered()
+    {
+        // Set up before Uncloud could keep a Mac awake. The next update asks, because the password
+        // is being asked for anyway.
+        new DesktopSettings { Mode = DesktopMode.Host }.Save(_paths);
+        _install.Installed = true;
+        var controller = Controller();
+        Assert.True(controller.OffersToKeepAwake);
+        Assert.False(controller.KeepsAwake);
+
+        // An update that wasn't asked about it leaves the Mac as it is, and still offers next time.
+        await controller.KeepPrivateAsync(null, CancellationToken.None);
+        Assert.Null(_install.AwakeAsked[^1]);
+        Assert.True(controller.OffersToKeepAwake);
+
+        // Unticked: it stays as it was, and isn't offered again on the next update.
+        await controller.KeepPrivateAsync(null, CancellationToken.None, awake: false);
+        Assert.Equal(false, _install.AwakeAsked[^1]);
+        Assert.False(controller.KeepsAwake);
+        Assert.False(Controller().OffersToKeepAwake);
+    }
+
+    [Fact]
+    public async Task The_menu_keeps_it_awake_and_lets_it_sleep_again()
+    {
+        new DesktopSettings { Mode = DesktopMode.Host }.Save(_paths);
+        _install.Installed = true;
+        var controller = Controller();
+
+        await controller.KeepAwakeAsync(true, CancellationToken.None);
+        Assert.True(controller.KeepsAwake);
+        Assert.False(controller.OffersToKeepAwake);
+
+        await controller.KeepAwakeAsync(false, CancellationToken.None);
+        Assert.False(controller.KeepsAwake);
+        // Said no to, from the menu: not offered again on updating.
+        Assert.False(controller.OffersToKeepAwake);
+    }
+
+    [Fact]
+    public async Task Only_a_host_in_its_own_account_is_kept_awake()
+    {
+        // One that runs as the person signed in here has nothing set up for it to run as.
+        new DesktopSettings { Mode = DesktopMode.Host }.Save(_paths);
+        _install.Installed = false;
+        var controller = Controller();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => controller.KeepAwakeAsync(true, CancellationToken.None));
+        Assert.False(_install.KeepsAwake);
+    }
+
+    [Fact]
+    public async Task Turning_it_off_lets_the_Mac_sleep_again()
+    {
+        new DesktopSettings { Mode = DesktopMode.Host, AskedToKeepAwake = true }.Save(_paths);
+        _install.Installed = true;
+        _install.KeepsAwake = true;
+        var controller = Controller();
+        Assert.True(controller.KeepsAwake);
+
+        await controller.TurnOffAsync(CancellationToken.None);
+
+        Assert.False(controller.KeepsAwake);
+        // Turned on again, it is asked afresh.
+        Assert.True(controller.OffersToKeepAwake);
+    }
+
+    [Fact]
+    public void The_script_is_told_to_keep_the_Mac_awake_only_when_somebody_chose()
+    {
+        Assert.Contains(("--awake", "on"), HostInstall.InstallOptions("/Applications/Uncloud.app", "ada", null, null, true));
+        Assert.Contains(("--awake", "off"), HostInstall.InstallOptions("/Applications/Uncloud.app", "ada", null, null, false));
+        Assert.DoesNotContain(HostInstall.InstallOptions("/Applications/Uncloud.app", "ada", "/Volumes/Big", null, null),
+            option => option.Flag == "--awake");
+    }
+
+    [Fact]
+    public async Task Terminal_says_what_the_password_is_for()
+    {
+        var terminal = Path.Combine(_temporary, "Uncloud.command");
+        await File.WriteAllTextAsync(terminal, HostInstall.TerminalScript(
+                "true", Path.Combine(_temporary, "result"), Path.Combine(_temporary, "error"),
+                Path.Combine(_temporary, "status"), Path.Combine(_temporary, "decision"),
+                "Uncloud wants to keep this Mac awake, so everyone’s “files” can't be $LOST.")
+            .Replace("sudo -v", "true").Replace("sudo -n ", "").Replace("clear\n", ""));
+
+        var output = await RunAsync("/bin/bash", terminal);
+
+        Assert.StartsWith("Uncloud wants to keep this Mac awake, so everyone’s “files” can't be $LOST. It needs an administrator’s password.\n", output);
+    }
+
     private static async Task<string> RunAsync(string program, params string[] arguments)
     {
         var start = new ProcessStartInfo(program) { RedirectStandardOutput = true, RedirectStandardError = true };
@@ -315,14 +423,28 @@ public sealed class HostInstallTests : IAsyncDisposable
         public Exception? Refusal { get; set; }
         public bool LastInTerminal { get; private set; }
         public List<(string? Root, string? Legacy)> Installs { get; } = [];
+        /// <summary>What each install was told about keeping the Mac awake, in order.</summary>
+        public List<bool?> AwakeAsked { get; } = [];
         public int Uninstalls { get; private set; }
+        public bool KeepsAwake { get; set; }
 
-        public Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken, bool inTerminal = false)
+        public Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken, bool inTerminal = false,
+            bool? awake = null)
         {
             LastInTerminal = inTerminal;
             if (Refusal is not null) throw Refusal;
             Installs.Add((root, legacyConfig));
+            AwakeAsked.Add(awake);
+            if (awake is { } keep) KeepsAwake = keep;
             Installed = true;
+            return Task.CompletedTask;
+        }
+
+        public Task KeepAwakeAsync(bool awake, CancellationToken cancellationToken, bool inTerminal = false)
+        {
+            LastInTerminal = inTerminal;
+            if (Refusal is not null) throw Refusal;
+            KeepsAwake = awake;
             return Task.CompletedTask;
         }
 
@@ -337,6 +459,7 @@ public sealed class HostInstallTests : IAsyncDisposable
             LastInTerminal = inTerminal;
             Uninstalls++;
             Installed = false;
+            KeepsAwake = false;
             return Task.CompletedTask;
         }
     }

@@ -29,6 +29,12 @@ public interface IHostInstall
     bool IsInstalled { get; }
 
     /// <summary>
+    /// Whether Uncloud keeps this Mac from going to sleep, and has it start again by itself after a
+    /// power cut where it can.
+    /// </summary>
+    bool KeepsAwake { get; }
+
+    /// <summary>
     /// Whether Uncloud's own account already keeps everybody's files and settings here — from before
     /// it was turned off, say — so setting it up again picks them up rather than asking afresh.
     /// </summary>
@@ -61,12 +67,22 @@ public interface IHostInstall
     /// Whether to ask for the password in Terminal, with sudo, rather than in macOS's own prompt —
     /// for when macOS answers that prompt as cancelled without having shown it.
     /// </param>
-    Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken, bool inTerminal = false);
+    /// <param name="awake">
+    /// Whether to keep this Mac awake as well, or let it sleep; null leaves it doing whichever it does.
+    /// </param>
+    Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken, bool inTerminal = false,
+        bool? awake = null);
 
     /// <summary>Opens a folder or drive to Uncloud's account, and says which folder to choose in Settings.</summary>
     Task<string> PrepareAsync(string folder, CancellationToken cancellationToken, bool inTerminal = false);
 
-    /// <summary>Stops the service. Everybody's files and accounts stay, still locked to Uncloud's account.</summary>
+    /// <summary>Keeps this Mac awake for Uncloud, or lets it sleep as it was set to again.</summary>
+    Task KeepAwakeAsync(bool awake, CancellationToken cancellationToken, bool inTerminal = false);
+
+    /// <summary>
+    /// Stops the service, and lets the Mac sleep again. Everybody's files and accounts stay, still
+    /// locked to Uncloud's account.
+    /// </summary>
     Task UninstallAsync(CancellationToken cancellationToken, bool inTerminal = false);
 }
 
@@ -79,12 +95,16 @@ public sealed class HostInstall(string serverDirectory, ILogger? logger = null) 
     /// <summary>Where the service keeps everything. Only Uncloud's account can look inside.</summary>
     public const string Base = "/Library/Application Support/Uncloud";
     public static readonly string Plist = $"/Library/LaunchDaemons/{Label}.plist";
+    /// <summary>The service that keeps this Mac awake, which is there for as long as it does.</summary>
+    public const string AwakePlist = "/Library/LaunchDaemons/life.uncloud.awake.plist";
     /// <summary>Where this app hands Uncloud the Mac's folders, in a folder only it and Uncloud can open.</summary>
     public string BridgeSocket { get; } = Path.Combine(Base, "Bridge", "host-folders.sock");
 
     public IReadOnlyList<string> Private { get; } = [Base, "/Library/Logs/Uncloud"];
 
     private const string Prompt = "Uncloud wants to keep everyone’s files private on this Mac.";
+    private const string AwakePrompt = "Uncloud wants to keep this Mac awake, so everyone can reach their files.";
+    private const string SleepPrompt = "Uncloud wants to let this Mac go to sleep again.";
 
     /// <summary>Uncloud.app, which the server sits inside, in Contents/MacOS.</summary>
     public string App => Path.GetFullPath(Path.Combine(serverDirectory, "..", ".."));
@@ -107,6 +127,8 @@ public sealed class HostInstall(string serverDirectory, ILogger? logger = null) 
     /// </summary>
     public bool IsInstalled => Packaged && File.Exists(Plist);
 
+    public bool KeepsAwake => Packaged && File.Exists(AwakePlist);
+
     // Its inside is Uncloud's account's alone, but that it is there at all anybody can see.
     public bool HasKeptHost => Packaged && Directory.Exists(Path.Combine(Base, "Host"));
 
@@ -123,25 +145,39 @@ public sealed class HostInstall(string serverDirectory, ILogger? logger = null) 
 
     public string? Version => ValueIn(Path.Combine(App, "Contents", "Info.plist"), "CFBundleVersion");
 
-    public async Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken, bool inTerminal = false)
+    public async Task InstallAsync(string? root, string? legacyConfig, CancellationToken cancellationToken, bool inTerminal = false,
+        bool? awake = null)
     {
-        var options = new List<(string, string)> { ("--app", App), ("--owner", Environment.UserName) };
+        await RunAsync("install", InstallOptions(App, Environment.UserName, root, legacyConfig, awake), inTerminal, cancellationToken);
+    }
+
+    /// <summary>What the script is told to install with.</summary>
+    internal static List<(string Flag, string Value)> InstallOptions(
+        string app, string owner, string? root, string? legacyConfig, bool? awake)
+    {
+        var options = new List<(string, string)> { ("--app", app), ("--owner", owner) };
         if (root is not null) options.Add(("--root", root));
         if (legacyConfig is not null) options.Add(("--legacy-config", legacyConfig));
-        await RunAsync("install", options, inTerminal, cancellationToken);
+        if (awake is { } keep) options.Add(("--awake", keep ? "on" : "off"));
+        return options;
     }
 
     public async Task<string> PrepareAsync(string folder, CancellationToken cancellationToken, bool inTerminal = false) =>
         (await RunAsync("prepare", [("--folder", folder)], inTerminal, cancellationToken)).Trim();
 
+    public Task KeepAwakeAsync(bool awake, CancellationToken cancellationToken, bool inTerminal = false) =>
+        RunAsync(awake ? "keep-awake" : "let-sleep", [], inTerminal, cancellationToken, awake ? AwakePrompt : SleepPrompt);
+
     public Task UninstallAsync(CancellationToken cancellationToken, bool inTerminal = false) =>
         RunAsync("uninstall", [], inTerminal, cancellationToken);
 
+    /// <param name="why">What macOS's password prompt, or Terminal, says Uncloud wants it for.</param>
     private async Task<string> RunAsync(
-        string verb, IReadOnlyList<(string Flag, string Value)> options, bool inTerminal, CancellationToken cancellationToken)
+        string verb, IReadOnlyList<(string Flag, string Value)> options, bool inTerminal, CancellationToken cancellationToken,
+        string why = Prompt)
     {
         if (!Packaged) throw new InvalidOperationException(CannotInstall);
-        if (inTerminal) return await RunInTerminalAsync(verb, options, cancellationToken);
+        if (inTerminal) return await RunInTerminalAsync(verb, options, why, cancellationToken);
         var start = new ProcessStartInfo("/usr/bin/osascript")
         {
             RedirectStandardOutput = true,
@@ -149,7 +185,7 @@ public sealed class HostInstall(string serverDirectory, ILogger? logger = null) 
             UseShellExecute = false
         };
         start.ArgumentList.Add("-e");
-        start.ArgumentList.Add(AppleScript(ShellCommand(Script, verb, options), Prompt));
+        start.ArgumentList.Add(AppleScript(ShellCommand(Script, verb, options), why));
         _logger.LogInformation("Asking macOS for an administrator’s password, to {Verb}", verb);
         var clock = Stopwatch.StartNew();
         using var process = Process.Start(start) ?? throw new IOException("macOS didn’t ask for a password.");
@@ -173,7 +209,7 @@ public sealed class HostInstall(string serverDirectory, ILogger? logger = null) 
     /// app in the menu bar. The person sees exactly what runs; this waits for it to finish.
     /// </summary>
     private async Task<string> RunInTerminalAsync(
-        string verb, IReadOnlyList<(string Flag, string Value)> options, CancellationToken cancellationToken)
+        string verb, IReadOnlyList<(string Flag, string Value)> options, string why, CancellationToken cancellationToken)
     {
         var folder = Directory.CreateTempSubdirectory("uncloud-").FullName;
         var result = Path.Combine(folder, "result");
@@ -182,7 +218,7 @@ public sealed class HostInstall(string serverDirectory, ILogger? logger = null) 
         var decision = Path.Combine(folder, "decision");
         var command = Path.Combine(folder, "Uncloud.command");
         await File.WriteAllTextAsync(command,
-            TerminalScript(ShellCommand(Script, verb, options), result, error, status, decision), cancellationToken);
+            TerminalScript(ShellCommand(Script, verb, options), result, error, status, decision, why), cancellationToken);
         if (!OperatingSystem.IsWindows())
             File.SetUnixFileMode(command, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         _logger.LogInformation("Asking for an administrator’s password in Terminal, to {Verb}", verb);
@@ -240,11 +276,13 @@ public sealed class HostInstall(string serverDirectory, ILogger? logger = null) 
     /// script, keeping its answer and complaints for the app, and writes the outcome last, all at
     /// once, so the app never reads half of one.
     /// </summary>
-    internal static string TerminalScript(string command, string result, string error, string status, string decision) => $$"""
+    /// <param name="why">What Uncloud wants the password for, said first.</param>
+    internal static string TerminalScript(string command, string result, string error, string status, string decision,
+        string why = Prompt) => $$"""
         #!/bin/bash
         clear
         finish() { printf '%s\n' "$1" >{{Quote(status + ".new")}} && mv {{Quote(status + ".new")}} {{Quote(status)}}; }
-        echo "Uncloud needs an administrator’s password to keep everyone’s files private on this Mac."
+        echo {{Quote(why + " It needs an administrator’s password.")}}
         echo "Type your Mac password and press Return. Nothing shows as you type."
         echo
         if ! sudo -v; then
