@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Homebase.Core;
 using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
 using Homebase.Core.Sync;
@@ -19,9 +20,10 @@ namespace Uncloud.Desktop;
 /// <param name="hostConfig">
 /// Where an Uncloud run as the person signed in here keeps its settings; replaced in tests.
 /// </param>
+/// <param name="readPower">How this Mac's power settings are read; replaced in tests.</param>
 public sealed class DesktopController(
     DesktopPaths paths, string serverDirectory, ILoggerFactory loggers, HttpClient http,
-    IHostInstall? install = null, string? hostConfig = null) : IAsyncDisposable
+    IHostInstall? install = null, string? hostConfig = null, Func<PowerState?>? readPower = null) : IAsyncDisposable
 {
     /// <summary>Off the server's 8390, so a host that is also somebody's computer can't collide.</summary>
     public const int ComputerSyncthingPort = 8391;
@@ -36,6 +38,10 @@ public sealed class DesktopController(
     private ComputerSync? _computer;
     private HostServer? _server;
     private HostFoldersBridge? _bridge;
+    private readonly Func<PowerState?> _readPower = readPower ?? (() => HostPower.Read());
+    private PowerState? _power;
+    private bool _powerRead;
+    private DateTimeOffset _powerCheckedAt = DateTimeOffset.MinValue;
 
     public DesktopSettings Settings { get; private set; } = DesktopSettings.Load(paths);
     public DesktopPaths Paths => paths;
@@ -76,6 +82,51 @@ public sealed class DesktopController(
     /// because it doesn't yet and nobody here has said not to.
     /// </summary>
     public bool OffersToKeepAwake => _install.Packaged && !_install.KeepsAwake && !Settings.AskedToKeepAwake;
+
+    /// <summary>This Mac's power settings, read the first time they're asked about; null where they can't be.</summary>
+    public PowerState? Power
+    {
+        get
+        {
+            if (!_powerRead)
+            {
+                _power = _readPower();
+                _powerRead = true;
+            }
+            return _power;
+        }
+    }
+
+    /// <summary>
+    /// On the host, what could stop it staying on for everybody, worst first, as last checked — all
+    /// but FileVault, which is on for most Macs and nothing to put right. A line in the menu that
+    /// never goes away soon stops being read, so that one is said in Settings only.
+    /// </summary>
+    public IReadOnlyList<PowerFinding> PowerFindings { get; private set; } = [];
+
+    /// <summary>
+    /// Reads this host's power settings again, at most once a minute — the menu asks every few
+    /// seconds — or straight away after anything here changed them.
+    /// </summary>
+    public async Task CheckPowerAsync(CancellationToken cancellationToken)
+    {
+        if (Settings.Mode is not DesktopMode.Host)
+        {
+            PowerFindings = [];
+            return;
+        }
+        if (DateTimeOffset.UtcNow - _powerCheckedAt < TimeSpan.FromMinutes(1)) return;
+        _powerCheckedAt = DateTimeOffset.UtcNow;
+        _power = await Task.Run(_readPower, cancellationToken);
+        _powerRead = true;
+        PowerFindings = _power is null
+            ? []
+            : HostPower.Findings(_power, _install.KeepsAwake, RunsInOwnAccount)
+                .Where(finding => finding.Code != "filevault").ToList();
+    }
+
+    /// <summary>Has the next check read the power settings again, because something here just changed them.</summary>
+    private void PowerChanged() => _powerCheckedAt = DateTimeOffset.MinValue;
 
     /// <summary>Picks up where the app left off: Uncloud on the host, Syncthing on a computer.</summary>
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -174,6 +225,7 @@ public sealed class DesktopController(
             throw;
         }
         if (awake is not null) Save(Settings with { AskedToKeepAwake = true });
+        PowerChanged();
         await StartBridgeAsync(cancellationToken);
     }
 
@@ -188,6 +240,7 @@ public sealed class DesktopController(
             throw new InvalidOperationException("Uncloud keeps this Mac awake once it runs in an account of its own.");
         await _install.KeepAwakeAsync(awake, cancellationToken, inTerminal);
         Save(Settings with { AskedToKeepAwake = true });
+        PowerChanged();
     }
 
     /// <summary>

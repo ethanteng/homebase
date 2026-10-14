@@ -989,6 +989,19 @@ app.MapPut("/api/host", async (SelectRoot request, CurrentUser user, HostService
     return Results.Ok(new { rootPath = root });
 });
 
+// What could stop this host staying on for everybody — going to sleep, a laptop's lid, its battery,
+// a power cut, FileVault after a restart — for whoever looks after it, who is usually somewhere
+// else when it matters. Read fresh each time; nothing here needs an administrator of the Mac.
+app.MapGet("/api/host/power", async (IConfiguration configuration) =>
+{
+    var state = await Task.Run(() => HostPower.Read());
+    if (state is null)
+        return Results.Ok(new { @checked = false, findings = Array.Empty<PowerFinding>(), state });
+    var findings = HostPower.Findings(state, File.Exists(HostPower.AwakeService),
+        configuration.GetValue("Homebase:OwnAccount", false));
+    return Results.Ok(new { @checked = true, findings, state });
+});
+
 // How much of the drive Uncloud may fill: all of it, a set amount, or a share. Shown with what the
 // drive and Uncloud hold now, so whoever sets it can see what each choice comes to.
 app.MapGet("/api/host/storage", (HostService host, StorageAllotment allotment) =>

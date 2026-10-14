@@ -20,6 +20,7 @@ import ImportStatus, { useImportJob } from "./ImportStatus";
 import UploadStatus, { useUpload } from "./Uploads";
 import HostDropbox from "./HostDropbox";
 import HostStorage from "./HostStorage";
+import HostPower from "./HostPower";
 import { StorageCard, StoragePill } from "./StorageMeter";
 import FileBrowser from "./FileBrowser";
 import Bin from "./Bin";
@@ -564,6 +565,7 @@ export default function App() {
                 onSaved={() => setRevision((value) => value + 1)}
               />
             )}
+            <HostPower />
             <HostDropbox expanded={dropboxFocus} />
           </>
         )}

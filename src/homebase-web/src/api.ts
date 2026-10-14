@@ -128,6 +128,21 @@ export interface HostStorage {
   capped: boolean;
 }
 
+/// Something that could stop the host staying on for everybody, as the host Mac's own settings say.
+export interface PowerFinding {
+  code: string;
+  title: string;
+  message: string;
+  // Whether Keep This Mac Awake, in the Uncloud menu on the host, puts it right.
+  inMenu: boolean;
+}
+
+export interface HostPower {
+  // False wherever there's nothing to read: a host that isn't a Mac.
+  checked: boolean;
+  findings: PowerFinding[];
+}
+
 export interface ImportEstimate {
   fileCount: number;
   bytes: number;

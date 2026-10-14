@@ -325,6 +325,32 @@ run it again. `Homebase__Watchdog__Enabled=false` turns this off, and `Homebase_
 (`00:00:30` by default) sets how often it asks; it waits a third of that for each answer. It never
 stops a process with a debugger attached.
 
+### What can still keep it down
+
+On a Mac, `Homebase.Core/HostPower.cs` reads what could stop the host staying on, with commands any
+account can run, so Uncloud's own account can ask as well as the app: `pmset -g` (how soon it
+sleeps, `SleepDisabled`, `autorestart`), `pmset -g batt` (a battery, and running on it), `pmset -g
+cap` (whether it can start up after a power failure), `pmset -g sched` (repeating sleeps,
+shutdowns and restarts) and `fdesetup status`. From those it says, worst first:
+
+- it goes to sleep after so many minutes, unless the keep-awake service is there or sleep is
+  disabled altogether;
+- it's running on its battery;
+- it's a laptop, so closing its lid puts it to sleep;
+- it's set to sleep, shut down or restart on a schedule;
+- it stays off after a power cut, where it could start up by itself;
+- FileVault is on, so after a restart nothing on the data volume, Uncloud's service included, runs
+  until somebody unlocks it by signing in. That is said, not fixed: FileVault is what keeps
+  everybody's files safe if the Mac is stolen.
+
+`GET /api/host/power`, for administrators, answers `{ checked, findings, state }`, where each
+finding has a `code`, a short `title`, a `message` and whether **Keep This Mac Awake** puts it right
+(`inMenu`). It reads the Mac afresh each time, and answers `checked: false` anywhere else. Settings
+shows the messages under **Keeping this host on**, and the menu on the host shows the titles of
+all but FileVault's, read again at most once a minute or straight away after it changes something.
+FileVault is on for most Macs and nothing to put right, so it is said in Settings only, rather than
+as a line in the menu that never goes away.
+
 
 ## Reaching the host
 
