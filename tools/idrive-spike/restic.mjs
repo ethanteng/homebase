@@ -37,10 +37,14 @@ export async function resticVersion(binary = "restic") {
   return stdout.trim();
 }
 
-function run(binary, options, args, env, { allowFailure = false, signal } = {}) {
+/**
+ * Runs restic. With `timeout` (ms), restic is stopped once it's run that long, and the result says
+ * `timedOut`: restic retries errors it doesn't recognise for many minutes before giving up.
+ */
+function run(binary, options, args, env, { allowFailure = false, signal, timeout } = {}) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
-    const child = spawn(binary, [...options, ...args], { env, signal, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(binary, [...options, ...args], { env, signal, timeout, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk));
@@ -48,7 +52,9 @@ function run(binary, options, args, env, { allowFailure = false, signal } = {}) 
     child.on("error", (error) =>
       reject(error.code === "ENOENT" ? new Error(`There's no ${binary} to run. Install it with: brew install restic`) : error));
     child.on("close", (code) => {
-      const result = { code, stdout, stderr, seconds: (Date.now() - start) / 1000 };
+      const elapsed = Date.now() - start;
+      const timedOut = timeout !== undefined && elapsed >= timeout && !signal?.aborted;
+      const result = { code, stdout, stderr, seconds: elapsed / 1000, timedOut };
       if (code === 0 || allowFailure) resolve(result);
       else reject(new Error(`restic ${args.find((arg) => !arg.startsWith("-"))} exited ${code}: ${tail(stderr)}`));
     });
