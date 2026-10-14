@@ -13,3 +13,6 @@ artifacts/
 **/.vite/
 .vercel
 .env*
+**/xcuserdata/
+**/.swiftpm/
+src/Uncloud.iOS/UncloudKit/.build/
