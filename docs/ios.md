@@ -324,7 +324,10 @@ Once, in this order:
    shows *Uncloud* either way.
 3. Under **Users and Access → Integrations → App Store Connect API**, make a team key with the
    **Admin** role, which automatic signing needs to make the distribution certificate and profile
-   by itself. The key the Mac app notarizes with will do if it already has that role.
+   by itself. The key the Mac app notarizes with will do if it already has that role. No device has
+   to be registered: CI builds the archive unsigned and signs it for the App Store as it exports it,
+   because signing while archiving is development signing, which Apple only provisions for a team
+   with a device.
 4. In this repository's **Settings → Secrets and variables → Actions**, add the secrets
    `APP_STORE_CONNECT_KEY` (the whole `.p8` file), `APP_STORE_CONNECT_KEY_ID` and
    `APP_STORE_CONNECT_ISSUER_ID`, and the variables `APPLE_TEAM_ID` and `IOS_TESTFLIGHT` set to
