@@ -18,29 +18,39 @@ become the service's client later.
 5. **Creates a bucket with versioning on**, plus a second bucket that the host's key shouldn't
    reach. With `--object-lock`, the bucket also gets object lock: every version is kept for a day
    in governance mode, which only a key given `bypass_governance_retention` can get past.
-6. **Makes the host's key:** limited to the one bucket, and unable to delete versions or the
+6. **Sets a rule that expires old versions**, with the service's key: a version goes a day after
+   it's replaced or deleted (under object lock, not before its retention ends either), as do
+   delete markers with nothing behind them and uploads never finished. It reads the rule back, so
+   anything iDrive dropped from it shows. If iDrive won't take the whole rule, it sets one for old
+   versions alone.
+7. **Makes the host's key:** limited to the one bucket, and unable to delete versions or the
    bucket.
-7. **Checks that key can't reach past its bucket:** it can't list or write the other bucket,
+8. **Checks that key can't reach past its bucket:** it can't list or write the other bucket,
    create a bucket, or delete its own.
-8. **Backs up a made-up library** with restic, using the host's key. The library is 200 MB by
-   default and includes documents, photos, a video, awkward names, a hidden file, an empty file
-   and an empty folder. The step reports upload speed.
-9. **Changes the library and backs up again.**
-10. **Prunes the first backup** with the host's key. In a versioned bucket, deletes leave delete
+9. **Checks that key can't weaken the bucket's protection:** suspend versioning, replace or delete
+   the expiry rule, or, with `--object-lock`, change object lock's retention. Each is judged by
+   reading the setting back with the service's key, and anything the host's key managed is put
+   back.
+10. **Backs up a made-up library** with restic, using the host's key. The library is 200 MB by
+    default and includes documents, photos, a video, awkward names, a hidden file, an empty file
+    and an empty folder. The step reports upload speed.
+11. **Changes the library and backs up again.**
+12. **Prunes the first backup** with the host's key. In a versioned bucket, deletes leave delete
     markers behind, and this step checks restic still copes.
-11. **Checks every byte, restores, and compares** with the library, byte for byte.
-12. **Tries to wipe the bucket with the host's key**, deleting every object and every version.
+13. **Checks every byte, restores, and compares** with the library, byte for byte.
+14. **Tries to wipe the bucket with the host's key**, deleting every object and every version.
     Then it lists what's left, since a store can answer yes to a delete and keep the version
     anyway.
-13. **Rolls the bucket back** with the service's key, then checks and restores again. If any
+15. **Rolls the bucket back** with the service's key, then checks and restores again. If any
     object's versions are gone, it says how many and skips the restore.
-14. **Compares usage three ways:** what `/users`, `usage_stats` and `bucket_stats` report, against
-    what the bucket really holds, older versions included.
-15. **Optionally, goes over quota** (with `--quota-test`). It stores about 1.3 GB, sets a 1 GB quota
+16. **Compares usage three ways:** what `/users`, `usage_stats` and `bucket_stats` report, against
+    what the bucket really holds, older versions included. It also says how old the oldest old
+    version is, and how the expiry rule reads back.
+17. **Optionally, goes over quota** (with `--quota-test`). It stores about 1.3 GB, sets a 1 GB quota
     with enforcement on, and records whether new writes are refused and whether a restore still
     works.
-16. **Revokes the host's key**, and times how long until it stops working.
-17. **Removes the user** with its data still stored, which is what cancelling a subscription would
+18. **Revokes the host's key**, and times how long until it stops working.
+19. **Removes the user** with its data still stored, which is what cancelling a subscription would
     do. If iDrive won't allow that, it empties the buckets first, and the report says which way it
     went.
 
@@ -100,26 +110,38 @@ Each run writes to `runs/<id>/`:
 
 `stats` and `cleanup` add their own reports beside these.
 
-iDrive says usage can take up to 24 hours to count, and bucket stats are cached for hours. So the
-most useful run is `run --quota-test`, followed by `stats` a few hours later and again the next
-day, then `cleanup`.
+iDrive says usage can take up to 24 hours to count, and bucket stats are cached for hours. Old
+versions can't expire until a day after they're replaced, and expiry rules usually run once a
+day. So the most useful run keeps its user and is looked at over several days:
+
+```sh
+node spike.mjs run --object-lock --quota-test
+node spike.mjs stats <run id>           # a few hours later, then once a day for two or three days
+node spike.mjs cleanup <run id>
+```
 
 ## What the answers decide
 
-- **The host's key can't destroy versions (12), and the bucket can be rolled back (13).** This is
+- **The host's key can't destroy versions (14), and the bucket can be rolled back (15).** This is
   the protection against a compromised host or ransomware. Run it both without and with
   `--object-lock`: if `disable_delete_version` alone doesn't hold, object lock is the next way to
   keep history out of the host's reach. Every version then stays billed for the retention
   period.
-- **Prune works with versioning on (10).** If it doesn't, restic and the protection above can't
+- **The host's key can't weaken that protection (9).** If it could suspend versioning, shorten
+  the expiry rule or change object lock, a compromised host could undo the protection first and
+  wipe the bucket after.
+- **The expiry rule is kept (6), and old versions really go (16, over the following days).** If
+  iDrive doesn't expire them, the service needs its own job to delete old versions once their
+  retention ends, or storage grows with every prune.
+- **Prune works with versioning on (12).** If it doesn't, restic and the protection above can't
   both be used as planned.
-- **Older versions count toward usage (14).** If they do, deleted data keeps costing money until
-  it expires, which affects pricing, and the service needs a rule for expiring old versions.
-- **Read-only still allows restores (15).** This decides whether over-quota and failed payments
+- **Older versions count toward usage (16).** If they do, deleted data keeps costing money until
+  it expires, which affects pricing.
+- **Read-only still allows restores (17).** This decides whether over-quota and failed payments
   can be handled by making the account read-only rather than disabling it.
-- **How fast keys start and stop working (4, 6, 16).** This sets how long signing up takes, and
+- **How fast keys start and stop working (4, 7, 18).** This sets how long signing up takes, and
   how quickly "this host was stolen" takes effect.
-- **Removing a user with its data in place (17).** This decides what cancellation looks like.
+- **Removing a user with its data in place (19).** This decides what cancellation looks like.
 
 ## Tests
 

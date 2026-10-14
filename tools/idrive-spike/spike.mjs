@@ -3,9 +3,10 @@
 //
 // It makes one throwaway e2 account through the reseller API and gives it a bucket. It backs a
 // made-up library up into that bucket with restic, using the kind of key a host would hold. Then
-// it tries what the design depends on: that the key can't reach past its bucket, that it can't
-// destroy history, that history can be rolled back, how usage is reported, how soon a revoked key
-// stops working, and how an account is removed. What it finds goes in runs/<id>/report.md.
+// it tries what the design depends on: that the key can't reach past its bucket, weaken the
+// bucket's protection or destroy history, that history can be rolled back, that old versions are
+// set to expire, how usage is reported, how soon a revoked key stops working, and how an account
+// is removed. What it finds goes in runs/<id>/report.md.
 //
 // README.md says how to run it.
 
@@ -17,12 +18,15 @@ import { parseArgs } from "node:util";
 import {
   CreateBucketCommand,
   DeleteBucketCommand,
+  DeleteBucketLifecycleCommand,
   DeleteObjectCommand,
+  GetBucketLifecycleConfigurationCommand,
   GetBucketVersioningCommand,
   GetObjectLockConfigurationCommand,
   HeadObjectCommand,
   ListBucketsCommand,
   ListObjectsV2Command,
+  PutBucketLifecycleConfigurationCommand,
   PutBucketVersioningCommand,
   PutObjectCommand,
   PutObjectLockConfigurationCommand,
@@ -47,6 +51,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // How long object lock keeps a version, with --object-lock. Short, since every version stays billed
 // that long, and governance mode, so the cleanup can still get past it.
 const RETENTION_DAYS = 1;
+// How long after a version is replaced or deleted the expiry rule removes it. Under object lock,
+// not before its retention ends either.
+const EXPIRE_DAYS = 1;
+const EXPIRY_RULE = "uncloud-expire-old-versions";
 const RUNS = join(HERE, "runs");
 // What the reseller API calls an email it has no account for, spelling and all.
 const GONE = "account_non_existant";
@@ -255,6 +263,30 @@ async function run({ sizeMb, quotaTest, objectLock, keep }) {
       return `${main}, versioning on${locked ? `, ${locked}` : ""}. ${other} is there for the host's key not to reach.`;
     });
 
+    await record.step("Set a rule that expires old versions, with the service's key", async () => {
+      // If iDrive won't take the whole rule, one for old versions alone is the part that matters.
+      let set = "the whole rule";
+      try {
+        await setExpiry(admin, main);
+      } catch (error) {
+        set = `a rule for old versions alone, after the whole rule was turned down (${errorLabel(error)})`;
+        await admin.s3.send(new PutBucketLifecycleConfigurationCommand({
+          Bucket: main,
+          LifecycleConfiguration: {
+            Rules: [{ ID: EXPIRY_RULE, Status: "Enabled", Filter: { Prefix: "" }, NoncurrentVersionExpiration: { NoncurrentDays: EXPIRE_DAYS } }],
+          },
+        }));
+      }
+      const rules = await readExpiry(admin, main);
+      state.expiry = rules.length > 0;
+      save();
+      if (!rules.length) return { outcome: "fail", detail: `Accepted ${set}, but it reads back as no rule at all.` };
+      return {
+        outcome: rules.some((rule) => rule.NoncurrentVersionExpiration?.NoncurrentDays) ? "pass" : "fail",
+        detail: `Set ${set}. It reads back as: ${rules.map(describeRule).join("; ")}. Whether iDrive acts on it shows in "stats" over the next few days.`,
+      };
+    }, { carryOn: true });
+
     await record.step("Make the host's key: one bucket, no deleting versions or the bucket", async () => {
       host = await newKey(reseller, state, "spike-host", {
         permissions: 2,
@@ -306,6 +338,50 @@ async function run({ sizeMb, quotaTest, objectLock, keep }) {
       }
       return { outcome: allowed.length || unclear.length ? "fail" : "pass", detail: `${said.join("; ")}.` };
     });
+
+    await record.step("The host's key can't weaken the bucket's protection", async () => {
+      const said = [];
+      const weakened = [];
+      const unclear = [];
+      // Each try is judged by reading the setting back with the service's key, since a store can
+      // answer either way and do the other, and is put right if the host managed it.
+      async function tryTo(what, action, intact, putBack) {
+        const result = await attempt(action);
+        if (result.passing) {
+          unclear.push(what);
+          said.push(`${what}: couldn't reach the store, ${result.error}`);
+        } else if (await intact()) {
+          said.push(`${what}: ${result.allowed ? "accepted, yet nothing changed" : `turned down, ${result.error}`}`);
+        } else {
+          weakened.push(what);
+          said.push(`${what}: DONE`);
+          await putBack();
+        }
+      }
+      await tryTo("suspend versioning",
+        () => host.s3.send(new PutBucketVersioningCommand({ Bucket: main, VersioningConfiguration: { Status: "Suspended" } })),
+        async () => (await admin.s3.send(new GetBucketVersioningCommand({ Bucket: main }))).Status === "Enabled",
+        () => turnOnVersioning(admin, main));
+      if (state.expiry) {
+        await tryTo("replace the expiry rule",
+          () => setExpiry(host, main, "host-was-here"),
+          async () => !(await readExpiry(admin, main)).some((rule) => rule.ID === "host-was-here"),
+          () => setExpiry(admin, main));
+        await tryTo("delete the expiry rule",
+          () => host.s3.send(new DeleteBucketLifecycleCommand({ Bucket: main })),
+          async () => (await readExpiry(admin, main)).length > 0,
+          () => setExpiry(admin, main));
+      } else {
+        said.push("the expiry rule: not set, so not tried");
+      }
+      if (objectLock) {
+        await tryTo("change object lock's retention",
+          () => setLock(host, main, RETENTION_DAYS + 1),
+          async () => (await readLock(admin, main))?.Days === RETENTION_DAYS,
+          () => setLock(admin, main, RETENTION_DAYS));
+      }
+      return { outcome: weakened.length || unclear.length ? "fail" : "pass", detail: `${said.join("; ")}.` };
+    }, { carryOn: true });
 
     restic = createRestic({
       binary: config.restic,
@@ -617,7 +693,14 @@ async function usage(reseller, state, s3) {
     said.push(`bucket_stats: ${error.message}`);
   }
   const held = tally(await allVersions(s3, state.buckets.main));
-  said.push(`The bucket really holds ${held.current} current objects (${mb(held.currentBytes)}) and ${held.older} older versions (${mb(held.olderBytes)})`);
+  const oldest = held.oldestOlder ? `, the oldest written ${hoursSince(held.oldestOlder)} hours ago` : "";
+  said.push(`The bucket really holds ${held.current} current objects (${mb(held.currentBytes)}) and ${held.older} older versions (${mb(held.olderBytes)})${oldest}`);
+  try {
+    const rules = await readExpiry({ s3 }, state.buckets.main);
+    said.push(rules.length ? `Expiry rule: ${rules.map(describeRule).join("; ")}` : "No expiry rule");
+  } catch (error) {
+    said.push(`Expiry rule: can't read it, ${errorLabel(error)}`);
+  }
   return { outcome: "note", detail: `${said.join(". ")}.` };
 }
 
@@ -655,18 +738,68 @@ async function makeMainBucket(admin, state) {
   await admin.s3.send(new CreateBucketCommand({ Bucket: bucket, ...(state.objectLock ? { ObjectLockEnabledForBucket: true } : {}) }));
   await turnOnVersioning(admin, bucket);
   if (!state.objectLock) return undefined;
-  await admin.s3.send(new PutObjectLockConfigurationCommand({
-    Bucket: bucket,
-    ObjectLockConfiguration: {
-      ObjectLockEnabled: "Enabled",
-      Rule: { DefaultRetention: { Mode: "GOVERNANCE", Days: RETENTION_DAYS } },
-    },
-  }));
-  const { ObjectLockConfiguration: lock } = await admin.s3.send(new GetObjectLockConfigurationCommand({ Bucket: bucket }));
-  const retention = lock?.Rule?.DefaultRetention;
-  if (lock?.ObjectLockEnabled !== "Enabled" || !retention) throw new Error(`Object lock reads back as ${shapeOf(lock)}.`);
+  await setLock(admin, bucket, RETENTION_DAYS);
+  const retention = await readLock(admin, bucket);
+  if (!retention) throw new Error("Object lock reads back as off, or with no retention.");
   const [length, unit] = retention.Days ? [retention.Days, "day"] : [retention.Years, "year"];
   return `object lock on, ${retention.Mode} for ${length} ${unit}${length === 1 ? "" : "s"}`;
+}
+
+/** Locks every new version for `days`, in governance mode. */
+function setLock(key, bucket, days) {
+  return key.s3.send(new PutObjectLockConfigurationCommand({
+    Bucket: bucket,
+    ObjectLockConfiguration: { ObjectLockEnabled: "Enabled", Rule: { DefaultRetention: { Mode: "GOVERNANCE", Days: days } } },
+  }));
+}
+
+/** The default retention object lock reads back with, or undefined if it's off. */
+async function readLock(key, bucket) {
+  const { ObjectLockConfiguration: lock } = await key.s3.send(new GetObjectLockConfigurationCommand({ Bucket: bucket }));
+  return lock?.ObjectLockEnabled === "Enabled" ? lock.Rule?.DefaultRetention : undefined;
+}
+
+/**
+ * The expiry rule: a version goes EXPIRE_DAYS after it's replaced or deleted, as does a delete
+ * marker left with nothing behind it, and an upload nobody finished.
+ */
+function expiryRule(id = EXPIRY_RULE) {
+  return {
+    Rules: [{
+      ID: id,
+      Status: "Enabled",
+      Filter: { Prefix: "" },
+      NoncurrentVersionExpiration: { NoncurrentDays: EXPIRE_DAYS },
+      Expiration: { ExpiredObjectDeleteMarker: true },
+      AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+    }],
+  };
+}
+
+function setExpiry(key, bucket, id) {
+  return key.s3.send(new PutBucketLifecycleConfigurationCommand({ Bucket: bucket, LifecycleConfiguration: expiryRule(id) }));
+}
+
+/** The bucket's expiry rules as the store reads them back: none is an empty list. */
+async function readExpiry(key, bucket) {
+  try {
+    const { Rules = [] } = await key.s3.send(new GetBucketLifecycleConfigurationCommand({ Bucket: bucket }));
+    return Rules;
+  } catch (error) {
+    if (error?.name === "NoSuchLifecycleConfiguration" || error?.$metadata?.httpStatusCode === 404) return [];
+    throw error;
+  }
+}
+
+/** A rule as it read back, in words, so anything the store dropped from it shows. */
+function describeRule(rule) {
+  const days = rule.NoncurrentVersionExpiration?.NoncurrentDays;
+  return [
+    `${rule.ID ?? "no id"} (${rule.Status})`,
+    days ? `old versions go after ${days} day${days === 1 ? "" : "s"}` : "NOTHING expires old versions",
+    rule.Expiration?.ExpiredObjectDeleteMarker ? "bare delete markers go" : "bare delete markers stay",
+    rule.AbortIncompleteMultipartUpload?.DaysAfterInitiation ? "unfinished uploads go" : "unfinished uploads stay",
+  ].join(", ");
 }
 
 function turnOnVersioning(key, bucket) {
@@ -722,6 +855,10 @@ function stamp() {
  */
 function password() {
   return `Spk-${randomBytes(18).toString("base64url")}7`;
+}
+
+function hoursSince(date) {
+  return ((Date.now() - new Date(date).getTime()) / 3_600_000).toFixed(1);
 }
 
 function day(offset) {
