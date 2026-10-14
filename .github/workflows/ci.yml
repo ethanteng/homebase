@@ -326,9 +326,12 @@ jobs:
           codesign -d --entitlements - --xml "$app" > "$RUNNER_TEMP/entitlements.plist" 2>/dev/null
           echo "Signed with these entitlements:"
           plutil -p "$RUNNER_TEMP/entitlements.plist"
+          # Its identifier is this app's, under whatever App ID prefix the account has, which is
+          # usually the team ID but needn't be; and the team that signed it is this one.
           identifier="$(plutil -extract application-identifier raw "$RUNNER_TEMP/entitlements.plist" 2>/dev/null || true)"
-          if [[ "$identifier" != "$TEAM_ID.life.uncloud.ios" ]]; then
-            echo "::error::The signed app's application-identifier is '$identifier', not '$TEAM_ID.life.uncloud.ios', so nothing was uploaded."
+          team="$(plutil -extract com.apple.developer.team-identifier raw "$RUNNER_TEMP/entitlements.plist" 2>/dev/null || true)"
+          if [[ "$identifier" != ?*.life.uncloud.ios || "$team" != "$TEAM_ID" ]]; then
+            echo "::error::The signed app says application-identifier '$identifier' and team '$team', not something.life.uncloud.ios from team $TEAM_ID, so nothing was uploaded."
             exit 1
           fi
 
