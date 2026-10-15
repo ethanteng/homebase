@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "outputDirectory": "public",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- .",
+  "functions": {
+    "api/**/*.js": { "maxDuration": 60 }
+  },
+  "crons": [
+    { "path": "/api/cron/nightly", "schedule": "0 10 * * *" }
+  ]
+}
