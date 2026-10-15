@@ -59,10 +59,11 @@ jobs:
       # Fetching them here means a pin that no longer matches fails a pull request, not somebody's
       # install.
       - run: ./scripts/fetch-syncthing.sh "$RUNNER_TEMP/syncthing" && "$RUNNER_TEMP/syncthing/syncthing" --version
+      - run: ./scripts/go-notices.sh --check syncthing "$RUNNER_TEMP/syncthing/syncthing"
       - run: ./scripts/fetch-restic.sh "$RUNNER_TEMP/restic" && "$RUNNER_TEMP/restic/restic" version
-      # Everything compiled into that restic has its licence and notices in THIRD_PARTY_RESTIC.txt,
-      # which ships in the app. A restic linking anything else fails here until it's regenerated.
-      - run: ./scripts/restic-notices.sh --check "$RUNNER_TEMP/restic/restic"
+      # Everything compiled into each has its licence and notices in a THIRD_PARTY_* file, which
+      # ships in the app. One linking anything else fails here until it's regenerated.
+      - run: ./scripts/go-notices.sh --check restic "$RUNNER_TEMP/restic/restic"
 
   # The iPhone and iPad app. Its library's tests run on an iPhone and an iPad simulator, and the app
   # is built for the simulator and for a real device, unsigned: signing is only for what goes to

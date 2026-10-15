@@ -9,8 +9,8 @@
 # LICENSE in the release's source tarball, which SHA256SUMS covers. A download that doesn't match
 # is refused, so what ships is exactly what was checked, and moving to a new version is a reviewed
 # change to this file rather than whatever the internet served that day. After moving it, run
-# scripts/restic-notices.sh, which rewrites THIRD_PARTY_RESTIC.txt for what the new version links;
-# CI fails until it has.
+# scripts/go-notices.sh restic, which rewrites THIRD_PARTY_RESTIC.txt for what the new version
+# links; CI and publish-macos.sh fail until it has.
 #
 #   scripts/fetch-restic.sh [output directory]
 #

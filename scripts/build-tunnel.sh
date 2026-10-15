@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Builds the tunnel Uncloud ships, so nobody has to install Tailscale to be reached from
 # outside the house. The binary goes beside the published application, which is where
-# RemoteAccessOptions.Executable looks for it.
+# RemoteAccessOptions.Executable looks for it. After changing tools/uncloud-tunnel/go.mod, run
+# scripts/go-notices.sh tunnel, which rewrites THIRD_PARTY_TUNNEL.txt for what the tunnel links;
+# check.sh and publish-macos.sh fail until it has.
 set -euo pipefail
 cd -- "$(dirname -- "$0")/.."
 uncloud_out="${1:-src/Homebase.Server/bin/Debug/net10.0}"

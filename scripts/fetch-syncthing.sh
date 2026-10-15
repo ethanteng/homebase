@@ -6,7 +6,9 @@
 # sha256sum.txt.asc after checking its signature against Syncthing's release key
 # (37C8 4554 E7E0 A261 E4F7  6E1E D26E 6ED0 0065 4A3E). A download that doesn't match is refused,
 # so what ships is exactly what was checked, and moving to a new version is a reviewed change to
-# this file rather than whatever the internet served that day.
+# this file rather than whatever the internet served that day. After moving it, run
+# scripts/go-notices.sh syncthing, which rewrites THIRD_PARTY_SYNCTHING.txt for what the new
+# version links; CI and publish-macos.sh fail until it has.
 #
 #   scripts/fetch-syncthing.sh [output directory]
 #
