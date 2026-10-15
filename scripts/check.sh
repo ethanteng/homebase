@@ -18,6 +18,9 @@ node --test "landing/*.test.cjs"
 if command -v go >/dev/null 2>&1; then
   ( cd tools/uncloud-tunnel && GOTOOLCHAIN="${GOTOOLCHAIN:-auto}" go vet ./... && go test ./... )
   ./scripts/build-tunnel.sh >/dev/null
+  # Everything the tunnel links has its licence and notices in THIRD_PARTY_TUNNEL.txt, which ships in
+  # the app; a change to its go.mod fails here until that's regenerated.
+  ./scripts/go-notices.sh --check tunnel src/Homebase.Server/bin/Debug/net10.0/uncloud-tunnel
 else
   echo "No Go on PATH; skipping the bundled tunnel." >&2
 fi

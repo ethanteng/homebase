@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Builds Uncloud.app: the menu-bar app, with the Uncloud server, its Syncthing and its tunnel
-# inside it. The same app is the host on one Mac and the way everybody else's Macs keep their
-# files in step, so nobody installs anything else.
+# Builds Uncloud.app: the menu-bar app, with the Uncloud server, its Syncthing, its tunnel and
+# restic inside it. The same app is the host on one Mac and the way everybody else's Macs keep
+# their files in step, so nobody installs anything else.
 #
 #   scripts/package-macos-app.sh [osx-arm64|osx-x64]
 #
@@ -26,7 +26,7 @@ app="artifacts/app-$runtime/Uncloud.app"
 rm -rf -- "artifacts/app-$runtime"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
-# The server as publish-macos.sh builds it: interface, tunnel and Syncthing beside it.
+# The server as publish-macos.sh builds it: interface, tunnel, Syncthing and restic beside it.
 ./scripts/publish-macos.sh "$runtime"
 desktop="artifacts/app-$runtime.publish"
 rm -rf -- "$desktop"

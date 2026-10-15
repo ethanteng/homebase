@@ -20,3 +20,10 @@ esac
 GOOS=darwin GOARCH="$homebase_arch" ./scripts/build-tunnel.sh "artifacts/$homebase_runtime"
 # So does Syncthing: keeping people's computers in step shouldn't start with a brew install either.
 GOOS=darwin GOARCH="$homebase_arch" ./scripts/fetch-syncthing.sh "artifacts/$homebase_runtime"
+# And restic, for the backups that are on their way, which shouldn't start with an install either.
+GOOS=darwin GOARCH="$homebase_arch" ./scripts/fetch-restic.sh "artifacts/$homebase_runtime"
+# Each carries the licences and notices of what's compiled into it in a THIRD_PARTY_* file that
+# the app ships, and none goes in that links anything its file doesn't cover.
+./scripts/go-notices.sh --check tunnel "artifacts/$homebase_runtime/uncloud-tunnel"
+./scripts/go-notices.sh --check syncthing "artifacts/$homebase_runtime/syncthing"
+./scripts/go-notices.sh --check restic "artifacts/$homebase_runtime/restic"
