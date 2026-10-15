@@ -165,7 +165,8 @@ put a copy beside Uncloud — a pinned release whose checksum is checked, see
 the preference directory and stops it on the way out. If that download fails, everything except
 **My computers** still works. `scripts/fetch-restic.sh`, which the same scripts call, puts
 [restic](https://restic.net) there too, pinned and checksum-checked the same way and with its
-BSD-2-Clause licence. It's carried for the backup feature that's on its way; nothing runs it yet.
+BSD-2-Clause licence; the licences and notices of what's compiled into it are in
+`THIRD_PARTY_RESTIC.txt`, which `scripts/restic-notices.sh` writes. It's carried for the backup feature that's on its way; nothing runs it yet.
 
 ### Start it
 

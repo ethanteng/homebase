@@ -21,9 +21,14 @@ The packaging script downloads unmodified restic **0.19.1**, Copyright (c) 2014,
 Alexander Neumann, licensed under **BSD-2-Clause**, as a separate executable. Source
 for that exact version is at https://github.com/restic/restic/tree/v0.19.1. The
 upstream license is reproduced in THIRD_PARTY_LICENSES.txt, and fetch-restic.sh also
-retains restic-LICENSE.txt alongside the binary. Like the tunnel, the binary links
-third-party Go modules (pinned by restic's go.mod at that tag) under their own
-licenses; their target-specific notice set is a release review item.
+retains restic-LICENSE.txt alongside the binary. The binary also links Go's standard
+library and runtime and 79 third-party Go modules under their own licenses, among
+them Apache-2.0 modules such as minio-go whose NOTICE files must accompany it.
+THIRD_PARTY_RESTIC.txt lists every module linked into the bundled binaries, as Go
+records them in each binary's build info (the same for darwin and linux on arm64
+and amd64), and reproduces every license, notice and patents file from each
+module's exact-version source, plus Go's own. scripts/restic-notices.sh generates
+it, and CI checks the bundled binary links nothing it doesn't list.
 
 ## Tunnel and Go dependencies
 

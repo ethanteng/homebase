@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# Writes THIRD_PARTY_RESTIC.txt: the licence and notice files of everything compiled into the
+# restic Uncloud carries, so they travel with every copy of it. package-macos-app.sh puts every
+# THIRD_PARTY_* file in the app.
+#
+# restic is one binary with its Go modules linked in, several under licences (Apache-2.0 among
+# them) that ask for their licence and NOTICE to go with the binary. Which modules are in it isn't
+# guessed from restic's go.mod: Go records the exact list in every binary it builds, so this reads
+# that list from all four pinned builds fetch-restic.sh fetches, refuses to go on if they differ,
+# and takes each module's files from that exact version's source on proxy.golang.org, the Go
+# module proxy. Go's own licence comes from the Go release the binaries were built with.
+#
+#   scripts/restic-notices.sh                  regenerate THIRD_PARTY_RESTIC.txt (needs network)
+#   scripts/restic-notices.sh --check RESTIC   check RESTIC links exactly the modules listed
+#
+# Run it after changing the version in fetch-restic.sh. CI runs --check on the restic it fetches,
+# so a version moved without new notices fails a pull request.
+set -euo pipefail
+cd -- "$(dirname -- "$0")/.."
+
+notices="THIRD_PARTY_RESTIC.txt"
+
+# Go's build info, as `go version -m` prints it but without needing Go: a "go" line, then a
+# "dep" line per linked module and a "=>" line per replacement.
+modules_in() {
+  python3 -I - "$1" <<'PY'
+import sys
+
+def varint(data, i):
+    n = shift = 0
+    while True:
+        byte = data[i]
+        i += 1
+        n |= (byte & 0x7F) << shift
+        shift += 7
+        if byte < 0x80:
+            return n, i
+
+data = open(sys.argv[1], "rb").read()
+at = data.find(b"\xff Go buildinf:")
+if at < 0 or not data[at + 15] & 2:
+    sys.exit(f"{sys.argv[1]} has no build info this can read")
+i = at + 32
+length, i = varint(data, i)
+print("go\t" + data[i:i + length].decode())
+i += length
+length, i = varint(data, i)
+modinfo = data[i:i + length]
+# Go wraps the list in a 16-byte marker at each end; debug/buildinfo strips them the same way.
+if len(modinfo) >= 33 and modinfo[-17] == ord("\n"):
+    modinfo = modinfo[16:-16]
+for line in modinfo.decode().splitlines():
+    if line.startswith(("dep\t", "=>\t")):
+        print(line)
+PY
+}
+
+# The list as this file's lines record it: "go <version>", then "module <path> <version>".
+listed_in() {
+  modules_in "$1" | awk -F'\t' '$1 == "go" { print "go " $2 } $1 == "dep" { print "module " $2 " " $3 } $1 == "=>" { print "replaced " $2 " " $3 }' | sort
+}
+
+# The list at the top of the file, before the first licence, so no licence text can be taken for it.
+recorded() { awk '/^====/ { exit } /^(go|module|replaced) /' "$notices" | sort; }
+
+if [[ "${1:-}" == "--check" ]]; then
+  binary="${2:?Which restic? Give the path to the binary.}"
+  if ! diff <(listed_in "$binary") <(recorded) >/dev/null; then
+    echo "$binary doesn't link exactly the modules $notices lists. Run scripts/restic-notices.sh to regenerate it." >&2
+    diff <(listed_in "$binary") <(recorded) >&2 || true
+    exit 1
+  fi
+  echo "$binary links exactly the modules $notices lists"
+  exit 0
+fi
+
+work="$(mktemp -d)"
+trap 'rm -rf -- "$work"' EXIT
+
+# Every platform restic is carried for, so a module linked into only one of them can't be missed.
+for platform in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+  out="$work/${platform/\//-}"
+  GOOS="${platform%/*}" GOARCH="${platform#*/}" ./scripts/fetch-restic.sh "$out" >/dev/null
+  listed_in "$out/restic" > "$out.list"
+done
+for list in "$work"/*.list; do
+  if ! cmp -s "$list" "$work/darwin-arm64.list"; then
+    echo "restic's builds don't all link the same modules ($(basename "$list" .list) differs); this file assumes they do." >&2
+    exit 1
+  fi
+done
+if grep -q '^replaced ' "$work/darwin-arm64.list"; then
+  echo "restic's build replaces modules; take their licences from the replacements by hand." >&2
+  exit 1
+fi
+restic_version="$(cut -d' ' -f1 "$work/darwin-arm64/restic.version")"
+go_version="$(awk '$1 == "go" { print $2 }' "$work/darwin-arm64.list")"
+go_release="${go_version#go}"
+
+# The proxy spells capitals in module paths as "!" and the lower-case letter.
+escape() { sed -E 's/([A-Z])/!\1/g' <<<"$1" | tr '[:upper:]' '[:lower:]'; }
+
+rule() { printf '%s\n' "================================================================================"; }
+{
+  echo "Third-party licences and notices for restic $restic_version, as carried by Uncloud"
+  echo
+  echo "restic itself is BSD-2-Clause; its licence is in THIRD_PARTY_LICENSES.txt and beside the"
+  echo "binary as restic-LICENSE.txt. Compiled into it are Go $go_release's standard library and"
+  echo "runtime and the modules below, the same for every platform Uncloud carries restic for."
+  echo "Each one's licence and notice files follow, from that exact version's source."
+  echo
+  echo "Generated by scripts/restic-notices.sh. Don't edit it by hand."
+  echo
+  cat "$work/darwin-arm64.list"
+  echo
+  rule
+  echo "Go $go_release (standard library and runtime)"
+  for file in LICENSE PATENTS; do
+    curl -fsSL --retry 3 -o "$work/go-$file" "https://raw.githubusercontent.com/golang/go/$go_version/$file"
+    rule
+    echo "Go $go_release: $file"
+    echo
+    cat "$work/go-$file"
+    echo
+  done
+} > "$work/notices"
+
+missing=()
+while read -r kind path version; do
+  [[ "$kind" == module ]] || continue
+  zip="$work/module.zip"
+  curl -fsSL --retry 3 -o "$zip" "https://proxy.golang.org/$(escape "$path")/@v/$version.zip"
+  # Licence and notice files anywhere in the module, since a subpackage can carry code under a
+  # licence of its own; but not in test data, which isn't compiled in, and not source files that
+  # merely have such a name (license.go, say).
+  files=()
+  while IFS= read -r entry; do files+=("$entry"); done < <(
+    unzip -Z1 "$zip" \
+      | grep -iE '/(licen[cs]e|copying|notice|patents)([._-][^/]*)?$' \
+      | grep -viE '\.(go|s|c|h|cc|proto|json|ya?ml|html?|tmpl|sh|py)$' \
+      | grep -vE '/testdata/' | sort)
+  if [[ ${#files[@]} -eq 0 ]]; then missing+=("$path@$version"); continue; fi
+  for entry in "${files[@]}"; do
+    {
+      rule
+      echo "$path $version: ${entry#"$path@$version/"}"
+      echo
+      unzip -p "$zip" "$entry"
+      echo
+    } >> "$work/notices"
+  done
+done < "$work/darwin-arm64.list"
+
+if [[ ${#missing[@]} -gt 0 ]]; then
+  printf 'No licence file found in %s; look at it by hand before carrying restic.\n' "${missing[@]}" >&2
+  exit 1
+fi
+mv -f -- "$work/notices" "$notices"
+echo "Wrote $notices: Go $go_release and $(grep -c '^module ' "$notices") modules"

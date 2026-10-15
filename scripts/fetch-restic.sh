@@ -8,7 +8,9 @@
 # binaries, so restic's LICENSE comes from the same tag, and its SHA-256 is pinned too: it is the
 # LICENSE in the release's source tarball, which SHA256SUMS covers. A download that doesn't match
 # is refused, so what ships is exactly what was checked, and moving to a new version is a reviewed
-# change to this file rather than whatever the internet served that day.
+# change to this file rather than whatever the internet served that day. After moving it, run
+# scripts/restic-notices.sh, which rewrites THIRD_PARTY_RESTIC.txt for what the new version links;
+# CI fails until it has.
 #
 #   scripts/fetch-restic.sh [output directory]
 #
