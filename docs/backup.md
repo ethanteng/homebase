@@ -242,7 +242,10 @@ token is in no other project's environment and no deployment of the landing page
   carrying out delayed removals.
 - **The reseller client** is `tools/idrive-spike/reseller.mjs`, written to become this.
 
-In the beta, households join with an invite code. Billing, and Uncloud accounts, come later.
+In the beta, households join with an invite code. The operator makes one, which is kept only as a
+hash and works once; a host uses it to make its household and itself, and gets a credential of its
+own, kept only as a hash too, which it sends with everything after. Billing, and Uncloud accounts,
+come later.
 
 ## iDrive's quirks
 
