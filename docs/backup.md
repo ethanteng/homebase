@@ -58,8 +58,8 @@ Setting one up, in the order the service does it:
 3. A full-access key (`create_access_key`, permissions 2). Usable after 0.2 to 5.4 seconds.
 4. The bucket, made over S3 with object lock enabled, then versioning on, the default lock set,
    and the expiry rule set (below). The reseller API has no call for buckets.
-5. The host's key: permissions 2, `buckets` set to that one bucket, `disable_delete_bucket`, and
-   no `bypass_governance_retention`. Usable after 0.1 to 0.2 seconds.
+5. The host's key: permissions 2, `buckets` set to that one bucket, `disable_delete_bucket`,
+   `disable_delete_version`, and no `bypass_governance_retention`. Usable after 0.1 to 0.2 seconds.
 
 The account is ready a few seconds to a minute after it's asked for. The service runs it as a job
 that remembers each step done, because the reseller API's calls aren't transactional: a setup
@@ -87,8 +87,10 @@ version of every object, and the host's key must not be able to remove them.
 
 ### What doesn't work
 
-- **`disable_delete_version`** on the host's key. iDrive accepts it and ignores it: a key made with
-  it destroyed all 20 versions it tried to.
+- **`disable_delete_version`** on the host's key. It doesn't stop the key destroying versions: a
+  key made with it destroyed all 20 it tried to. It does keep the key off the bucket's lifecycle
+  rules, though: every spike key with it was refused replacing or deleting the expiry rule, and a
+  key made without it deleted the rule. So the host's key has it, for that.
 - **Object lock in governance mode.** The host's key can't delete a locked version, with or
   without asking to bypass the lock. But asking to bypass it while moving the version's lock date
   is allowed, though the key wasn't given `bypass_governance_retention`. The spike moved a lock
@@ -120,7 +122,7 @@ point for the discussion is 30 days.
 ### When a lock runs out
 
 A lock protects a version until its date, and no longer. After that, the host's key can destroy
-the version, since its key can delete versions (`disable_delete_version` being ignored). restic
+the version, since its key can delete versions (`disable_delete_version` doesn't stop it). restic
 writes a pack once and every later snapshot goes on using it, so most of a backup is packs older
 than the lock period. A host compromised today could destroy all of those today, without waiting:
 the lock period bounds how much of the backup is safe, not how long a compromise can go unnoticed.
@@ -279,7 +281,7 @@ requests. The operator sees every household's setup, and the last thing that wen
 
 | Where S3 would | iDrive | What we do |
 | --- | --- | --- |
-| Honour `disable_delete_version` | Ignores it | Object lock instead |
+| Honour `disable_delete_version` | Lets the key destroy versions anyway, but keeps it off lifecycle rules | Object lock, and the option kept for the rules |
 | Refuse moving a governance lock without the bypass permission | Allows it when bypass is asked for | Compliance mode |
 | Refuse deleting a locked version with `AccessDenied` (403) | `InvalidRequest` (400), "Object is WORM protected" | Judge by listing the bucket, not by the code |
 | Answer a read behind a delete marker with 404 | 405 | Time limits on restic |
