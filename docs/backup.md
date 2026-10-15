@@ -3,7 +3,7 @@
 An encrypted copy of a household's Uncloud kept offsite, in IDrive e2, set up and paid for through
 Uncloud. Nobody signs in to iDrive, and nobody but the household can read the copy.
 
-This document is the design. Nothing of it is built yet. What it says about iDrive comes from
+This document is the design; the phases at the end say how much is built. What it says about iDrive comes from
 `tools/idrive-spike/`, which ran every step below against IDrive e2 for real (Oregon-2, October
 2026), and the figures quoted are from those runs. What is still open is listed at the end.
 
@@ -110,11 +110,30 @@ is unaffected, because `remove_user` removes an account's data whatever its lock
 
 ### The lock period
 
-How long each version stays locked is the window for noticing a compromised host. A host
+How long each version stays locked is meant to be the window for noticing a compromised host: one
 compromised for longer than that can wait for the oldest good versions to expire and then wipe
-what's left. It's also how long every replaced or deleted version stays billed. **Not yet
+what's left. That holds only once nothing the backup depends on is ever left unlocked (below). It's
+also how long every replaced or deleted version stays billed. **Not yet
 chosen**: it waits for whether iDrive bills old versions, which the spike is measuring. A starting
 point for the discussion is 30 days.
+
+### When a lock runs out
+
+A lock protects a version until its date, and no longer. After that, the host's key can destroy
+the version, since its key can delete versions (`disable_delete_version` being ignored). restic
+writes a pack once and every later snapshot goes on using it, so most of a backup is packs older
+than the lock period. A host compromised today could destroy all of those today, without waiting:
+the lock period bounds how much of the backup is safe, not how long a compromise can go unnoticed.
+
+Not yet tested against iDrive, though it's how object lock works on S3, and **not yet solved**. The
+ways out:
+
+- **A key that can't destroy versions**, only hide them behind delete markers, which is all restic
+  needs, and what `disable_delete_version` promised. A question for iDrive.
+- **Locks kept rolling.** The service pushes out the lock on every version a snapshot still uses
+  before it runs out, so nothing the backup depends on is ever unlocked. That's one request per
+  object every few weeks, tens of thousands for a large backup, so a job of its own rather than a
+  corner of the nightly check.
 
 ### The expiry rule
 
@@ -247,6 +266,15 @@ hash and works once; a host uses it to make its household and itself, and gets a
 own, kept only as a hash too, which it sends with everything after. Billing, and Uncloud accounts,
 come later.
 
+A household's storage is set up when its host first asks for it (`POST /api/host/storage`). Each
+request takes the setup as far as a function's time allows, from wherever it stopped, and answers
+202 until it's done; then the host gets its key. A lease on the household keeps two requests from
+setting it up at once. The account is `household-<id>@uncloud.life`, with a password nobody keeps
+and, in the beta, a quota of 1,000 GB. The bucket is `uncloud-<household>`. The service's key is
+made for each go and removed when it's done, so the service holds no key to anybody's bucket between
+requests. The operator sees every household's setup, and the last thing that went wrong with it, at
+`GET /api/operator/households`.
+
 ## iDrive's quirks
 
 | Where S3 would | iDrive | What we do |
@@ -267,8 +295,11 @@ Requests that need a checksum (lock settings, retention, versioning, lifecycle) 
 - **Are old versions billed, and does the expiry rule run?** Measured on two kept test accounts
   through 17 October. Together they decide the lock period and whether the service needs its own
   job to delete expired versions.
+- **Versions whose lock has run out** can be destroyed by a host's key (above). Which way out, and
+  testing it on a kept account once the measurements are done.
 - **For iDrive:**
-  - Is `disable_delete_version` meant to do anything?
+  - Is `disable_delete_version` meant to do anything? Can a key be allowed delete markers but not
+    destroying versions?
   - Should a key without `bypass_governance_retention` be able to move a governance lock when it
     asks to bypass it? It looks like a bug.
   - Can a key be denied changing the bucket's default lock, or pushing out a version's lock?
@@ -285,7 +316,9 @@ Requests that need a checksum (lock settings, retention, versioning, lifecycle) 
 1. **Phase 0, the spike.** Done but for the measurements above.
 2. **Phase 1, a backup that runs.** On the host: restic carried, the engine above, a Backup panel
    in Settings. In the service: invites, setting up accounts, the nightly check, the rollback and
-   delayed removal. Tested with a few households before anything is sold.
+   delayed removal. Tested with a few households before anything is sold. Built so far: restic carried
+   and the engine; the service with its invites, and setting up accounts and handing out hosts'
+   keys.
 3. **Phase 2, getting it back.** Restoring files from My files under the Bin's rules, and
    rebuilding a host from its recovery kit.
 4. **Phase 3, selling it.** Uncloud accounts, billing, read-only on failed payments, and the
