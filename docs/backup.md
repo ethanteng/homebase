@@ -65,6 +65,20 @@ The account is ready a few seconds to a minute after it's asked for. The service
 that remembers each step done, because the reseller API's calls aren't transactional: a setup
 interrupted after step 2 picks up at step 3.
 
+Remembering isn't enough on its own. A step can succeed at iDrive and the function die, or lose
+the answer, before the step is recorded, so the next attempt finds the work half done. So each
+step first looks at what's already there, and only acts on what's missing:
+
+- **The user**: its address is derived from the household, so the job asks `/users` for it
+  first, and `email_already_in_use` on `create_user` means it's already made.
+- **Storage**: `list_user_regions` first; `region_already_enabled` means it's done.
+- **Keys** are named for what they're for (`service-<household>`, `host-<host>`). A key's secret
+  is shown once, when it's made, so a key whose answer was lost is no use to anyone: the job
+  lists the account's keys, removes any with the name it's about to use, then makes it afresh.
+  Nothing is left behind that nobody holds the secret to.
+- **The bucket**: if it's already there and the account's own, it's done. Versioning, the lock
+  and the expiry rule are settings, so setting them again changes nothing.
+
 ## Protecting history
 
 A backup is only worth having if the computer it backs up can't destroy it. A host can be stolen,
@@ -117,6 +131,27 @@ next, not any version already written, but a compromised host could quietly stop
 backups. So every night the service reads back each bucket's object lock (compliance, the chosen
 period), versioning and expiry rule, puts right anything that has changed, and raises an alert,
 since a change means a host's key has been used against its own bucket.
+
+### Locks pushed further out
+
+A lock can always be pushed later, and in compliance mode nobody can bring it back. So a
+compromised host can lock things for far longer than the chosen period: by raising the default
+and then writing, or by pushing out the lock date of versions already there. Resetting the default
+doesn't undo either, and whatever is locked stays billed until its date.
+
+- **It's bounded by the quota.** A host can't lock more than the account can hold, and an account
+  that fills up turns read-only.
+- **It's watched for.** The nightly check also reads the lock date of every version written since
+  the night before, and samples older ones. A date beyond its write time plus the chosen period
+  means somebody pushed it out, and raises the same alert as a changed default.
+- **The way out is a new account.** Since nothing shortens a compliance lock, a poisoned account
+  is replaced rather than repaired: the service makes a fresh one, the host backs up into it, and
+  once the household has a good backup there, `remove_user` takes the old account with everything
+  locked in it. Any history only the old account held goes with it, so this is a decision for the
+  household, made with them, not something the service does by itself.
+
+Whether a key can be denied changing locks at all, which would close this off, is a question for
+iDrive.
 
 ### Rolling back
 
@@ -184,8 +219,11 @@ pinned binary comes from `scripts/fetch-restic.sh`.
   restic a limit and, when it can't open the repository, asks the bucket directly what's there.
 - **Restores without a lock** (`--no-lock`), since taking one is a write and a read-only account
   refuses it.
-- **A 403 on upload means storage is full**, and Settings says so, rather than reporting a failed
-  backup.
+- **A 403 on upload is asked about, not assumed.** A full account answers 403, but so do a
+  revoked or wrongly scoped key, a disabled account and a failed signature. So the host asks the
+  service, which reads the account's state from iDrive: only when the account is over quota and
+  read-only does Settings say storage is full. Otherwise it reports the failed backup as it is, a
+  key that no longer works included, which the host replaces through the service.
 
 Upload speed from a home connection varied between 10 and 146 Mbit/s across the runs. A first
 backup of a household's library is a matter of hours to days, and Settings shows its progress.
@@ -216,7 +254,7 @@ In the beta, households join with an invite code. Billing, and Uncloud accounts,
 | Answer a read behind a delete marker with 404 | 405 | Time limits on restic |
 | Keep a lifecycle rule as given | Drops `AbortIncompleteMultipartUpload` | Nothing yet; clear unfinished uploads ourselves if they build up |
 | Count usage at once | Up to 8.5 hours later | Headroom on quota; never bill from a fresh reading |
-| Let a key be denied changing the bucket's default lock | No way found | Nightly check |
+| Let a key be denied changing locks | No way found | Nightly check; a new account if one's poisoned |
 
 Requests that need a checksum (lock settings, retention, versioning, lifecycle) are sent with
 `Content-MD5`, which iDrive accepts.
@@ -230,7 +268,7 @@ Requests that need a checksum (lock settings, retention, versioning, lifecycle) 
   - Is `disable_delete_version` meant to do anything?
   - Should a key without `bypass_governance_retention` be able to move a governance lock when it
     asks to bypass it? It looks like a bug.
-  - Can a key be denied changing the bucket's default lock?
+  - Can a key be denied changing the bucket's default lock, or pushing out a version's lock?
   - Is the 405 for an object behind a delete marker intended?
   - Is `AbortIncompleteMultipartUpload` supported in lifecycle rules?
   - What does `is_managed: false` mean for users made with `create_user`?
