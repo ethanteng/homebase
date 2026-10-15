@@ -334,8 +334,10 @@ jobs:
           plutil -p "$RUNNER_TEMP/entitlements.plist"
           # Its identifier is this app's, under whatever App ID prefix the account has, which is
           # usually the team ID but needn't be; and the team that signed it is this one.
-          identifier="$(plutil -extract application-identifier raw "$RUNNER_TEMP/entitlements.plist" 2>/dev/null || true)"
-          team="$(plutil -extract com.apple.developer.team-identifier raw "$RUNNER_TEMP/entitlements.plist" 2>/dev/null || true)"
+          # Read with PlistBuddy, whose key paths are split on ':'. plutil splits them on '.', so it
+          # looks for com → apple → developer → team-identifier and finds nothing.
+          identifier="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$RUNNER_TEMP/entitlements.plist" 2>/dev/null || true)"
+          team="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.team-identifier' "$RUNNER_TEMP/entitlements.plist" 2>/dev/null || true)"
           if [[ "$identifier" != ?*.life.uncloud.ios || "$team" != "$TEAM_ID" ]]; then
             echo "::error::The signed app says application-identifier '$identifier' and team '$team', not something.life.uncloud.ios from team $TEAM_ID, so nothing was uploaded."
             exit 1
