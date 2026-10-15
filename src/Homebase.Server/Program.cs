@@ -1,6 +1,7 @@
 using System.Net;
 using Homebase.Core;
 using Homebase.Core.Accounts;
+using Homebase.Core.Backup;
 using Homebase.Core.Providers;
 using Homebase.Core.Sync;
 using Homebase.Server;
@@ -155,6 +156,25 @@ builder.Services.AddSingleton(provider => new SyncthingHost(
 builder.Services.AddSingleton<ISyncthingEndpoint>(provider => provider.GetRequiredService<SyncthingHost>());
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SyncthingHost>());
 builder.Services.AddSingleton<ISyncthingApi, SyncthingApi>();
+// The host's backups. Until the backup service hands out where they go, a developer can point them at
+// a restic repository in configuration (Homebase:Backup:Repository and :Password, and for S3-compatible
+// storage :AccessKeyId, :SecretAccessKey and :Region). Without one, nothing is backed up.
+builder.Services.AddSingleton(provider =>
+{
+    var configuration = provider.GetRequiredService<IConfiguration>();
+    var repository = configuration["Homebase:Backup:Repository"];
+    var password = configuration["Homebase:Backup:Password"];
+    var target = string.IsNullOrWhiteSpace(repository) || string.IsNullOrWhiteSpace(password)
+        ? null
+        : new BackupTarget(repository, password, configuration["Homebase:Backup:AccessKeyId"],
+            configuration["Homebase:Backup:SecretAccessKey"], configuration["Homebase:Backup:Region"]);
+    return new BackupService(
+        provider.GetRequiredService<ControlDatabase>(), provider.GetRequiredService<HostService>(),
+        ConfigDirectory(provider, defaultConfig), target,
+        Restic.Binary(configuration["Homebase:Backup:Restic"], AppContext.BaseDirectory),
+        new BackupPolicy(), provider.GetRequiredService<ILogger<BackupService>>());
+});
+builder.Services.AddHostedService<BackupHost>();
 builder.Services.AddSingleton<SyncOwnership>();
 builder.Services.AddSingleton<SyncService>();
 builder.Services.AddSingleton<PairingCodes>();
@@ -1039,6 +1059,19 @@ static object HostStorage(string root, StorageAllotment allotment)
         capped = room?.Capped ?? false
     };
 }
+
+// The host's backups: how the last one went, and backing up now. Under /api/host, so only an
+// administrator reaches either.
+app.MapGet("/api/host/backup", (BackupService backups) => Results.Ok(backups.Status));
+
+app.MapPost("/api/host/backup", (BackupService backups, IHostApplicationLifetime lifetime) =>
+{
+    if (!backups.IsConfigured)
+        return Results.Problem("Backups aren't set up on this Uncloud yet.", statusCode: 409);
+    // One already running is the one asked for: a second wouldn't back up anything the first won't.
+    backups.TryStart(lifetime.ApplicationStopping);
+    return Results.Accepted("/api/host/backup", backups.Status);
+});
 
 // What a v0 library left sitting at the top of the host's folder, belonging to no account.
 app.MapGet("/api/host/unclaimed", (HostService host) =>
