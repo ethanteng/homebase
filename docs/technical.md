@@ -163,7 +163,9 @@ You don't need to install or start Syncthing. `./scripts/run.sh` and `./scripts/
 put a copy beside Uncloud — a pinned release whose checksum is checked, see
 [Your own computers](#your-own-computers) — and Uncloud runs it with its own configuration under
 the preference directory and stops it on the way out. If that download fails, everything except
-**My computers** still works.
+**My computers** still works. `scripts/fetch-restic.sh`, which the same scripts call, puts
+[restic](https://restic.net) there too, pinned and checksum-checked the same way and with its
+BSD-2-Clause licence. It's carried for the backup feature that's on its way; nothing runs it yet.
 
 ### Start it
 
@@ -873,8 +875,9 @@ attachments under `Notes/Evernote/`; these folders aren’t created until someth
 One Mac app, `Uncloud.app`, for both ends. It lives in the menu bar and, on first launch, asks what
 this Mac is:
 
-- **The host.** The app carries the Uncloud server, its Syncthing and its tunnel. It asks where
-  everyone's files go and sets the server up to run in an account of its own, from startup (see
+- **The host.** The app carries the Uncloud server, its Syncthing and its tunnel, and restic for
+  the backups that are on their way. It asks where everyone's files go and sets the server up to
+  run in an account of its own, from startup (see
   [Keeping the host private](#keeping-the-host-private)), then opens the browser for the first
   account. After that it serves the Mac's folders to the server, and its menu opens Uncloud,
   **Reach From Anywhere…** (Settings), **Use Another Folder…**, **Update Uncloud…** when the app has

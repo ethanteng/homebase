@@ -55,9 +55,11 @@ jobs:
       - if: runner.os == 'Linux'
         run: shellcheck scripts/macos-host/uncloud-host.sh scripts/smoke-macos-host.sh
 
-      # The Syncthing Uncloud ships is a pinned release checked against a pinned SHA-256. Fetching
-      # it here means a pin that no longer matches fails a pull request, not somebody's install.
+      # The Syncthing and restic Uncloud ships are pinned releases checked against pinned SHA-256s.
+      # Fetching them here means a pin that no longer matches fails a pull request, not somebody's
+      # install.
       - run: ./scripts/fetch-syncthing.sh "$RUNNER_TEMP/syncthing" && "$RUNNER_TEMP/syncthing/syncthing" --version
+      - run: ./scripts/fetch-restic.sh "$RUNNER_TEMP/restic" && "$RUNNER_TEMP/restic/restic" version
 
   # The iPhone and iPad app. Its library's tests run on an iPhone and an iPad simulator, and the app
   # is built for the simulator and for a real device, unsigned: signing is only for what goes to
@@ -110,8 +112,8 @@ jobs:
               -destination "$destination" CODE_SIGNING_ALLOWED=NO
           done
 
-  # The Mac app: the menu-bar app with the server, Syncthing and the tunnel inside it, for Apple
-  # Silicon and Intel. Built on a Mac because only a Mac can make the icon and sign it.
+  # The Mac app: the menu-bar app with the server, Syncthing, the tunnel and restic inside it, for
+  # Apple Silicon and Intel. Built on a Mac because only a Mac can make the icon and sign it.
   app:
     name: app (${{ matrix.runtime }})
     runs-on: macos-latest

@@ -15,6 +15,16 @@ syncthing-LICENSE.txt alongside the binary. Any future modifications to covered
 files must be made available under MPL-2.0. Preserve upstream third-party notices
 and verify corresponding source availability for each release.
 
+## Bundled restic
+
+The packaging script downloads unmodified restic **0.19.1**, Copyright (c) 2014,
+Alexander Neumann, licensed under **BSD-2-Clause**, as a separate executable. Source
+for that exact version is at https://github.com/restic/restic/tree/v0.19.1. The
+upstream license is reproduced in THIRD_PARTY_LICENSES.txt, and fetch-restic.sh also
+retains restic-LICENSE.txt alongside the binary. Like the tunnel, the binary links
+third-party Go modules (pinned by restic's go.mod at that tag) under their own
+licenses; their target-specific notice set is a release review item.
+
 ## Tunnel and Go dependencies
 
 The tunnel uses **tailscale.com v1.102.4**, Copyright (c) 2020 Tailscale Inc & AUTHORS,

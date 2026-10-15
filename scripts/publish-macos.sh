@@ -20,3 +20,5 @@ esac
 GOOS=darwin GOARCH="$homebase_arch" ./scripts/build-tunnel.sh "artifacts/$homebase_runtime"
 # So does Syncthing: keeping people's computers in step shouldn't start with a brew install either.
 GOOS=darwin GOARCH="$homebase_arch" ./scripts/fetch-syncthing.sh "artifacts/$homebase_runtime"
+# And restic, for the backups that are on their way, which shouldn't start with an install either.
+GOOS=darwin GOARCH="$homebase_arch" ./scripts/fetch-restic.sh "artifacts/$homebase_runtime"
