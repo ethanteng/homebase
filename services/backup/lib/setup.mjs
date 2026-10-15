@@ -138,9 +138,7 @@ async function makeAccount(household, { reseller, accountEmail }) {
     try {
       await reseller.createUser({
         email,
-        // Nobody signs in to it, so nobody learns it. Upper and lower case, digits and a symbol,
-        // in case iDrive has rules.
-        password: `Ub-${randomBytes(24).toString("base64url")}9`,
+        password: unknowable(),
         first_name: "Uncloud",
         last_name: "Household",
         quota: QUOTA_GB,
@@ -153,6 +151,14 @@ async function makeAccount(household, { reseller, accountEmail }) {
     }
   }
   return { account_email: email };
+}
+
+/**
+ * An account's password: nobody signs in to the account, so nobody learns it, and it's kept nowhere.
+ * Upper and lower case, digits and a symbol, in case iDrive has rules.
+ */
+function unknowable() {
+  return ["Ub-", randomBytes(24).toString("base64url"), "9"].join("");
 }
 
 /** Storage in the region: list_user_regions first, since enabling it twice is an error. */
