@@ -9,8 +9,8 @@ It's the Vercel project **uncloud-backup**, separate from the landing page's, so
 other project's environment. It deploys from this folder of this repository: a push that changes
 nothing here doesn't deploy it.
 
-So far: its tables, invites, and hosts joining with one. Setting up each household's storage and
-the nightly checks come next.
+So far: its tables, invites, hosts joining with one, and setting up each household's storage. The
+nightly checks come next.
 
 ## What's here
 
@@ -26,8 +26,24 @@ the nightly checks come next.
   shown this once. The host keeps it and sends it as a bearer token from then on.
 - `api/host.js`: `GET` with that credential says which host and household it is, so a host can tell
   its credential still works.
+- `api/host/storage.js`: `POST` with that credential sets the household's storage up if it isn't
+  yet, then answers with where the host backs up: the endpoint, the bucket, and a key of its own to
+  that bucket alone, shown this once. Setting up takes up to a minute, over one request or a few:
+  until it's done the answer is 202 with how far it has got, and the host asks again. Asking once
+  it's done gives the host a new key, and the old one stops working.
+- `api/operator/households.js`: `GET`, for the operator, lists every household, how far its setup
+  has got, and the last thing that went wrong with it.
 - `api/cron/nightly.js`: Vercel Cron's nightly call, at 10:00 UTC (`vercel.json`). It only lets
   Vercel in, by the cron secret.
+- `lib/setup.mjs`: setting a household up: its e2 account, storage in a region, and a bucket with
+  object lock, each step remembered once done and each looking at what's already at iDrive before
+  making anything, so a setup cut short anywhere picks up without making anything twice. Then each
+  host's key.
+- `lib/protection.mjs`: how every bucket is protected, applied and read back: versioning, a lock in
+  compliance mode, and the rule that expires old versions. The lock period is a placeholder until
+  it's decided.
+- `lib/idrive.mjs`, `lib/s3.mjs`: iDrive as the service uses it, and the S3 client the spike proved
+  against it.
 - `lib/reseller.mjs`: the IDrive e2 reseller API client, from the spike (`tools/idrive-spike/`),
   which still uses it.
 - `lib/schema.mjs`: the tables, as migrations. They're applied the first time a function instance
@@ -61,4 +77,16 @@ npm --prefix services/backup test
 ```
 
 They need no network and no database server: their Postgres is [PGlite](https://pglite.dev),
-Postgres itself built to run inside Node, so the SQL runs for real. `scripts/check.sh` runs them too.
+Postgres itself built to run inside Node, so the SQL runs for real, and their iDrive is a pretend
+one (`test/fake-idrive.mjs`) that answers as the spike saw the real one answer. `scripts/check.sh`
+runs them too.
+
+To try setting up against the real iDrive, with the spike's token:
+
+```sh
+cd services/backup
+node --env-file=../../tools/idrive-spike/.env scripts/try-setup.mjs
+```
+
+It sets up one pretend household through the service's own code, checks what its host was given
+can and can't do, and removes the account. It takes about a minute.

@@ -40,6 +40,31 @@ export const migrations = [
       create index hosts_household on hosts (household_id);
     `,
   },
+  {
+    name: "002_household_storage",
+    sql: `
+      -- Setting up a household's storage (setup.mjs). Each step leaves what it made here, so a
+      -- setup that stops picks up where it was: the e2 account, then storage in a region, then the
+      -- bucket, made and protected. Nothing secret: the service's own key is made for each go and
+      -- removed after it.
+      alter table households
+        add column account_email text unique,
+        add column region text,
+        add column storage_dn text,
+        add column bucket text unique,
+        add column ready_at timestamptz,
+        add column setup_tried_at timestamptz,
+        add column setup_failures integer not null default 0,
+        add column setup_problem text,
+        -- Whoever is setting the household up holds it until then, so two never do at once.
+        add column setup_lease_until timestamptz;
+
+      -- The e2 key a host was last given. Only its id: the secret goes to the host and nowhere else.
+      alter table hosts
+        add column key_id text,
+        add column key_issued_at timestamptz;
+    `,
+  },
 ];
 
 // Any number will do, as long as nothing else in the database takes the same advisory lock.

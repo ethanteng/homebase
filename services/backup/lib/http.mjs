@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { database, ready } from "./db.mjs";
+import { connectIdrive } from "./idrive.mjs";
 
 /** A failure with an answer of its own: a status, a code a program can act on, and words for a person. */
 export class ServiceError extends Error {
@@ -10,20 +11,25 @@ export class ServiceError extends Error {
   }
 }
 
-export function json(status, body) {
-  return Response.json(body, { status, headers: { "cache-control": "no-store" } });
+export function json(status, body, headers = {}) {
+  return Response.json(body, { status, headers: { "cache-control": "no-store", ...headers } });
 }
 
 /**
- * Answers a request with `handler`, given what it needs: the database, brought up to date, the
- * environment and the time. A ServiceError becomes its own answer; anything else is logged and
+ * Answers a request with `handler`, given what it needs: the database, brought up to date, iDrive,
+ * the environment and the time. A ServiceError becomes its own answer; anything else is logged and
  * answered as the service's fault, without saying what happened.
  */
 export function route(handler) {
   return async (request) => {
     try {
       const db = database();
-      return await handler(request, { db: db ? await ready(db) : null, env: process.env, now: new Date() });
+      return await handler(request, {
+        db: db ? await ready(db) : null,
+        idrive: connectIdrive(process.env),
+        env: process.env,
+        now: new Date(),
+      });
     } catch (error) {
       return failure(error);
     }
@@ -39,6 +45,11 @@ export function failure(error) {
 export function needDatabase(db) {
   if (!db) throw new ServiceError(503, "no_database", "This deployment of the service has no database.");
   return db;
+}
+
+export function needIdrive(idrive) {
+  if (!idrive) throw new ServiceError(503, "no_idrive", "This deployment of the service can't reach iDrive.");
+  return idrive;
 }
 
 export async function body(request) {
