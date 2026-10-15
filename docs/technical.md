@@ -824,6 +824,32 @@ if it comes along, and fine if it doesn't. The control database that holds accou
 tokens lives in the preference directory, so back that up separately if you want the accounts
 themselves to survive, not just the files.
 
+### Uncloud's own backups, in progress
+
+Uncloud Backup ([the design](backup.md)) is being built. Its engine runs now, though nothing in
+Uncloud sets it up yet and there's nothing for it in Settings. Until the backup service hands
+out where backups go, a developer can point it at a restic repository in configuration, a folder
+or S3-compatible storage:
+
+```sh
+Homebase__Backup__Repository=/Volumes/Backup/uncloud-restic \
+Homebase__Backup__Password='a long passphrase' \
+./scripts/run.sh
+```
+
+For S3-compatible storage, the repository is `s3:https://<endpoint>/<bucket>/<prefix>`, with
+`Homebase__Backup__AccessKeyId`, `Homebase__Backup__SecretAccessKey` and, if the store wants one,
+`Homebase__Backup__Region`. It then backs up every night at 2 (`Homebase__Backup__Hour` changes
+that; `Homebase__Backup__Nightly=false` stops it), and soon after starting if a night was missed.
+An administrator sees how the last one went at `GET /api/host/backup` and starts one with
+`POST /api/host/backup`.
+
+Each backup takes everybody's folders under `users/`, without `.homebase/index.db` or uploads still
+arriving, plus a copy of the control database made by SQLite and `host.key`, staged under the
+preference directory's `backup/host`. Older backups are thinned to seven daily, four weekly and
+twelve monthly, and space is given back weekly. Every restic command has a time limit, and a
+storage that answers 403 is reported as refusing, without guessing whether it's full.
+
 The web interface is reachable from outside the house only through a tunnel, described above.
 Syncing with your own computers works from anywhere either way.
 

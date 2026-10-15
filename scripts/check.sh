@@ -24,6 +24,9 @@ if command -v go >/dev/null 2>&1; then
 else
   echo "No Go on PATH; skipping the bundled tunnel." >&2
 fi
+# The backup tests run restic for real, against a repository in a folder, and look for it beside the
+# server, where this puts it. Offline, they say what's missing.
+./scripts/fetch-restic.sh || echo "Couldn't fetch restic; the backup tests will say they need it." >&2
 ./scripts/dotnet.sh test Homebase.slnx --verbosity minimal
 # The iPhone app's library, when there is a Swift 6 to test it with: Xcode's on a Mac, or a toolchain
 # from swift.org on Linux. The app itself needs Xcode, and CI's iOS job builds it.
