@@ -253,6 +253,30 @@ test("a host gets a key of its own to its one bucket, and asking again replaces 
   });
 });
 
+test("two requests for a host's key at once don't both replace it, and one that died doesn't hold it forever", async () => {
+  await withHousehold(async ({ db, idrive, id, joined }) => {
+    const request = () => asking("/api/host/storage", { method: "POST", token: joined.credential });
+    await advanceSetup(db, idrive, id, { now: NOW });
+    const hostKeys = () => idrive.users.get(`household-${id}@uncloud.life`).keys.filter((key) => key.name.startsWith("host-"));
+
+    const answers = await Promise.all([
+      hostStorageRoute(request(), { db, idrive, now: later(10) }),
+      hostStorageRoute(request(), { db, idrive, now: later(10) }),
+    ]);
+
+    assert.deepEqual(answers.map((answer) => answer.status).sort(), [201, 202]);
+    const given = await answers.find((answer) => answer.status === 201).json();
+    assert.deepEqual(await answers.find((answer) => answer.status === 202).json(), { setup: { state: "setting_up", step: "host key" } });
+    assert.deepEqual(hostKeys().map((key) => key.key_id), [given.storage.accessKeyId], "the key given out is the one that works");
+
+    // A request that took the host at later(20) and was never heard from again.
+    await db.query("update hosts set key_lease_until = $1", [later(95)]);
+    assert.equal((await hostStorageRoute(request(), { db, idrive, now: later(60) })).status, 202);
+    assert.equal((await hostStorageRoute(request(), { db, idrive, now: later(100) })).status, 201);
+    assert.equal(hostKeys().length, 1);
+  });
+});
+
 test("a host whose household isn't set up yet is told to ask again, and not why it's stuck", async () => {
   await withHousehold(async ({ db, idrive, joined }) => {
     const deps = { db, idrive, env: {}, now: NOW };

@@ -56,12 +56,12 @@ export async function currentHostRoute(request, { db, now }) {
 export async function hostStorageRoute(request, { db, idrive, now, until = Date.now() + BUDGET }) {
   const host = await theHost(request, db, now);
   const { household, state } = await advanceSetup(db, needIdrive(idrive), host.household, { now, until });
-  if (state.state !== "ready" || !timeForKey(until)) {
-    // The host isn't told what went wrong, only that it did: that's for the operator, who sees it.
-    const setup = state.state === "ready" ? { state: "setting_up", step: "host key" } : { state: state.state, step: state.step };
-    return json(202, { setup }, { "retry-after": setup.state === "failing" ? "60" : "5" });
-  }
-  return json(201, { storage: await issueHostKey(db, idrive, household, host, { now }) });
+  // The host isn't told what went wrong, only that it did: that's for the operator, who sees it.
+  const askAgain = (setup) => json(202, { setup }, { "retry-after": setup.state === "failing" ? "60" : "5" });
+  if (state.state !== "ready") return askAgain({ state: state.state, step: state.step });
+  // Ready, but this request has no time left for a key, or another is making this host's key now.
+  const storage = timeForKey(until) ? await issueHostKey(db, idrive, household, host, { now }) : null;
+  return storage ? json(201, { storage }) : askAgain({ state: "setting_up", step: "host key" });
 }
 
 /** GET /api/operator/households: every household, how far its setup has got, and why it's stuck if it is. */

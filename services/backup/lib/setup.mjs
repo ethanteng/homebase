@@ -98,20 +98,36 @@ export function describe(household, now = new Date()) {
  * Gives a host a key of its own to its household's bucket, and answers with everything it needs to
  * back up there. The secret is in that answer and nowhere else: any key the host had before is
  * removed, so asking again replaces it.
+ *
+ * Replacing a key is removing the old and making the new, so two requests at once could each
+ * remove the other's. The host is held while it's done, and a request that finds it held gets
+ * null, to ask again.
  */
 export async function issueHostKey(db, idrive, household, host, { now = new Date() } = {}) {
+  const { rows: [held] } = await db.query(
+    "update hosts set key_lease_until = $2 where id = $1 and (key_lease_until is null or key_lease_until < $3) returning id",
+    [host.id, new Date(now.getTime() + LEASE_SECONDS * 1000), now]);
+  if (!held) return null;
+
   const account = { email: household.account_email, storageDn: household.storage_dn };
-  // Read and write, to this one bucket only, without deleting the bucket. No bypassing a lock,
-  // which compliance mode refuses anyway. (disable_delete_version is left out: iDrive ignores it.)
-  const key = await freshKey(idrive.reseller, account, `host-${host.id}`, {
-    permissions: 2,
-    buckets: [household.bucket],
-    disable_delete_bucket: true,
-    bypass_governance_retention: false,
-  });
-  const s3 = idrive.s3(household.storage_dn, key);
-  await untilWorks(() => s3.send(new ListObjectsV2Command({ Bucket: household.bucket, MaxKeys: 1 })), idrive.patience);
-  await db.query("update hosts set key_id = $2, key_issued_at = $3 where id = $1", [host.id, key.accessKeyId, now]);
+  let key;
+  try {
+    // Read and write, to this one bucket only, without deleting the bucket. No bypassing a lock,
+    // which compliance mode refuses anyway. (disable_delete_version is left out: iDrive ignores it.)
+    key = await freshKey(idrive.reseller, account, `host-${host.id}`, {
+      permissions: 2,
+      buckets: [household.bucket],
+      disable_delete_bucket: true,
+      bypass_governance_retention: false,
+    });
+    const s3 = idrive.s3(household.storage_dn, key);
+    await untilWorks(() => s3.send(new ListObjectsV2Command({ Bucket: household.bucket, MaxKeys: 1 })), idrive.patience);
+    await db.query("update hosts set key_id = $2, key_issued_at = $3, key_lease_until = null where id = $1",
+      [host.id, key.accessKeyId, now]);
+  } catch (error) {
+    await db.query("update hosts set key_lease_until = null where id = $1", [host.id]).catch(() => {});
+    throw error;
+  }
   return {
     endpoint: endpointFor(household.storage_dn),
     region: SIGNING_REGION,

@@ -60,9 +60,11 @@ export const migrations = [
         add column setup_lease_until timestamptz;
 
       -- The e2 key a host was last given. Only its id: the secret goes to the host and nowhere else.
+      -- Whoever is replacing it holds the host until then, so two requests never both do.
       alter table hosts
         add column key_id text,
-        add column key_issued_at timestamptz;
+        add column key_issued_at timestamptz,
+        add column key_lease_until timestamptz;
     `,
   },
 ];
