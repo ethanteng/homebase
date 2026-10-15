@@ -12,6 +12,7 @@ import { parseArgs } from "node:util";
 import {
   CreateBucketCommand,
   DeleteBucketLifecycleCommand,
+  PutBucketLifecycleConfigurationCommand,
   DeleteObjectCommand,
   GetObjectRetentionCommand,
   ListObjectsV2Command,
@@ -87,6 +88,12 @@ try {
   };
   await refused("The host's key can't destroy a version", () =>
     host.send(new DeleteObjectCommand({ Bucket: bucket, Key: "try/probe.txt", VersionId: put.VersionId })));
+  // A rule of the host's own would be worse than none: one expiring every object would hide the
+  // whole backup behind delete markers, and clear each version as its lock ran out.
+  await refused("The host's key can't replace the expiry rule", () => host.send(new PutBucketLifecycleConfigurationCommand({
+    Bucket: bucket,
+    LifecycleConfiguration: { Rules: [{ ID: "host-was-here", Status: "Enabled", Filter: { Prefix: "" }, Expiration: { Days: 1 } }] },
+  })));
   await refused("The host's key can't remove the expiry rule", () => host.send(new DeleteBucketLifecycleCommand({ Bucket: bucket })));
   await refused("The host's key can't make a bucket", () => host.send(new CreateBucketCommand({ Bucket: `${bucket}-x` })));
 

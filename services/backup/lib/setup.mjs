@@ -113,11 +113,14 @@ export async function issueHostKey(db, idrive, household, host, { now = new Date
   let key;
   try {
     // Read and write, to this one bucket only, without deleting the bucket. No bypassing a lock,
-    // which compliance mode refuses anyway. (disable_delete_version is left out: iDrive ignores it.)
+    // which compliance mode refuses anyway. disable_delete_version doesn't stop a key destroying
+    // versions, but it's what keeps it off the bucket's lifecycle rules: every spike key with it
+    // was refused changing the expiry rule, and a key without it deleted the rule.
     key = await freshKey(idrive.reseller, account, `host-${host.id}`, {
       permissions: 2,
       buckets: [household.bucket],
       disable_delete_bucket: true,
+      disable_delete_version: true,
       bypass_governance_retention: false,
     });
     const s3 = idrive.s3(household.storage_dn, key);

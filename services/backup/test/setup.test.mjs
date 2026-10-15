@@ -241,7 +241,9 @@ test("a host gets a key of its own to its one bucket, and asking again replaces 
     assert.equal(key.key_id, storage.accessKeyId);
     assert.equal(key.secret, storage.secretAccessKey);
     assert.equal(key.name, `host-${joined.host.id}`);
-    assert.deepEqual(key.options, { permissions: 2, buckets: [`uncloud-${id}`], disable_delete_bucket: true, bypass_governance_retention: false });
+    assert.deepEqual(key.options, {
+      permissions: 2, buckets: [`uncloud-${id}`], disable_delete_bucket: true, disable_delete_version: true, bypass_governance_retention: false,
+    });
     const { rows: [host] } = await db.query("select key_id, key_issued_at from hosts");
     assert.equal(host.key_id, storage.accessKeyId);
     const { rows } = await db.query("select * from hosts, households");
