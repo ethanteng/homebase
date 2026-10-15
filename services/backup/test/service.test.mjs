@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checkHealth } from "../lib/health.mjs";
+import { freshDatabase } from "./database.mjs";
 import { fromVercelCron } from "../lib/cron.mjs";
 import { GET as health } from "../api/health.js";
 import { GET as nightly } from "../api/cron/nightly.js";
@@ -13,47 +14,59 @@ test("with nothing set up, health says so and isn't ready", async () => {
   assert.deepEqual(said, {
     service: "uncloud-backup",
     ready: false,
-    configured: { resellerToken: false, database: false, cronSecret: false },
+    configured: { resellerToken: false, operatorToken: false, cronSecret: false, database: false },
     database: "not set up",
+    tables: null,
   });
 });
 
-test("set up and answering, health is ready, and says whether things are there but never what they are", async () => {
-  const env = { IDRIVE_RESELLER_TOKEN: "token-that-opens-everything", CRON_SECRET: "cron-secret-value" };
-  const said = await checkHealth(env, async () => [{ "?column?": 1 }]);
-  assert.equal(said.ready, true);
-  assert.equal(said.database, "answers");
-  const text = JSON.stringify(said);
-  assert.ok(!text.includes("token-that-opens-everything"));
-  assert.ok(!text.includes("cron-secret-value"));
+const everything = { IDRIVE_RESELLER_TOKEN: "token-that-opens-everything", OPERATOR_TOKEN: "operator-value", CRON_SECRET: "cron-secret-value" };
+
+test("set up, answering and with its tables up to date, health is ready, and never says what anything is", async () => {
+  const db = await freshDatabase();
+  try {
+    const said = await checkHealth(everything, db);
+    assert.equal(said.ready, true);
+    assert.equal(said.database, "answers");
+    assert.equal(said.tables, "current");
+    const text = JSON.stringify(said);
+    for (const secret of Object.values(everything)) assert.ok(!text.includes(secret));
+  } finally {
+    await db.close();
+  }
 });
 
-test("a database that doesn't answer isn't ready, and what it said doesn't leave the service", async () => {
+const quietly = async (run) => {
   const original = console.error;
   console.error = () => {};
-  try {
-    const said = await checkHealth({ IDRIVE_RESELLER_TOKEN: "t", CRON_SECRET: "c" }, async () => {
-      throw new Error("connect ECONNREFUSED postgres://user:hunter2@db.internal:5432");
-    });
-    assert.equal(said.ready, false);
-    assert.equal(said.database, "doesn't answer");
-    assert.ok(!JSON.stringify(said).includes("hunter2"));
-  } finally {
-    console.error = original;
-  }
+  try { return await run(); } finally { console.error = original; }
+};
+
+test("a database that doesn't answer isn't ready, and what it said doesn't leave the service", async () => {
+  const said = await quietly(() => checkHealth(everything, {
+    query: async () => { throw new Error("connect ECONNREFUSED postgres://user:hunter2@db.internal:5432"); },
+  }));
+  assert.equal(said.ready, false);
+  assert.equal(said.database, "doesn't answer");
+  assert.equal(said.tables, null);
+  assert.ok(!JSON.stringify(said).includes("hunter2"));
 });
 
 test("a database that has gone quiet is reported as not answering, not waited on", async () => {
-  const original = console.error;
-  console.error = () => {};
-  try {
-    const started = Date.now();
-    const said = await checkHealth({}, () => new Promise(() => {}), { deadline: 50 });
-    assert.equal(said.database, "doesn't answer");
-    assert.ok(Date.now() - started < 2_000);
-  } finally {
-    console.error = original;
-  }
+  const started = Date.now();
+  const said = await quietly(() => checkHealth({}, { query: () => new Promise(() => {}) }, { deadline: 50 }));
+  assert.equal(said.database, "doesn't answer");
+  assert.ok(Date.now() - started < 2_000);
+});
+
+test("a database that answers but whose tables can't be brought up to date isn't ready", async () => {
+  const said = await quietly(() => checkHealth(everything, {
+    query: async () => ({ rows: [] }),
+    transaction: async () => { throw new Error("permission denied for schema public"); },
+  }));
+  assert.equal(said.database, "answers");
+  assert.equal(said.tables, "couldn't be brought up to date");
+  assert.equal(said.ready, false);
 });
 
 test("the health endpoint answers, uncached, without a database configured", async () => {

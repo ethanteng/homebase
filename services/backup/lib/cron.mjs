@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { carries } from "./http.mjs";
 
 /**
  * Whether a request is Vercel Cron's. Vercel sends the project's CRON_SECRET as a bearer token when
@@ -6,8 +6,5 @@ import { timingSafeEqual } from "node:crypto";
  * could start a thousand times.
  */
 export function fromVercelCron(request, secret) {
-  if (!secret) return false;
-  const given = Buffer.from(request.headers.get("authorization") ?? "");
-  const expected = Buffer.from(`Bearer ${secret}`);
-  return given.length === expected.length && timingSafeEqual(given, expected);
+  return carries(request, secret);
 }
