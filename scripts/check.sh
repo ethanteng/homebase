@@ -13,6 +13,8 @@ npm --prefix src/homebase-web run test
 # from treating api/ as a module to resolve.
 node --test "api/*.test.js"
 node --test "landing/*.test.cjs"
+# The backup service's own tests: neither a network nor a database.
+node --test "services/backup/test/*.test.mjs"
 # The bundled tunnel, when there is a Go to build it with. Without one, Uncloud still builds
 # and runs; only Homebase__RemoteAccess__Provider=builtin is unavailable.
 if command -v go >/dev/null 2>&1; then

@@ -230,8 +230,8 @@ backup of a household's library is a matter of hours to days, and Settings shows
 
 ## The service
 
-A Vercel project of its own, so the reseller token is in no other project's environment and no
-deployment of the landing page can reach it.
+A Vercel project of its own, **uncloud-backup**, deploying from `services/backup/`, so the reseller
+token is in no other project's environment and no deployment of the landing page can reach it.
 
 - **Postgres**, from Vercel's marketplace, for households, hosts, the state of each setup job,
   and invite codes.

@@ -1,0 +1,15 @@
+{
+  "name": "uncloud-backup",
+  "private": true,
+  "description": "Uncloud Backup's service: sets up each household's storage in IDrive e2 and keeps it protected (docs/backup.md).",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
+  }
+}
