@@ -94,6 +94,10 @@ public sealed class BackupService
     private readonly ILogger<BackupService> _logger;
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    // A restore takes no lock in the repository, so restic can't keep a prune from rewriting what it's
+    // reading. On this host, this does: forgetting and pruning wait for a restore, and a restore for
+    // them. A backup adding to the repository needs neither, and goes on beside a restore.
+    private readonly SemaphoreSlim _maintenance = new(1, 1);
     private volatile bool _running;
 
     public BackupService(
@@ -140,11 +144,17 @@ public sealed class BackupService
     public Task<BackupStatus> RunAsync(CancellationToken cancellationToken) =>
         IsConfigured && _gate.Wait(0) ? RunHeldAsync(cancellationToken) : Task.FromResult(Status);
 
-    /// <summary>The snapshots in the backup, oldest first. Read without a lock, so a read-only account still answers.</summary>
-    public async Task<IReadOnlyList<BackupSnapshot>> SnapshotsAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// This Uncloud's snapshots in the backup, oldest first, and nobody else's that may share the
+    /// repository. Read without a lock, so a read-only account still answers.
+    /// </summary>
+    public Task<IReadOnlyList<BackupSnapshot>> SnapshotsAsync(CancellationToken cancellationToken) =>
+        SnapshotsAsync(Open(), cancellationToken);
+
+    private async Task<IReadOnlyList<BackupSnapshot>> SnapshotsAsync(Restic restic, CancellationToken cancellationToken)
     {
-        var restic = Open();
-        var result = await restic.RunAsync(["--no-lock", "snapshots", "--json"], _policy.OpenLimit, cancellationToken);
+        var result = await restic.RunAsync(
+            ["--no-lock", "snapshots", "--json", "--host", HostName, "--tag", Tag], _policy.OpenLimit, cancellationToken);
         if (!result.Succeeded) throw new LibraryException(Explain(result, "list the backups", _policy.OpenLimit), "backup");
         using var document = JsonDocument.Parse(string.Join('\n', result.Output));
         return document.RootElement.EnumerateArray()
@@ -164,10 +174,25 @@ public sealed class BackupService
     public async Task RestoreAsync(string snapshot, string target, IReadOnlyList<string>? include, CancellationToken cancellationToken)
     {
         var restic = Open();
-        List<string> arguments = ["--no-lock", "restore", snapshot, "--target", target];
-        foreach (var path in include ?? []) arguments.AddRange(["--include", path]);
-        var result = await restic.RunAsync(arguments, _policy.RestoreLimit, cancellationToken);
-        if (!result.Succeeded) throw new LibraryException(Explain(result, "restore from the backup", _policy.RestoreLimit), "backup");
+        await _maintenance.WaitAsync(cancellationToken);
+        try
+        {
+            // Only one of this Uncloud's own, named in full or by an unambiguous prefix of at least
+            // the eight characters restic shows: never another client's that shares the repository.
+            var ours = (await SnapshotsAsync(restic, cancellationToken))
+                .Where(known => known.Id == snapshot || (snapshot.Length >= 8 && known.Id.StartsWith(snapshot, StringComparison.Ordinal)))
+                .ToList();
+            if (ours.Count != 1)
+                throw new LibraryException("That isn't one of this Uncloud's backups.", "backup_snapshot");
+            List<string> arguments = ["--no-lock", "restore", ours[0].Id, "--target", target];
+            foreach (var path in include ?? []) arguments.AddRange(["--include", path]);
+            var result = await restic.RunAsync(arguments, _policy.RestoreLimit, cancellationToken);
+            if (!result.Succeeded) throw new LibraryException(Explain(result, "restore from the backup", _policy.RestoreLimit), "backup");
+        }
+        finally
+        {
+            _maintenance.Release();
+        }
     }
 
     private async Task<BackupStatus> RunHeldAsync(CancellationToken cancellationToken)
@@ -279,7 +304,17 @@ public sealed class BackupService
             foreach (var line in backup.Output.Where(line => line.Contains("\"message_type\":\"error\"", StringComparison.Ordinal)))
                 _logger.LogWarning("restic couldn't read: {Line}", line);
 
-        // Tidying up is worth doing but not worth failing a backup that's been made over.
+        await _maintenance.WaitAsync(cancellationToken);
+        try { return await TidyAsync(restic, status, now, cancellationToken); }
+        finally { _maintenance.Release(); }
+    }
+
+    /// <summary>
+    /// Forgets snapshots the policy no longer keeps and, weekly, gives back the space they took. Worth
+    /// doing, but not worth failing a backup that's been made over.
+    /// </summary>
+    private async Task<BackupStatus> TidyAsync(Restic restic, BackupStatus status, DateTimeOffset now, CancellationToken cancellationToken)
+    {
         var forget = await restic.RunAsync(
         [
             "forget", "--host", HostName, "--tag", Tag,

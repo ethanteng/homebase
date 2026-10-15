@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Homebase.Core;
 using Homebase.Core.Accounts;
 using Homebase.Core.Backup;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -118,6 +119,54 @@ public sealed class BackupTests : IDisposable
         Assert.Equal(DateTimeOffset.Parse("2026-10-03T02:00:00Z"), kept[^1].Time);
         await backups.RestoreAsync(kept[^1].Id, Restored, null, CancellationToken.None);
         Assert.Equal("third", File.ReadAllText(Back(Path.Combine(alice, "notes.txt"))));
+    }
+
+    [Fact]
+    public async Task Another_clients_snapshots_in_the_repository_are_neither_listed_nor_restored()
+    {
+        var backups = Backups();
+        File.WriteAllText(Path.Combine(Account("alice"), "notes.txt"), "ours");
+        var ours = await backups.RunAsync(CancellationToken.None);
+        var elsewhere = Directory.CreateDirectory(Path.Combine(_temporary, "elsewhere")).FullName;
+        File.WriteAllText(Path.Combine(elsewhere, "theirs.txt"), "somebody else's");
+        var other = new Restic(TestRestic.Path, new BackupTarget(Repository, Password),
+            Path.Combine(_temporary, "other-cache"), NullLogger.Instance);
+        var made = await other.RunAsync(
+            ["backup", "--json", "--host", "somebody-else", elsewhere], TimeSpan.FromMinutes(2), CancellationToken.None);
+        Assert.True(made.Succeeded, made.Error);
+        var theirs = JsonDocument.Parse(made.Output.Last(line => line.Contains("\"message_type\":\"summary\"")))
+            .RootElement.GetProperty("snapshot_id").GetString()!;
+
+        var listed = await backups.SnapshotsAsync(CancellationToken.None);
+
+        Assert.Equal(ours.Snapshot, Assert.Single(listed).Id);
+        var refused = await Assert.ThrowsAsync<LibraryException>(
+            () => backups.RestoreAsync(theirs, Restored, null, CancellationToken.None));
+        Assert.Equal("backup_snapshot", refused.Code);
+        Assert.False(Directory.Exists(Restored));
+    }
+
+    [Fact]
+    public async Task A_restore_waits_while_space_is_being_given_back()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var marks = Directory.CreateDirectory(Path.Combine(_temporary, "marks")).FullName;
+        var restic = FakeRestic($$"""
+            case "$command" in
+              prune) touch '{{marks}}/prune.started'; sleep 2; touch '{{marks}}/prune.finished' ;;
+              snapshots) echo '[{"id":"0123456789abcdef0123456789abcdef","time":"2026-10-14T00:00:00Z","paths":["/x"]}]' ;;
+              restore) if [ -f '{{marks}}/prune.finished' ]; then echo after; else echo during; fi > '{{marks}}/restore' ;;
+            esac
+            exit 0
+            """);
+        var backups = Backups(restic: restic);
+
+        // The first backup gives space back, so this one reaches a prune and stays in it a while.
+        Assert.True(backups.TryStart(CancellationToken.None));
+        await Until(() => File.Exists(Path.Combine(marks, "prune.started")));
+        await backups.RestoreAsync("01234567", Restored, null, CancellationToken.None);
+
+        Assert.Equal("after", File.ReadAllText(Path.Combine(marks, "restore")).Trim());
     }
 
     [Fact]
