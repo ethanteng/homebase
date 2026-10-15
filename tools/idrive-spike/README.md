@@ -5,7 +5,8 @@ household through the whole lifecycle, for real, and writes down what happened a
 
 It uses the reseller API the way Uncloud's backup service would, and restic the way a host would.
 Nothing here is part of Uncloud itself. The reseller client in `reseller.mjs` is written so it can
-become the service's client later.
+become the service's client later. What the runs found, and the design that follows from it, is in
+[`docs/backup.md`](../../docs/backup.md).
 
 ## What a run does
 
