@@ -43,6 +43,19 @@ test("a database that doesn't answer isn't ready, and what it said doesn't leave
   }
 });
 
+test("a database that has gone quiet is reported as not answering, not waited on", async () => {
+  const original = console.error;
+  console.error = () => {};
+  try {
+    const started = Date.now();
+    const said = await checkHealth({}, () => new Promise(() => {}), { deadline: 50 });
+    assert.equal(said.database, "doesn't answer");
+    assert.ok(Date.now() - started < 2_000);
+  } finally {
+    console.error = original;
+  }
+});
+
 test("the health endpoint answers, uncached, without a database configured", async () => {
   const saved = { ...process.env };
   delete process.env.DATABASE_URL;
