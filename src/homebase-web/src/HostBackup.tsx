@@ -172,7 +172,7 @@ export default function HostBackup() {
         />
         {busy && (
           <p className="field-help" role="status">
-            Joining, and setting up this household’s storage. That can take up to a minute.
+            Joining Uncloud Backup…
           </p>
         )}
         {error && (
