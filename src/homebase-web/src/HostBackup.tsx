@@ -5,10 +5,11 @@ import {
   CloudUpload,
   Copy,
   LoaderCircle,
+  ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize } from "./api";
-import type { BackupAccount, BackupJoined, BackupStatus } from "./api";
+import type { BackupAccount, BackupCheck, BackupJoined, BackupSnapshots, BackupStatus } from "./api";
 
 /** How often it looks again while something is under way: storage being set up, or a backup running. */
 const UNDER_WAY_EVERY = 5000;
@@ -55,6 +56,8 @@ function warnBeforeLeaving(event: BeforeUnloadEvent) {
 export default function HostBackup() {
   const [account, setAccount] = useState<BackupAccount | null>(null);
   const [status, setStatus] = useState<BackupStatus | null>(null);
+  const [check, setCheck] = useState<BackupCheck | null>(null);
+  const [keptBackups, setKeptBackups] = useState<BackupSnapshots["snapshots"] | null>(null);
   const [invite, setInvite] = useState("");
   // The backup's password, from the moment of joining until whoever joined says they've kept it.
   const [password, setPassword] = useState<string | null>(unsaved.password);
@@ -71,6 +74,8 @@ export default function HostBackup() {
     ]);
     setAccount(nextAccount);
     setStatus(nextStatus);
+    // A host from before checks were made answers 404: the rest of the panel still stands.
+    setCheck(await api<BackupCheck>("/host/backup/check", { signal }).catch(() => null));
   }, []);
 
   useEffect(() => {
@@ -92,8 +97,24 @@ export default function HostBackup() {
     return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
   }, []);
 
+  // Which backups are kept, read again whenever a new one has been made.
+  const configured = status?.configured === true;
+  const lastMade = status?.lastSucceeded ?? null;
+  useEffect(() => {
+    if (!configured) return;
+    const controller = new AbortController();
+    api<BackupSnapshots>("/host/backup/snapshots", { signal: controller.signal })
+      .then((listed) => setKeptBackups(listed.snapshots))
+      .catch(() => {
+        // Worth showing, not worth anything else failing for.
+      });
+    return () => controller.abort();
+  }, [configured, lastMade]);
+
   const underWay =
-    (account?.joined === true && account.storage !== "ready") || status?.running === true;
+    (account?.joined === true && account.storage !== "ready") ||
+    status?.running === true ||
+    check?.running === true;
   useEffect(() => {
     if (!underWay) return;
     const timer = window.setInterval(() => void read().catch(() => {}), UNDER_WAY_EVERY);
@@ -140,6 +161,18 @@ export default function HostBackup() {
       setStatus(await api<BackupStatus>("/host/backup", { method: "POST" }));
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Couldn’t start a backup.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function checkNow() {
+    setBusy(true);
+    setError("");
+    try {
+      setCheck(await api<BackupCheck>("/host/backup/check", { method: "POST" }));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Couldn’t start a check.");
     } finally {
       setBusy(false);
     }
@@ -282,26 +315,113 @@ export default function HostBackup() {
         <>
           <LastBackup status={status} />
           <p className="field-help">
-            Every night, and soon after this computer is back if it missed one. Encrypted here before
-            it leaves.
+            {keptBackups?.length === 1 && `1 backup kept, from ${when.format(new Date(keptBackups[0].time))}. `}
+            {keptBackups && keptBackups.length > 1 &&
+              `${keptBackups.length} backups kept, the oldest from ${when.format(new Date(keptBackups[0].time))}. `}
+            Every night, and soon after this computer is back if it missed one. Encrypted here before it
+            leaves.
           </p>
+          {check && <LastCheck check={check} />}
           {error && (
             <p className="error-message" role="alert">
               {error}
             </p>
           )}
-          <button
-            type="button"
-            className="button secondary"
-            disabled={busy || status.running}
-            onClick={() => void backUpNow()}
-          >
-            {status.running ? <LoaderCircle size={16} className="spin" /> : <CloudUpload size={16} />}
-            Back up now
-          </button>
+          <div className="backup-actions">
+            <button
+              type="button"
+              className="button secondary"
+              disabled={busy || status.running}
+              onClick={() => void backUpNow()}
+            >
+              {status.running ? <LoaderCircle size={16} className="spin" /> : <CloudUpload size={16} />}
+              Back up now
+            </button>
+            {check && (
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy || check.running || !status.lastSucceeded}
+                onClick={() => void checkNow()}
+              >
+                {check.running ? <LoaderCircle size={16} className="spin" /> : <ShieldCheck size={16} />}
+                Verify the backup
+              </button>
+            )}
+          </div>
         </>
       )}
     </section>
+  );
+}
+
+const count = (n: number | null, one: string, many: string) =>
+  `${(n ?? 0).toLocaleString()} ${n === 1 ? one : many}`;
+
+/**
+ * How the last check went: what was restored, from which backup, and whether it came back as it is
+ * here. Files changed or gone since the backup aren't a fault, only nothing to compare with.
+ */
+function LastCheck({ check }: { check: BackupCheck }) {
+  if (check.running) {
+    return (
+      <p className="backup-line" role="status">
+        <LoaderCircle size={14} className="spin" />
+        <span>
+          Verifying the backup: restoring the newest one to a temporary folder, comparing it with
+          what’s here, then deleting it. Nothing here is changed.
+        </span>
+      </p>
+    );
+  }
+  if (!check.finished) return null;
+  const finished = when.format(new Date(check.finished));
+  if (check.passed === null) {
+    return (
+      <p className="backup-line">
+        <span>{check.message}</span>
+      </p>
+    );
+  }
+  const from = check.snapshotTime ? ` from the backup of ${when.format(new Date(check.snapshotTime))}` : "";
+  if (check.passed) {
+    // Everybody's files, which is fewer than the backup's own count: that has this Uncloud's
+    // database and key in it too.
+    const what = check.sampled
+      ? `${(check.files ?? 0).toLocaleString()} of everyone’s ${count(check.filesInBackup, "file", "files")} (${formatSize(check.bytes)}), at random`
+      : check.files === 1
+        ? `everyone’s 1 file (${formatSize(check.bytes)})`
+        : `all ${(check.files ?? 0).toLocaleString()} of everyone’s files (${formatSize(check.bytes)})`;
+    const since = [
+      check.changedSince ? `${count(check.changedSince, "has", "have")} changed here since` : null,
+      check.goneSince ? `${count(check.goneSince, "has", "have")} gone` : null,
+    ].filter(Boolean);
+    return (
+      <p className="backup-line">
+        <ShieldCheck size={14} className="backup-ok" />
+        <span>
+          Verified {finished}: restored {what}
+          {from}, and {since.length ? "every one still here as it was" : "every one"} came back exactly
+          as it is here{since.length ? ` (${since.join(" and ")})` : ""}.
+          {check.hostKeyMatched ? " So did this Uncloud’s own key, which a rebuilt host needs." : ""}
+        </span>
+      </p>
+    );
+  }
+  const wrong = [
+    check.mismatched ? `${count(check.mismatched, "file", "files")} came back different from what’s here` : null,
+    check.missing ? `${count(check.missing, "file", "files")} didn’t come back at all` : null,
+  ].filter(Boolean);
+  return (
+    <p className="backup-line">
+      <TriangleAlert size={14} className="backup-warn" />
+      <span>
+        Verified {finished}
+        {from}:{" "}
+        {wrong.length ? `${wrong.join(", and ")}. Uncloud’s log says which.` : ""}
+        {check.message ? ` ${check.message}` : ""}
+      </span>
+    </p>
   );
 }
 
