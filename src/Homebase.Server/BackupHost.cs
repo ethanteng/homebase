@@ -4,21 +4,23 @@ using Homebase.Core.Backup;
 namespace Homebase.Server;
 
 /// <summary>
-/// Backs the host up every night, and soon after it starts if it missed a night. Until there's
-/// somewhere to back up to it waits, and a host that has joined Uncloud Backup while its
-/// household's storage is still being set up keeps asking for it.
+/// Gets a host that has joined Uncloud Backup its household's storage, asking as soon as it joins
+/// and as often as the service says until it's there. Then backs the host up every night, and soon
+/// after it starts if it missed a night.
 /// </summary>
 public sealed class BackupHost(BackupService backups, BackupAccount account, IConfiguration configuration, ILogger<BackupHost> logger)
     : BackgroundService
 {
-    /// <summary>How often a host with nowhere to back up looks again: joining happens while it runs.</summary>
+    /// <summary>How long a host with nowhere to back up waits before looking again, unless it joins first.</summary>
     private static readonly TimeSpan Unconfigured = TimeSpan.FromMinutes(1);
     /// <summary>How long after the service couldn't be reached it's asked again.</summary>
     private static readonly TimeSpan Unreachable = TimeSpan.FromMinutes(5);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!configuration.GetValue("Homebase:Backup:Nightly", true)) return;
+        // Turning nightly backups off leaves backing up by hand, so a host that has joined still
+        // gets its storage: only the schedule is off.
+        var nightly = configuration.GetValue("Homebase:Backup:Nightly", true);
         // Two in the morning unless somebody chose otherwise: the house is asleep and the line is free.
         var hour = Math.Clamp(configuration.GetValue("Homebase:Backup:Hour", 2), 0, 23);
         try
@@ -27,9 +29,10 @@ public sealed class BackupHost(BackupService backups, BackupAccount account, ICo
             {
                 if (!backups.IsConfigured)
                 {
-                    await Task.Delay(account.Joined ? await AskForStorageAsync(stoppingToken) : Unconfigured, stoppingToken);
+                    await account.NapAsync(account.Joined ? await AskForStorageAsync(stoppingToken) : Unconfigured, stoppingToken);
                     continue;
                 }
+                if (!nightly) return;
                 var status = backups.Status;
                 var now = DateTimeOffset.Now;
                 var next = BackupSchedule.Next(now, TimeZoneInfo.Local, hour, status.LastSucceeded, status.LastStarted);

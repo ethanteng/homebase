@@ -230,11 +230,12 @@ restic is carried with the app and run by the server as a child process, as Sync
 pinned binary comes from `scripts/fetch-restic.sh`.
 
 - **Joining.** An administrator pastes an invite code (`POST /api/host/backup/account`). The host
-  registers with the service, makes the password its backup is encrypted with, and shows it to the
-  administrator once, to keep. It waits up to 50 seconds for the household's storage; if it isn't
-  ready by then, the host keeps asking in the background, as often as the service says. Backups
-  start going there without a restart, the first a few minutes after it arrives. The host's
-  credential, the password and the storage key are kept in its settings, sealed with `host.key`.
+  registers with the service, makes the password its backup is encrypted with, and answers with
+  it straight away, once, for the administrator to keep: nothing that could fail or be given up on
+  comes before it. Then it asks for the household's storage in the background, at once and as
+  often as the service says until it's ready, whether or not nightly backups are on. Backups start
+  going there without a restart, the first a few minutes after it arrives. The host's credential,
+  the password and the storage key are kept in its settings, sealed with `host.key`.
 
 - **Nightly backups** of everyone's folders, plus a consistent copy of the control database
   (SQLite's online backup, not a copy of the live file) and `host.key`. Not `.homebase/index.db`,

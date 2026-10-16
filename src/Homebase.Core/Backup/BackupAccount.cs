@@ -155,6 +155,8 @@ public sealed class BackupAccount(
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly SemaphoreSlim _changing = new(1, 1);
+    // Let go when the host joins, so whatever is waiting to ask for its storage asks now.
+    private readonly SemaphoreSlim _joined = new(0, 1);
 
     public bool Joined => Load() is not null;
 
@@ -209,6 +211,7 @@ public sealed class BackupAccount(
                 _time.GetUtcNow(), Seal(registration.Credential, CredentialContext), Seal(password, PasswordContext),
                 null, "setting_up", null));
             logger.LogInformation("Joined Uncloud Backup as host {Host} of household {Household}", registration.HostId, registration.HouseholdId);
+            if (_joined.CurrentCount == 0) _joined.Release();
             return new BackupJoined(password, Status);
         }
         finally
@@ -248,19 +251,10 @@ public sealed class BackupAccount(
     }
 
     /// <summary>
-    /// Asks for storage until it's ready or <paramref name="limit"/> has passed, as often as the
-    /// service says to. Setting a household up usually takes seconds, at most about a minute.
+    /// Waits <paramref name="wait"/>, or less if the host joins meanwhile. Says whether it joined.
     /// </summary>
-    public async Task<StorageAnswer> WaitForStorageAsync(TimeSpan limit, CancellationToken cancellationToken)
-    {
-        var started = _time.GetUtcNow();
-        for (;;)
-        {
-            var answer = await RefreshStorageAsync(cancellationToken);
-            if (answer.Storage is not null || _time.GetUtcNow() - started + answer.RetryAfter > limit) return answer;
-            await Task.Delay(answer.RetryAfter, _time, cancellationToken);
-        }
-    }
+    public Task<bool> NapAsync(TimeSpan wait, CancellationToken cancellationToken) =>
+        _joined.WaitAsync(wait, cancellationToken);
 
     private static string NewPassword()
     {

@@ -1087,19 +1087,13 @@ app.MapGet("/api/host/backup/account", (BackupAccount account) => Results.Ok(acc
 
 // Joining Uncloud Backup with an invite. The answer carries the password the backup is encrypted
 // with, shown this once for whoever is joining to keep somewhere safe: without it, nobody can open
-// the backup once this computer is gone.
+// the backup once this computer is gone. So it's answered as soon as the host has joined, with
+// nothing after that could fail or be given up on first. The household's storage is asked for in
+// the background (BackupHost), and GET says when it's there.
 app.MapPost("/api/host/backup/account", async (JoinBackup request, BackupAccount account, CancellationToken cancellationToken) =>
 {
     var joined = await account.JoinAsync(request.Invite, request.Name, cancellationToken);
-    // Setting the household's storage up usually takes seconds, so it's waited for here, briefly.
-    // If it takes longer, or the service can't be reached just now, the host has joined all the
-    // same and goes on asking in the background (BackupHost).
-    try { await account.WaitForStorageAsync(TimeSpan.FromSeconds(50), cancellationToken); }
-    catch (LibraryException error)
-    {
-        app.Logger.LogWarning("Joined Uncloud Backup, but its storage isn't here yet: {Message}", error.Message);
-    }
-    return Results.Created("/api/host/backup/account", new { password = joined.Password, account = account.Status });
+    return Results.Created("/api/host/backup/account", new { password = joined.Password, account = joined.Account });
 });
 
 // What a v0 library left sitting at the top of the host's folder, belonging to no account.

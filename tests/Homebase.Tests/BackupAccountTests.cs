@@ -53,7 +53,10 @@ public sealed class BackupAccountTests : IDisposable
         Assert.Equal("setting_up", account.Status.Storage);
         Assert.Equal("household-1", account.Status.Household);
 
-        var answer = await account.WaitForStorageAsync(TimeSpan.FromSeconds(30), CancellationToken.None);
+        // Asked as often as it takes: twice told it's still being set up, then given it.
+        Assert.Null((await account.RefreshStorageAsync(CancellationToken.None)).Storage);
+        Assert.Null((await account.RefreshStorageAsync(CancellationToken.None)).Storage);
+        var answer = await account.RefreshStorageAsync(CancellationToken.None);
 
         Assert.NotNull(answer.Storage);
         Assert.All(service.Requests.Skip(1), request =>
@@ -79,7 +82,7 @@ public sealed class BackupAccountTests : IDisposable
         var service = new FakeBackupService();
         var account = Account(service);
         await account.JoinAsync(Invite, "Mac mini", CancellationToken.None);
-        await account.WaitForStorageAsync(TimeSpan.FromSeconds(30), CancellationToken.None);
+        await account.RefreshStorageAsync(CancellationToken.None);
         Assert.NotNull(account.Target);
 
         // The database alone, as somebody who took a copy of it without host.key would have it.
@@ -125,13 +128,13 @@ public sealed class BackupAccountTests : IDisposable
     }
 
     [Fact]
-    public async Task Storage_still_being_set_up_is_waited_for_only_so_long()
+    public async Task Storage_still_being_set_up_says_how_far_it_has_got_and_when_to_ask_again()
     {
         var service = new FakeBackupService { Pending = int.MaxValue, RetryAfter = TimeSpan.FromSeconds(5) };
         var account = Account(service);
         await account.JoinAsync(Invite, "Mac mini", CancellationToken.None);
 
-        var answer = await account.WaitForStorageAsync(TimeSpan.FromSeconds(1), CancellationToken.None);
+        var answer = await account.RefreshStorageAsync(CancellationToken.None);
 
         Assert.Null(answer.Storage);
         Assert.Equal(("setting_up", "storage"), (answer.State, answer.Step));
@@ -174,7 +177,9 @@ public sealed class BackupAccountTests : IDisposable
     [Fact]
     public async Task Only_an_administrator_joins_and_the_password_is_in_the_answer_once()
     {
-        var service = new FakeBackupService();
+        // Still being set up when the host joins, so its storage comes after the answer, in the
+        // background, and with nightly backups off, which leaves backing up by hand.
+        var service = new FakeBackupService { Pending = 1 };
         using var app = new TestHost(Path.Combine(_temporary, "api"), backupService: service,
             settings: new Dictionary<string, string?> { ["Homebase:Backup:Nightly"] = "false" });
         var admin = await app.SignUpAsync();
@@ -195,7 +200,19 @@ public sealed class BackupAccountTests : IDisposable
         Assert.Equal(HttpStatusCode.Created, joined.StatusCode);
         var body = await joined.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Matches(Code, body.GetProperty("password").GetString());
-        Assert.Equal("ready", body.GetProperty("account").GetProperty("storage").GetString());
+        Assert.Equal("setting_up", body.GetProperty("account").GetProperty("storage").GetString());
+
+        // Asked for as soon as the host joined, not after the minute a host with nowhere to back
+        // up otherwise waits, and again as soon as the service says.
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        string? storage = null;
+        while (storage != "ready" && clock.Elapsed < TimeSpan.FromSeconds(20))
+        {
+            await Task.Delay(100);
+            storage = (await admin.GetFromJsonAsync<JsonElement>("/api/host/backup/account")).GetProperty("storage").GetString();
+        }
+        Assert.Equal("ready", storage);
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(20));
         var status = await admin.GetStringAsync("/api/host/backup/account");
         Assert.Contains("\"joined\":true", status);
         Assert.DoesNotContain(body.GetProperty("password").GetString()!, status);
