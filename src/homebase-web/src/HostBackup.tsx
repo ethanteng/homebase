@@ -345,7 +345,7 @@ export default function HostBackup() {
                 onClick={() => void checkNow()}
               >
                 {check.running ? <LoaderCircle size={16} className="spin" /> : <ShieldCheck size={16} />}
-                Check the backup
+                Test a restore
               </button>
             )}
           </div>
@@ -368,8 +368,8 @@ function LastCheck({ check }: { check: BackupCheck }) {
       <p className="backup-line" role="status">
         <LoaderCircle size={14} className="spin" />
         <span>
-          Checking the backup: restoring it somewhere of its own, comparing it with what’s here, then
-          taking it away again.
+          Testing a restore: restoring the newest backup to a temporary folder, comparing it with
+          what’s here, then deleting it. Nothing here is changed.
         </span>
       </p>
     );
@@ -400,7 +400,7 @@ function LastCheck({ check }: { check: BackupCheck }) {
       <p className="backup-line">
         <ShieldCheck size={14} className="backup-ok" />
         <span>
-          Checked {finished}: restored {what}
+          Test restore, {finished}: restored {what}
           {from}, and {since.length ? "every one still here as it was" : "every one"} came back exactly
           as it is here{since.length ? ` (${since.join(" and ")})` : ""}.
           {check.hostKeyMatched ? " So did this Uncloud’s own key, which a rebuilt host needs." : ""}
@@ -416,7 +416,7 @@ function LastCheck({ check }: { check: BackupCheck }) {
     <p className="backup-line">
       <TriangleAlert size={14} className="backup-warn" />
       <span>
-        Checked {finished}
+        Test restore, {finished}
         {from}:{" "}
         {wrong.length ? `${wrong.join(", and ")}. Uncloud’s log says which.` : ""}
         {check.message ? ` ${check.message}` : ""}

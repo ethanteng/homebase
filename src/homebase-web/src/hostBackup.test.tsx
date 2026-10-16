@@ -295,7 +295,7 @@ describe("backing up offsite", () => {
     });
     await show();
 
-    expect(screen.getByText(/Checked .*: restored all 364 of everyone’s files \(544\.5 MB\) from the backup of .*, and every one came back exactly as it is here\. So did this Uncloud’s own key/)).toBeTruthy();
+    expect(screen.getByText(/Test restore, .*: restored all 364 of everyone’s files \(544\.5 MB\) from the backup of .*, and every one came back exactly as it is here\. So did this Uncloud’s own key/)).toBeTruthy();
     expect(screen.getByText(/2 backups kept, the oldest from/)).toBeTruthy();
   });
 
@@ -332,12 +332,12 @@ describe("backing up offsite", () => {
     await show();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Check the backup" }));
+      fireEvent.click(screen.getByRole("button", { name: "Test a restore" }));
     });
 
     expect(asked.some((request) => request.route === "POST /api/host/backup/check")).toBe(true);
-    expect(screen.getByText(/Checking the backup: restoring it somewhere of its own/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Check the backup" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Testing a restore: restoring the newest backup to a temporary folder.*Nothing here is changed\./)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Test a restore" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("isn't there when the host can't be asked", async () => {
