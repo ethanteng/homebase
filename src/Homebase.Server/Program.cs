@@ -156,21 +156,30 @@ builder.Services.AddSingleton(provider => new SyncthingHost(
 builder.Services.AddSingleton<ISyncthingEndpoint>(provider => provider.GetRequiredService<SyncthingHost>());
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SyncthingHost>());
 builder.Services.AddSingleton<ISyncthingApi, SyncthingApi>();
-// The host's backups. Until the backup service hands out where they go, a developer can point them at
-// a restic repository in configuration (Homebase:Backup:Repository and :Password, and for S3-compatible
-// storage :AccessKeyId, :SecretAccessKey and :Region). Without one, nothing is backed up.
+// The host's backups go where Uncloud Backup says, once this host has joined it with an invite
+// (Homebase:Backup:Service is the service, for trying a copy of it). A developer can point them at
+// a restic repository in configuration instead (Homebase:Backup:Repository and :Password, and for
+// S3-compatible storage :AccessKeyId, :SecretAccessKey and :Region), which comes first. Without
+// either, nothing is backed up.
+builder.Services.AddSingleton(provider => new BackupServiceClient(
+    provider.GetRequiredService<HttpClient>(),
+    new Uri(provider.GetRequiredService<IConfiguration>()["Homebase:Backup:Service"] is { Length: > 0 } service
+        ? service
+        : "https://backup.uncloud.life/")));
+builder.Services.AddSingleton<BackupAccount>();
 builder.Services.AddSingleton(provider =>
 {
     var configuration = provider.GetRequiredService<IConfiguration>();
     var repository = configuration["Homebase:Backup:Repository"];
     var password = configuration["Homebase:Backup:Password"];
-    var target = string.IsNullOrWhiteSpace(repository) || string.IsNullOrWhiteSpace(password)
+    var configured = string.IsNullOrWhiteSpace(repository) || string.IsNullOrWhiteSpace(password)
         ? null
         : new BackupTarget(repository, password, configuration["Homebase:Backup:AccessKeyId"],
             configuration["Homebase:Backup:SecretAccessKey"], configuration["Homebase:Backup:Region"]);
+    var account = provider.GetRequiredService<BackupAccount>();
     return new BackupService(
         provider.GetRequiredService<ControlDatabase>(), provider.GetRequiredService<HostService>(),
-        ConfigDirectory(provider, defaultConfig), target,
+        ConfigDirectory(provider, defaultConfig), () => configured ?? account.Target,
         Restic.Binary(configuration["Homebase:Backup:Restic"], AppContext.BaseDirectory),
         new BackupPolicy(), provider.GetRequiredService<ILogger<BackupService>>());
 });
@@ -1073,6 +1082,20 @@ app.MapPost("/api/host/backup", (BackupService backups, IHostApplicationLifetime
     return Results.Accepted("/api/host/backup", backups.Status);
 });
 
+// This host's place in Uncloud Backup: whether it has joined, and how its storage stands.
+app.MapGet("/api/host/backup/account", (BackupAccount account) => Results.Ok(account.Status));
+
+// Joining Uncloud Backup with an invite. The answer carries the password the backup is encrypted
+// with, shown this once for whoever is joining to keep somewhere safe: without it, nobody can open
+// the backup once this computer is gone. So it's answered as soon as the host has joined, with
+// nothing after that could fail or be given up on first. The household's storage is asked for in
+// the background (BackupHost), and GET says when it's there.
+app.MapPost("/api/host/backup/account", async (JoinBackup request, BackupAccount account, CancellationToken cancellationToken) =>
+{
+    var joined = await account.JoinAsync(request.Invite, request.Name, cancellationToken);
+    return Results.Created("/api/host/backup/account", new { password = joined.Password, account = joined.Account });
+});
+
 // What a v0 library left sitting at the top of the host's folder, belonging to no account.
 app.MapGet("/api/host/unclaimed", (HostService host) =>
     Results.Ok(new { entries = UserPaths.Unclaimed(host.RequireRoot()) }));
@@ -1389,6 +1412,7 @@ public static class Sources
 
 public sealed record ImportRequest(string? RemotePath, string? Label, string? Source, IReadOnlyList<string>? RemotePaths = null);
 public sealed record AddPlace(string? Path, string? Name);
+public sealed record JoinBackup(string? Invite, string? Name);
 public sealed record SharePlace(bool Shared);
 public sealed record SetDropboxAppKey(string? AppKey);
 public sealed record PasteDropboxCode(string? Code);

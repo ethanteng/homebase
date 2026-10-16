@@ -59,6 +59,8 @@ public sealed class Restic(string binary, BackupTarget target, string cacheDirec
 
     public string Executable => binary;
 
+    public string Repository => target.Repository;
+
     /// <summary>
     /// Runs restic with <paramref name="arguments"/> and waits up to <paramref name="limit"/>. Past
     /// it, restic and anything it started are stopped and the result says it timed out. A

@@ -71,8 +71,8 @@ public sealed record BackupPolicy
 /// a time; asking for another while one runs gets the one that's running.
 /// </summary>
 /// <remarks>
-/// Until the backup service hands out where backups go, the target comes from configuration, which
-/// is for development. Without one, nothing here does anything.
+/// Where backups go is asked for each time, since a host that joins Uncloud Backup gets somewhere
+/// while it runs. Without anywhere, nothing here does anything.
 /// </remarks>
 public sealed class BackupService
 {
@@ -88,7 +88,7 @@ public sealed class BackupService
     private readonly HostService _host;
     private readonly string _configDirectory;
     private readonly string _directory;
-    private readonly BackupTarget? _target;
+    private readonly Func<BackupTarget?> _target;
     private readonly string _binary;
     private readonly BackupPolicy _policy;
     private readonly ILogger<BackupService> _logger;
@@ -103,6 +103,13 @@ public sealed class BackupService
     public BackupService(
         ControlDatabase database, HostService host, string configDirectory, BackupTarget? target, string resticBinary,
         BackupPolicy policy, ILogger<BackupService> logger, TimeProvider? time = null)
+        : this(database, host, configDirectory, () => target, resticBinary, policy, logger, time)
+    {
+    }
+
+    public BackupService(
+        ControlDatabase database, HostService host, string configDirectory, Func<BackupTarget?> target, string resticBinary,
+        BackupPolicy policy, ILogger<BackupService> logger, TimeProvider? time = null)
     {
         _database = database;
         _host = host;
@@ -115,7 +122,7 @@ public sealed class BackupService
         _time = time ?? TimeProvider.System;
     }
 
-    public bool IsConfigured => _target is not null;
+    public bool IsConfigured => _target() is not null;
 
     public BackupStatus Status => Load() with { Configured = IsConfigured, Running = _running };
 
@@ -203,7 +210,7 @@ public sealed class BackupService
             var previous = Load();
             var started = _time.GetUtcNow();
             Save(previous with { LastStarted = started });
-            _logger.LogInformation("Backing up to {Repository}", _target!.Repository);
+            _logger.LogInformation("Backing up to {Repository}", _target()?.Repository);
             BackupStatus finished;
             try { finished = await BackUpAsync(previous with { LastStarted = started }, cancellationToken); }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -258,7 +265,7 @@ public sealed class BackupService
         {
             var made = await restic.RunAsync(["init"], _policy.OpenLimit, cancellationToken);
             if (!made.Succeeded) return Failure(status, made, "make the backup", _policy.OpenLimit);
-            _logger.LogInformation("Made a new backup repository at {Repository}", _target!.Repository);
+            _logger.LogInformation("Made a new backup repository at {Repository}", restic.Repository);
         }
         else if (!opened.Succeeded)
         {
@@ -373,7 +380,7 @@ public sealed class BackupService
 
     private Restic Open()
     {
-        var target = _target ?? throw new LibraryException("Backups aren't set up on this Uncloud.", "backup_not_configured");
+        var target = _target() ?? throw new LibraryException("Backups aren't set up on this Uncloud.", "backup_not_configured");
         var cache = Path.Combine(_directory, "cache");
         Directory.CreateDirectory(cache);
         return new Restic(_binary, target, cache, _logger);
