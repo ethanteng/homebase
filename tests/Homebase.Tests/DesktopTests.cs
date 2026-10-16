@@ -303,6 +303,27 @@ public sealed class DesktopTests : IDisposable
     }
 
     [Fact]
+    public async Task Disconnecting_says_the_host_still_has_it_and_which_account_to_remove_it_from()
+    {
+        new DesktopSettings { Mode = DesktopMode.Computer, Address = "https://home.example", AccountName = "Uncloud Host", HostDeviceId = FakeSyncthing.Self }.Save(_paths);
+        await using (var controller = new DesktopController(_paths, _temporary, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, new HttpClient()))
+        {
+            // Said before disconnecting: the host isn't told, so moving this computer to another
+            // account means removing it from this one there first.
+            Assert.Contains("still lists this computer in My computers for Uncloud Host", controller.StillListedOnHost);
+            Assert.Contains("sign in to Uncloud as Uncloud Host, open My computers and click Remove", controller.StillListedOnHost);
+
+            await controller.DisconnectAsync(CancellationToken.None);
+            Assert.False(DesktopSettings.Load(_paths).IsPaired);
+        }
+
+        // Paired before the app kept the account's name: still said, without one.
+        new DesktopSettings { Mode = DesktopMode.Computer, Address = "https://home.example", HostDeviceId = FakeSyncthing.Self }.Save(_paths);
+        await using var older = new DesktopController(_paths, _temporary, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, new HttpClient());
+        Assert.Contains("sign in to Uncloud as that account, open My computers and click Remove", older.StillListedOnHost);
+    }
+
+    [Fact]
     public void Settings_survive_a_restart_and_a_broken_file_starts_over()
     {
         new DesktopSettings { Mode = DesktopMode.Computer, Address = "https://home.example", HostDeviceId = FakeSyncthing.Self, AccountName = "Ada" }.Save(_paths);

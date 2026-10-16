@@ -33,6 +33,17 @@ public sealed partial class SyncService(
     [GeneratedRegex("^[A-Z2-7]{56}$")]
     private static partial Regex DeviceIdPattern { get; }
 
+    /// <summary>
+    /// A computer another account already has, refused with the way to move it rather than leaving
+    /// the person stuck: whoever has it lets it go from My computers. Not saying whose: which
+    /// computers other people have is theirs to know.
+    /// </summary>
+    /// <param name="justNow">Whether it was added there moments ago, while this person was being asked.</param>
+    public static LibraryException HeldByAnotherAccount(bool justNow = false) => new(
+        $"That computer {(justNow ? "has just been" : "is already")} added to another account on this Uncloud. "
+        + "To add it to this account instead, sign in as the account that has it, open My computers and click Remove "
+        + "next to it, then try again.", "conflict");
+
     public async Task<SyncStatus> StatusAsync(string userId, CancellationToken cancellationToken)
     {
         var devices = ownership.Devices(userId);
@@ -81,10 +92,9 @@ public sealed partial class SyncService(
         try
         {
             if (ownership.FindDevice(id) is { } owned)
-                // Not saying whose: which computers other people have is theirs to know.
-                throw new LibraryException(owned.UserId == userId
-                    ? "That computer is already paired."
-                    : "That computer is already paired with another account on this Uncloud.", "conflict");
+                throw owned.UserId == userId
+                    ? new LibraryException("That computer is already paired.", "conflict")
+                    : HeldByAnotherAccount();
 
             if (!ownership.ClaimDevice(userId, id, label))
                 throw new LibraryException("That computer is already paired.", "conflict");

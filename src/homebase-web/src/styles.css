@@ -1835,6 +1835,11 @@ tbody tr.selected {
   flex-wrap: wrap;
   gap: 10px;
 }
+/* Whose files a computer would join, with the way out for whoever finds it isn't theirs. */
+.signed-in-as .link-button {
+  display: inline;
+  font-size: inherit;
+}
 
 /* The Dropbox setup reads the same in My account and in Settings, whether or not it sits inside
    a form that already lays out its labels. */

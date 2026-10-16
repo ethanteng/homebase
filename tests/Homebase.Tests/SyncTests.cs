@@ -78,6 +78,27 @@ public sealed class SyncTests : IDisposable
     }
 
     [Fact]
+    public async Task A_computer_another_account_has_is_refused_with_how_to_move_it_and_moves_once_let_go()
+    {
+        // Added to the wrong account by whoever happened to be signed in on the phone that approved it.
+        await _sync.PairAsync(_ada.Id, Laptop, "Bo’s laptop", CancellationToken.None);
+
+        var refused = await Assert.ThrowsAsync<LibraryException>(
+            () => _sync.PairAsync(_bo.Id, Laptop, "Bo’s laptop", CancellationToken.None));
+        Assert.Equal("conflict", refused.Code);
+        Assert.Contains("sign in as the account that has it, open My computers and click Remove next to it, then try again",
+            refused.Message);
+
+        // Done as it says: the account that has it removes it, and then it can be added.
+        await _sync.UnpairAsync(_ada.Id, Laptop, CancellationToken.None);
+        await _sync.PairAsync(_bo.Id, Laptop, "Bo’s laptop", CancellationToken.None);
+
+        Assert.Equal(_bo.Id, _ownership.FindDevice(Laptop)!.UserId);
+        Assert.Empty((await _sync.StatusAsync(_ada.Id, CancellationToken.None)).Devices);
+        Assert.Equal(Laptop, Assert.Single((await _sync.StatusAsync(_bo.Id, CancellationToken.None)).Devices).DeviceId);
+    }
+
+    [Fact]
     public async Task Each_account_sees_only_its_own_computers_folders_and_offers()
     {
         await _sync.PairAsync(_ada.Id, Laptop, "Ada’s laptop", CancellationToken.None);
@@ -441,9 +462,12 @@ public sealed class SyncTests : IDisposable
 
         Assert.Equal("invalid_device", (await Assert.ThrowsAsync<LibraryException>(
             () => codes.RedeemAsync(issued.Code, "not-a-device", null, null, null, CancellationToken.None))).Code);
-        // Somebody else's computer can't be claimed with a code either.
-        Assert.Equal("conflict", (await Assert.ThrowsAsync<LibraryException>(
-            () => codes.RedeemAsync(issued.Code, Desktop, null, null, null, CancellationToken.None))).Code);
+        // Somebody else's computer can't be claimed with a code either, and the app is told how to move it.
+        var refused = await Assert.ThrowsAsync<LibraryException>(
+            () => codes.RedeemAsync(issued.Code, Desktop, null, null, null, CancellationToken.None));
+        Assert.Equal("conflict", refused.Code);
+        Assert.Contains("open My computers and click Remove", refused.Message);
+        Assert.DoesNotContain("ada", refused.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(_ada.Id, _ownership.FindDevice(Desktop)!.UserId);
 
         await codes.RedeemAsync(issued.Code, Laptop, null, null, null, CancellationToken.None);
@@ -567,8 +591,11 @@ public sealed class SyncTests : IDisposable
         var requests = Requests();
         var ticket = requests.Open(Desktop, "Desktop", true, null);
 
-        Assert.Equal("conflict", (await Assert.ThrowsAsync<LibraryException>(
-            () => requests.ApproveAsync(ticket.Id, _bo.Id, _ => _boRoot, CancellationToken.None))).Code);
+        var refused = await Assert.ThrowsAsync<LibraryException>(
+            () => requests.ApproveAsync(ticket.Id, _bo.Id, _ => _boRoot, CancellationToken.None));
+        Assert.Equal("conflict", refused.Code);
+        Assert.Contains("open My computers and click Remove", refused.Message);
+        Assert.DoesNotContain("ada", refused.Message, StringComparison.OrdinalIgnoreCase);
 
         Assert.Equal(_ada.Id, _ownership.FindDevice(Desktop)!.UserId);
         Assert.False(requests.Answer(ticket.Id, ticket.Secret).Approved);
