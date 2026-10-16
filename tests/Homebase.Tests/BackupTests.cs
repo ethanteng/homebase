@@ -480,6 +480,50 @@ public sealed class BackupTests : IDisposable
     }
 
     [Fact]
+    public async Task A_check_waits_for_older_backups_to_be_tidied_away_before_it_picks_one()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var marks = Directory.CreateDirectory(Path.Combine(_temporary, "marks")).FullName;
+        // Only the check lists snapshots, so where it does so says when it chose one.
+        var restic = FakeRestic($$"""
+            case "$command" in
+              prune) touch '{{marks}}/prune.started'; sleep 2; touch '{{marks}}/prune.finished' ;;
+              snapshots)
+                if [ -f '{{marks}}/prune.finished' ]; then echo after; else echo during; fi > '{{marks}}/chose'
+                echo '[{"id":"0123456789abcdef0123456789abcdef","time":"2026-10-14T00:00:00Z","paths":["/x"]}]' ;;
+            esac
+            exit 0
+            """);
+        var backups = Backups(restic: restic);
+
+        Assert.True(backups.TryStart(CancellationToken.None));
+        await Until(() => File.Exists(Path.Combine(marks, "prune.started")));
+        await backups.CheckAsync(CancellationToken.None);
+
+        Assert.Equal("after", File.ReadAllText(Path.Combine(marks, "chose")).Trim());
+    }
+
+    [Fact]
+    public async Task A_check_that_fails_says_so_without_naming_anybodys_files()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var restic = FakeRestic("""
+            case "$command" in
+              snapshots) echo '[{"id":"0123456789abcdef0123456789abcdef","time":"2026-10-14T00:00:00Z","paths":["/x"]}]' ;;
+              ls) echo "error: lstat /Users/alice/Uncloud/users/alice/diary-for-nobody.txt: permission denied" >&2; exit 1 ;;
+            esac
+            exit 0
+            """);
+        var backups = Backups(restic: restic);
+
+        var check = await backups.CheckAsync(CancellationToken.None);
+
+        Assert.False(check.Passed);
+        Assert.Equal("Uncloud couldn't read what's in the backup. Uncloud's log says why.", check.Message);
+        Assert.DoesNotContain("diary", JsonSerializer.Serialize(backups.LastCheck));
+    }
+
+    [Fact]
     public async Task With_no_backup_yet_there_is_nothing_to_check()
     {
         var backups = Backups();

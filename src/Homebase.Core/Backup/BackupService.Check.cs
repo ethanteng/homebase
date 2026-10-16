@@ -97,8 +97,9 @@ public sealed partial class BackupService
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or LibraryException or JsonException)
             {
+                // What went wrong can name somebody's file, and the answer is counts only.
                 _logger.LogWarning(error, "The backup couldn't be checked");
-                result = new BackupCheck { Started = started, Passed = false, Message = error.Message };
+                result = new BackupCheck { Started = started, Passed = false, Message = "Uncloud couldn't finish checking the backup. Uncloud's log says why." };
             }
             result = result with { Finished = _time.GetUtcNow() };
             SaveCheck(result);
@@ -120,46 +121,52 @@ public sealed partial class BackupService
     private async Task<BackupCheck> RunCheckAsync(DateTimeOffset started, CancellationToken cancellationToken)
     {
         var restic = Open();
-        var nothing = new BackupCheck { Started = started, Message = "There's no backup to check yet." };
-        var opened = await restic.RunAsync(["--no-lock", "cat", "config"], _policy.OpenLimit, cancellationToken);
-        if (opened.NoRepository) return nothing;
-        if (!opened.Succeeded) throw new LibraryException(Explain(opened, "open the backup", _policy.OpenLimit), "backup");
-        var snapshots = await SnapshotsAsync(restic, cancellationToken);
-        if (snapshots.Count == 0) return nothing;
-        var snapshot = snapshots[^1];
-
-        var listed = await restic.RunAsync(["--no-lock", "ls", "--json", snapshot.Id], _policy.ForgetLimit, cancellationToken);
-        if (!listed.Succeeded) throw new LibraryException(Explain(listed, "read what's in the backup", _policy.ForgetLimit), "backup");
-        var files = SnapshotFiles(listed.Output);
-        var staged = Path.Combine(_directory, "host");
-        var hostKey = files.FirstOrDefault(file => file.Path == Path.Combine(staged, "host.key"));
-        var everyone = files.Where(file => !Under(file.Path, staged)).ToList();
-        var total = everyone.Sum(file => file.Size);
-        var whole = everyone.Count <= _policy.CheckFiles && total <= _policy.CheckBytes;
-        var chosen = whole ? everyone : Sample(everyone);
-        var result = new BackupCheck
-        {
-            Started = started, Snapshot = snapshot.Id, SnapshotTime = snapshot.Time,
-            FilesInBackup = everyone.Count, BytesInBackup = total,
-            Files = chosen.Count, Bytes = chosen.Sum(file => file.Size), Sampled = !whole
-        };
-
         var scratch = Path.Combine(_directory, "check");
         var patterns = Path.Combine(_directory, "check-include.txt");
-        Clear(scratch);
-        Directory.CreateDirectory(scratch);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(scratch, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         try
         {
-            // Room for all of it, and a little over: a check mustn't be what fills the drive.
-            var needed = (whole ? files.Sum(file => file.Size) : result.Bytes!.Value + (hostKey?.Size ?? 0)) + 64L * 1024 * 1024;
-            if (new DriveInfo(Path.GetPathRoot(scratch)!).AvailableFreeSpace < needed)
-                return result with { Passed = false, Message = "There isn't room on this computer to restore what the check needs. Free some space, then try again." };
-
+            BackupCheck result;
+            List<SnapshotFile> chosen;
+            SnapshotFile? hostKey;
+            // Held from choosing which backup to restore until it's restored, as a restore is: a
+            // backup finishing meanwhile forgets older backups and prunes, and either could take
+            // away what this is reading, which would then look like a backup that can't be restored.
             await _maintenance.WaitAsync(cancellationToken);
             try
             {
+                var nothing = new BackupCheck { Started = started, Message = "There's no backup to check yet." };
+                var opened = await restic.RunAsync(["--no-lock", "cat", "config"], _policy.OpenLimit, cancellationToken);
+                if (opened.NoRepository) return nothing;
+                if (!opened.Succeeded) return Failed(started, opened, "open the backup", _policy.OpenLimit);
+                var snapshots = await SnapshotsAsync(restic, cancellationToken);
+                if (snapshots.Count == 0) return nothing;
+                var snapshot = snapshots[^1];
+
+                var listed = await restic.RunAsync(["--no-lock", "ls", "--json", snapshot.Id], _policy.ForgetLimit, cancellationToken);
+                if (!listed.Succeeded) return Failed(started, listed, "read what's in the backup", _policy.ForgetLimit);
+                var files = SnapshotFiles(listed.Output);
+                var staged = Path.Combine(_directory, "host");
+                hostKey = files.FirstOrDefault(file => file.Path == Path.Combine(staged, "host.key"));
+                var everyone = files.Where(file => !Under(file.Path, staged)).ToList();
+                var total = everyone.Sum(file => file.Size);
+                var whole = everyone.Count <= _policy.CheckFiles && total <= _policy.CheckBytes;
+                chosen = whole ? everyone : Sample(everyone);
+                result = new BackupCheck
+                {
+                    Started = started, Snapshot = snapshot.Id, SnapshotTime = snapshot.Time,
+                    FilesInBackup = everyone.Count, BytesInBackup = total,
+                    Files = chosen.Count, Bytes = chosen.Sum(file => file.Size), Sampled = !whole
+                };
+
+                Clear(scratch);
+                Directory.CreateDirectory(scratch);
+                if (!OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(scratch, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                // Room for all of it, and a little over: a check mustn't be what fills the drive.
+                var needed = (whole ? files.Sum(file => file.Size) : result.Bytes!.Value + (hostKey?.Size ?? 0)) + 64L * 1024 * 1024;
+                if (new DriveInfo(Path.GetPathRoot(scratch)!).AvailableFreeSpace < needed)
+                    return result with { Passed = false, Message = "There isn't room on this computer to restore what the check needs. Free some space, then try again." };
+
                 List<string> arguments = ["--no-lock", "restore", snapshot.Id, "--target", scratch];
                 if (!whole)
                 {
@@ -169,7 +176,10 @@ public sealed partial class BackupService
                 }
                 var restored = await restic.RunAsync(arguments, _policy.RestoreLimit, cancellationToken);
                 if (!restored.Succeeded)
-                    return result with { Passed = false, Message = Explain(restored, "restore from the backup", _policy.RestoreLimit) };
+                    return Failed(started, restored, "restore from the backup", _policy.RestoreLimit) with
+                    {
+                        Snapshot = result.Snapshot, SnapshotTime = result.SnapshotTime
+                    };
             }
             finally
             {
@@ -183,18 +193,28 @@ public sealed partial class BackupService
                 cancellationToken.ThrowIfCancellationRequested();
                 var back = Restored(scratch, file.Path);
                 var here = new FileInfo(file.Path);
-                if (!File.Exists(back))
+                try
                 {
-                    missing++;
-                    _logger.LogWarning("The backup check didn't get back {Path}", file.Path);
+                    if (!File.Exists(back))
+                    {
+                        missing++;
+                        _logger.LogWarning("The backup check didn't get back {Path}", file.Path);
+                    }
+                    else if (!here.Exists) gone++;
+                    else if (here.Length != file.Size || (here.LastWriteTimeUtc - file.Modified.UtcDateTime).Duration() > TimeSpan.FromMilliseconds(1)) changed++;
+                    else if (await SameAsync(back, here.FullName, cancellationToken)) matched++;
+                    else
+                    {
+                        mismatched++;
+                        _logger.LogWarning("The backup check got back {Path} different from the file here, which hasn't changed since", file.Path);
+                    }
                 }
-                else if (!here.Exists) gone++;
-                else if (here.Length != file.Size || (here.LastWriteTimeUtc - file.Modified.UtcDateTime).Duration() > TimeSpan.FromMilliseconds(1)) changed++;
-                else if (await SameAsync(back, here.FullName, cancellationToken)) matched++;
-                else
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                 {
-                    mismatched++;
-                    _logger.LogWarning("The backup check got back {Path} different from the file here, which hasn't changed since", file.Path);
+                    // Gone or unreadable here partway through: nothing the same to compare with.
+                    if (File.Exists(file.Path)) changed++;
+                    else gone++;
+                    _logger.LogInformation(error, "The backup check couldn't compare {Path}", file.Path);
                 }
             }
             bool? keyMatched = hostKey is null ? null
@@ -215,6 +235,25 @@ public sealed partial class BackupService
         {
             Clear(scratch);
         }
+    }
+
+    /// <summary>
+    /// A check restic couldn't finish. What restic said can name somebody's file, and a check's
+    /// answer is counts, never names, so that goes to the log and the answer says only what was
+    /// being done, or that the storage was too slow or said no.
+    /// </summary>
+    private BackupCheck Failed(DateTimeOffset started, ResticResult result, string doing, TimeSpan limit)
+    {
+        _logger.LogWarning("restic couldn't {Doing} for the check (exit {Code}{TimedOut}): {Said}",
+            doing, result.ExitCode, result.TimedOut ? ", timed out" : "", result.Said(5));
+        return new BackupCheck
+        {
+            Started = started,
+            Passed = false,
+            Message = result.TimedOut || result.Refused
+                ? Explain(result, doing, limit)
+                : $"Uncloud couldn't {doing}. Uncloud's log says why."
+        };
     }
 
     /// <summary>
