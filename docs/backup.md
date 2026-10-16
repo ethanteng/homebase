@@ -246,8 +246,8 @@ pinned binary comes from `scripts/fetch-restic.sh`.
 - **Time limits on restic.** Reading an object behind a delete marker gets a 405 from iDrive where
   S3 says 404; restic doesn't recognise it and retries for about fifteen minutes. The host gives
   restic a limit and, when it can't open the repository, asks the bucket directly what's there.
-- **Testing a restore** (`POST /api/host/backup/check`, the Backup panel's "Test a restore"). Not
-  a restore into place: nothing anybody has is changed.
+- **Verifying the backup** (`POST /api/host/backup/check`, the Backup panel's "Verify the
+  backup"). A restore, but not into place: nothing anybody has is changed.
   The newest backup is restored into a folder of its own beside the host's settings, whole if it's
   under 2,000 files and 2 GB, otherwise a random sample within that, a different one each time.
   Each file is compared with the one here, byte for byte, and so is `host.key`. Then it's all taken
