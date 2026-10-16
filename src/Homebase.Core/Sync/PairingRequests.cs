@@ -109,7 +109,7 @@ public sealed class PairingRequests(
             if (request.Result is not null)
             {
                 if (request.ApprovedBy == userId) return;
-                throw new LibraryException("That computer has just been added to another account on this Uncloud.", "conflict");
+                throw SyncService.HeldByAnotherAccount(justNow: true);
             }
             var account = users.Find(userId) is { IsActive: true } active
                 ? active

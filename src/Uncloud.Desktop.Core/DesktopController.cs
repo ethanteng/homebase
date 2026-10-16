@@ -470,13 +470,29 @@ public sealed class DesktopController(
             ? _computer.PauseAsync(host, paused, cancellationToken)
             : Task.CompletedTask;
 
-    /// <summary>Stops syncing with the host and forgets it. Everything in ~/Uncloud stays.</summary>
+    /// <summary>
+    /// Stops syncing with the host and forgets it. Everything in ~/Uncloud stays. Only this computer
+    /// forgets: the host isn't told, and keeps it under the account it was added to until that
+    /// account removes it, as <see cref="StillListedOnHost"/> tells the person before they choose.
+    /// </summary>
     public async Task DisconnectAsync(CancellationToken cancellationToken)
     {
         if (_computer is not null && Settings.HostDeviceId is { } host)
             await _computer.ForgetAsync(host, cancellationToken);
         Save(new DesktopSettings());
     }
+
+    /// <summary>
+    /// What disconnecting leaves behind on the host, said before anybody disconnects: it still lists
+    /// this computer under the account it was added to, and won't add it to any other account until
+    /// that one removes it. Without this, connecting again as somebody else is refused for no reason
+    /// the person can see.
+    /// </summary>
+    public string StillListedOnHost => Settings.AccountName is { Length: > 0 } account
+        ? $"Uncloud itself isn’t told, and still lists this computer in My computers for {account}. "
+          + $"Before connecting it to a different account, sign in to Uncloud as {account}, open My computers and click Remove next to it."
+        : "Uncloud itself isn’t told, and still lists this computer in My computers for the account it was added to. "
+          + "Before connecting it to a different account, sign in to Uncloud as that account, open My computers and click Remove next to it.";
 
     private async Task StartServerAsync(CancellationToken cancellationToken)
     {

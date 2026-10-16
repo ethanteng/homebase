@@ -105,7 +105,7 @@ export default function App() {
 
   // A session that ends while the app is open returns everyone to the sign-in screen rather
   // than to a page of errors nobody can act on.
-  const signedOut = useCallback(() => {
+  const signedOut = useCallback((keepAsking = false) => {
     setSession((current) =>
       current ? { ...current, user: null } : { setupNeeded: false, hostConfigured: false, user: null },
     );
@@ -113,8 +113,9 @@ export default function App() {
     setStorage(null);
     // A computer asking to be added was asking whoever opened its code. Left unanswered, it isn't
     // put to whoever signs in next on this browser, who would be adding somebody else's computer
-    // to their own account.
-    setApproving(null);
+    // to their own account — unless whoever opened it signed out from the question itself, having
+    // found this browser signed in to an account that isn't theirs, to answer it as themselves.
+    if (!keepAsking) setApproving(null);
   }, []);
 
   useEffect(() => {
@@ -227,13 +228,13 @@ export default function App() {
     navigate("");
   }
 
-  async function signOut() {
+  async function signOut(keepAsking = false) {
     try {
       await api("/session", { method: "DELETE" });
     } catch {
       // Whether or not the host heard, this browser is done with the session.
     }
-    signedOut();
+    signedOut(keepAsking);
   }
 
   if (error)
@@ -406,6 +407,10 @@ export default function App() {
             <UsersPanel me={me} />
           ) : hasFolder && view === "sync" ? (
             <SyncPanel
+              me={me}
+              // "Not you?": the wrong account is signed in to add a computer, so the computer's
+              // question waits for the right one.
+              onSignOut={() => void signOut(true)}
               approving={approving}
               onApprovalClosed={() => setApproving(null)}
             />

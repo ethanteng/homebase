@@ -10,8 +10,8 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize } from "./api";
-import type { PairingCode, SyncFolder, SyncStatus } from "./api";
-import PairApproval from "./PairApproval";
+import type { PairingCode, SyncFolder, SyncStatus, User } from "./api";
+import PairApproval, { SignedInAs } from "./PairApproval";
 
 function describe(folder: SyncFolder) {
   if (folder.error) return folder.error;
@@ -38,14 +38,19 @@ function pairingLink(code: string) {
 }
 
 /// `approving` is a computer that asked to be added, when this page was opened from the QR code
-/// the Uncloud app shows on it.
+/// the Uncloud app shows on it. `onSignOut` is for whoever finds they are adding a computer to the
+/// wrong account's files, and keeps that computer's question for the account they sign in as next.
 export default function SyncPanel({
+  me,
+  onSignOut,
   approving = null,
   onApprovalClosed,
 }: {
+  me: User;
+  onSignOut: () => void;
   approving?: string | null;
   onApprovalClosed?: () => void;
-} = {}) {
+}) {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [deviceId, setDeviceId] = useState("");
   const [deviceName, setDeviceName] = useState("");
@@ -184,8 +189,10 @@ export default function SyncPanel({
       {approving && (
         <PairApproval
           id={approving}
+          me={me}
           onApproved={setStatus}
           onClose={() => onApprovalClosed?.()}
+          onSignOut={onSignOut}
         />
       )}
       <div className="page-heading">
@@ -287,12 +294,17 @@ export default function SyncPanel({
               )}
             </div>
             {pairing && (
-              <p className="field-help">
-                On the computer you want to add, with the Uncloud app installed:{" "}
-                <a href={pairingLink(pairing.code)}>open in the Uncloud app</a>,
-                or enter the address <code>{window.location.origin}</code> and
-                the code above.
-              </p>
+              <>
+                {/* A code is made for whoever is signed in, and adds the computer to their files. */}
+                <p className="field-help">
+                  This code adds a computer to {me.displayName}’s files. On the
+                  computer you want to add, with the Uncloud app installed:{" "}
+                  <a href={pairingLink(pairing.code)}>open in the Uncloud app</a>,
+                  or enter the address <code>{window.location.origin}</code> and
+                  the code above.
+                </p>
+                <SignedInAs me={me} onSignOut={onSignOut} />
+              </>
             )}
             {pairing && ["127.0.0.1", "localhost", "[::1]"].includes(window.location.hostname) && (
               <p className="field-help warning-text">

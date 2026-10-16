@@ -211,7 +211,7 @@ public sealed class SetupWindow : Window
             {
                 request = await _controller.RequestPairingAsync(address, name, stop);
                 code.Source = QrCode(request.ApproveUrl);
-                instructions.Text = $"Scan this with your phone’s camera, then tap Add this computer. It’s called {name}. Sign in to Uncloud first if your phone asks.";
+                instructions.Text = $"Scan this with your phone’s camera, check it names your account, then tap Add this computer. It’s called {name}. Sign in to Uncloud first if your phone asks.";
                 browser.IsEnabled = true;
                 _problem.IsVisible = false;
 
@@ -661,6 +661,11 @@ public sealed class SetupWindow : Window
     {
         Reset("Disconnect this computer?",
             $"It stops syncing with Uncloud. Everything already in {_controller.Paths.Files} stays here, and nothing is deleted from Uncloud.");
+        // Disconnecting is what somebody reaches for to move this computer to another account, and
+        // on its own it can't: said here, with the account to remove it from, before they find out.
+        _body.Children.Add(new TextBlock { Text = _controller.StillListedOnHost, TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
+        if (_controller.Settings.Address is { } address)
+            _body.Children.Add(Links(("Open Uncloud in Browser", () => App.Open(address))));
         var disconnect = new Button { Content = "Disconnect", HorizontalAlignment = HorizontalAlignment.Right };
         disconnect.Click += async (_, _) =>
         {
