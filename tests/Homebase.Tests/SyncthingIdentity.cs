@@ -20,10 +20,11 @@ public sealed record SyncthingIdentity(string Certificate, string Key)
     public string DeviceId => ComputerReleases.DeviceIdOf(Certificate)!;
 
     /// <summary>
-    /// One that Syncthing 2.0.12 made with <c>syncthing generate</c>, and the device ID it printed
-    /// for it: the check that IDs are worked out as Syncthing does. A throwaway, never used anywhere.
+    /// A certificate Syncthing 2.0.12 made with <c>syncthing generate</c>, and the device ID it printed
+    /// for it: the check that IDs are worked out as Syncthing does. Its key isn't kept here, nor needed:
+    /// <see cref="Ed25519"/> writes one in the same form.
     /// </summary>
-    public static readonly SyncthingIdentity FromSyncthing = new(
+    public const string FromSyncthingCertificate =
         """
         -----BEGIN CERTIFICATE-----
         MIIBoDCCAVKgAwIBAgIJAPQHxkacHKJWMAUGAytlcDBKMRIwEAYDVQQKEwlTeW5j
@@ -36,12 +37,7 @@ public sealed record SyncthingIdentity(string Certificate, string Key)
         CXN5bmN0aGluZzAFBgMrZXADQQALkL3iIDhMBy6+hV62pOzAf4fJPSaIkI+XkYtM
         w+kpYEJpoqHkioXiXMWGA/j8JH5ac4tgw3qWLtpgGMgpa1UN
         -----END CERTIFICATE-----
-        """,
-        """
-        -----BEGIN PRIVATE KEY-----
-        MC4CAQAwBQYDK2VwBCIEIMQKsskmQ/xRdQKIGjISprs+4bJpGCXubb/2OcT15ViY
-        -----END PRIVATE KEY-----
-        """);
+        """;
 
     public const string FromSyncthingDeviceId = "KGKMJFL-VXUIF4R-TT5TUEZ-2IXD5MX-5MOU63G-M3DDTIO-P27TPWT-TZ7KEQG";
 

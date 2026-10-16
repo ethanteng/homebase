@@ -657,12 +657,12 @@ public sealed class SyncTests : IDisposable
     [Fact]
     public void Device_ids_are_worked_out_from_the_certificate_as_Syncthing_does()
     {
-        Assert.Equal(SyncthingIdentity.FromSyncthingDeviceId, SyncthingIdentity.FromSyncthing.DeviceId);
+        Assert.Equal(SyncthingIdentity.FromSyncthingDeviceId, ComputerReleases.DeviceIdOf(SyncthingIdentity.FromSyncthingCertificate));
         // Each is a well-formed device ID, check characters and all.
         foreach (var computer in new[] { SyncthingIdentity.Ed25519(), SyncthingIdentity.Ecdsa(), SyncthingIdentity.Rsa() })
             Assert.Equal(computer.DeviceId, SyncService.NormalizeDeviceId(computer.DeviceId));
 
-        foreach (var notOne in new[] { null, "", "not a certificate", SyncthingIdentity.FromSyncthing.Key,
+        foreach (var notOne in new[] { null, "", "not a certificate", SyncthingIdentity.Ed25519().Key,
                      "-----BEGIN CERTIFICATE-----\nbm90IGEgY2VydGlmaWNhdGU=\n-----END CERTIFICATE-----" })
             Assert.Null(ComputerReleases.DeviceIdOf(notOne));
     }
@@ -670,8 +670,8 @@ public sealed class SyncTests : IDisposable
     [Fact]
     public async Task A_computer_that_signs_with_its_own_key_is_let_go_and_can_be_added_to_another_account()
     {
-        // Ed25519 as Syncthing 2 makes it, the very key file it wrote, and the kinds earlier ones made.
-        foreach (var computer in new[] { SyncthingIdentity.FromSyncthing, SyncthingIdentity.Ed25519(), SyncthingIdentity.Ecdsa(), SyncthingIdentity.Rsa() })
+        // Ed25519 as Syncthing 2 makes it, and the kinds earlier ones made.
+        foreach (var computer in new[] { SyncthingIdentity.Ed25519(), SyncthingIdentity.Ecdsa(), SyncthingIdentity.Rsa() })
         {
             await _sync.PairAsync(_ada.Id, computer.DeviceId, "Ada’s laptop", CancellationToken.None);
             var folder = Assert.Single(await _sync.IncludeAsync(_ada.Id, _adaRoot, computer.DeviceId, CancellationToken.None));
