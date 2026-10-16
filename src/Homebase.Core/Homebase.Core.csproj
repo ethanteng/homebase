@@ -3,6 +3,8 @@
     <InternalsVisibleTo Include="Homebase.Tests" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Ed25519, which .NET lacks: the key Syncthing 2 makes for each computer, which signs its release. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
   </ItemGroup>

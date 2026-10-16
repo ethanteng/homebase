@@ -1,5 +1,13 @@
 [
   {
+    "package": "BouncyCastle.Cryptography/2.7.0",
+    "license": "MIT",
+    "copyright": "Copyright \u00a9 Legion of the Bouncy Castle Inc. 2000-2026",
+    "notice_files": [
+      "LICENSE.md"
+    ]
+  },
+  {
     "package": "Microsoft.Data.Sqlite/10.0.12",
     "license": "MIT",
     "copyright": "\u00a9 Microsoft Corporation. All rights reserved.",

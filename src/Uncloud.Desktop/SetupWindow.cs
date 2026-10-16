@@ -659,23 +659,34 @@ public sealed class SetupWindow : Window
 
     private void ShowDisconnect()
     {
+        var account = _controller.Settings.AccountName is { Length: > 0 } name ? name : "the account it was added to";
         Reset("Disconnect this computer?",
-            $"It stops syncing with Uncloud. Everything already in {_controller.Paths.Files} stays here, and nothing is deleted from Uncloud.");
-        // Disconnecting is what somebody reaches for to move this computer to another account, and
-        // on its own it can't: said here, with the account to remove it from, before they find out.
-        _body.Children.Add(new TextBlock { Text = _controller.StillListedOnHost, TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
-        if (_controller.Settings.Address is { } address)
-            _body.Children.Add(Links(("Open Uncloud in Browser", () => App.Open(address))));
+            $"It stops syncing with Uncloud, and Uncloud takes it off My computers for {account}, so it can be connected to a different account. "
+            + $"Everything already in {_controller.Paths.Files} stays here, and nothing is deleted from Uncloud.");
+        var address = _controller.Settings.Address;
         var disconnect = new Button { Content = "Disconnect", HorizontalAlignment = HorizontalAlignment.Right };
         disconnect.Click += async (_, _) =>
         {
+            // Telling Uncloud can take a few seconds, over the tunnel especially.
+            disconnect.IsEnabled = false;
             try
             {
-                await _controller.DisconnectAsync(CancellationToken.None);
-                Close();
+                if (await _controller.DisconnectAsync(CancellationToken.None) is not { } stillListed)
+                {
+                    Close();
+                    return;
+                }
+                // Disconnecting is what somebody reaches for to move this computer to another
+                // account. When Uncloud couldn't be told, that's said now, with the account to
+                // remove it from, before they find out by being refused.
+                Reset("This computer is disconnected", stillListed);
+                if (address is not null)
+                    _body.Children.Add(Links(("Open Uncloud in Browser", () => App.Open(address))));
+                Done();
             }
             catch (Exception error) when (error is Homebase.Core.LibraryException or HttpRequestException)
             {
+                disconnect.IsEnabled = true;
                 Problem(error.Message);
             }
         };

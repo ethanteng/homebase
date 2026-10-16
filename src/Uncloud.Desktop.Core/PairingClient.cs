@@ -52,6 +52,32 @@ public sealed class PairingClient(HttpClient client)
             : null;
     }
 
+    /// <summary>
+    /// Asks Uncloud to let this computer go from the account it was added to, so it can be added to
+    /// another. It proves it's this computer by signing with its Syncthing key, which is what Uncloud
+    /// knows it by. False when it couldn't: Uncloud out of reach, from before computers could ask,
+    /// or not having this computer any more.
+    /// </summary>
+    /// <exception cref="System.Security.Cryptography.CryptographicException">The certificate or key isn't one Syncthing made.</exception>
+    public async Task<bool> ReleaseAsync(Uri address, string hostDeviceId, string certificatePem, string keyPem, CancellationToken cancellationToken)
+    {
+        var deviceId = ComputerReleases.DeviceIdOf(certificatePem)
+            ?? throw new System.Security.Cryptography.CryptographicException("Syncthing’s certificate can’t be read.");
+        try
+        {
+            var challenge = await SendAsync<ReleaseChallenge>(address, "/api/sync/computers/release-challenge",
+                new { deviceId }, cancellationToken);
+            var signature = ComputerReleases.Sign(keyPem, ComputerReleases.Message(hostDeviceId, deviceId, challenge.Nonce));
+            await SendAsync<JsonElement>(address, "/api/sync/computers/release",
+                new { certificate = certificatePem, nonce = challenge.Nonce, signature }, cancellationToken);
+            return true;
+        }
+        catch (PairingException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>How many times a request that never got as far as Uncloud is sent before giving up.</summary>
     private const int Attempts = 3;
 

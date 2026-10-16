@@ -188,6 +188,7 @@ builder.Services.AddSingleton<SyncOwnership>();
 builder.Services.AddSingleton<SyncService>();
 builder.Services.AddSingleton<PairingCodes>();
 builder.Services.AddSingleton<PairingRequests>();
+builder.Services.AddSingleton<ComputerReleases>();
 // An import's stage travels as its name, not as whichever number the enum happens to sit at.
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
@@ -352,7 +353,10 @@ string[] anonymous =
     "/api/providers/dropbox/callback",
     // The Uncloud app on somebody's computer has no session. A pairing code is its authority, or
     // a request a signed-in person approves under /api/sync/pairing-requests, which isn't open.
-    "/api/sync/pair"
+    "/api/sync/pair",
+    // Nor when it disconnects: what it signs with its own Syncthing key is its authority then.
+    "/api/sync/computers/release-challenge",
+    "/api/sync/computers/release"
 ];
 // Reached only by an administrator: the host's own folder, and the accounts on it.
 string[] administrative =
@@ -1380,6 +1384,16 @@ app.MapPost("/api/sync/pairing-requests/{id}/approve", async (string id, Current
     await requests.ApproveAsync(id, user.Id, userId => workspaces.For(userId).Root, cancellationToken);
     return Results.Ok(await sync.StatusAsync(user.Id, cancellationToken));
 });
+// The app on a computer letting it go from whichever account has it, as it disconnects, so it can
+// be added to another. It proves it's that computer by signing the challenge with its Syncthing key.
+app.MapPost("/api/sync/computers/release-challenge", (AskToRelease request, HttpContext context, ComputerReleases releases) =>
+    Results.Ok(releases.Challenge(request.DeviceId, context.Connection.RemoteIpAddress?.ToString())));
+app.MapPost("/api/sync/computers/release", async (ReleaseComputer request, HttpContext context, ComputerReleases releases, CancellationToken cancellationToken) =>
+{
+    await releases.ReleaseAsync(request.Certificate, request.Nonce, request.Signature,
+        context.Connection.RemoteIpAddress?.ToString(), cancellationToken);
+    return Results.Ok(new { released = true });
+});
 app.MapPost("/api/sync/folders", async (SyncFolderRequest request, CurrentUser user, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>
     Results.Ok(await sync.ShareAsync(user.Id, workspaces.For(user.Account).Root, request.Path, request.DeviceIds, cancellationToken)));
 app.MapPost("/api/sync/folders/accept", async (AcceptFolder request, CurrentUser user, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>
@@ -1447,4 +1461,8 @@ public sealed record RedeemPairing(string? Code, string? DeviceId, string? Name,
 /// <param name="SyncEverything">As for <see cref="RedeemPairing"/>, once the request is approved.</param>
 public sealed record OpenPairing(string? DeviceId, string? Name, bool SyncEverything = false);
 public sealed record CollectPairing(string? Secret);
+public sealed record AskToRelease(string? DeviceId);
+/// <param name="Certificate">The computer's Syncthing certificate, as PEM: what its device ID is the hash of.</param>
+/// <param name="Signature">The challenge, as <see cref="ComputerReleases.Message"/> has it, signed with that certificate's key.</param>
+public sealed record ReleaseComputer(string? Certificate, string? Nonce, string? Signature);
 public partial class Program;
