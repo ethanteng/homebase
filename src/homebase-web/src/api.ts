@@ -183,6 +183,35 @@ export interface BackupStatus {
   lastPruned: string | null;
 }
 
+/// How the last check of the backup went: restored somewhere of its own and compared with what's
+/// here. Counts only, never names.
+export interface BackupCheck {
+  running: boolean;
+  started: string | null;
+  finished: string | null;
+  // Null when there was nothing to check.
+  passed: boolean | null;
+  message: string | null;
+  snapshot: string | null;
+  snapshotTime: string | null;
+  filesInBackup: number | null;
+  bytesInBackup: number | null;
+  files: number | null;
+  bytes: number | null;
+  sampled: boolean;
+  matched: number | null;
+  changedSince: number | null;
+  goneSince: number | null;
+  mismatched: number | null;
+  missing: number | null;
+  hostKeyMatched: boolean | null;
+}
+
+/// The backups kept, oldest first.
+export interface BackupSnapshots {
+  snapshots: { id: string; time: string }[];
+}
+
 export interface ImportEstimate {
   fileCount: number;
   bytes: number;

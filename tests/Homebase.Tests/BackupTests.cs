@@ -403,6 +403,128 @@ public sealed class BackupTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, started.StatusCode);
     }
 
+    [Fact]
+    public async Task A_check_restores_the_backup_somewhere_of_its_own_and_finds_it_the_same_as_here()
+    {
+        var backups = Backups();
+        _ = new SecretProtector(Config);
+        var alice = Account("alice");
+        File.WriteAllText(Path.Combine(alice, "notes.txt"), "remember the milk");
+        // Names restic would read as patterns, or as a variable, come back like any other.
+        File.WriteAllText(Path.Combine(alice, "a[1].txt"), "bracketed");
+        File.WriteAllText(Path.Combine(alice, "star*.txt"), "starred");
+        File.WriteAllText(Path.Combine(alice, "cost$HOME.txt"), "dollar");
+        Directory.CreateDirectory(Path.Combine(alice, "Photos"));
+        File.WriteAllBytes(Path.Combine(alice, "Photos", "beach.jpg"), RandomNumberGenerator.GetBytes(300 * 1024));
+        File.WriteAllText(Path.Combine(Account("bob"), "plans.txt"), "a trip");
+        Assert.Equal(BackupOutcome.Succeeded, (await backups.RunAsync(CancellationToken.None)).LastOutcome);
+
+        var check = await backups.CheckAsync(CancellationToken.None);
+
+        Assert.True(check.Passed, check.Message);
+        Assert.False(check.Sampled);
+        Assert.Equal(6, check.FilesInBackup);
+        Assert.Equal(6, check.Files);
+        Assert.Equal(6, check.Matched);
+        Assert.Equal((0L, 0L, 0L, 0L), (check.ChangedSince!.Value, check.GoneSince!.Value, check.Mismatched!.Value, check.Missing!.Value));
+        Assert.True(check.HostKeyMatched);
+        Assert.Equal(backups.Status.Snapshot, check.Snapshot?[..backups.Status.Snapshot!.Length]);
+        // Nothing restored is left behind, and how it went is kept.
+        Assert.False(Directory.Exists(Path.Combine(Config, "backup", "check")));
+        Assert.Equal(check, backups.LastCheck);
+    }
+
+    [Fact]
+    public async Task A_check_tells_files_changed_or_gone_since_from_ones_that_came_back_wrong()
+    {
+        var backups = Backups();
+        var alice = Account("alice");
+        foreach (var name in new[] { "changed.txt", "gone.txt", "kept.txt", "wrong.txt" })
+            File.WriteAllText(Path.Combine(alice, name), $"what {name} said at the time");
+        await backups.RunAsync(CancellationToken.None);
+
+        File.WriteAllText(Path.Combine(alice, "changed.txt"), "said something else later");
+        File.Delete(Path.Combine(alice, "gone.txt"));
+        // Different bytes in a file that looks untouched since: the same size and time.
+        var wrong = Path.Combine(alice, "wrong.txt");
+        var when = File.GetLastWriteTimeUtc(wrong);
+        File.WriteAllText(wrong, "WHAT wrong.txt said at the time");
+        File.SetLastWriteTimeUtc(wrong, when);
+
+        var check = await backups.CheckAsync(CancellationToken.None);
+
+        Assert.False(check.Passed);
+        Assert.Equal((1L, 1L, 1L, 1L, 0L),
+            (check.Matched!.Value, check.ChangedSince!.Value, check.GoneSince!.Value, check.Mismatched!.Value, check.Missing!.Value));
+    }
+
+    [Fact]
+    public async Task A_backup_bigger_than_a_check_restores_is_checked_by_a_sample()
+    {
+        var backups = Backups(policy: new BackupPolicy { CheckFiles = 3 });
+        var alice = Account("alice");
+        // Every name one a pattern would misread unless it's written as a pattern should be, and
+        // one with a $ in it, which a pattern file can't ask for at all.
+        for (var i = 1; i <= 6; i++) File.WriteAllText(Path.Combine(alice, $"photo[{i}]*.txt"), $"photo {i}");
+        File.WriteAllText(Path.Combine(alice, "cost$HOME.txt"), "dollar");
+        await backups.RunAsync(CancellationToken.None);
+
+        var check = await backups.CheckAsync(CancellationToken.None);
+
+        Assert.True(check.Passed, check.Message);
+        Assert.True(check.Sampled);
+        Assert.Equal(7, check.FilesInBackup);
+        Assert.Equal(3, check.Files);
+        Assert.Equal(3, check.Matched);
+        Assert.True(check.HostKeyMatched ?? true);
+    }
+
+    [Fact]
+    public async Task With_no_backup_yet_there_is_nothing_to_check()
+    {
+        var backups = Backups();
+
+        var check = await backups.CheckAsync(CancellationToken.None);
+
+        Assert.Null(check.Passed);
+        Assert.Equal("There's no backup to check yet.", check.Message);
+    }
+
+    [Fact]
+    public async Task Only_an_administrator_lists_the_backups_or_checks_one()
+    {
+        using var app = new TestHost(Path.Combine(_temporary, "api"), settings: new Dictionary<string, string?>
+        {
+            ["Homebase:Backup:Repository"] = Repository,
+            ["Homebase:Backup:Password"] = Password,
+            ["Homebase:Backup:Restic"] = TestRestic.Path,
+            ["Homebase:Backup:Nightly"] = "false"
+        });
+        var admin = await app.SignUpAsync();
+        Directory.CreateDirectory(Root);
+        await TestHost.SetHostRootAsync(admin, Root);
+        var member = await app.AddUserAsync(admin, "member");
+        Assert.Equal(HttpStatusCode.Forbidden, (await member.GetAsync("/api/host/backup/check")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await member.PostAsync("/api/host/backup/check", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await member.GetAsync("/api/host/backup/snapshots")).StatusCode);
+
+        await admin.PostAsync("/api/host/backup", null);
+        await Until(async () => !(await admin.GetFromJsonAsync<JsonElement>("/api/host/backup")).GetProperty("running").GetBoolean());
+        var listed = await admin.GetFromJsonAsync<JsonElement>("/api/host/backup/snapshots");
+        Assert.Equal(1, listed.GetProperty("snapshots").GetArrayLength());
+
+        var started = await admin.PostAsync("/api/host/backup/check", null);
+        Assert.Equal(HttpStatusCode.Accepted, started.StatusCode);
+        JsonElement check = default;
+        await Until(async () =>
+        {
+            check = await admin.GetFromJsonAsync<JsonElement>("/api/host/backup/check");
+            return !check.GetProperty("running").GetBoolean() && check.GetProperty("finished").ValueKind != JsonValueKind.Null;
+        });
+        Assert.True(check.GetProperty("passed").GetBoolean());
+        Assert.True(check.GetProperty("hostKeyMatched").GetBoolean());
+    }
+
     /// <summary>
     /// A stand-in for restic: <paramref name="body"/> runs with <c>$command</c> set to the restic
     /// command it was asked for and <c>$all</c> to every argument.

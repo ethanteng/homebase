@@ -1082,6 +1082,29 @@ app.MapPost("/api/host/backup", (BackupService backups, IHostApplicationLifetime
     return Results.Accepted("/api/host/backup", backups.Status);
 });
 
+// The backups kept, oldest first: when each was made. Read from the storage, so a read-only account
+// still answers.
+app.MapGet("/api/host/backup/snapshots", async (BackupService backups, CancellationToken cancellationToken) =>
+{
+    if (!backups.IsConfigured)
+        return Results.Problem("Backups aren't set up on this Uncloud yet.", statusCode: 409);
+    var snapshots = await backups.SnapshotsAsync(cancellationToken);
+    return Results.Ok(new { snapshots = snapshots.Select(snapshot => new { id = snapshot.Id, time = snapshot.Time }) });
+});
+
+// Checking the backup: the newest one, or a sample of it, restored somewhere of its own and
+// compared with what's here byte for byte, then taken away again. The answer is counts only.
+app.MapGet("/api/host/backup/check", (BackupService backups) => Results.Ok(backups.LastCheck));
+
+app.MapPost("/api/host/backup/check", (BackupService backups, IHostApplicationLifetime lifetime) =>
+{
+    if (!backups.IsConfigured)
+        return Results.Problem("Backups aren't set up on this Uncloud yet.", statusCode: 409);
+    // One already running is the one asked for.
+    backups.TryStartCheck(lifetime.ApplicationStopping);
+    return Results.Accepted("/api/host/backup/check", backups.LastCheck);
+});
+
 // This host's place in Uncloud Backup: whether it has joined, and how its storage stands.
 app.MapGet("/api/host/backup/account", (BackupAccount account) => Results.Ok(account.Status));
 

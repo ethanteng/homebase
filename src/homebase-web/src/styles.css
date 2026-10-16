@@ -1622,6 +1622,11 @@ tbody tr.selected {
 .host-backup .button {
   align-self: flex-start;
 }
+.backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 /* The backup's password is read, copied and written down, so it's set large and apart, and allowed
    to wrap on a narrow screen rather than widen the dialog. */
 .backup-password code {

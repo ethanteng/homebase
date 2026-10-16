@@ -246,6 +246,13 @@ pinned binary comes from `scripts/fetch-restic.sh`.
 - **Time limits on restic.** Reading an object behind a delete marker gets a 405 from iDrive where
   S3 says 404; restic doesn't recognise it and retries for about fifteen minutes. The host gives
   restic a limit and, when it can't open the repository, asks the bucket directly what's there.
+- **Checking the backup** (`POST /api/host/backup/check`, the Backup panel's "Check the backup").
+  The newest backup is restored into a folder of its own beside the host's settings, whole if it's
+  under 2,000 files and 2 GB, otherwise a random sample within that, a different one each time.
+  Each file is compared with the one here, byte for byte, and so is `host.key`. Then it's all taken
+  away. A file changed or gone since the backup isn't a fault, only nothing to compare with; one
+  that's unchanged here but came back different, or didn't come back, is. The answer is counts,
+  never names, since whoever looks after the host isn't meant to read everybody's files.
 - **Restores without a lock** (`--no-lock`), since taking one is a write and a read-only account
   refuses it.
 - **A 403 on upload is asked about, not assumed.** A full account answers 403, but so do a
@@ -328,7 +335,8 @@ Requests that need a checksum (lock settings, retention, versioning, lifecycle) 
    in Settings. In the service: invites, setting up accounts, the nightly check, the rollback and
    delayed removal. Tested with a few households before anything is sold. Built so far: restic carried
    and the engine; the service with its invites, and setting up accounts and handing out hosts'
-   keys; a host joining with an invite and backing up where it's sent.
+   keys; a host joining with an invite and backing up where it's sent, and checking its backup by
+   restoring it.
 3. **Phase 2, getting it back.** Restoring files from My files under the Bin's rules, and
    rebuilding a host from its recovery kit.
 4. **Phase 3, selling it.** Uncloud accounts, billing, read-only on failed payments, and the

@@ -63,6 +63,12 @@ public sealed record BackupPolicy
     public TimeSpan ForgetLimit { get; init; } = TimeSpan.FromMinutes(10);
     public TimeSpan PruneLimit { get; init; } = TimeSpan.FromHours(2);
     public TimeSpan RestoreLimit { get; init; } = TimeSpan.FromHours(12);
+    /// <summary>
+    /// How much a check of the backup restores and compares. A backup within both is restored whole;
+    /// a bigger one is checked by a random sample within them, a different one each time.
+    /// </summary>
+    public int CheckFiles { get; init; } = 2_000;
+    public long CheckBytes { get; init; } = 2L * 1024 * 1024 * 1024;
 }
 
 /// <summary>
@@ -74,7 +80,7 @@ public sealed record BackupPolicy
 /// Where backups go is asked for each time, since a host that joins Uncloud Backup gets somewhere
 /// while it runs. Without anywhere, nothing here does anything.
 /// </remarks>
-public sealed class BackupService
+public sealed partial class BackupService
 {
     // restic picks the snapshot a backup builds on by host and paths. A fixed name keeps that working
     // when the computer is renamed, and the tag tells these from anything else in the repository.

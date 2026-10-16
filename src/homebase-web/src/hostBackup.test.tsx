@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import HostBackup, { forgetUnsaved } from "./HostBackup";
-import type { BackupAccount, BackupStatus } from "./api";
+import type { BackupAccount, BackupCheck, BackupStatus } from "./api";
 
 /**
  * Uncloud Backup in Settings: joining with an invite, the password shown once and only put away
@@ -267,6 +267,77 @@ describe("backing up offsite", () => {
     await show();
 
     expect(screen.getByText(/didn’t work\. The backup storage refused .* The last one that worked was/)).toBeTruthy();
+  });
+
+  const backedUp: BackupStatus = {
+    ...never, configured: true, lastOutcome: "Succeeded", lastFinished: "2026-10-15T23:14:00Z",
+    lastSucceeded: "2026-10-15T23:14:00Z", totalFiles: 364, totalBytes: 571_000_000, bytesAdded: 505_000_000,
+  };
+  const unchecked: BackupCheck = {
+    running: false, started: null, finished: null, passed: null, message: null, snapshot: null, snapshotTime: null,
+    filesInBackup: null, bytesInBackup: null, files: null, bytes: null, sampled: false, matched: null,
+    changedSince: null, goneSince: null, mismatched: null, missing: null, hostKeyMatched: null,
+  };
+  const checked: BackupCheck = {
+    ...unchecked, started: "2026-10-16T09:00:00Z", finished: "2026-10-16T09:02:00Z", passed: true,
+    snapshot: "4fa2b9c1", snapshotTime: "2026-10-15T23:14:00Z", filesInBackup: 364, bytesInBackup: 571_000_000,
+    files: 364, bytes: 571_000_000, matched: 364, changedSince: 0, goneSince: 0, mismatched: 0, missing: 0,
+    hostKeyMatched: true,
+  };
+
+  it("says how the last check went, and which backups are kept", async () => {
+    host({
+      "GET /api/host/backup/account": () => json(ready),
+      "GET /api/host/backup": () => json(backedUp),
+      "GET /api/host/backup/check": () => json(checked),
+      "GET /api/host/backup/snapshots": () =>
+        json({ snapshots: [{ id: "a1", time: "2026-10-14T23:14:00Z" }, { id: "4fa2b9c1", time: "2026-10-15T23:14:00Z" }] }),
+    });
+    await show();
+
+    expect(screen.getByText(/Checked .*: restored all 364 of everyone’s files \(544\.5 MB\) from the backup of .*, and every one came back exactly as it is here\. So did this Uncloud’s own key/)).toBeTruthy();
+    expect(screen.getByText(/2 backups kept, the oldest from/)).toBeTruthy();
+  });
+
+  it("says a sample was checked, and that files changed or gone since aren't a fault", async () => {
+    host({
+      "GET /api/host/backup/account": () => json(ready),
+      "GET /api/host/backup": () => json(backedUp),
+      "GET /api/host/backup/check": () =>
+        json({ ...checked, sampled: true, filesInBackup: 50_000, files: 2_000, matched: 1_996, changedSince: 3, goneSince: 1 }),
+    });
+    await show();
+
+    expect(screen.getByText(/restored 2,000 of everyone’s 50,000 files .*, at random from the backup .*every one still here as it was came back exactly as it is here \(3 have changed here since and 1 has gone\)/)).toBeTruthy();
+  });
+
+  it("says when files came back wrong, without saying which", async () => {
+    host({
+      "GET /api/host/backup/account": () => json(ready),
+      "GET /api/host/backup": () => json(backedUp),
+      "GET /api/host/backup/check": () => json({ ...checked, passed: false, matched: 362, mismatched: 1, missing: 1 }),
+    });
+    await show();
+
+    expect(screen.getByText(/1 file came back different from what’s here, and 1 file didn’t come back at all\. Uncloud’s log says which\./)).toBeTruthy();
+  });
+
+  it("checks the backup when asked", async () => {
+    const asked = host({
+      "GET /api/host/backup/account": () => json(ready),
+      "GET /api/host/backup": () => json(backedUp),
+      "GET /api/host/backup/check": () => json(unchecked),
+      "POST /api/host/backup/check": () => json({ ...unchecked, running: true }, 202),
+    });
+    await show();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Check the backup" }));
+    });
+
+    expect(asked.some((request) => request.route === "POST /api/host/backup/check")).toBe(true);
+    expect(screen.getByText(/Checking the backup: restoring it somewhere of its own/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Check the backup" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("isn't there when the host can't be asked", async () => {
