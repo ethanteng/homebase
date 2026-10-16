@@ -1,5 +1,9 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
+using Homebase.Core;
 using Homebase.Core.Sync;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Homebase.Tests;
@@ -155,6 +159,105 @@ public sealed class SyncthingProcessTests : IDisposable
         await process.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public void Only_this_syncthing_on_this_home_is_taken_for_one_left_running()
+    {
+        const string binary = "/Applications/Uncloud.app/Contents/MacOS/server/syncthing";
+        const string home = "/Users/someone/Library/Application Support/Uncloud/syncthing";
+        SyncthingProcess.RunningProcess[] running =
+        [
+            // Left by an earlier copy of the app: Syncthing's monitor, and Syncthing proper under it.
+            new(100, 1, $"{binary} serve --home {home} --no-browser"),
+            new(101, 100, $"{binary} serve --home {home} --no-browser"),
+            // The host's own, from the same program on a home of its own.
+            new(200, 1, $"{binary} serve --home /Users/someone/Library/Application Support/Uncloud/server/syncthing --no-browser"),
+            // One somebody runs themselves.
+            new(300, 1, "/opt/homebrew/Cellar/syncthing/2.0.12/bin/syncthing serve --home /Users/someone/.config/syncthing"),
+            // Another Syncthing on this home is not this one, and a home that begins like it is another home.
+            new(400, 1, $"/opt/homebrew/bin/syncthing serve --home {home}"),
+            new(500, 1, $"{binary} serve --home {home}-old --no-browser"),
+            new(600, 1, $"vim {home}/config.xml")
+        ];
+
+        Assert.Equal([100, 101], SyncthingProcess.Leftovers(running, binary, home).Select(process => process.Id));
+    }
+
+    [Fact]
+    public async Task A_syncthing_left_running_on_this_home_is_stopped_before_another_starts()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        // Not exec'd, so the script stays what is running, as Syncthing does.
+        var syncthing = FakeSyncthing("while :; do sleep 0.1; done");
+        var home = Home();
+        using var leftover = Serving(syncthing, home);
+        using var other = Serving(syncthing, home + "-other");
+        try
+        {
+            await Until(() => Starts == 2);
+            using var process = new SyncthingProcess(home, syncthing, FreePort(), NullLogger.Instance, new HttpClient());
+
+            await process.StartAsync(CancellationToken.None);
+
+            Assert.True(leftover.WaitForExit(5000), "The one left running is still running.");
+            await Until(() => Starts == 3);
+            Assert.False(other.HasExited);
+            await process.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            ProcessTree.Kill(leftover);
+            ProcessTree.Kill(other);
+        }
+    }
+
+    [Fact]
+    public async Task A_syncthing_that_was_already_answering_is_not_taken_for_the_one_started()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        // Answered with this home's key by one that started an hour ago, the way one nothing could
+        // stop does, until the one started answers.
+        var port = FreePort();
+        var status = Status(DateTimeOffset.Now.AddHours(-1));
+        using var api = Answer(port, () => Volatile.Read(ref status));
+        var syncthing = FakeSyncthing("exec sleep 60");
+        using var process = new SyncthingProcess(Home(), syncthing, port, NullLogger.Instance, new HttpClient());
+
+        await process.StartAsync(CancellationToken.None);
+        await Task.Delay(2500);
+        Assert.False(process.IsReady);
+
+        Volatile.Write(ref status, Status(DateTimeOffset.Now));
+        await process.Ready.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(process.IsReady);
+        await process.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task The_last_a_syncthing_said_is_logged_when_it_stops_by_itself()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var syncthing = FakeSyncthing("""
+            for line in $(seq -w 1 30); do echo "said $line"; done
+            echo "ERR Failed to acquire lock: is another Syncthing instance already running?"
+            exit 1
+            """);
+        var log = new Warnings();
+        using var process = new SyncthingProcess(Home(), syncthing, FreePort(), log, new HttpClient())
+        {
+            RestartAfter = [TimeSpan.FromMinutes(10)]
+        };
+
+        await process.StartAsync(CancellationToken.None);
+        await Until(() => log.Said.Any(warning => warning.Contains("stopped by itself")));
+
+        var warning = Assert.Single(log.Said, warning => warning.Contains("stopped by itself"));
+        Assert.Contains("Failed to acquire lock", warning);
+        Assert.Contains("said 30", warning);
+        Assert.Contains($"said {31 - SyncthingProcess.SaidKept + 1:00}", warning);
+        Assert.DoesNotContain($"said {31 - SyncthingProcess.SaidKept:00}", warning);
+        await process.StopAsync(CancellationToken.None);
+    }
+
     private string Started => Path.Combine(_application, "started");
     private int Starts => File.Exists(Started) ? File.ReadAllLines(Started).Length : 0;
 
@@ -193,7 +296,7 @@ public sealed class SyncthingProcessTests : IDisposable
         }
     }
 
-    private static HttpListener Answer(int port)
+    private static HttpListener Answer(int port, Func<string>? body = null)
     {
         var listener = new HttpListener { Prefixes = { $"http://127.0.0.1:{port}/" } };
         listener.Start();
@@ -201,11 +304,41 @@ public sealed class SyncthingProcessTests : IDisposable
         {
             while (listener.IsListening)
             {
-                try { var context = await listener.GetContextAsync(); context.Response.StatusCode = 200; context.Response.Close(); }
+                try
+                {
+                    var context = await listener.GetContextAsync();
+                    context.Response.StatusCode = 200;
+                    if (body is not null) await context.Response.OutputStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(body()));
+                    context.Response.Close();
+                }
                 catch (Exception) { return; }
             }
         });
         return listener;
+    }
+
+    /// <summary>What Syncthing says of itself, as far as which one it is goes.</summary>
+    private static string Status(DateTimeOffset started) => $$"""{"startTime":"{{started:yyyy-MM-ddTHH:mm:sszzz}}"}""";
+
+    /// <summary><paramref name="syncthing"/> serving <paramref name="home"/>, started by something other than Uncloud.</summary>
+    private static Process Serving(string syncthing, string home) =>
+        Process.Start(new ProcessStartInfo(syncthing)
+        {
+            ArgumentList = { "serve", "--home", home, "--no-browser" },
+            UseShellExecute = false
+        })!;
+
+    /// <summary>What was logged as a warning.</summary>
+    private sealed class Warnings : ILogger
+    {
+        private readonly ConcurrentQueue<string> _warnings = new();
+        public IReadOnlyList<string> Said => [.. _warnings];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel >= LogLevel.Warning) _warnings.Enqueue(formatter(state, exception));
+        }
     }
 
     private static int FreePort()
