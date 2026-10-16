@@ -410,14 +410,9 @@ public sealed class DesktopTests : IDisposable
     {
         // The case this is for, with the real server: one started the way the app starts it, whose
         // app went without stopping it, still holding the port.
-        if (OperatingSystem.IsWindows() || !HasLsof) return;
+        if (OperatingSystem.IsWindows() || !HasLsof || !HasPs) return;
         var port = FreePort();
-        var settings = new Dictionary<string, string>
-        {
-            ["Homebase__ConfigDirectory"] = Path.Combine(_temporary, "HostConfig"),
-            ["Homebase__Syncthing__Enabled"] = "false",
-            ["Homebase__Announce"] = "false"
-        };
+        var settings = ServerSettings();
         var servers = AppContext.BaseDirectory;
         using var leftover = StartServer(servers, port, settings);
         using var http = new HttpClient();
@@ -433,35 +428,97 @@ public sealed class DesktopTests : IDisposable
     }
 
     [Fact]
+    public async Task A_server_left_by_a_copy_of_the_app_an_update_replaced_is_stopped_too()
+    {
+        // How they really get left: a new build is installed over the app while its server runs.
+        // The old app is moved aside and deleted, and from then on macOS no longer says where that
+        // server's program is — so it is known by how it was started instead.
+        if (OperatingSystem.IsWindows() || !HasLsof || !HasPs) return;
+        var port = FreePort();
+        var settings = ServerSettings();
+        var bundle = Path.Combine(_temporary, "Uncloud.app");
+        var servers = Path.Combine(bundle, "Contents", "MacOS");
+        CopyServer(servers);
+        using var leftover = StartServer(servers, port, settings);
+        try
+        {
+            using var http = new HttpClient();
+            await Answering(http, port);
+
+            var replaced = Path.Combine(_temporary, "Uncloud.app.old");
+            Directory.Move(bundle, replaced);
+            CopyServer(servers);
+            Directory.Delete(replaced, true);
+
+            await using var host = new HostServer(servers, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+                http, port, settings);
+            await host.StartAsync(CancellationToken.None);
+
+            Assert.True(leftover.WaitForExit(10_000));
+            Assert.True(host.IsRunning);
+            (await http.GetAsync($"http://127.0.0.1:{port}/api/health")).EnsureSuccessStatusCode();
+        }
+        finally
+        {
+            if (!leftover.HasExited) leftover.Kill();
+        }
+    }
+
+    [Fact]
     public async Task The_same_program_on_another_port_is_not_taken_for_the_one_in_the_way()
     {
         // What stops a leftover is its holding this app's port, not only its being the same
-        // program: an Uncloud from this same place, doing something else on another port, is left
-        // alone even while something else is in the way here.
-        if (OperatingSystem.IsWindows() || !HasLsof) return;
-        var sleep = new[] { "/bin/sleep", "/usr/bin/sleep" }.FirstOrDefault(File.Exists);
-        if (sleep is null) return;
-        var directory = Directory.CreateDirectory(Path.Combine(_temporary, "same-program")).FullName;
-        File.Copy(sleep, Path.Combine(directory, "Homebase.Server"));
-        using var elsewhere = Process.Start(new ProcessStartInfo(Path.Combine(directory, "Homebase.Server"), "60")
-        {
-            UseShellExecute = false
-        })!;
-        var port = FreePort();
-        using var other = Answer(port);
-
+        // program: an Uncloud from this same place, started just the way the app starts it but
+        // doing something else on another port, is left alone even while something else is in
+        // the way here.
+        if (OperatingSystem.IsWindows() || !HasLsof || !HasPs) return;
+        var servers = AppContext.BaseDirectory;
+        var settings = ServerSettings();
+        var elsewherePort = FreePort();
+        using var elsewhere = StartServer(servers, elsewherePort, settings);
         try
         {
-            await using var host = new HostServer(directory, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
-                new HttpClient(), port);
+            using var http = new HttpClient();
+            await Answering(http, elsewherePort);
+            var port = FreePort();
+            using var other = Answer(port);
+
+            await using var host = new HostServer(servers, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+                http, port, settings);
             await Assert.ThrowsAsync<IOException>(() => host.StartAsync(CancellationToken.None));
 
             Assert.False(elsewhere.HasExited);
+            (await http.GetAsync($"http://127.0.0.1:{elsewherePort}/api/health")).EnsureSuccessStatusCode();
         }
         finally
         {
             if (!elsewhere.HasExited) elsewhere.Kill();
         }
+    }
+
+    [Fact]
+    public void Only_this_apps_server_holding_its_port_is_taken_for_a_leftover()
+    {
+        const string server = "/Applications/Uncloud.app/Contents/MacOS/Homebase.Server";
+        HostServer.RunningProcess[] running =
+        [
+            new(101, server),
+            // The same, on another port.
+            new(102, server),
+            // The same program somewhere else: another copy of the app.
+            new(103, "/Users/ada/Downloads/Uncloud.app/Contents/MacOS/Homebase.Server"),
+            // Not as the app starts it.
+            new(104, server + " --urls http://127.0.0.1:5210"),
+            new(105, "/bin/sh " + server),
+            new(106, server + "2"),
+            // Not a server at all.
+            new(107, "/usr/bin/python3 -m http.server 5210"),
+            // This app itself, whatever it is called.
+            new(Environment.ProcessId, server)
+        ];
+        HashSet<int> listening = [101, 103, 104, 105, 106, 107, Environment.ProcessId];
+
+        Assert.Equal([101], HostServer.Leftovers(running, listening, server));
     }
 
     [Fact]
@@ -484,6 +541,26 @@ public sealed class DesktopTests : IDisposable
     }
 
     private static bool HasLsof => File.Exists("/usr/sbin/lsof") || File.Exists("/usr/bin/lsof");
+    private static bool HasPs => File.Exists("/bin/ps") || File.Exists("/usr/bin/ps");
+
+    /// <summary>A server of its own for a test: nothing synced, nothing announced, kept in the test's folder.</summary>
+    private Dictionary<string, string> ServerSettings() => new()
+    {
+        ["Homebase__ConfigDirectory"] = Path.Combine(_temporary, "HostConfig"),
+        ["Homebase__Syncthing__Enabled"] = "false",
+        ["Homebase__Announce"] = "false"
+    };
+
+    /// <summary>The server this test run built, copied to <paramref name="directory"/> the way the app carries it.</summary>
+    private static void CopyServer(string directory)
+    {
+        foreach (var file in Directory.EnumerateFiles(AppContext.BaseDirectory, "*", SearchOption.AllDirectories))
+        {
+            var copy = Path.Combine(directory, Path.GetRelativePath(AppContext.BaseDirectory, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+            File.Copy(file, copy);
+        }
+    }
 
     private static Process StartServer(string directory, int port, Dictionary<string, string> settings)
     {

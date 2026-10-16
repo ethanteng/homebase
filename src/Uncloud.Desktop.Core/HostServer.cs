@@ -14,8 +14,7 @@ public sealed class HostServer(
     IReadOnlyDictionary<string, string>? settings = null) : IAsyncDisposable
 {
     public const int Port = 5210;
-    // The name the process goes by. Not Path.GetFileNameWithoutExtension of the executable, which
-    // takes ".Server" for an extension and looks for a process called "Homebase".
+    // The server's program, beside the app's own.
     private const string ProcessName = "Homebase.Server";
     private Process? _process;
     // Set while it is being stopped on purpose, so that going is only called unexpected when it is.
@@ -124,38 +123,81 @@ public sealed class HostServer(
     }
 
     /// <summary>
-    /// Stops the server holding this app's port, when it is one this app left behind — run from
-    /// this same place by a copy of the app that went without stopping it. Both have to be true.
-    /// The same program answering on another port is somebody's Uncloud doing something else, and
-    /// anything else on this port is not this app's to stop either.
+    /// Stops the server holding this app's port, when it is one this app left behind — started
+    /// from this same place, the way this app starts it, by a copy of the app that went without
+    /// stopping it. Both have to be true. The same program answering on another port is
+    /// somebody's Uncloud doing something else, and anything else on this port is not this app's
+    /// to stop either.
     /// </summary>
     private int StopLeftovers()
     {
         var stopped = 0;
-        var mine = Path.GetFullPath(Executable);
-        var listening = ListeningOnPort();
-        foreach (var process in Process.GetProcessesByName(ProcessName))
+        foreach (var id in Leftovers(Running(), ListeningOnPort(), Executable))
         {
-            using (process)
+            try
             {
-                try
-                {
-                    if (!listening.Contains(process.Id)
-                        || process.MainModule?.FileName is not { } path
-                        || !string.Equals(Path.GetFullPath(path), mine, StringComparison.Ordinal))
-                        continue;
-                    ProcessTree.Kill(process);
-                    process.WaitForExit(5000);
-                    stopped++;
-                }
-                catch (Exception error) when (error is InvalidOperationException or NotSupportedException
-                    or System.ComponentModel.Win32Exception)
-                {
-                    // Gone already, or not ours to look at.
-                }
+                using var process = Process.GetProcessById(id);
+                ProcessTree.Kill(process);
+                process.WaitForExit(5000);
+                stopped++;
+            }
+            catch (Exception error) when (error is ArgumentException or InvalidOperationException
+                or System.ComponentModel.Win32Exception)
+            {
+                // Gone already, or not ours to stop.
             }
         }
         return stopped;
+    }
+
+    /// <summary>A process as ps tells of it.</summary>
+    internal sealed record RunningProcess(int Id, string CommandLine);
+
+    /// <summary>
+    /// Which of <paramref name="running"/> are this app's server, left holding its port: listening
+    /// there, with the command line this app starts it with — <paramref name="executable"/>, and
+    /// nothing else. Not by where macOS says a process's program is: once an update has replaced
+    /// the app a server came from, macOS names the folder the old app was moved to, or nothing at
+    /// all — and that is how these get left behind.
+    /// </summary>
+    internal static IReadOnlyList<int> Leftovers(IEnumerable<RunningProcess> running, IReadOnlySet<int> listening, string executable)
+    {
+        string[] started = [executable, Path.GetFullPath(executable)];
+        return running
+            .Where(process => process.Id != Environment.ProcessId
+                && listening.Contains(process.Id)
+                && started.Contains(process.CommandLine, StringComparer.Ordinal))
+            .Select(process => process.Id)
+            .ToList();
+    }
+
+    private static readonly Regex Listed = new(@"^\s*(\d+)\s+(.+)$");
+
+    /// <summary>
+    /// Every process with its command line, as ps tells it — which every Mac has. Where there is
+    /// no ps to ask, none are known, so none are stopped: the safe way to be wrong.
+    /// </summary>
+    private static List<RunningProcess> Running()
+    {
+        var running = new List<RunningProcess>();
+        try
+        {
+            using var ps = Process.Start(new ProcessStartInfo("ps")
+            {
+                // -ww: whole command lines, however long, so a path deep in somebody's folders isn't cut short.
+                ArgumentList = { "-A", "-ww", "-o", "pid=", "-o", "args=" },
+                RedirectStandardOutput = true,
+                UseShellExecute = false
+            });
+            if (ps is null) return running;
+            var said = ps.StandardOutput.ReadToEnd();
+            ps.WaitForExit(5000);
+            foreach (var line in said.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                if (Listed.Match(line) is { Success: true } match && int.TryParse(match.Groups[1].Value, out var id))
+                    running.Add(new RunningProcess(id, match.Groups[2].Value.TrimEnd()));
+        }
+        catch (System.ComponentModel.Win32Exception) { }
+        return running;
     }
 
     /// <summary>
