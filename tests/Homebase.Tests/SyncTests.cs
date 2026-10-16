@@ -642,6 +642,141 @@ public sealed class SyncTests : IDisposable
             () => requests.Open(Computer(100), null, false, "10.0.2.1")).Code);
     }
 
+    private ComputerReleases Releases(Func<DateTimeOffset>? now = null) =>
+        new(_sync, _ownership, _syncthing) { Now = now ?? (() => DateTimeOffset.UtcNow) };
+
+    /// <summary>What the Uncloud app on a computer does as it disconnects: asks, signs, sends.</summary>
+    private static async Task ReleaseAsync(ComputerReleases releases, SyncthingIdentity computer, string? address = null)
+    {
+        var challenge = releases.Challenge(computer.DeviceId, address);
+        await releases.ReleaseAsync(computer.Certificate, challenge.Nonce,
+            ComputerReleases.Sign(computer.Key, ComputerReleases.Message(FakeSyncthing.Self, computer.DeviceId, challenge.Nonce)),
+            address, CancellationToken.None);
+    }
+
+    [Fact]
+    public void Device_ids_are_worked_out_from_the_certificate_as_Syncthing_does()
+    {
+        Assert.Equal(SyncthingIdentity.FromSyncthingDeviceId, SyncthingIdentity.FromSyncthing.DeviceId);
+        // Each is a well-formed device ID, check characters and all.
+        foreach (var computer in new[] { SyncthingIdentity.Ed25519(), SyncthingIdentity.Ecdsa(), SyncthingIdentity.Rsa() })
+            Assert.Equal(computer.DeviceId, SyncService.NormalizeDeviceId(computer.DeviceId));
+
+        foreach (var notOne in new[] { null, "", "not a certificate", SyncthingIdentity.FromSyncthing.Key,
+                     "-----BEGIN CERTIFICATE-----\nbm90IGEgY2VydGlmaWNhdGU=\n-----END CERTIFICATE-----" })
+            Assert.Null(ComputerReleases.DeviceIdOf(notOne));
+    }
+
+    [Fact]
+    public async Task A_computer_that_signs_with_its_own_key_is_let_go_and_can_be_added_to_another_account()
+    {
+        // Ed25519 as Syncthing 2 makes it, the very key file it wrote, and the kinds earlier ones made.
+        foreach (var computer in new[] { SyncthingIdentity.FromSyncthing, SyncthingIdentity.Ed25519(), SyncthingIdentity.Ecdsa(), SyncthingIdentity.Rsa() })
+        {
+            await _sync.PairAsync(_ada.Id, computer.DeviceId, "Ada’s laptop", CancellationToken.None);
+            var folder = Assert.Single(await _sync.IncludeAsync(_ada.Id, _adaRoot, computer.DeviceId, CancellationToken.None));
+
+            await ReleaseAsync(Releases(), computer, "10.0.0.5");
+
+            // As if Ada had clicked Remove: nothing of hers is shared with it any more.
+            Assert.Null(_ownership.FindDevice(computer.DeviceId));
+            Assert.False(_syncthing.Devices.ContainsKey(computer.DeviceId));
+            Assert.DoesNotContain(computer.DeviceId, _syncthing.Folders[folder.Id].DeviceIds);
+
+            await _sync.PairAsync(_bo.Id, computer.DeviceId, "Bo’s laptop now", CancellationToken.None);
+            Assert.Equal(_bo.Id, _ownership.FindDevice(computer.DeviceId)!.UserId);
+            await _sync.UnpairAsync(_bo.Id, computer.DeviceId, CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Letting_go_is_refused_alike_for_the_wrong_key_a_used_challenge_and_a_computer_this_host_doesnt_have()
+    {
+        var laptop = SyncthingIdentity.Ed25519();
+        var stranger = SyncthingIdentity.Ed25519();
+        await _sync.PairAsync(_ada.Id, laptop.DeviceId, "Ada’s laptop", CancellationToken.None);
+        var now = DateTimeOffset.UtcNow;
+        var releases = Releases(() => now);
+        string Signed(SyncthingIdentity by, string nonce, string host = FakeSyncthing.Self, string? deviceId = null) =>
+            ComputerReleases.Sign(by.Key, ComputerReleases.Message(host, deviceId ?? laptop.DeviceId, nonce));
+        var refusals = new List<LibraryException>();
+        async Task Refused(string? certificate, string nonce, string? signature) =>
+            refusals.Add(await Assert.ThrowsAsync<LibraryException>(
+                () => releases.ReleaseAsync(certificate, nonce, signature, null, CancellationToken.None)));
+
+        // Laptop's certificate, which anybody it ever connected to has seen, signed with another key.
+        var challenge = releases.Challenge(laptop.DeviceId, null);
+        await Refused(laptop.Certificate, challenge.Nonce, Signed(stranger, challenge.Nonce));
+        // A challenge is good for one try, so the right signature doesn't help after a wrong one.
+        await Refused(laptop.Certificate, challenge.Nonce, Signed(laptop, challenge.Nonce));
+
+        // Another computer's certificate and key, for a challenge Laptop was given.
+        challenge = releases.Challenge(laptop.DeviceId, null);
+        await Refused(stranger.Certificate, challenge.Nonce, Signed(stranger, challenge.Nonce, deviceId: stranger.DeviceId));
+
+        // Signed for another host, or something that isn't a signature at all.
+        challenge = releases.Challenge(laptop.DeviceId, null);
+        await Refused(laptop.Certificate, challenge.Nonce, Signed(laptop, challenge.Nonce, host: SyncthingIdentity.Ed25519().DeviceId));
+        challenge = releases.Challenge(laptop.DeviceId, null);
+        await Refused(laptop.Certificate, challenge.Nonce, "not a signature");
+        await Refused(laptop.Certificate, "made-up", Signed(laptop, "made-up"));
+
+        // A challenge that ran out.
+        challenge = releases.Challenge(laptop.DeviceId, null);
+        now += ComputerReleases.Lifetime + TimeSpan.FromSeconds(1);
+        await Refused(laptop.Certificate, challenge.Nonce, Signed(laptop, challenge.Nonce));
+        Assert.Equal(_ada.Id, _ownership.FindDevice(laptop.DeviceId)!.UserId);
+
+        // A computer this host doesn't have, signing properly.
+        challenge = releases.Challenge(stranger.DeviceId, null);
+        await Refused(stranger.Certificate, challenge.Nonce, Signed(stranger, challenge.Nonce, deviceId: stranger.DeviceId));
+
+        // Done right, it's let go; sent again once Ada has added it back, the same release is refused.
+        challenge = releases.Challenge(laptop.DeviceId, null);
+        var signature = Signed(laptop, challenge.Nonce);
+        await releases.ReleaseAsync(laptop.Certificate, challenge.Nonce, signature, null, CancellationToken.None);
+        await _sync.PairAsync(_ada.Id, laptop.DeviceId, "Ada’s laptop", CancellationToken.None);
+        await Refused(laptop.Certificate, challenge.Nonce, signature);
+        Assert.Equal(_ada.Id, _ownership.FindDevice(laptop.DeviceId)!.UserId);
+
+        // Every refusal says the same, so none tells which computers this host has.
+        Assert.Equal(9, refusals.Count);
+        Assert.All(refusals, refusal => Assert.Equal("not_found", refusal.Code));
+        Assert.Single(refusals.Select(refusal => refusal.Message).Distinct());
+    }
+
+    [Fact]
+    public async Task Asking_to_be_let_go_is_bounded_and_says_nothing_about_which_computers_there_are()
+    {
+        var releases = Releases();
+        await _sync.PairAsync(_ada.Id, Laptop, null, CancellationToken.None);
+        Assert.Equal("invalid_device", Assert.Throws<LibraryException>(() => releases.Challenge("not-a-device", null)).Code);
+        // Handed out alike for a computer this host has and one it doesn't.
+        releases.Challenge(Laptop, "10.0.0.9");
+        releases.Challenge(Desktop, "10.0.0.9");
+
+        for (var computer = 2; computer < ComputerReleases.MostFromOneAddress; computer++)
+            releases.Challenge(Computer(computer), "10.0.0.9");
+        Assert.Equal("too_many_attempts", Assert.Throws<LibraryException>(() => releases.Challenge(Computer(99), "10.0.0.9")).Code);
+        for (var computer = ComputerReleases.MostFromOneAddress; computer < ComputerReleases.MostWaiting; computer++)
+            releases.Challenge(Computer(computer), $"10.0.1.{computer / ComputerReleases.MostFromOneAddress}");
+        Assert.Equal("busy", Assert.Throws<LibraryException>(() => releases.Challenge(Computer(100), "10.0.2.1")).Code);
+
+        // Refusals from one address hold it up, and nobody else.
+        releases = Releases();
+        var laptop = SyncthingIdentity.Ed25519();
+        await _sync.PairAsync(_ada.Id, laptop.DeviceId, null, CancellationToken.None);
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var challenge = releases.Challenge(laptop.DeviceId, "10.0.0.9");
+            await Assert.ThrowsAsync<LibraryException>(
+                () => releases.ReleaseAsync(laptop.Certificate, challenge.Nonce, "wrong", "10.0.0.9", CancellationToken.None));
+        }
+        Assert.Equal("too_many_attempts", Assert.Throws<LibraryException>(() => releases.Challenge(laptop.DeviceId, "10.0.0.9")).Code);
+        await ReleaseAsync(releases, laptop, "10.0.0.10");
+        Assert.Null(_ownership.FindDevice(laptop.DeviceId));
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_temporary, true); } catch (IOException) { }

@@ -471,27 +471,64 @@ public sealed class DesktopController(
             : Task.CompletedTask;
 
     /// <summary>
-    /// Stops syncing with the host and forgets it. Everything in ~/Uncloud stays. Only this computer
-    /// forgets: the host isn't told, and keeps it under the account it was added to until that
-    /// account removes it, as <see cref="StillListedOnHost"/> tells the person before they choose.
+    /// Stops syncing with the host and forgets it. Everything in ~/Uncloud stays. The host is asked to
+    /// let this computer go too, from the account it was added to, so it can be added to another
+    /// without anybody signing in as that one to remove it.
     /// </summary>
-    public async Task DisconnectAsync(CancellationToken cancellationToken)
+    /// <returns>
+    /// What's left to do on the host, to say to the person, when it couldn't be asked or didn't let
+    /// go; null when it let this computer go.
+    /// </returns>
+    public async Task<string?> DisconnectAsync(CancellationToken cancellationToken)
     {
         if (_computer is not null && Settings.HostDeviceId is { } host)
             await _computer.ForgetAsync(host, cancellationToken);
+        // Asked once this computer has forgotten the host, so whoever adds it there next can't send
+        // it anything.
+        var stillListed = await ReleaseAsync(cancellationToken) ? null : StillListedOnHost;
         Save(new DesktopSettings());
+        return stillListed;
+    }
+
+    /// <summary>How long disconnecting waits for the host to let this computer go: somebody is watching it.</summary>
+    private static readonly TimeSpan ReleasePatience = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Asks the host to let this computer go, signing with this computer's own Syncthing key, which is
+    /// what the host knows it by.
+    /// </summary>
+    private async Task<bool> ReleaseAsync(CancellationToken cancellationToken)
+    {
+        if (Settings.HostDeviceId is not { } host || !Uri.TryCreate(Settings.Address, UriKind.Absolute, out var address))
+            return false;
+        using var patience = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        patience.CancelAfter(ReleasePatience);
+        try
+        {
+            var certificate = await File.ReadAllTextAsync(Path.Combine(paths.Syncthing, "cert.pem"), patience.Token);
+            var key = await File.ReadAllTextAsync(Path.Combine(paths.Syncthing, "key.pem"), patience.Token);
+            if (await new PairingClient(http).ReleaseAsync(address, host, certificate, key, patience.Token)) return true;
+            _logger.LogWarning("Uncloud didn’t let this computer go");
+        }
+        // Nothing that goes wrong here may stop this computer disconnecting. The person is told
+        // what's left to do on the host instead.
+        catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(error, "Couldn’t ask Uncloud to let this computer go");
+        }
+        return false;
     }
 
     /// <summary>
-    /// What disconnecting leaves behind on the host, said before anybody disconnects: it still lists
-    /// this computer under the account it was added to, and won't add it to any other account until
-    /// that one removes it. Without this, connecting again as somebody else is refused for no reason
-    /// the person can see.
+    /// What's left on the host when it couldn't be asked to let this computer go: it may still list
+    /// it under the account it was added to, and won't add it to any other account until that one
+    /// removes it. Without this, connecting again as somebody else is refused for no reason the
+    /// person can see.
     /// </summary>
-    public string StillListedOnHost => Settings.AccountName is { Length: > 0 } account
-        ? $"Uncloud itself isn’t told, and still lists this computer in My computers for {account}. "
+    private string StillListedOnHost => Settings.AccountName is { Length: > 0 } account
+        ? $"Uncloud couldn’t be told, so it may still list this computer in My computers for {account}. "
           + $"Before connecting it to a different account, sign in to Uncloud as {account}, open My computers and click Remove next to it."
-        : "Uncloud itself isn’t told, and still lists this computer in My computers for the account it was added to. "
+        : "Uncloud couldn’t be told, so it may still list this computer in My computers for the account it was added to. "
           + "Before connecting it to a different account, sign in to Uncloud as that account, open My computers and click Remove next to it.";
 
     private async Task StartServerAsync(CancellationToken cancellationToken)

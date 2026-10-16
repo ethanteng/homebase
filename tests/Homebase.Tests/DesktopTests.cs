@@ -303,24 +303,71 @@ public sealed class DesktopTests : IDisposable
     }
 
     [Fact]
-    public async Task Disconnecting_says_the_host_still_has_it_and_which_account_to_remove_it_from()
+    public async Task Disconnecting_has_the_host_let_this_computer_go_so_another_account_can_add_it()
     {
-        new DesktopSettings { Mode = DesktopMode.Computer, Address = "https://home.example", AccountName = "Uncloud Host", HostDeviceId = FakeSyncthing.Self }.Save(_paths);
-        await using (var controller = new DesktopController(_paths, _temporary, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, new HttpClient()))
-        {
-            // Said before disconnecting: the host isn't told, so moving this computer to another
-            // account means removing it from this one there first.
-            Assert.Contains("still lists this computer in My computers for Uncloud Host", controller.StillListedOnHost);
-            Assert.Contains("sign in to Uncloud as Uncloud Host, open My computers and click Remove", controller.StillListedOnHost);
+        using var app = new TestHost(Path.Combine(_temporary, "Config"), syncthing: _host);
+        using var ada = await app.SignUpAsync("ada");
+        await TestHost.SetHostRootAsync(ada, PathPolicy.NormalizeRoot(Directory.CreateDirectory(Path.Combine(_temporary, "Host")).FullName));
+        using var bo = await app.AddUserAsync(ada, "bo");
+        async Task<string> CodeFor(HttpClient account) =>
+            (await (await account.PostAsync("/api/sync/pairing-codes", null)).Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("code").GetString()!;
 
-            await controller.DisconnectAsync(CancellationToken.None);
+        // This computer's Syncthing, as Syncthing 2 sets it up, added to Ada's account.
+        var laptop = SyncthingIdentity.Ed25519();
+        laptop.WriteTo(_paths.Syncthing);
+        using var anonymous = app.CreateClient();
+        var address = anonymous.BaseAddress!.ToString().TrimEnd('/');
+        var result = await new PairingClient(anonymous)
+            .PairAsync(PairingLink.From(address, await CodeFor(ada)), laptop.DeviceId, "Ada’s MacBook", CancellationToken.None);
+        var shared = Assert.Single(result.Folders);
+        new DesktopSettings { Mode = DesktopMode.Computer, Address = address, AccountName = result.AccountName, HostDeviceId = result.HostDeviceId }.Save(_paths);
+
+        await using (var controller = new DesktopController(_paths, _temporary, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, anonymous))
+            // Nothing left to tell the person: the host let go too.
+            Assert.Null(await controller.DisconnectAsync(CancellationToken.None));
+
+        Assert.False(DesktopSettings.Load(_paths).IsPaired);
+        Assert.False(_host.Devices.ContainsKey(laptop.DeviceId));
+        Assert.DoesNotContain(laptop.DeviceId, _host.Folders[shared.Id].DeviceIds);
+        Assert.Empty((await ada.GetFromJsonAsync<JsonElement>("/api/sync")).GetProperty("devices").EnumerateArray());
+
+        // Which is the point: connecting it as somebody else now works, with nobody signing in as Ada.
+        var again = await new PairingClient(anonymous)
+            .PairAsync(PairingLink.From(address, await CodeFor(bo)), laptop.DeviceId, "Bo’s MacBook", CancellationToken.None);
+        Assert.Equal("bo", again.AccountName);
+    }
+
+    [Fact]
+    public async Task Disconnecting_says_which_account_to_remove_it_from_when_the_host_couldnt_be_told()
+    {
+        // A host that doesn't have this computer, or can't tell it's this one asking.
+        using var app = new TestHost(Path.Combine(_temporary, "Config"), syncthing: _host);
+        using var anonymous = app.CreateClient();
+        SyncthingIdentity.Ed25519().WriteTo(_paths.Syncthing);
+        new DesktopSettings { Mode = DesktopMode.Computer, Address = anonymous.BaseAddress!.ToString(), AccountName = "Uncloud Host", HostDeviceId = FakeSyncthing.Self }.Save(_paths);
+        await using (var controller = new DesktopController(_paths, _temporary, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, anonymous))
+        {
+            var stillListed = await controller.DisconnectAsync(CancellationToken.None);
+            Assert.Contains("may still list this computer in My computers for Uncloud Host", stillListed);
+            Assert.Contains("sign in to Uncloud as Uncloud Host, open My computers and click Remove", stillListed);
+            // Disconnected all the same.
             Assert.False(DesktopSettings.Load(_paths).IsPaired);
         }
 
-        // Paired before the app kept the account's name: still said, without one.
+        // An Uncloud from before computers could ask, paired before the app kept the account's
+        // name: still said, without one.
         new DesktopSettings { Mode = DesktopMode.Computer, Address = "https://home.example", HostDeviceId = FakeSyncthing.Self }.Save(_paths);
-        await using var older = new DesktopController(_paths, _temporary, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, new HttpClient());
-        Assert.Contains("sign in to Uncloud as that account, open My computers and click Remove", older.StillListedOnHost);
+        await using (var older = new DesktopController(_paths, _temporary, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance,
+            new HttpClient(new SameAnswer(HttpStatusCode.NotFound, "This endpoint doesn’t exist."))))
+            Assert.Contains("sign in to Uncloud as that account, open My computers and click Remove",
+                await older.DisconnectAsync(CancellationToken.None));
+
+        // And with no Syncthing key to sign with at all.
+        Directory.Delete(_paths.Syncthing, true);
+        new DesktopSettings { Mode = DesktopMode.Computer, Address = anonymous.BaseAddress!.ToString(), AccountName = "Ada", HostDeviceId = FakeSyncthing.Self }.Save(_paths);
+        await using var keyless = new DesktopController(_paths, _temporary, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, anonymous);
+        Assert.Contains("for Ada", await keyless.DisconnectAsync(CancellationToken.None));
     }
 
     [Fact]

@@ -297,7 +297,10 @@ then consults Syncthing for live state. So:
 
 - A computer belongs to one account. Pairing one another account has is refused, without saying
   whose. A computer that could be claimed twice would let one person send folders to another's
-  laptop, or see the folders it offers.
+  laptop, or see the folders it offers. It leaves an account when the account removes it, or when
+  the Uncloud app on it disconnects and asks to be let go. The app signs that request with the
+  computer's own Syncthing key, whose certificate the device ID is the hash of, so nobody else can
+  ask on its behalf ([technical.md](technical.md#your-own-computers)).
 - Folders are stored as a path relative to the account's own root, resolved through `PathPolicy`
   like any browse, and only ever sent to that account's own computers. Folder ids hash the account
   id with the path, so two people's `Documents` are two folders.
