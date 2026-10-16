@@ -229,6 +229,13 @@ reseller API answers `payment_failed`, so one lapsed card would touch every hous
 restic is carried with the app and run by the server as a child process, as Syncthing is. Its
 pinned binary comes from `scripts/fetch-restic.sh`.
 
+- **Joining.** An administrator pastes an invite code (`POST /api/host/backup/account`). The host
+  registers with the service, makes the password its backup is encrypted with, and shows it to the
+  administrator once, to keep. It waits up to 50 seconds for the household's storage; if it isn't
+  ready by then, the host keeps asking in the background, as often as the service says. Backups
+  start going there without a restart, the first a few minutes after it arrives. The host's
+  credential, the password and the storage key are kept in its settings, sealed with `host.key`.
+
 - **Nightly backups** of everyone's folders, plus a consistent copy of the control database
   (SQLite's online backup, not a copy of the live file) and `host.key`. Not `.homebase/index.db`,
   which is rebuilt, or `.homebase/uploads/`.
@@ -320,7 +327,7 @@ Requests that need a checksum (lock settings, retention, versioning, lifecycle) 
    in Settings. In the service: invites, setting up accounts, the nightly check, the rollback and
    delayed removal. Tested with a few households before anything is sold. Built so far: restic carried
    and the engine; the service with its invites, and setting up accounts and handing out hosts'
-   keys.
+   keys; a host joining with an invite and backing up where it's sent.
 3. **Phase 2, getting it back.** Restoring files from My files under the Bin's rules, and
    rebuilding a host from its recovery kit.
 4. **Phase 3, selling it.** Uncloud accounts, billing, read-only on failed payments, and the

@@ -24,6 +24,7 @@ public sealed class TestHost : WebApplicationFactory<Program>
     private readonly Dictionary<string, string?> _settings;
     private readonly Func<string, IDropboxConnection>? _dropbox;
     private readonly ISyncthingApi? _syncthing;
+    private readonly HttpMessageHandler? _backupService;
     private readonly IPAddress _caller;
 
     static TestHost() =>
@@ -34,12 +35,14 @@ public sealed class TestHost : WebApplicationFactory<Program>
     /// Where the browser is, as far as this host can tell. Loopback unless a test is about somebody
     /// reaching Uncloud from another machine.
     /// </param>
+    /// <param name="backupService">Answers in place of Uncloud Backup's service, at https://backup.test/.</param>
     public TestHost(
         string configDirectory,
         Func<string, IDropboxConnection>? dropbox = null,
         IDictionary<string, string?>? settings = null,
         ISyncthingApi? syncthing = null,
-        IPAddress? caller = null)
+        IPAddress? caller = null,
+        HttpMessageHandler? backupService = null)
     {
         _caller = caller ?? IPAddress.Loopback;
         _settings = new Dictionary<string, string?>
@@ -54,6 +57,7 @@ public sealed class TestHost : WebApplicationFactory<Program>
             foreach (var (key, value) in settings) _settings[key] = value;
         _dropbox = dropbox;
         _syncthing = syncthing;
+        _backupService = backupService;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -68,6 +72,9 @@ public sealed class TestHost : WebApplicationFactory<Program>
                 services.AddSingleton<IDropboxApiFactory>(new StubDropboxFactory(_dropbox)));
         if (_syncthing is not null)
             builder.ConfigureTestServices(services => services.AddSingleton(_syncthing));
+        if (_backupService is not null)
+            builder.ConfigureTestServices(services => services.AddSingleton(
+                new Homebase.Core.Backup.BackupServiceClient(new HttpClient(_backupService), new Uri("https://backup.test/"))));
     }
 
     /// <summary>A client that isn't signed in, but does carry the header mutations require.</summary>
