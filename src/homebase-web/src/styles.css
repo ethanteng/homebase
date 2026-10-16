@@ -1559,7 +1559,8 @@ tbody tr.selected {
 
 .account-dropbox h3,
 .host-storage h3,
-.host-power h3 {
+.host-power h3,
+.host-backup h3 {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1569,7 +1570,8 @@ tbody tr.selected {
 }
 .account-dropbox h3 svg,
 .host-storage h3 svg,
-.host-power h3 svg {
+.host-power h3 svg,
+.host-backup h3 svg {
   flex-shrink: 0;
   color: var(--muted);
 }
@@ -1580,10 +1582,57 @@ tbody tr.selected {
 }
 .account-dropbox,
 .host-storage,
-.host-power {
+.host-power,
+.host-backup {
   margin-top: 30px;
   padding-top: 26px;
   border-top: 1px solid var(--line);
+}
+/* How the backups are going: one line, its icon saying which way at a glance. */
+.backup-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  max-width: 72ch;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.backup-line svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--muted);
+}
+.backup-line .backup-ok {
+  color: var(--ok);
+}
+.backup-line .backup-warn {
+  color: var(--warn);
+}
+.host-backup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* The gap spaces everything here, so nothing adds margins of its own to it. */
+.host-backup > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.host-backup .button {
+  align-self: flex-start;
+}
+/* The backup's password is read, copied and written down, so it's set large and apart, and allowed
+   to wrap on a narrow screen rather than widen the dialog. */
+.backup-password code {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.backup-kept {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
 }
 /* What could stop the host staying on. The words say it; the colour only marks each one out. */
 .power-findings {

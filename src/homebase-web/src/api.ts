@@ -143,6 +143,46 @@ export interface HostPower {
   findings: PowerFinding[];
 }
 
+/// How this host stands with Uncloud Backup. Never any of its secrets.
+export interface BackupAccount {
+  joined: boolean;
+  service: string | null;
+  household: string | null;
+  host: string | null;
+  hostName: string | null;
+  joinedAt: string | null;
+  // Until the household's storage is ready, how setting it up stands.
+  storage: "ready" | "setting_up" | "failing" | null;
+  step: string | null;
+  bucket: string | null;
+}
+
+/// Joining's answer: the password the backup is encrypted with, the one time it's ever sent.
+export interface BackupJoined {
+  password: string;
+  account: BackupAccount;
+}
+
+export type BackupOutcome = "Succeeded" | "Partial" | "Refused" | "TimedOut" | "Failed";
+
+/// How the host's backups stand: the last run, and the last one that worked.
+export interface BackupStatus {
+  configured: boolean;
+  running: boolean;
+  lastStarted: string | null;
+  lastFinished: string | null;
+  lastOutcome: BackupOutcome | null;
+  message: string | null;
+  lastSucceeded: string | null;
+  snapshot: string | null;
+  filesNew: number | null;
+  filesChanged: number | null;
+  bytesAdded: number | null;
+  totalFiles: number | null;
+  totalBytes: number | null;
+  lastPruned: string | null;
+}
+
 export interface ImportEstimate {
   fileCount: number;
   bytes: number;
