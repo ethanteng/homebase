@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   CircleCheck,
@@ -24,6 +24,30 @@ const STEPS: Record<string, string> = {
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 /**
+ * The join under way, and the password it brought until whoever joined says they've kept it. Kept
+ * here rather than in the panel, which goes whenever Settings is closed: the password is sent once,
+ * so a panel closed mid-join, or before Done, would otherwise take it with it. Reopening Settings
+ * picks both up again.
+ */
+const unsaved: { joining: Promise<BackupJoined> | null; password: string | null } = {
+  joining: null,
+  password: null,
+};
+
+/** Only for the tests, which start each one afresh. */
+export function forgetUnsaved() {
+  unsaved.joining = null;
+  unsaved.password = null;
+}
+
+/** Asks before the page is left or reloaded while a password is still to be kept. */
+function warnBeforeLeaving(event: BeforeUnloadEvent) {
+  if (!unsaved.password) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
+
+/**
  * Uncloud Backup: an encrypted copy of everyone's files here, and of this Uncloud itself, kept
  * offsite. Whoever looks after Uncloud joins with an invite, keeps the password the backup is
  * encrypted with, and from then on sees how the backups are going.
@@ -33,12 +57,12 @@ export default function HostBackup() {
   const [status, setStatus] = useState<BackupStatus | null>(null);
   const [invite, setInvite] = useState("");
   // The backup's password, from the moment of joining until whoever joined says they've kept it.
-  // It's sent once and kept nowhere here, so closing Settings before then loses it from view.
-  const [password, setPassword] = useState<string | null>(null);
+  const [password, setPassword] = useState<string | null>(unsaved.password);
   const [kept, setKept] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState<"copied" | "select" | null>(null);
+  const [busy, setBusy] = useState(unsaved.joining !== null);
   const [error, setError] = useState("");
+  const code = useRef<HTMLElement>(null);
 
   const read = useCallback(async (signal?: AbortSignal) => {
     const [nextAccount, nextStatus] = await Promise.all([
@@ -57,6 +81,17 @@ export default function HostBackup() {
     return () => controller.abort();
   }, [read]);
 
+  // A join started before Settings was last closed: its answer is shown here once it comes.
+  useEffect(() => {
+    if (unsaved.joining) void finishJoining(unsaved.joining);
+    // Only on opening: a join started from here is finished by join() itself.
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, []);
+
   const underWay =
     (account?.joined === true && account.storage !== "ready") || status?.running === true;
   useEffect(() => {
@@ -67,14 +102,20 @@ export default function HostBackup() {
 
   if (!account || !status) return null;
 
-  async function join() {
+  function join() {
+    unsaved.joining = api<BackupJoined>("/host/backup/account", {
+      method: "POST",
+      body: JSON.stringify({ invite: invite.trim() }),
+    });
+    void finishJoining(unsaved.joining);
+  }
+
+  async function finishJoining(joining: Promise<BackupJoined>) {
     setBusy(true);
     setError("");
     try {
-      const joined = await api<BackupJoined>("/host/backup/account", {
-        method: "POST",
-        body: JSON.stringify({ invite: invite.trim() }),
-      });
+      const joined = await joining;
+      unsaved.password = joined.password;
       setPassword(joined.password);
       setKept(false);
       setAccount(joined.account);
@@ -82,8 +123,14 @@ export default function HostBackup() {
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Couldn’t join Uncloud Backup.");
     } finally {
+      if (unsaved.joining === joining) unsaved.joining = null;
       setBusy(false);
     }
+  }
+
+  function done() {
+    unsaved.password = null;
+    setPassword(null);
   }
 
   async function backUpNow() {
@@ -98,11 +145,19 @@ export default function HostBackup() {
     }
   }
 
+  // Said to be copied only once it is. Where the browser won't let a page copy (over plain HTTP
+  // from another computer, say), the password is selected instead, for copying by hand.
   async function copy() {
     if (!password) return;
-    await navigator.clipboard?.writeText(password);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2000);
+    try {
+      if (!navigator.clipboard) throw new Error("No clipboard here.");
+      await navigator.clipboard.writeText(password);
+      setCopied("copied");
+      window.setTimeout(() => setCopied(null), 2000);
+    } catch {
+      if (code.current) window.getSelection()?.selectAllChildren(code.current);
+      setCopied("select");
+    }
   }
 
   const heading = (
@@ -124,12 +179,19 @@ export default function HostBackup() {
           It also means nobody can open the backup without it if this computer is lost or broken.
         </p>
         <div className="pairing-code backup-password">
-          <code aria-label="Your backup’s password">{password}</code>
+          <code ref={code} aria-label="Your backup’s password">
+            {password}
+          </code>
           <button type="button" className="button secondary" onClick={() => void copy()}>
-            {copied ? <Check size={16} /> : <Copy size={16} />}
-            {copied ? "Copied" : "Copy"}
+            {copied === "copied" ? <Check size={16} /> : <Copy size={16} />}
+            {copied === "copied" ? "Copied" : "Copy"}
           </button>
         </div>
+        {copied === "select" && (
+          <p className="field-help" role="status">
+            This browser didn’t let Uncloud copy it. It’s selected: copy it with ⌘C or Ctrl+C.
+          </p>
+        )}
         <p className="field-help warning-text">
           Keep it somewhere safe away from this computer, like a password manager, or printed and put
           away. This is the only time Uncloud shows it.
@@ -142,7 +204,7 @@ export default function HostBackup() {
           type="button"
           className="button primary"
           disabled={!kept}
-          onClick={() => setPassword(null)}
+          onClick={done}
         >
           <Check size={16} />
           Done
@@ -184,7 +246,7 @@ export default function HostBackup() {
           type="button"
           className="button primary"
           disabled={busy || !invite.trim()}
-          onClick={() => void join()}
+          onClick={join}
         >
           {busy ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}
           Join
@@ -272,11 +334,18 @@ function LastBackup({ status }: { status: BackupStatus }) {
   const details = [whole, added].filter(Boolean).join(" · ");
 
   if (status.lastOutcome === "Succeeded") {
+    // Backed up, but older backups weren't tidied away: worth knowing, since what isn't given back
+    // goes on taking room.
     return (
       <p className="backup-line">
-        <CircleCheck size={14} className="backup-ok" />
+        {status.message ? (
+          <TriangleAlert size={14} className="backup-warn" />
+        ) : (
+          <CircleCheck size={14} className="backup-ok" />
+        )}
         <span>
           Last backed up {finished}.{details && ` ${details}.`}
+          {status.message && ` ${status.message}`}
         </span>
       </p>
     );

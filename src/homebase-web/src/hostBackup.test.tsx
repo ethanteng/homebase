@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import HostBackup from "./HostBackup";
+import HostBackup, { forgetUnsaved } from "./HostBackup";
 import type { BackupAccount, BackupStatus } from "./api";
 
 /**
@@ -12,7 +12,8 @@ import type { BackupAccount, BackupStatus } from "./api";
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-const PASSWORD = "K7QMX-3XPD9-TWAHF-2RBCD-EFGHJ-KLMNP";
+// What a host makes for the backup: six groups of five. Made up here, so nothing real is in it.
+const SHOWN_ONCE = ["K7QMX", "3XPD9", "TWAHF", "2RBCD", "EFGHJ", "KLMNP"].join("-");
 
 const notJoined: BackupAccount = {
   joined: false, service: null, household: null, host: null, hostName: null, joinedAt: null,
@@ -44,6 +45,7 @@ function host(routes: Record<string, Route>) {
 }
 
 afterEach(() => {
+  forgetUnsaved();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -65,7 +67,7 @@ describe("backing up offsite", () => {
       "GET /api/host/backup": () => json(joined ? { ...never, configured: true } : never),
       "POST /api/host/backup/account": () => {
         joined = true;
-        return json({ password: PASSWORD, account: ready }, 201);
+        return json({ password: SHOWN_ONCE, account: ready }, 201);
       },
     });
     await show();
@@ -80,7 +82,7 @@ describe("backing up offsite", () => {
     expect(asked.find((request) => request.route === "POST /api/host/backup/account")?.body).toEqual({
       invite: "K7QM-3XPD-9TWA-HF2R",
     });
-    expect(screen.getByLabelText("Your backup’s password").textContent).toBe(PASSWORD);
+    expect(screen.getByLabelText("Your backup’s password").textContent).toBe(SHOWN_ONCE);
     expect(screen.getByText(/only time Uncloud shows it/)).toBeTruthy();
     const done = screen.getByRole("button", { name: "Done" }) as HTMLButtonElement;
     expect(done.disabled).toBe(true);
@@ -89,9 +91,79 @@ describe("backing up offsite", () => {
     expect(done.disabled).toBe(false);
     fireEvent.click(done);
 
-    expect(screen.queryByText(PASSWORD)).toBeNull();
+    expect(screen.queryByText(SHOWN_ONCE)).toBeNull();
     expect(screen.getByText(/Not backed up yet/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Back up now" })).toBeTruthy();
+  });
+
+  it("keeps the password through Settings being closed mid-join, and asks before the page is left", async () => {
+    let joined = false;
+    let answer!: (response: Response) => void;
+    host({
+      "GET /api/host/backup/account": () => json(joined ? { ...ready, storage: "setting_up", step: "bucket" } : notJoined),
+      "GET /api/host/backup": () => json(never),
+    });
+    const fetch = globalThis.fetch;
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) =>
+      init?.method === "POST"
+        ? new Promise<Response>((resolve) => (answer = resolve))
+        : fetch(url, init));
+    const first = await show();
+    fireEvent.change(screen.getByLabelText("Invite code"), { target: { value: "K7QM-3XPD-9TWA-HF2R" } });
+    fireEvent.click(screen.getByRole("button", { name: "Join" }));
+
+    // Settings closed before the answer came.
+    first.unmount();
+    joined = true;
+    await act(async () => {
+      answer(json({ password: SHOWN_ONCE, account: { ...ready, storage: "setting_up", step: "bucket" } }, 201));
+    });
+
+    const second = await show();
+    expect(screen.getByLabelText("Your backup’s password").textContent).toBe(SHOWN_ONCE);
+    const leaving = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(leaving);
+    expect(leaving.defaultPrevented).toBe(true);
+
+    // And closed again before Done: still there.
+    second.unmount();
+    await show();
+    fireEvent.click(screen.getByLabelText("I’ve kept it somewhere safe"));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByText(SHOWN_ONCE)).toBeNull();
+    const later = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(later);
+    expect(later.defaultPrevented).toBe(false);
+  });
+
+  it("says it copied the password only when it did, and otherwise selects it to copy by hand", async () => {
+    host({
+      "GET /api/host/backup/account": () => json(notJoined),
+      "GET /api/host/backup": () => json(never),
+      "POST /api/host/backup/account": () => json({ password: SHOWN_ONCE, account: ready }, 201),
+    });
+    await show();
+    fireEvent.change(screen.getByLabelText("Invite code"), { target: { value: "K7QM-3XPD-9TWA-HF2R" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Join" }));
+    });
+
+    // Plain HTTP from another computer: no clipboard for a page to write to.
+    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    });
+    expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
+    expect(screen.getByText(/didn’t let Uncloud copy it/)).toBeTruthy();
+    expect(window.getSelection()?.toString()).toBe(SHOWN_ONCE);
+
+    const written: string[] = [];
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText: async (text: string) => void written.push(text) } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    });
+    expect(written).toEqual([SHOWN_ONCE]);
+    expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
   });
 
   it("says why an invite wasn't taken, in the host's words, and stays ready to try another", async () => {
@@ -165,6 +237,21 @@ describe("backing up offsite", () => {
     expect(asked.some((request) => request.route === "POST /api/host/backup")).toBe(true);
     expect(screen.getByRole("status").textContent).toMatch(/Backing up now/);
     expect((screen.getByRole("button", { name: "Back up now" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("says when a backup worked but older ones couldn't be tidied away", async () => {
+    host({
+      "GET /api/host/backup/account": () => json(ready),
+      "GET /api/host/backup": () =>
+        json({
+          ...never, configured: true, lastOutcome: "Succeeded", lastFinished: "2026-10-15T09:30:00Z",
+          lastSucceeded: "2026-10-15T09:30:00Z",
+          message: "Older backups weren't tidied away: Uncloud couldn't tidy older backups: repository is locked",
+        }),
+    });
+    await show();
+
+    expect(screen.getByText(/Last backed up .*Older backups weren't tidied away/)).toBeTruthy();
   });
 
   it("says a backup that didn't work didn't, with why, and when the last good one was", async () => {
