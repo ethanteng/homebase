@@ -100,6 +100,12 @@ public sealed class SyncthingProcess(string home, string binary, int port, ILogg
     /// <summary>Runs Syncthing itself, once it is set up, unless it is being stopped.</summary>
     private void Serve()
     {
+        // One being stopped starts nothing, so whatever is on its home now is not its to stop: a
+        // restart that was due as the app quit must not take the next copy's Syncthing with it.
+        lock (_gate)
+        {
+            if (_stopped) return;
+        }
         StopLeftovers();
         var serve = new ProcessStartInfo(_binary)
         {
