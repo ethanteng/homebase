@@ -14,7 +14,7 @@ This document is the design; the phases at the end say how much is built. What i
 | Storage | IDrive e2, through the reseller API. One e2 account per household. |
 | Backup engine | restic, carried with the app like Syncthing, run by the host. |
 | Encryption | restic's, on the host. The password never leaves the household. |
-| Protecting history | Object lock in **compliance** mode on every household's bucket, plus a rule that expires old versions. |
+| Protecting history | Object lock in **compliance** mode on every household's bucket, 30 days, plus a rule that expires old versions 30 days after they're replaced. |
 | Who holds what | The reseller token and a full-access key live only in the backup service. The host holds a key for its one bucket, and no more. |
 | Over quota, unpaid | The account turns read-only: backups stop, restores still work. |
 | Cancelling | `remove_user`, after a delay, with an alert. |
@@ -115,9 +115,15 @@ is unaffected, because `remove_user` removes an account's data whatever its lock
 How long each version stays locked is meant to be the window for noticing a compromised host: one
 compromised for longer than that can wait for the oldest good versions to expire and then wipe
 what's left. That holds only once nothing the backup depends on is ever left unlocked (below). It's
-also how long every replaced or deleted version stays billed. **Not yet
-chosen**: it waits for whether iDrive bills old versions, which the spike is measuring. A starting
-point for the discussion is 30 days.
+also how long every replaced or deleted version stays billed: iDrive counts old versions in an
+account's storage until the expiry rule removes them (below).
+
+**30 days**, with the expiry rule at 30 days too, so a replaced version is kept for at least 30
+days after it's written and 30 after it's replaced. What that costs is small: restic writes each
+pack once and rewrites packs only when it prunes, weekly, and then only once more than 5% of the
+space is unused, so the old versions a lock keeps are a small share of a household's backup. What
+it means is that something backed up by mistake stays, and is billed, for 30 days, and nothing
+shortens that. Changing the period changes what new versions get, never one already written.
 
 ### When a lock runs out
 
@@ -141,9 +147,13 @@ ways out:
 
 A lifecycle rule on every bucket removes a version a set number of days after it's replaced or
 deleted, once its lock allows, along with delete markers with nothing behind them. iDrive accepts
-the rule and reads it back, but drops the part that would clear unfinished uploads. Whether iDrive
-actually acts on the rule is being measured. If it doesn't, the service deletes expired versions
-itself, which needs no password and no bypass.
+the rule and reads it back, but drops the part that would clear unfinished uploads.
+
+iDrive acts on it. In the spike, 181 MB of old versions under a one-day lock and a one-day rule
+were still there 27 hours after they were replaced and gone by 51, and the account's storage went
+down with them; an account that had turned read-only had its old versions cleared the same way.
+As on S3, a version goes at the first midnight UTC after both its days and its lock are up. So the
+service needs no job of its own to delete expired versions.
 
 ### What the service watches
 
@@ -205,7 +215,8 @@ to offer an opt-in recovery copy held by Uncloud is undecided.
   8.5 hours, and a host can upload past the quota in the meantime, so the service leaves headroom.
 - **Read-only** refuses new writes with `AccessDenied` (403) and still serves reads, so a
   household over quota, or whose payment has failed, can still restore. That makes read-only, not
-  disabling the account, the first response to both.
+  disabling the account, the first response to both. In the spike an account over its quota stayed
+  that way for the three days it was watched, refusing every write and serving every read.
 - **Cancelling** ends with `disable_user` then `remove_user`, which removes the account and its
   data at once: 9.3 to 16.5 seconds in the spike, locked data included. Because it ignores object
   lock, it is the one thing that can destroy a backup, and it's the reseller token that can do it.
@@ -216,8 +227,10 @@ to offer an opt-in recovery copy held by Uncloud is undecided.
 
 `/users` (`storage_used`), `usage_stats` (by day) and `bucket_stats` all agree with what the bucket
 holds once they catch up, which took up to 8.5 hours. Right after a backup they report nothing, and
-`bucket_stats` says a new bucket doesn't exist, as iDrive documents. `bucket_stats` counts old
-versions among its files. Whether `storage_used` counts their bytes is being measured.
+`bucket_stats` says a new bucket doesn't exist, as iDrive documents. Old versions count: an account
+holding 53.8 MB of current objects and 181 MB of old versions showed `storage_used` 234.8 MB, and
+53.8 MB once the expiry rule had removed them. `usage_stats`, by day, lags: it still showed 234.8 MB
+for the day they went.
 
 iDrive bills the reseller, not the household. The smallest reseller plan was 50 TB at $222.75 a
 month (or $2,227.50 a year, the first year half off), with use beyond it at $0.005 per GB a month.
@@ -310,14 +323,11 @@ Requests that need a checksum (lock settings, retention, versioning, lifecycle) 
 
 ## Still open
 
-- **Are old versions billed, and does the expiry rule run?** Measured on two kept test accounts
-  through 17 October. Together they decide the lock period and whether the service needs its own
-  job to delete expired versions.
 - **Versions whose lock has run out** can be destroyed by a host's key (above). Which way out, and
-  testing it on a kept account once the measurements are done.
+  testing it: a fresh spike run with a one-day lock, looked at again a day later.
 - **For iDrive:**
-  - Is `disable_delete_version` meant to do anything? Can a key be allowed delete markers but not
-    destroying versions?
+  - Can a key be allowed delete markers but not destroying versions? `disable_delete_version`
+    keeps a key off lifecycle rules, but not from destroying versions.
   - Should a key without `bypass_governance_retention` be able to move a governance lock when it
     asks to bypass it? It looks like a bug.
   - Can a key be denied changing the bucket's default lock, or pushing out a version's lock?
@@ -326,12 +336,16 @@ Requests that need a checksum (lock settings, retention, versioning, lifecycle) 
   - What does `is_managed: false` mean for users made with `create_user`?
   - Is there a limit on users per reseller account, or on request rates?
   - Is a plan's storage shared across its users?
+  - Which figure is billed, `storage_used` or `usage_stats`' daily `disk_used`, and do delete
+    markers count?
+  - Can we rely on `remove_user` removing compliance-locked data, as it did in the spike?
 - **Pricing**, and how long a cancelled household's data is kept before removal.
 - **An opt-in recovery copy held by Uncloud**, or none.
 
 ## Phases
 
-1. **Phase 0, the spike.** Done but for the measurements above.
+1. **Phase 0, the spike.** Done. Its last measurements (14 to 17 October) showed old versions
+   billed, the expiry rule removing them, and read-only holding.
 2. **Phase 1, a backup that runs.** On the host: restic carried, the engine above, a Backup panel
    in Settings. In the service: invites, setting up accounts, the nightly check, the rollback and
    delayed removal. Tested with a few households before anything is sold. Built so far: restic carried

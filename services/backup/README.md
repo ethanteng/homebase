@@ -40,8 +40,8 @@ nightly checks come next.
   making anything, so a setup cut short anywhere picks up without making anything twice. Then each
   host's key.
 - `lib/protection.mjs`: how every bucket is protected, applied and read back: versioning, a lock in
-  compliance mode, and the rule that expires old versions. The lock period is a placeholder until
-  it's decided.
+  compliance mode for 30 days, and the rule that expires old versions 30 days after they're
+  replaced.
 - `lib/idrive.mjs`, `lib/s3.mjs`: iDrive as the service uses it, and the S3 client the spike proved
   against it.
 - `lib/reseller.mjs`: the IDrive e2 reseller API client, from the spike (`tools/idrive-spike/`),
