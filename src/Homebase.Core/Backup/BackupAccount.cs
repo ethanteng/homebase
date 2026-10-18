@@ -198,7 +198,7 @@ public sealed class BackupAccount(
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly SemaphoreSlim _changing = new(1, 1);
-    // Let go when the host joins, so whatever is waiting to ask for its storage asks now.
+    // Let go when the host joins, or resumes backing up, so whatever is waiting on either goes on now.
     private readonly SemaphoreSlim _joined = new(0, 1);
 
     public bool Joined => Load() is not null;
@@ -368,6 +368,8 @@ public sealed class BackupAccount(
         {
             _changing.Release();
         }
+        // The nightly schedule picks up at once, not at its next look.
+        if (_joined.CurrentCount == 0) _joined.Release();
     }
 
     /// <summary>Forgets this host's place in Uncloud Backup, as if it had never joined.</summary>
@@ -411,7 +413,8 @@ public sealed class BackupAccount(
     }
 
     /// <summary>
-    /// Waits <paramref name="wait"/>, or less if the host joins meanwhile. Says whether it joined.
+    /// Waits <paramref name="wait"/>, or less if the host joins or resumes backing up meanwhile. Says
+    /// whether either happened.
     /// </summary>
     public Task<bool> NapAsync(TimeSpan wait, CancellationToken cancellationToken) =>
         _joined.WaitAsync(wait, cancellationToken);
