@@ -142,7 +142,7 @@ test("a host is known by its credential until it's revoked, and each time is not
 
     const host = await authenticateHost(db, asking("/api/host", { token: joined.credential }), later);
 
-    assert.deepEqual(host, { id: joined.host.id, household: joined.household.id, name: "host" });
+    assert.deepEqual(host, { id: joined.host.id, household: joined.household.id, name: "host", provisional: false });
     const { rows: [seen] } = await db.query("select last_seen_at from hosts");
     assert.equal(new Date(seen.last_seen_at).toISOString(), later.toISOString());
     assert.equal(await authenticateHost(db, asking("/api/host", { token: "somebody-elses" }), later), null);

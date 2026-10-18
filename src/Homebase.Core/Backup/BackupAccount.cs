@@ -61,8 +61,9 @@ public sealed class BackupServiceClient(HttpClient http, Uri service)
     }
 
     /// <summary>
-    /// Takes a lost host's place with its household's recovery token: the household's other hosts
-    /// are revoked, and this one gets a credential of its own.
+    /// The first of recovery's two steps: with the household's recovery token, this host is let in
+    /// provisionally, with a credential of its own, to try the kit's password. Nothing about the
+    /// household's other hosts changes until it confirms.
     /// </summary>
     public async Task<BackupRegistration> RecoverAsync(string recovery, string name, CancellationToken cancellationToken)
     {
@@ -70,6 +71,28 @@ public sealed class BackupServiceClient(HttpClient http, Uri service)
         if (response.StatusCode != HttpStatusCode.Created)
             throw await RefusalAsync(response, "open the household's backup", cancellationToken);
         return Registration(await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken));
+    }
+
+    /// <summary>
+    /// The second step, the kit's password having opened the backup: this host takes the lost
+    /// one's place, and the household's other hosts are revoked, their keys removed.
+    /// </summary>
+    public async Task ConfirmRecoveryAsync(string credential, CancellationToken cancellationToken)
+    {
+        using var response = await SendAsync("api/host/recovery/confirm", credential, new { }, cancellationToken);
+        if (response.StatusCode != HttpStatusCode.OK)
+            throw await RefusalAsync(response, "take the lost Uncloud’s place", cancellationToken);
+    }
+
+    /// <summary>
+    /// Instead of the second step, the kit's password not having opened the backup: only this host
+    /// is retired. The household's hosts are as they were.
+    /// </summary>
+    public async Task AbandonRecoveryAsync(string credential, CancellationToken cancellationToken)
+    {
+        using var response = await SendAsync("api/host/recovery/abandon", credential, new { }, cancellationToken);
+        if (response.StatusCode != HttpStatusCode.OK)
+            throw await RefusalAsync(response, "withdraw from the household", cancellationToken);
     }
 
     /// <summary>
@@ -300,9 +323,12 @@ public sealed class BackupAccount(
     }
 
     /// <summary>
-    /// Takes a lost host's place in its household with the household's recovery kit: the token
-    /// gets this host a credential, the lost one's revoked, and the kit's password is the one the
-    /// backup opens with. Backing up starts paused, so nothing this host has yet is added to the
+    /// Takes a lost host's place in its household with the household's recovery kit, in two steps,
+    /// so a mistyped password never costs the household the host it has. The token lets this host in
+    /// provisionally, with a credential of its own; then, once the kit's password has opened the
+    /// backup, it confirms, and only then are the household's other hosts revoked. If the password
+    /// doesn't open it, this host withdraws instead, and the others are as they were. Backing up
+    /// starts paused, so nothing this host has yet is added to the
     /// backup before what's needed from it has been got back. It counts as joined only once
     /// <paramref name="opens"/> has said the kit's password opens the backup, or that there's nothing
     /// backed up there yet to open. Anything short of that, whether storage that isn't handed over,
@@ -340,9 +366,17 @@ public sealed class BackupAccount(
                 if (await opens(cancellationToken) == false)
                     throw new LibraryException(
                         "That password doesn’t open this household’s backup. Check it against the recovery kit, then try again.", "invalid_recovery");
+                await service.ConfirmRecoveryAsync(registration.Credential, cancellationToken);
             }
             catch
             {
+                // Withdrawn, so the household's hosts stay as they were. If the service can't be
+                // reached to say so, it retires this one by itself within the hour.
+                try { await service.AbandonRecoveryAsync(registration.Credential, CancellationToken.None); }
+                catch (LibraryException error)
+                {
+                    logger.LogWarning("Couldn't withdraw from household {Household}: {Message}", registration.HouseholdId, error.Message);
+                }
                 ForgetHeld();
                 throw;
             }

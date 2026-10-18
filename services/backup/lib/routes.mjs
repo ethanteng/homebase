@@ -4,7 +4,7 @@
 import { authenticateHost } from "./hosts.mjs";
 import { body, carries, json, needDatabase, needIdrive, ServiceError } from "./http.mjs";
 import { createInvite, listInvites, redeemInvite } from "./invites.mjs";
-import { issueRecovery, recoverHost, removeRevokedKeys } from "./recovery.mjs";
+import { abandonRecovery, confirmRecovery, issueRecovery, recoverHost, removeRevokedKeys } from "./recovery.mjs";
 import { advanceSetup, BUDGET, describe, issueHostKey, timeForKey } from "./setup.mjs";
 
 function operatorOnly(request, env) {
@@ -36,6 +36,7 @@ export async function registerHostRoute(request, { db, now }) {
 }
 
 async function theHost(request, db, now) {
+  // Provisional hosts are hosts here too: they get storage, to try a kit's password on, and confirm or withdraw.
   const host = await authenticateHost(needDatabase(db), request, now);
   if (!host) throw new ServiceError(401, "not_a_host", "That isn't the credential of a host Uncloud Backup knows.");
   return host;
@@ -73,18 +74,39 @@ export async function hostStorageRoute(request, { db, idrive, now, until = Date.
  */
 export async function makeRecoveryRoute(request, { db, now }) {
   const host = await theHost(request, db, now);
+  // A new kit would retire the token this host is still part-way through using.
+  if (host.provisional) {
+    throw new ServiceError(409, "recovering", "Finish taking the lost host's place before making a new recovery kit.");
+  }
   return json(201, await issueRecovery(db, host, now));
 }
 
 /**
- * POST /api/hosts/recover { recovery, name }: a new host taking the place of a lost one, with the
- * household's recovery token. The household's other hosts are revoked, their keys removed, and the
- * new host gets a credential of its own, shown this once.
+ * POST /api/hosts/recover { recovery, name }: a new host, with the household's recovery token, let
+ * in provisionally to take a lost one's place (lib/recovery.mjs). It gets a credential of its own,
+ * shown this once, and nothing about the household's hosts changes until it confirms.
  */
 export async function recoverHostRoute(request, { db, idrive, now }) {
   const { recovery, name } = await body(request);
-  // Not without iDrive: the lost host's key has to be removed, and only iDrive can.
-  return json(201, await recoverHost(needDatabase(db), needIdrive(idrive), { token: recovery, name, now }));
+  // Not without iDrive: confirming will have to remove the lost host's key, and only iDrive can.
+  needIdrive(idrive);
+  return json(201, await recoverHost(needDatabase(db), { token: recovery, name, now }));
+}
+
+/**
+ * POST /api/host/recovery/confirm: a provisional host, the kit's password having opened the
+ * backup, taking the lost host's place. The household's other hosts are revoked and their keys
+ * removed.
+ */
+export async function confirmRecoveryRoute(request, { db, idrive, now }) {
+  const host = await theHost(request, db, now);
+  return json(200, await confirmRecovery(db, needIdrive(idrive), host, now));
+}
+
+/** POST /api/host/recovery/abandon: a provisional host withdrawing. Only it is retired. */
+export async function abandonRecoveryRoute(request, { db, idrive, now }) {
+  const host = await theHost(request, db, now);
+  return json(200, await abandonRecovery(db, needIdrive(idrive), host, now));
 }
 
 /** GET /api/operator/households: every household, how far its setup has got, and why it's stuck if it is. */

@@ -207,11 +207,17 @@ only the token's hash. The kit is shown once, with a button to download it as a 
 Settings says when the kit in use was made, or that there isn't one yet; a host that joined
 before kits existed makes one there.
 
-On a new computer, "Use a recovery kit" in Settings takes the token and the password. The service
-revokes the household's other hosts and removes their e2 keys, so a stolen computer's key stops
-reaching the bucket, and gives the new host a credential of its own. The new host then checks
-that the kit's password opens the backup, and if it doesn't, forgets it joined so the kit can be
-typed in again; the token goes on working until a new kit replaces it. Backing up starts
+On a new computer, "Use a recovery kit" in Settings takes the token and the password, and
+recovery is two steps, so a mistyped password never costs the household the host it has. The
+token lets the new computer in **provisionally**, with a credential of its own, and the
+household's storage to try the password on; nothing about the household's hosts changes yet.
+Once the password opens the backup, the new host confirms, and only then does the service revoke
+the household's other hosts and remove their e2 keys, so a stolen computer's key stops reaching
+the bucket; a key iDrive couldn't remove at once is tried again until it's gone. If the password
+doesn't open it, the new host withdraws, which retires only itself, and forgets it joined so the
+kit can be typed in again; the token goes on working until a new kit replaces it. A provisional
+host that neither confirms nor withdraws stops working after an hour, and the night retires it
+and its key. Backing up starts
 **paused**, so nothing on the new computer is added to the backup before what's needed from it
 has been got back, and Settings has a button to resume. In the beta the kit alone is enough; once
 there are Uncloud accounts, rebuilding a host will also need the account's sign-in.

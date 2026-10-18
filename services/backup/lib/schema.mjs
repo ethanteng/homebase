@@ -79,8 +79,13 @@ export const migrations = [
 
       -- When a revoked host's e2 key was removed. Until then it might still reach the bucket, so
       -- removing it is tried again until it's done (recovery.mjs, removeRevokedKeys).
+      --
+      -- A host that has used the recovery token but not yet shown it has the kit's password is
+      -- provisional until then: it may get storage to try the password on, and nothing else. If it
+      -- neither confirms nor withdraws by this time, it's retired, as if it had withdrawn.
       alter table hosts
-        add column key_removed_at timestamptz;
+        add column key_removed_at timestamptz,
+        add column provisional_until timestamptz;
     `,
   },
 ];

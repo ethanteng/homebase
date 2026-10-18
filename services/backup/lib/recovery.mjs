@@ -38,38 +38,34 @@ export async function issueRecovery(db, host, now = new Date()) {
   return { recovery: token, madeAt: now.toISOString() };
 }
 
+/** How long a host that used the recovery token has to show it has the kit's password. */
+export const PROVISIONAL_SECONDS = 3600;
+
 /**
- * A new host taking the place of the household's others, with the household's recovery token: the
- * others are revoked, and the new host gets a credential of its own, in what this returns and
- * nowhere else. The token goes on working until a new kit replaces it, so a recovery that goes
- * wrong partway can be tried again with the same kit.
- *
- * The revoked hosts' e2 keys are removed too, once the rest is done: a stolen computer's key would
- * otherwise go on reaching the bucket. Each is marked once it's gone, and any that iDrive couldn't
- * be reached for is tried again until it is (removeRevokedKeys), so the new host can carry on.
+ * Recovery is two steps, so a mistyped password never costs the household the host it has. First,
+ * a new host uses the household's recovery token and is let in provisionally: it gets a credential
+ * of its own, shown this once, and with it the household's storage, to try the kit's password on.
+ * Nothing else changes yet. Then it confirms (confirmRecovery), which retires the household's
+ * other hosts, or withdraws (abandonRecovery), which retires only itself. One that does neither
+ * within PROVISIONAL_SECONDS stops working, and the night retires it. The token goes on working
+ * until a new kit replaces it, so a recovery can always be tried again.
  */
-export async function recoverHost(db, idrive, { token, name, now = new Date() }) {
+export async function recoverHost(db, { token, name, now = new Date() }) {
   const bare = normaliseRecovery(token);
   if (!bare) throw new ServiceError(403, "recovery_invalid", INVALID);
   const hostName = typeof name === "string" && name.trim() ? name.trim() : "Uncloud host";
   if (hostName.length > 100) throw new ServiceError(400, "bad_request", "A host's name is up to 100 characters.");
 
-  const { household, host, credential } = await db.transaction(async (tx) => {
-    const { rows: [found] } = await tx.query(
-      "select * from households where recovery_hash = $1 for update", [hashToken(bare)]);
-    if (!found) throw new ServiceError(403, "recovery_invalid", INVALID);
-    await tx.query("update hosts set revoked_at = $2 where household_id = $1 and revoked_at is null", [found.id, now]);
-    const made = randomBytes(32).toString("base64url");
-    const { rows: [added] } = await tx.query(
-      "insert into hosts (household_id, name, credential_hash, created_at) values ($1, $2, $3, $4) returning id",
-      [found.id, hostName, hashCredential(made), now]);
-    return { household: found, host: { id: added.id, name: hostName }, credential: made };
-  });
-
-  await removeRevokedKeys(db, idrive, { household: household.id, now });
+  const { rows: [household] } = await db.query("select * from households where recovery_hash = $1", [hashToken(bare)]);
+  if (!household) throw new ServiceError(403, "recovery_invalid", INVALID);
+  const credential = randomBytes(32).toString("base64url");
+  const { rows: [added] } = await db.query(
+    `insert into hosts (household_id, name, credential_hash, created_at, provisional_until)
+     values ($1, $2, $3, $4, $5) returning id`,
+    [household.id, hostName, hashCredential(credential), now, new Date(now.getTime() + PROVISIONAL_SECONDS * 1000)]);
   return {
     household: { id: household.id },
-    host,
+    host: { id: added.id, name: hostName },
     credential,
     // Still the kit in use: the token typed in goes on working until a new kit replaces it.
     recoveryMadeAt: household.recovery_made_at ? new Date(household.recovery_made_at).toISOString() : null,
@@ -77,9 +73,48 @@ export async function recoverHost(db, idrive, { token, name, now = new Date() })
 }
 
 /**
+ * A provisional host that has shown it has the kit's password taking the lost host's place: the
+ * household's other hosts are revoked and their e2 keys removed, and it's a host like any other.
+ */
+export async function confirmRecovery(db, idrive, host, now = new Date()) {
+  if (!host.provisional) throw new ServiceError(409, "not_recovering", "This host isn't taking another's place.");
+  const revoked = await db.transaction(async (tx) => {
+    const { rows: [held] } = await tx.query(
+      "select id from hosts where id = $1 and revoked_at is null and provisional_until > $2 for update", [host.id, now]);
+    if (!held) throw new ServiceError(401, "not_a_host", "That isn't the credential of a host Uncloud Backup knows.");
+    const { rows } = await tx.query(
+      "update hosts set revoked_at = $3 where household_id = $1 and id <> $2 and revoked_at is null returning id",
+      [host.household, host.id, now]);
+    await tx.query("update hosts set provisional_until = null where id = $1", [host.id]);
+    return rows.length;
+  });
+  await removeRevokedKeys(db, idrive, { household: host.household, now });
+  return { revoked };
+}
+
+/**
+ * A provisional host withdrawing, its password not having opened the backup: only it is retired,
+ * and its key removed. The household's hosts are as they were.
+ */
+export async function abandonRecovery(db, idrive, host, now = new Date()) {
+  if (!host.provisional) throw new ServiceError(409, "not_recovering", "This host isn't taking another's place.");
+  await db.query("update hosts set revoked_at = $2 where id = $1 and revoked_at is null", [host.id, now]);
+  await removeRevokedKeys(db, idrive, { household: host.household, now });
+  return { withdrawn: true };
+}
+
+/** Retires every provisional host whose time to confirm has run out, and removes its key. */
+export async function retireLapsedRecoveries(db, now = new Date()) {
+  const { rows } = await db.query(
+    "update hosts set revoked_at = $1 where provisional_until <= $1 and revoked_at is null returning id", [now]);
+  return rows.length;
+}
+
+/**
  * Removes the e2 key of every revoked host whose key may still be there, of one household or of all,
  * marking each once it's gone. One iDrive won't answer for now is left for next time: this runs
- * after each recovery, whenever the household's host asks for its storage, and every night.
+ * after a recovery is confirmed or withdrawn, whenever the household's host asks for its storage,
+ * and every night.
  */
 export async function removeRevokedKeys(db, idrive, { household = null, now = new Date() } = {}) {
   const { rows } = await db.query(

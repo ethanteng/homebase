@@ -275,6 +275,8 @@ public sealed class BackupAccountTests : IDisposable
         Assert.True(status.Paused);
         Assert.Equal("ready", status.Storage);
         Assert.Equal(DateTimeOffset.Parse("2026-10-01T09:00:00Z"), status.RecoveryKitMadeAt);
+        // Confirmed only once the password had opened the backup.
+        Assert.Equal((1, 0), (service.Confirmed, service.Abandoned));
         Assert.Equal(password, account.Target?.Password);
         Assert.Equal($"Bearer {service.Credential}", service.Requests[^1].Authorization);
         Assert.DoesNotContain(password, Kept());
@@ -304,6 +306,8 @@ public sealed class BackupAccountTests : IDisposable
         Assert.Equal("invalid_recovery", unknown.Code);
         Assert.Equal(FakeBackupService.InvalidRecovery, unknown.Message);
         Assert.False(account.Joined);
+        // The wrong password withdrew this host, so the household's hosts are as they were.
+        Assert.Equal((0, 1), (service.Confirmed, service.Abandoned));
         // The same kit, with the right password, still works.
         Assert.True((await account.RecoverAsync(service.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None)).Joined);
     }
@@ -318,6 +322,7 @@ public sealed class BackupAccountTests : IDisposable
             account.RecoverAsync(waiting.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None));
         Assert.Equal("unavailable", unavailable.Code);
         Assert.False(account.Joined);
+        Assert.Equal((0, 1), (waiting.Confirmed, waiting.Abandoned));
 
         // Storage here, but the check itself fails.
         var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF" };
@@ -326,6 +331,24 @@ public sealed class BackupAccountTests : IDisposable
             _ => throw new LibraryException("Uncloud couldn’t open the backup. Try again in a minute.", "unavailable"), CancellationToken.None));
         Assert.False(other.Joined);
         Assert.Null(other.Target);
+        Assert.Equal((0, 1), (service.Confirmed, service.Abandoned));
+    }
+
+    [Fact]
+    public async Task A_recovery_that_cant_confirm_withdraws_and_leaves_the_host_as_it_was()
+    {
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF", ConfirmFails = true };
+        var account = Account(service);
+
+        var failed = await Assert.ThrowsAsync<LibraryException>(() =>
+            account.RecoverAsync(service.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None));
+
+        Assert.Equal("unavailable", failed.Code);
+        Assert.False(account.Joined);
+        Assert.Equal((0, 1), (service.Confirmed, service.Abandoned));
+        service.ConfirmFails = false;
+        Assert.True((await account.RecoverAsync(service.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None)).Joined);
+        Assert.Equal(1, service.Confirmed);
     }
 
     [Fact]
@@ -450,6 +473,11 @@ internal sealed class FakeBackupService : HttpMessageHandler
     /// <summary>The household's recovery token, once one has been made, or set to stand for a kit from before.</summary>
     public string? Recovery { get; set; }
     public bool RecoveryFails { get; set; }
+    /// <summary>A host let in with the token that hasn't yet confirmed or withdrawn.</summary>
+    public string? Provisional { get; private set; }
+    public bool ConfirmFails { get; set; }
+    public int Confirmed { get; private set; }
+    public int Abandoned { get; private set; }
     public TimeSpan RetryAfter { get; set; } = TimeSpan.Zero;
     public bool Unreachable { get; set; }
     public string? Credential { get; private set; }
@@ -478,15 +506,26 @@ internal sealed class FakeBackupService : HttpMessageHandler
             case "/api/hosts":
                 return Answer(HttpStatusCode.Forbidden, new { error = new { code = "invite_invalid", message = InvalidInvite } });
             case "/api/hosts/recover" when Recovery is not null && body.GetProperty("recovery").GetString() == Recovery:
-                // The household's hosts before are revoked: only this credential works now.
-                Credential = "credential-" + Guid.NewGuid().ToString("N");
+                // Let in provisionally: the household's host before goes on working until this confirms.
+                Provisional = "credential-" + Guid.NewGuid().ToString("N");
                 return Answer(HttpStatusCode.Created, new
                 {
                     household = new { id = "household-1" },
                     host = new { id = "host-2", name = body.GetProperty("name").GetString() },
-                    credential = Credential,
+                    credential = Provisional,
                     recoveryMadeAt = "2026-10-01T09:00:00Z"
                 });
+            case "/api/host/recovery/confirm" when ConfirmFails:
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            case "/api/host/recovery/confirm" when Provisional is not null && request.Headers.Authorization?.Parameter == Provisional:
+                Credential = Provisional;
+                Provisional = null;
+                Confirmed++;
+                return Answer(HttpStatusCode.OK, new { revoked = 1 });
+            case "/api/host/recovery/abandon" when Provisional is not null && request.Headers.Authorization?.Parameter == Provisional:
+                Provisional = null;
+                Abandoned++;
+                return Answer(HttpStatusCode.OK, new { withdrawn = true });
             case "/api/hosts/recover":
                 return Answer(HttpStatusCode.Forbidden, new { error = new { code = "recovery_invalid", message = InvalidRecovery } });
             case "/api/host/recovery" when RecoveryFails:
@@ -494,7 +533,8 @@ internal sealed class FakeBackupService : HttpMessageHandler
             case "/api/host/recovery" when Credential is not null && request.Headers.Authorization?.Parameter == Credential:
                 Recovery = "RCVRY-" + string.Join("-", Enumerable.Range(0, 5).Select(_ => Guid.NewGuid().ToString("N")[..5].ToUpperInvariant()));
                 return Answer(HttpStatusCode.Created, new { recovery = Recovery, madeAt = "2026-10-18T12:00:00Z" });
-            case "/api/host/storage" when request.Headers.Authorization?.Parameter != Credential || Credential is null:
+            case "/api/host/storage" when (request.Headers.Authorization?.Parameter != Credential || Credential is null)
+                                          && (request.Headers.Authorization?.Parameter != Provisional || Provisional is null):
                 return Answer(HttpStatusCode.Unauthorized, new { error = new { code = "not_a_host", message = "That isn't the credential of a host Uncloud Backup knows." } });
             case "/api/host/storage" when Pending > 0:
                 Pending--;
