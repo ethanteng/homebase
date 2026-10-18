@@ -75,6 +75,11 @@ export async function recoverHost(db, { token, name, now = new Date() }) {
     const { rows: [household] } = await tx.query(
       "select * from households where recovery_hash = $1 for update", [hashToken(bare)]);
     if (!household) throw new ServiceError(403, "recovery_invalid", INVALID);
+    // One recovery under way at a time: a new one retires any earlier that hasn't finished, so a
+    // token can't open more than one provisional host, nor have more than one given a key.
+    await tx.query(
+      "update hosts set revoked_at = $2 where household_id = $1 and provisional_until is not null and revoked_at is null",
+      [household.id, now]);
     const credential = randomBytes(32).toString("base64url");
     const { rows: [added] } = await tx.query(
       `insert into hosts (household_id, name, credential_hash, created_at, provisional_until)

@@ -218,7 +218,8 @@ doesn't open it, the new host withdraws, which retires only itself, and forgets 
 kit can be typed in again; the token goes on working until a new kit replaces it, which also
 retires a recovery still under way with the old one. A provisional
 host that neither confirms nor withdraws stops working after an hour, and the night retires it
-and its key. Backing up starts
+and its key. Only one recovery is under way at a time: a new one, or a new kit, retires any earlier
+provisional host and its key. Backing up starts
 **paused**, so nothing on the new computer is added to the backup before what's needed from it
 has been got back, and Settings has a button to resume. In the beta the kit alone is enough; once
 there are Uncloud accounts, rebuilding a host will also need the account's sign-in.

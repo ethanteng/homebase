@@ -190,15 +190,20 @@ test("withdrawing after a confirm has landed does not retire the host that took 
   });
 });
 
-test("confirming retires every other host, an earlier provisional one included", async () => {
-  await withHousehold(async ({ db, joined, deps }) => {
+test("one recovery is under way at a time: a new one retires an earlier one and its key", async () => {
+  await withHousehold(async ({ db, idrive, joined, deps }) => {
     const recovery = await tokenOf(joined, deps);
     const first = await recover(recovery, deps);
-    const second = await recover(recovery, deps);
+    await storageFor(first.credential, { ...deps, now: later(90) });
+    assert.deepEqual(hostKeys(idrive, joined).sort(), [`host-${first.host.id}`, `host-${joined.host.id}`].sort());
 
-    assert.deepEqual(await (await confirm(second.credential, { ...deps, now: later(120) })).json(), { revoked: 2 });
+    const second = await recover(recovery, { ...deps, now: later(100) });
 
-    assert.equal(await isHost(db, first.credential, later(121)), false);
+    assert.equal(await isHost(db, first.credential, later(101)), false, "the earlier recovery is retired");
+    assert.deepEqual(hostKeys(idrive, joined), [`host-${joined.host.id}`], "and its key with it");
+    assert.ok(await isHost(db, joined.credential, later(101)), "the household's host is untouched");
+    assert.deepEqual(await (await confirm(second.credential, { ...deps, now: later(120) })).json(), { revoked: 1 });
+
     assert.equal(await isHost(db, joined.credential, later(121)), false);
     const { rows } = await db.query("select count(*)::int as live from hosts where revoked_at is null");
     assert.equal(rows[0].live, 1);

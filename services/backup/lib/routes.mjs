@@ -92,8 +92,11 @@ export async function makeRecoveryRoute(request, { db, idrive, now }) {
 export async function recoverHostRoute(request, { db, idrive, now }) {
   const { recovery, name } = await body(request);
   // Not without iDrive: confirming will have to remove the lost host's key, and only iDrive can.
-  needIdrive(idrive);
-  return json(201, await recoverHost(needDatabase(db), { token: recovery, name, now }));
+  const reach = needIdrive(idrive);
+  const recovered = await recoverHost(needDatabase(db), { token: recovery, name, now });
+  // An earlier recovery this one retired may have been given a key.
+  await removeRevokedKeys(db, reach, { household: recovered.household.id, now });
+  return json(201, recovered);
 }
 
 /**
