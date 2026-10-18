@@ -58,11 +58,12 @@ export const PROVISIONAL_SECONDS = 3600;
  * Recovery is two steps, so a mistyped password never costs the household the host it has. First,
  * a new host uses the household's recovery token and is let in provisionally: it gets a credential
  * of its own, shown this once, and with it the household's storage, to try the kit's password on.
- * Nothing else changes yet. Then it confirms (confirmRecovery), which retires the household's
- * other hosts, or withdraws (abandonRecovery), which retires only itself. One that does neither
- * within PROVISIONAL_SECONDS stops working, and the night retires it. The token goes on working
- * until a new kit replaces it, which retires a recovery already under way, so a recovery can always
- * be tried again with the kit that's current.
+ * The household's other hosts stay until it confirms (confirmRecovery), which retires them, or
+ * withdraws (abandonRecovery), which retires only itself. A recovery already under way is the
+ * exception: a new one retires that provisional host, so only one is open, and its key is removed.
+ * One that neither confirms nor withdraws within PROVISIONAL_SECONDS stops working, and the night
+ * retires it. The token goes on working until a new kit replaces it, which also retires a recovery
+ * already under way, so a recovery can always be tried again with the kit that's current.
  */
 export async function recoverHost(db, { token, name, now = new Date() }) {
   const bare = normaliseRecovery(token);

@@ -1,7 +1,8 @@
 // A household's recovery token, against a real Postgres (PGlite) and a pretend iDrive: kept only as
 // a hash, replaced by each new kit, and taken in place of a lost host's credential in two steps. A
-// new host is let in provisionally, to try the kit's password; only once it confirms are the
+// new host is let in provisionally, to try the kit's password. Only once it confirms are the
 // household's other hosts and their keys retired, and if it withdraws, nothing else changes.
+// An earlier recovery still under way is the exception: a new one retires that host and its key.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

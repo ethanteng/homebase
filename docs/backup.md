@@ -210,7 +210,7 @@ before kits existed makes one there.
 On a new computer, "Use a recovery kit" in Settings takes the token and the password, and
 recovery is two steps, so a mistyped password never costs the household the host it has. The
 token lets the new computer in **provisionally**, with a credential of its own, and the
-household's storage to try the password on; nothing about the household's hosts changes yet.
+household's storage to try the password on; the household's other computers stay until it confirms.
 Once the password opens the backup, the new host confirms, and only then does the service revoke
 the household's other hosts and remove their e2 keys, so a stolen computer's key stops reaching
 the bucket; a key iDrive couldn't remove at once is tried again until it's gone. If the password

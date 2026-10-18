@@ -62,8 +62,8 @@ public sealed class BackupServiceClient(HttpClient http, Uri service)
 
     /// <summary>
     /// The first of recovery's two steps: with the household's recovery token, this host is let in
-    /// provisionally, with a credential of its own, to try the kit's password. Nothing about the
-    /// household's other hosts changes until it confirms.
+    /// provisionally, with a credential of its own, to try the kit's password. The household's
+    /// other hosts stay until it confirms. A recovery already under way is retired by this one.
     /// </summary>
     public async Task<BackupRegistration> RecoverAsync(string recovery, string name, CancellationToken cancellationToken)
     {

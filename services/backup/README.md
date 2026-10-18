@@ -29,9 +29,10 @@ nightly checks come next.
 - `api/host/recovery.js`: `POST` with a host's credential makes its household a new recovery token,
   for its recovery kit, shown this once. Only its hash is kept, and it replaces any before it.
 - `api/hosts/recover.js`: the first of recovery's two steps. `POST { "recovery": "…", "name":
-  "New Mac" }` lets a new host in provisionally, with a credential of its own shown this once, and
-  changes nothing about the household's hosts. A provisional host may get its storage, to try the
-  kit's password on, and stops working after an hour unless it confirms.
+  "New Mac" }` lets a new host in provisionally, with a credential of its own shown this once.
+  The household's other hosts stay until it confirms. A recovery already under way is retired by
+  this one, and its key with it, so only one is open. A provisional host may get its storage, to
+  try the kit's password on, and stops working after an hour unless it confirms.
 - `api/host/recovery/confirm.js`, `api/host/recovery/abandon.js`: the second step. Confirming, once
   the password has opened the backup, revokes the household's other hosts and removes their e2 keys;
   withdrawing retires only the provisional host. The token goes on working until a new kit replaces

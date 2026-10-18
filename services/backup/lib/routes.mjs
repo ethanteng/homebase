@@ -87,7 +87,8 @@ export async function makeRecoveryRoute(request, { db, idrive, now }) {
 /**
  * POST /api/hosts/recover { recovery, name }: a new host, with the household's recovery token, let
  * in provisionally to take a lost one's place (lib/recovery.mjs). It gets a credential of its own,
- * shown this once, and nothing about the household's hosts changes until it confirms.
+ * shown this once. The household's hosts stay until it confirms, apart from an earlier recovery
+ * still under way, which this retires, and whose key is removed.
  */
 export async function recoverHostRoute(request, { db, idrive, now }) {
   const { recovery, name } = await body(request);
