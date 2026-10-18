@@ -80,8 +80,11 @@ public sealed class BackupServiceClient(HttpClient http, Uri service)
     public async Task ConfirmRecoveryAsync(string credential, CancellationToken cancellationToken)
     {
         using var response = await SendAsync("api/host/recovery/confirm", credential, new { }, cancellationToken);
-        if (response.StatusCode != HttpStatusCode.OK)
-            throw await RefusalAsync(response, "take the lost Uncloud’s place", cancellationToken);
+        if (response.StatusCode == HttpStatusCode.OK) return;
+        var failure = await RefusalAsync(response, "take the lost Uncloud’s place", cancellationToken);
+        // A repeat, after the first answer was lost: this host is already the household's host.
+        if (failure.Code == "not_recovering") return;
+        throw failure;
     }
 
     /// <summary>
@@ -162,6 +165,8 @@ public sealed class BackupServiceClient(HttpClient http, Uri service)
             "recovery_invalid" => new LibraryException(message ?? "Uncloud Backup didn’t take that recovery token.", "invalid_recovery"),
             "not_a_host" => new LibraryException(
                 "Uncloud Backup no longer knows this Uncloud. Ask for a new invite to join again.", "conflict"),
+            "not_recovering" => new LibraryException(
+                message ?? "This Uncloud isn’t taking another’s place.", "not_recovering"),
             _ => new LibraryException(
                 $"Uncloud couldn’t {doing}: {message ?? $"Uncloud Backup answered {(int)response.StatusCode}."}", "unavailable")
         };
@@ -355,6 +360,7 @@ public sealed class BackupAccount(
                 _time.GetUtcNow(), Seal(registration.Credential, CredentialContext), Seal(password.Trim(), PasswordContext),
                 null, "setting_up", null, RecoveryMadeAt: registration.RecoveryMadeAt, Paused: true));
             logger.LogInformation("Took a lost host's place in household {Household} as host {Host}", registration.HouseholdId, registration.HostId);
+            var accepted = false;
             try
             {
                 // The household is set up already, so its storage is usually there at once.
@@ -367,18 +373,33 @@ public sealed class BackupAccount(
                     throw new LibraryException(
                         "That password doesn’t open this household’s backup. Check it against the recovery kit, then try again.", "invalid_recovery");
                 await service.ConfirmRecoveryAsync(registration.Credential, cancellationToken);
+                accepted = true;
             }
-            catch
+            catch (Exception error)
             {
-                // Withdrawn, so the household's hosts stay as they were. If the service can't be
-                // reached to say so, it retires this one by itself within the hour.
-                try { await service.AbandonRecoveryAsync(registration.Credential, CancellationToken.None); }
-                catch (LibraryException error)
+                if (!accepted)
                 {
-                    logger.LogWarning("Couldn't withdraw from household {Household}: {Message}", registration.HouseholdId, error.Message);
+                    // Withdrawn, so the household's hosts stay as they were. If the service can't be
+                    // reached to say so, it retires this one by itself within the hour. not_recovering
+                    // means the confirm landed and its answer was lost: this host is the household's
+                    // host, and forgetting it would throw away the only credential left.
+                    try { await service.AbandonRecoveryAsync(registration.Credential, CancellationToken.None); }
+                    catch (LibraryException withdraw) when (withdraw.Code == "not_recovering")
+                    {
+                        accepted = true;
+                    }
+                    catch (LibraryException withdraw)
+                    {
+                        logger.LogWarning("Couldn't withdraw from household {Household}: {Message}", registration.HouseholdId, withdraw.Message);
+                    }
                 }
-                ForgetHeld();
-                throw;
+                if (!accepted)
+                {
+                    ForgetHeld();
+                    throw;
+                }
+                logger.LogWarning("Recovery confirm for household {Household} landed, but its answer didn't: {Message}",
+                    registration.HouseholdId, error.Message);
             }
             // Only now is this host joined, so whatever is waiting to ask for its storage asks now.
             if (_joined.CurrentCount == 0) _joined.Release();

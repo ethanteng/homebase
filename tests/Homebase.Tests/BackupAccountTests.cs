@@ -352,6 +352,20 @@ public sealed class BackupAccountTests : IDisposable
     }
 
     [Fact]
+    public async Task A_confirm_whose_answer_is_lost_still_leaves_the_host_joined()
+    {
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF", ConfirmDrops = true };
+        var account = Account(service);
+
+        var status = await account.RecoverAsync(service.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None);
+
+        Assert.True(status.Joined);
+        Assert.True(status.Paused);
+        Assert.Equal(1, service.Confirmed);
+        Assert.Equal(0, service.Abandoned);
+    }
+
+    [Fact]
     public async Task An_account_saved_before_kits_still_opens()
     {
         var service = new FakeBackupService();
@@ -476,6 +490,8 @@ internal sealed class FakeBackupService : HttpMessageHandler
     /// <summary>A host let in with the token that hasn't yet confirmed or withdrawn.</summary>
     public string? Provisional { get; private set; }
     public bool ConfirmFails { get; set; }
+    /// <summary>The service confirmed, and the answer never arrived.</summary>
+    public bool ConfirmDrops { get; set; }
     public int Confirmed { get; private set; }
     public int Abandoned { get; private set; }
     public TimeSpan RetryAfter { get; set; } = TimeSpan.Zero;
@@ -517,15 +533,24 @@ internal sealed class FakeBackupService : HttpMessageHandler
                 });
             case "/api/host/recovery/confirm" when ConfirmFails:
                 return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            case "/api/host/recovery/confirm" when ConfirmDrops && Provisional is not null && request.Headers.Authorization?.Parameter == Provisional:
+                Credential = Provisional;
+                Provisional = null;
+                Confirmed++;
+                throw new HttpRequestException("The connection was closed.");
             case "/api/host/recovery/confirm" when Provisional is not null && request.Headers.Authorization?.Parameter == Provisional:
                 Credential = Provisional;
                 Provisional = null;
                 Confirmed++;
                 return Answer(HttpStatusCode.OK, new { revoked = 1 });
+            case "/api/host/recovery/confirm" when Credential is not null && request.Headers.Authorization?.Parameter == Credential:
+                return Answer(HttpStatusCode.Conflict, new { error = new { code = "not_recovering", message = "This host isn't taking another's place." } });
             case "/api/host/recovery/abandon" when Provisional is not null && request.Headers.Authorization?.Parameter == Provisional:
                 Provisional = null;
                 Abandoned++;
                 return Answer(HttpStatusCode.OK, new { withdrawn = true });
+            case "/api/host/recovery/abandon" when Credential is not null && request.Headers.Authorization?.Parameter == Credential:
+                return Answer(HttpStatusCode.Conflict, new { error = new { code = "not_recovering", message = "This host isn't taking another's place." } });
             case "/api/hosts/recover":
                 return Answer(HttpStatusCode.Forbidden, new { error = new { code = "recovery_invalid", message = InvalidRecovery } });
             case "/api/host/recovery" when RecoveryFails:
