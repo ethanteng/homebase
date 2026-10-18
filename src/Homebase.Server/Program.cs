@@ -790,7 +790,14 @@ app.MapPost("/api/backups/{id}/restore", async (string id, RestoreFromBackup req
     }
     finally
     {
-        LibraryService.ForgetRestoreFolder(arriving);
+        // Best effort. Once the restore has finished, a failure here must not replace that
+        // success: the person would try again and get a second copy. If the restore failed,
+        // this still leaves that failure as the answer.
+        try { LibraryService.ForgetRestoreFolder(arriving); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or LibraryException)
+        {
+            app.Logger.LogWarning(error, "Couldn’t remove the folder a restore arrived in");
+        }
         usage.Invalidate(workspace.Root);
     }
 });
