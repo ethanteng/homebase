@@ -13,22 +13,19 @@ public sealed class SecretProtector
 {
     private const int NonceSize = 12;
     private const int TagSize = 16;
-    private readonly byte[] _key;
+    private readonly byte[] _key = new byte[32];
+    private readonly string _file;
 
     public SecretProtector(string directory)
     {
-        var file = Path.Combine(directory, "host.key");
+        _file = Path.Combine(directory, "host.key");
         Directory.CreateDirectory(directory);
-        if (File.Exists(file))
+        if (File.Exists(_file))
         {
-            _key = File.ReadAllBytes(file);
-            if (_key.Length != 32)
-                throw new LibraryException(
-                    "Uncloud's host key is damaged. Restore it, or disconnect and reconnect each provider account.",
-                    "host_key");
+            ReadKey();
             return;
         }
-        _key = RandomNumberGenerator.GetBytes(32);
+        RandomNumberGenerator.Fill(_key);
         var temporary = Path.Combine(directory, $"host.{Guid.NewGuid():N}.tmp");
         try
         {
@@ -37,16 +34,37 @@ public sealed class SecretProtector
                 File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             // Never overwrite: another process that got there first holds the key the stored
             // tokens were sealed under, and replacing it would silently orphan every connection.
-            File.Move(temporary, file);
+            File.Move(temporary, _file);
         }
-        catch (IOException) when (File.Exists(file))
+        catch (IOException) when (File.Exists(_file))
         {
-            _key = File.ReadAllBytes(file);
+            ReadKey();
         }
         finally
         {
             if (File.Exists(temporary)) File.Delete(temporary);
         }
+    }
+
+    /// <summary>
+    /// Reads host.key again into the key already held. A development build reads it while the app
+    /// is constructed, which is before a rebuild swaps the file; the same bytes are kept otherwise.
+    /// </summary>
+    public void Reread() => ReadKey();
+
+    private void ReadKey()
+    {
+        if (!File.Exists(_file))
+            throw new LibraryException(
+                "Uncloud's host key is missing. Restore it, or disconnect and reconnect each provider account.",
+                "host_key");
+        var read = File.ReadAllBytes(_file);
+        if (read.Length != 32)
+            throw new LibraryException(
+                "Uncloud's host key is damaged. Restore it, or disconnect and reconnect each provider account.",
+                "host_key");
+        if (read.AsSpan().SequenceEqual(_key)) return;
+        read.CopyTo(_key, 0);
     }
 
     public byte[] Seal(string plaintext, string context)

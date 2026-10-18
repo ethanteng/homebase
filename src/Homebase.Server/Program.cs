@@ -197,8 +197,10 @@ try
 {
     app = builder.Build();
     // A rebuild from the backup that's ready is put in place now, before anything opens the
-    // database and host.key it replaces (HostRebuild).
-    HostRebuild.ApplyPending(app.Configuration["Homebase:ConfigDirectory"] ?? defaultConfig, app.Logger);
+    // database and host.key it replaces (HostRebuild). Development reads the host key while the
+    // app is built, which is before that swap, so the key already held is read again afterwards.
+    if (HostRebuild.ApplyPending(app.Configuration["Homebase:ConfigDirectory"] ?? defaultConfig, app.Logger))
+        app.Services.GetRequiredService<SecretProtector>().Reread();
 }
 catch { StopTunnel(); throw; }
 // Run by the menu-bar app, which holds the other end of standard input and never writes to it.
