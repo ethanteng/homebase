@@ -26,6 +26,11 @@ nightly checks come next.
   shown this once. The host keeps it and sends it as a bearer token from then on.
 - `api/host.js`: `GET` with that credential says which host and household it is, so a host can tell
   its credential still works.
+- `api/host/recovery.js`: `POST` with a host's credential makes its household a new recovery token,
+  for its recovery kit, shown this once. Only its hash is kept, and it replaces any before it.
+- `api/hosts/recover.js`: a new host taking a lost one's place. `POST { "recovery": "…", "name":
+  "New Mac" }` revokes the household's other hosts, removes their e2 keys, and answers with the new
+  host's credential, shown this once. The token goes on working until a new kit replaces it.
 - `api/host/storage.js`: `POST` with that credential sets the household's storage up if it isn't
   yet, then answers with where the host backs up: the endpoint, the bucket, and a key of its own to
   that bucket alone, shown this once. Setting up takes up to a minute, over one request or a few:

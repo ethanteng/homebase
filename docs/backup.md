@@ -200,15 +200,26 @@ restic encrypts everything on the host, names included, before it leaves. iDrive
 only sizes and times. The password is kept on the host, sealed with `host.key` like connector
 tokens.
 
-A backup exists for the day the host is gone, so the password can't live only there. At setup the
-administrator gets a **recovery kit**: the password, and a recovery token the service accepts in
-place of the lost host's credential. With it, a new host gets a fresh key (the old one is revoked)
-and can open the backup. In the beta the kit alone is enough; once there are Uncloud accounts,
-rebuilding a host will also need the account's sign-in.
+A backup exists for the day the host is gone, so the password can't live only there. On joining,
+the administrator gets a **recovery kit**: the password, and a recovery token the service accepts
+in place of the lost host's credential, thirty characters in groups of five. The service keeps
+only the token's hash. The kit is shown once, with a button to download it as a text file, and
+Settings says when the kit in use was made, or that there isn't one yet; a host that joined
+before kits existed makes one there.
 
-While the host is alive it can issue a new kit and retire the old (`restic key add`, `key
-remove`), so a lost kit is a nuisance rather than a loss, as long as it's noticed in time. Whether
-to offer an opt-in recovery copy held by Uncloud is undecided.
+On a new computer, "Use a recovery kit" in Settings takes the token and the password. The service
+revokes the household's other hosts and removes their e2 keys, so a stolen computer's key stops
+reaching the bucket, and gives the new host a credential of its own. The new host then checks
+that the kit's password opens the backup, and if it doesn't, forgets it joined so the kit can be
+typed in again; the token goes on working until a new kit replaces it. Backing up starts
+**paused**, so nothing on the new computer is added to the backup before what's needed from it
+has been got back, and Settings has a button to resume. In the beta the kit alone is enough; once
+there are Uncloud accounts, rebuilding a host will also need the account's sign-in.
+
+While the host is alive it can make a new kit, which retires the old token. It keeps the same
+password for now, so a lost kit's password goes on opening the backup to anybody who can also
+reach the bucket; giving a new kit a new password too (`restic key add`, `key remove`) is still to
+do. Whether to offer an opt-in recovery copy held by Uncloud is undecided.
 
 ## Over quota, unpaid, and cancelled
 
@@ -391,9 +402,11 @@ this is what's not yet *done*.
 ### Phase 2, getting it back
 
 - [ ] **Restoring files from My files**, each person their own, under the Bin's rules.
-- [ ] **A recovery kit**: the backup's password and a recovery token the service takes in place of
+- [x] **A recovery kit**: the backup's password and a recovery token the service takes in place of
   a lost host's credential. Today the password is shown once, at joining, and there's no token.
   It should be possible to make a new kit any time the host is alive, retiring the old.
+- [ ] **A new password with a new kit** (`restic key add`, then `key remove`), so a lost kit's
+  password stops opening the backup too, not only its token.
 - [ ] **Rebuilding a host from its kit**: a new computer joins with the token, gets a key, and
   restores the control database, `host.key` and everybody's files.
 

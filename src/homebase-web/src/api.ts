@@ -155,11 +155,25 @@ export interface BackupAccount {
   storage: "ready" | "setting_up" | "failing" | null;
   step: string | null;
   bucket: string | null;
+  // When the household's recovery kit in use was made, or null if none has been.
+  recoveryKitMadeAt: string | null;
+  // A host that opened a lost one's backup doesn't add to it until it's resumed.
+  paused: boolean;
 }
 
-/// Joining's answer: the password the backup is encrypted with, the one time it's ever sent.
+/// What gets a household's backup back when its host is gone. Shown once each time one is made.
+export interface BackupKit {
+  password: string;
+  recovery: string;
+  household: string;
+  madeAt: string;
+}
+
+/// Joining's answer: the password the backup is encrypted with, the one time it's ever sent, in a
+/// kit with the recovery token if one could be made.
 export interface BackupJoined {
   password: string;
+  kit: BackupKit | null;
   account: BackupAccount;
 }
 

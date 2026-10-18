@@ -4,6 +4,7 @@
 import { authenticateHost } from "./hosts.mjs";
 import { body, carries, json, needDatabase, needIdrive, ServiceError } from "./http.mjs";
 import { createInvite, listInvites, redeemInvite } from "./invites.mjs";
+import { issueRecovery, recoverHost } from "./recovery.mjs";
 import { advanceSetup, BUDGET, describe, issueHostKey, timeForKey } from "./setup.mjs";
 
 function operatorOnly(request, env) {
@@ -62,6 +63,25 @@ export async function hostStorageRoute(request, { db, idrive, now, until = Date.
   // Ready, but this request has no time left for a key, or another is making this host's key now.
   const storage = timeForKey(until) ? await issueHostKey(db, idrive, household, host, { now }) : null;
   return storage ? json(201, { storage }) : askAgain({ state: "setting_up", step: "host key" });
+}
+
+/**
+ * POST /api/host/recovery: a new recovery token for this host's household, for its recovery kit,
+ * shown this once. Any token before it stops working.
+ */
+export async function makeRecoveryRoute(request, { db, now }) {
+  const host = await theHost(request, db, now);
+  return json(201, await issueRecovery(db, host, now));
+}
+
+/**
+ * POST /api/hosts/recover { recovery, name }: a new host taking the place of a lost one, with the
+ * household's recovery token. The household's other hosts are revoked, their keys removed, and the
+ * new host gets a credential of its own, shown this once.
+ */
+export async function recoverHostRoute(request, { db, idrive, now }) {
+  const { recovery, name } = await body(request);
+  return json(201, await recoverHost(needDatabase(db), idrive, { token: recovery, name, now }));
 }
 
 /** GET /api/operator/households: every household, how far its setup has got, and why it's stuck if it is. */

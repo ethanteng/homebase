@@ -67,6 +67,17 @@ export const migrations = [
         add column key_lease_until timestamptz;
     `,
   },
+  {
+    name: "003_recovery",
+    sql: `
+      -- The household's recovery token, from its recovery kit: only its hash, the token being in
+      -- the kit and nowhere else. With it a new host can take the place of a lost one. Making a
+      -- new kit replaces it, which is the only way an old one stops working.
+      alter table households
+        add column recovery_hash text unique,
+        add column recovery_made_at timestamptz;
+    `,
+  },
 ];
 
 // Any number will do, as long as nothing else in the database takes the same advisory lock.

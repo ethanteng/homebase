@@ -14,14 +14,16 @@ const json = (body: unknown, status = 200) =>
 
 // What a host makes for the backup: six groups of five. Made up here, so nothing real is in it.
 const SHOWN_ONCE = ["K7QMX", "3XPD9", "TWAHF", "2RBCD", "EFGHJ", "KLMNP"].join("-");
+const RECOVERY = ["RCVRY", "22222", "33333", "44444", "55555", "66666"].join("-");
 
 const notJoined: BackupAccount = {
   joined: false, service: null, household: null, host: null, hostName: null, joinedAt: null,
-  storage: null, step: null, bucket: null,
+  storage: null, step: null, bucket: null, recoveryKitMadeAt: null, paused: false,
 };
 const ready: BackupAccount = {
   joined: true, service: "https://backup.uncloud.life/", household: "h1", host: "host1", hostName: "Mac mini",
   joinedAt: "2026-10-15T12:00:00Z", storage: "ready", step: null, bucket: "uncloud-h1",
+  recoveryKitMadeAt: "2026-10-15T12:00:00Z", paused: false,
 };
 const never: BackupStatus = {
   configured: false, running: false, lastStarted: null, lastFinished: null, lastOutcome: null, message: null,
@@ -67,7 +69,7 @@ describe("backing up offsite", () => {
       "GET /api/host/backup": () => json(joined ? { ...never, configured: true } : never),
       "POST /api/host/backup/account": () => {
         joined = true;
-        return json({ password: SHOWN_ONCE, account: ready }, 201);
+        return json({ password: SHOWN_ONCE, kit: { password: SHOWN_ONCE, recovery: RECOVERY, household: "h1", madeAt: "2026-10-15T12:00:00Z" }, account: ready }, 201);
       },
     });
     await show();
@@ -116,7 +118,7 @@ describe("backing up offsite", () => {
     first.unmount();
     joined = true;
     await act(async () => {
-      answer(json({ password: SHOWN_ONCE, account: { ...ready, storage: "setting_up", step: "bucket" } }, 201));
+      answer(json({ password: SHOWN_ONCE, kit: null, account: { ...ready, storage: "setting_up", step: "bucket" } }, 201));
     });
 
     const second = await show();
@@ -140,7 +142,7 @@ describe("backing up offsite", () => {
     host({
       "GET /api/host/backup/account": () => json(notJoined),
       "GET /api/host/backup": () => json(never),
-      "POST /api/host/backup/account": () => json({ password: SHOWN_ONCE, account: ready }, 201),
+      "POST /api/host/backup/account": () => json({ password: SHOWN_ONCE, kit: { password: SHOWN_ONCE, recovery: RECOVERY, household: "h1", madeAt: "2026-10-15T12:00:00Z" }, account: ready }, 201),
     });
     await show();
     fireEvent.change(screen.getByLabelText("Invite code"), { target: { value: "K7QM-3XPD-9TWA-HF2R" } });
@@ -151,7 +153,7 @@ describe("backing up offsite", () => {
     // Plain HTTP from another computer: no clipboard for a page to write to.
     vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+      fireEvent.click(screen.getAllByRole("button", { name: "Copy" })[0]);
     });
     expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
     expect(screen.getByText(/didn’t let Uncloud copy it/)).toBeTruthy();
@@ -160,10 +162,118 @@ describe("backing up offsite", () => {
     const written: string[] = [];
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText: async (text: string) => void written.push(text) } });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+      fireEvent.click(screen.getAllByRole("button", { name: "Copy" })[0]);
     });
     expect(written).toEqual([SHOWN_ONCE]);
     expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+  });
+
+  it("shows the whole recovery kit on joining, and lets it be downloaded", async () => {
+    host({
+      "GET /api/host/backup/account": () => json(notJoined),
+      "GET /api/host/backup": () => json(never),
+      "POST /api/host/backup/account": () =>
+        json({ password: SHOWN_ONCE, kit: { password: SHOWN_ONCE, recovery: RECOVERY, household: "h1", madeAt: "2026-10-15T12:00:00Z" }, account: ready }, 201),
+    });
+    const saved: string[] = [];
+    vi.stubGlobal("URL", { ...URL, createObjectURL: (blob: Blob) => (void blob.text().then((text) => saved.push(text)), "blob:kit"), revokeObjectURL: () => {} });
+    await show();
+    fireEvent.change(screen.getByLabelText("Invite code"), { target: { value: "K7QM-3XPD-9TWA-HF2R" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Join" }));
+    });
+
+    expect(screen.getByLabelText("Your backup’s password").textContent).toBe(SHOWN_ONCE);
+    expect(screen.getByLabelText("Your recovery token").textContent).toBe(RECOVERY);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Download the kit" }));
+    });
+    expect(saved[0]).toContain(`Backup password: ${SHOWN_ONCE}`);
+    expect(saved[0]).toContain(`Recovery token:  ${RECOVERY}`);
+    expect(saved[0]).toContain("Use a recovery kit");
+  });
+
+  it("says when there's no recovery kit yet, and makes one, asking first before replacing one", async () => {
+    let account: BackupAccount = { ...ready, recoveryKitMadeAt: null };
+    const asked = host({
+      "GET /api/host/backup/account": () => json(account),
+      "GET /api/host/backup": () => json({ ...never, configured: true }),
+      "POST /api/host/backup/kit": () => {
+        account = { ...ready, recoveryKitMadeAt: "2026-10-18T12:00:00Z" };
+        return json({ kit: { password: SHOWN_ONCE, recovery: RECOVERY, household: "h1", madeAt: "2026-10-18T12:00:00Z" }, account }, 201);
+      },
+    });
+    await show();
+
+    expect(screen.getByText(/No recovery kit yet/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Make a recovery kit" }));
+    });
+    expect(screen.getByLabelText("Your recovery token").textContent).toBe(RECOVERY);
+    fireEvent.click(screen.getByLabelText("I’ve kept it somewhere safe"));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByText(/Recovery kit made/)).toBeTruthy();
+
+    // Another replaces it, so that's asked about first, and nothing happens if the answer is no.
+    vi.stubGlobal("confirm", () => false);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Make a new recovery kit" }));
+    });
+    expect(asked.filter((request) => request.route === "POST /api/host/backup/kit")).toHaveLength(1);
+  });
+
+  it("takes a lost Uncloud's place with its kit, then waits to be resumed before backing up", async () => {
+    let account: BackupAccount = notJoined;
+    const asked = host({
+      "GET /api/host/backup/account": () => json(account),
+      "GET /api/host/backup": () => json({ ...never, configured: account.joined }),
+      "POST /api/host/backup/recover": () => {
+        account = { ...ready, paused: true };
+        return json({ account }, 201);
+      },
+      "POST /api/host/backup/resume": () => {
+        account = { ...ready, paused: false };
+        return json(account);
+      },
+    });
+    await show();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use a recovery kit" }));
+    fireEvent.change(screen.getByLabelText("Recovery token"), { target: { value: ` ${RECOVERY} ` } });
+    fireEvent.change(screen.getByLabelText("Backup password"), { target: { value: SHOWN_ONCE } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open the backup" }));
+    });
+
+    expect(asked.find((request) => request.route === "POST /api/host/backup/recover")?.body).toEqual({ recovery: RECOVERY, password: SHOWN_ONCE });
+    expect(screen.getByText(/isn’t adding to it yet/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Back up now" }) as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Resume backing up" }));
+    });
+    expect(screen.queryByText(/isn’t adding to it yet/)).toBeNull();
+    expect((screen.getByRole("button", { name: "Back up now" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("says why a recovery kit wasn't taken, and keeps what was typed but the password", async () => {
+    host({
+      "GET /api/host/backup/account": () => json(notJoined),
+      "GET /api/host/backup": () => json(never),
+      "POST /api/host/backup/recover": () =>
+        json({ detail: "That password doesn’t open this household’s backup. Check it against the recovery kit, then try again." }, 400),
+    });
+    await show();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use a recovery kit" }));
+    fireEvent.change(screen.getByLabelText("Recovery token"), { target: { value: RECOVERY } });
+    fireEvent.change(screen.getByLabelText("Backup password"), { target: { value: "not it" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open the backup" }));
+    });
+
+    expect(screen.getByRole("alert").textContent).toMatch(/doesn’t open this household’s backup/);
+    expect((screen.getByLabelText("Recovery token") as HTMLInputElement).value).toBe(RECOVERY);
   });
 
   it("says why an invite wasn't taken, in the host's words, and stays ready to try another", async () => {

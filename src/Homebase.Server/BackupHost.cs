@@ -33,6 +33,12 @@ public sealed class BackupHost(BackupService backups, BackupAccount account, ICo
                     continue;
                 }
                 if (!nightly) return;
+                // A host that opened a lost one's backup adds nothing to it until it's resumed.
+                if (account.Paused)
+                {
+                    await account.NapAsync(Unconfigured, stoppingToken);
+                    continue;
+                }
                 var status = backups.Status;
                 var now = DateTimeOffset.Now;
                 var next = BackupSchedule.Next(now, TimeZoneInfo.Local, hour, status.LastSucceeded, status.LastStarted);

@@ -36,12 +36,35 @@ public sealed class BackupServiceClient(HttpClient http, Uri service)
         using var response = await SendAsync("api/hosts", null, new { invite, name }, cancellationToken);
         if (response.StatusCode != HttpStatusCode.Created)
             throw await RefusalAsync(response, "join Uncloud Backup", cancellationToken);
+        return Registration(await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken));
+    }
+
+    private static BackupRegistration Registration(JsonElement body) => new(
+        body.GetProperty("household").GetProperty("id").GetString()!,
+        body.GetProperty("host").GetProperty("id").GetString()!,
+        body.GetProperty("host").GetProperty("name").GetString()!,
+        body.GetProperty("credential").GetString()!);
+
+    /// <summary>A new recovery token for this host's household, in place of any before it.</summary>
+    public async Task<(string Recovery, DateTimeOffset MadeAt)> IssueRecoveryAsync(string credential, CancellationToken cancellationToken)
+    {
+        using var response = await SendAsync("api/host/recovery", credential, new { }, cancellationToken);
+        if (response.StatusCode != HttpStatusCode.Created)
+            throw await RefusalAsync(response, "make a recovery kit", cancellationToken);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
-        return new BackupRegistration(
-            body.GetProperty("household").GetProperty("id").GetString()!,
-            body.GetProperty("host").GetProperty("id").GetString()!,
-            body.GetProperty("host").GetProperty("name").GetString()!,
-            body.GetProperty("credential").GetString()!);
+        return (body.GetProperty("recovery").GetString()!, body.GetProperty("madeAt").GetDateTimeOffset());
+    }
+
+    /// <summary>
+    /// Takes a lost host's place with its household's recovery token: the household's other hosts
+    /// are revoked, and this one gets a credential of its own.
+    /// </summary>
+    public async Task<BackupRegistration> RecoverAsync(string recovery, string name, CancellationToken cancellationToken)
+    {
+        using var response = await SendAsync("api/hosts/recover", null, new { recovery, name }, cancellationToken);
+        if (response.StatusCode != HttpStatusCode.Created)
+            throw await RefusalAsync(response, "open the household's backup", cancellationToken);
+        return Registration(await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken));
     }
 
     /// <summary>
@@ -108,6 +131,7 @@ public sealed class BackupServiceClient(HttpClient http, Uri service)
         return code switch
         {
             "invite_invalid" => new LibraryException(message ?? "Uncloud Backup didn’t take that invite code.", "invalid_invite"),
+            "recovery_invalid" => new LibraryException(message ?? "Uncloud Backup didn’t take that recovery token.", "invalid_recovery"),
             "not_a_host" => new LibraryException(
                 "Uncloud Backup no longer knows this Uncloud. Ask for a new invite to join again.", "conflict"),
             _ => new LibraryException(
@@ -130,10 +154,24 @@ public sealed record BackupAccountStatus
     /// <summary>Which part of setting up it's at, until it's ready.</summary>
     public string? Step { get; init; }
     public string? Bucket { get; init; }
+    /// <summary>When the household's recovery kit in use was made, or null if none has been.</summary>
+    public DateTimeOffset? RecoveryKitMadeAt { get; init; }
+    /// <summary>
+    /// Whether backing up waits to be resumed: a host that opened a lost one's backup with its kit
+    /// doesn't add to it until whoever looks after it has got back what they need.
+    /// </summary>
+    public bool Paused { get; init; }
 }
 
-/// <summary>A host that has just joined, and the password its backup will be encrypted with.</summary>
-public sealed record BackupJoined(string Password, BackupAccountStatus Account);
+/// <summary>
+/// What gets a household's backup back when the host is gone: the password the backup is encrypted
+/// with, and the token the service takes in place of the lost host's credential. Shown once each
+/// time one is made; making another retires it.
+/// </summary>
+public sealed record BackupKit(string Password, string Recovery, string Household, DateTimeOffset MadeAt);
+
+/// <summary>A host that has just joined, and the password its backup will be encrypted with, in a kit if one could be made.</summary>
+public sealed record BackupJoined(string Password, BackupKit? Kit, BackupAccountStatus Account);
 
 /// <summary>
 /// This host's place in Uncloud Backup. Joining with an invite gets it a credential the service
@@ -185,8 +223,12 @@ public sealed class BackupAccount(
             JoinedAt = saved.JoinedAt,
             Storage = saved.Storage is not null ? "ready" : saved.SetupState ?? "setting_up",
             Step = saved.Storage is null ? saved.SetupStep : null,
-            Bucket = saved.Storage?.Bucket
+            Bucket = saved.Storage?.Bucket,
+            RecoveryKitMadeAt = saved.RecoveryMadeAt,
+            Paused = saved.Paused
         };
+
+    public bool Paused => Load()?.Paused == true;
 
     /// <summary>
     /// Joins Uncloud Backup with an invite. The password in the answer is what the backup is
@@ -212,13 +254,101 @@ public sealed class BackupAccount(
                 null, "setting_up", null));
             logger.LogInformation("Joined Uncloud Backup as host {Host} of household {Household}", registration.HostId, registration.HouseholdId);
             if (_joined.CurrentCount == 0) _joined.Release();
-            return new BackupJoined(password, Status);
+            // The password goes in a kit with the household's recovery token, if one can be had now.
+            // If not, joining has worked all the same, and a kit can be made later.
+            BackupKit? kit = null;
+            try { kit = await KitHeldAsync(cancellationToken); }
+            catch (LibraryException error)
+            {
+                logger.LogWarning("Joined Uncloud Backup, but no recovery kit could be made yet: {Message}", error.Message);
+            }
+            return new BackupJoined(password, kit, Status);
         }
         finally
         {
             _changing.Release();
         }
     }
+
+    /// <summary>
+    /// A new recovery kit: the backup's password, and a new recovery token in place of any before
+    /// it, which stops working. Shown once; whoever looks after the host keeps it.
+    /// </summary>
+    public async Task<BackupKit> MakeKitAsync(CancellationToken cancellationToken)
+    {
+        await _changing.WaitAsync(cancellationToken);
+        try { return await KitHeldAsync(cancellationToken); }
+        finally { _changing.Release(); }
+    }
+
+    private async Task<BackupKit> KitHeldAsync(CancellationToken cancellationToken)
+    {
+        var saved = Load() ?? throw new LibraryException("This Uncloud hasn’t joined Uncloud Backup.", "not_configured");
+        var credential = Open(saved.Credential, CredentialContext);
+        var password = Open(saved.Password, PasswordContext);
+        if (credential is null || password is null)
+            throw new LibraryException(
+                "Uncloud’s host key doesn’t open what it kept for Uncloud Backup. Restore host.key, or ask for a new invite.", "host_key");
+        var (recovery, madeAt) = await service.IssueRecoveryAsync(credential, cancellationToken);
+        Save(saved with { RecoveryMadeAt = madeAt });
+        return new BackupKit(password, recovery, saved.Household, madeAt);
+    }
+
+    /// <summary>
+    /// Takes a lost host's place in its household with the household's recovery kit: the token
+    /// gets this host a credential, the lost one's revoked, and the kit's password is the one the
+    /// backup opens with. Backing up starts paused, so nothing this host has yet is added to the
+    /// backup before what's needed from it has been got back. Once storage is here,
+    /// <paramref name="opens"/> says whether the kit's password opens the backup; if it doesn't, this
+    /// host forgets it joined, so the kit can be given again.
+    /// </summary>
+    public async Task<BackupAccountStatus> RecoverAsync(
+        string? recovery, string? password, string? name, Func<CancellationToken, Task<bool?>> opens, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(recovery))
+            throw new LibraryException("Type in the recovery token from the household’s recovery kit.", "invalid_recovery");
+        if (string.IsNullOrWhiteSpace(password))
+            throw new LibraryException("Type in the backup password from the household’s recovery kit.", "invalid_recovery");
+        var hostName = string.IsNullOrWhiteSpace(name) ? Environment.MachineName : name.Trim();
+        await _changing.WaitAsync(cancellationToken);
+        try
+        {
+            if (Joined) throw new LibraryException("This Uncloud has already joined Uncloud Backup.", "conflict");
+            var registration = await service.RecoverAsync(recovery.Trim(), hostName[..Math.Min(hostName.Length, 100)], cancellationToken);
+            Save(new Saved(
+                service.Service.ToString(), registration.HouseholdId, registration.HostId, registration.HostName,
+                _time.GetUtcNow(), Seal(registration.Credential, CredentialContext), Seal(password.Trim(), PasswordContext),
+                null, "setting_up", null, Paused: true));
+            logger.LogInformation("Took a lost host's place in household {Household} as host {Host}", registration.HouseholdId, registration.HostId);
+            if (_joined.CurrentCount == 0) _joined.Release();
+        }
+        finally
+        {
+            _changing.Release();
+        }
+        // The household is set up already, so its storage is usually there at once.
+        try { await RefreshStorageAsync(cancellationToken); }
+        catch (LibraryException error)
+        {
+            logger.LogWarning("Opened the household's backup, but its storage isn't here yet: {Message}", error.Message);
+        }
+        if (Target is not null && await opens(cancellationToken) == false)
+        {
+            Forget();
+            throw new LibraryException(
+                "That password doesn’t open this household’s backup. Check it against the recovery kit, then try again.", "invalid_recovery");
+        }
+        return Status;
+    }
+
+    /// <summary>Lets backing up go on: nightly again, and by hand.</summary>
+    public void Resume()
+    {
+        if (Load() is { } saved) Save(saved with { Paused = false });
+    }
+
+    /// <summary>Forgets this host's place in Uncloud Backup, as if it had never joined.</summary>
+    public void Forget() => database.RemoveSetting(Key);
 
     /// <summary>
     /// Asks the service for this host's storage, once. When it's ready the answer carries a new key,
@@ -284,7 +414,8 @@ public sealed class BackupAccount(
     /// <summary>As kept in the host's settings. Every secret in it is sealed.</summary>
     private sealed record Saved(
         string Service, string Household, string Host, string HostName, DateTimeOffset JoinedAt,
-        string Credential, string Password, SavedStorage? Storage, string? SetupState, string? SetupStep);
+        string Credential, string Password, SavedStorage? Storage, string? SetupState, string? SetupStep,
+        DateTimeOffset? RecoveryMadeAt = null, bool Paused = false);
 
     private sealed record SavedStorage(
         string Endpoint, string Region, string Bucket, string AccessKeyId, string SecretAccessKey, DateTimeOffset IssuedAt);
