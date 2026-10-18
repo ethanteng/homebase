@@ -53,7 +53,12 @@ function warnBeforeLeaving(event: BeforeUnloadEvent) {
  * offsite. Whoever looks after Uncloud joins with an invite, keeps the password the backup is
  * encrypted with, and from then on sees how the backups are going.
  */
-export default function HostBackup() {
+interface Props {
+  /** When this Uncloud comes to have backups, so My files can offer them. */
+  onChanged?: () => void;
+}
+
+export default function HostBackup({ onChanged }: Props = {}) {
   const [account, setAccount] = useState<BackupAccount | null>(null);
   const [status, setStatus] = useState<BackupStatus | null>(null);
   const [check, setCheck] = useState<BackupCheck | null>(null);
@@ -96,6 +101,18 @@ export default function HostBackup() {
     window.addEventListener("beforeunload", warnBeforeLeaving);
     return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
   }, []);
+
+  // Said once, when backups go from not set up to set up while this is open: not on every look,
+  // and not again for each new callback a parent hands down.
+  const changed = useRef(onChanged);
+  changed.current = onChanged;
+  const known = status ? status.configured : null;
+  const wasConfigured = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (known === null) return;
+    if (wasConfigured.current === false && known) changed.current?.();
+    wasConfigured.current = known;
+  }, [known]);
 
   // Which backups are kept, read again whenever a new one has been made.
   const configured = status?.configured === true;

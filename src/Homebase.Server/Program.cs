@@ -757,6 +757,51 @@ app.MapPost("/api/bin/empty", async (CurrentUser user, UserWorkspaces workspaces
     return Results.Ok(new { deleted });
 });
 
+// Each person's own files in this Uncloud's backups: which backups there are, what was in their
+// folder in one, and restoring from it. Never anybody else's: the folder is found from the
+// session's account, and nothing in a request can name another.
+// Whether there are backups to look in at all, answered without asking the storage, so My files
+// can say so on every visit without waiting.
+app.MapGet("/api/backups/available", (BackupService backups) => Results.Ok(new { configured = backups.IsConfigured }));
+
+app.MapGet("/api/backups", async (BackupService backups, CancellationToken cancellationToken) =>
+{
+    if (!backups.IsConfigured) return Results.Ok(new { configured = false, backups = Array.Empty<object>() });
+    var snapshots = await backups.SnapshotsAsync(cancellationToken);
+    return Results.Ok(new
+    {
+        configured = true,
+        backups = snapshots.Reverse().Select(snapshot => new { id = snapshot.Id, time = snapshot.Time })
+    });
+});
+
+app.MapGet("/api/backups/{id}/files", async (string id, string? path, CurrentUser user, BackupService backups, CancellationToken cancellationToken) =>
+    Results.Ok(await backups.BrowseAsync(id, user.Id, path, cancellationToken)));
+
+app.MapPost("/api/backups/{id}/restore", async (string id, RestoreFromBackup request, CurrentUser user, UserWorkspaces workspaces, BackupService backups, UsageService usage, CancellationToken cancellationToken) =>
+{
+    var workspace = workspaces.For(user.Account);
+    var library = workspace.Library;
+    var arriving = library.RestoreFolder();
+    try
+    {
+        var restored = await backups.RestoreForAsync(id, user.Id, request.Paths, arriving, library.NeedRoomForRestore, cancellationToken);
+        return Results.Ok(new { items = await library.PutBackFromBackupAsync(restored, cancellationToken) });
+    }
+    finally
+    {
+        // Best effort. Once the restore has finished, a failure here must not replace that
+        // success: the person would try again and get a second copy. If the restore failed,
+        // this still leaves that failure as the answer.
+        try { LibraryService.ForgetRestoreFolder(arriving); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or LibraryException)
+        {
+            app.Logger.LogWarning(error, "Couldn’t remove the folder a restore arrived in");
+        }
+        usage.Invalidate(workspace.Root);
+    }
+});
+
 app.MapGet("/api/providers/dropbox", (CurrentUser user, UserWorkspaces workspaces) =>
 {
     var dropbox = workspaces.For(user.Account).Dropbox;
@@ -1450,6 +1495,7 @@ public static class Sources
 public sealed record ImportRequest(string? RemotePath, string? Label, string? Source, IReadOnlyList<string>? RemotePaths = null);
 public sealed record AddPlace(string? Path, string? Name);
 public sealed record JoinBackup(string? Invite, string? Name);
+public sealed record RestoreFromBackup(IReadOnlyList<string>? Paths);
 public sealed record SharePlace(bool Shared);
 public sealed record SetDropboxAppKey(string? AppKey);
 public sealed record PasteDropboxCode(string? Code);
