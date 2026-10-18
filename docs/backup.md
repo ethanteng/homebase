@@ -152,8 +152,10 @@ the rule and reads it back, but drops the part that would clear unfinished uploa
 iDrive acts on it. In the spike, 181 MB of old versions under a one-day lock and a one-day rule
 were still there 27 hours after they were replaced and gone by 51, and the account's storage went
 down with them; an account that had turned read-only had its old versions cleared the same way.
-As on S3, a version goes at the first midnight UTC after both its days and its lock are up. So the
-service needs no job of its own to delete expired versions.
+As on S3, a version becomes due for removal at the first midnight UTC after both its days and its
+lock are up, and is removed some time after that, when iDrive gets to it: within a day in the
+spike, though iDrive promises no time. So an old version stays, and is billed, somewhat past its
+30 days, and the service needs no job of its own to delete expired versions.
 
 ### What the service watches
 
