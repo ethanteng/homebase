@@ -49,9 +49,11 @@ public sealed partial class LibraryService
             }
 
             var restored = new List<EditedEntry>();
+            // Not abandoned partway. The slow work, fetching, is already done, and these are
+            // renames: stopping after the first would leave a partial restore, and trying again
+            // would copy what had already come back.
             foreach (var (item, folder) in placed)
             {
-                cancellationToken.ThrowIfCancellationRequested();
                 Directory.CreateDirectory(folder);
                 var placedAs = Place(item.Restored, folder, Path.GetFileName(item.Path), item.IsDirectory, copy: false);
                 restored.Add(new EditedEntry(item.Path, Join(folder, placedAs)));
