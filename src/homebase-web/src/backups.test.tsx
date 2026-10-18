@@ -101,6 +101,25 @@ describe("backups in My files", () => {
     expect(screen.getByText(/From the backup of Oct 16, 2026/)).toBeTruthy();
   });
 
+  it("leaves nothing from one backup to restore while another is being read", async () => {
+    host({
+      "GET /api/backups": () => json(two),
+      "GET /api/backups/newest00/files?path=": () => json(top("newest00")),
+    });
+    const fetch = globalThis.fetch;
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) =>
+      url.startsWith("/api/backups/older000") ? new Promise<Response>(() => {}) : fetch(url, init));
+    await show();
+    expect(screen.getByRole("button", { name: "Restore notes.txt" })).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Backup from"), { target: { value: "older000" } });
+    });
+
+    expect(screen.queryByRole("button", { name: "Restore notes.txt" })).toBeNull();
+    expect(screen.getByText("Opening the backup…")).toBeTruthy();
+  });
+
   it("puts something back, saying where and under what name", async () => {
     const asked = host({
       "GET /api/backups": () => json(two),

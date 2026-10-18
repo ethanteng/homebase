@@ -166,6 +166,35 @@ describe("backing up offsite", () => {
     expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
   });
 
+  it("tells the page when backups come to be set up, once, and not when they already were", async () => {
+    let joined = false;
+    host({
+      "GET /api/host/backup/account": () => json(joined ? ready : notJoined),
+      "GET /api/host/backup": () => json({ ...never, configured: joined }),
+      "POST /api/host/backup/account": () => {
+        joined = true;
+        return json({ password: SHOWN_ONCE, account: ready }, 201);
+      },
+    });
+    const changed = vi.fn();
+    await act(async () => {
+      render(<HostBackup onChanged={changed} />);
+    });
+    expect(changed).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Invite code"), { target: { value: "K7QM-3XPD-9TWA-HF2R" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Join" }));
+    });
+    expect(changed).toHaveBeenCalledTimes(1);
+
+    const already = vi.fn();
+    await act(async () => {
+      render(<HostBackup onChanged={already} />);
+    });
+    expect(already).not.toHaveBeenCalled();
+  });
+
   it("says why an invite wasn't taken, in the host's words, and stays ready to try another", async () => {
     host({
       "GET /api/host/backup/account": () => json(notJoined),

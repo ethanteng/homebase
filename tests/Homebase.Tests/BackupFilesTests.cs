@@ -110,6 +110,29 @@ public sealed class BackupFilesTests : IDisposable
     }
 
     [Fact]
+    public async Task A_restore_that_cant_put_everything_back_puts_nothing_back()
+    {
+        using var app = Host();
+        var (admin, member, root, _) = await PeopleAsync(app);
+        File.WriteAllText(Path.Combine(root, "zed.txt"), "first in line");
+        Directory.CreateDirectory(Path.Combine(root, "Docs"));
+        File.WriteAllText(Path.Combine(root, "Docs", "notes.txt"), "kept in Docs");
+        var backup = await BackUpAsync(admin);
+        File.Delete(Path.Combine(root, "zed.txt"));
+        Directory.Delete(Path.Combine(root, "Docs"), recursive: true);
+        // A file now where the folder was: notes.txt has nowhere to go back to.
+        File.WriteAllText(Path.Combine(root, "Docs"), "a file called Docs");
+
+        var answer = await member.PostAsJsonAsync($"/api/backups/{backup}/restore", new { paths = new[] { "zed.txt", "Docs/notes.txt" } });
+
+        Assert.Equal(HttpStatusCode.Conflict, answer.StatusCode);
+        Assert.Contains("there’s a file by that name there now", await answer.Content.ReadAsStringAsync());
+        Assert.False(File.Exists(Path.Combine(root, "zed.txt")), "nothing came back, not even what could have");
+        var restoring = Path.Combine(root, ".homebase", "restoring");
+        Assert.True(!Directory.Exists(restoring) || Directory.GetFileSystemEntries(restoring).Length == 0);
+    }
+
+    [Fact]
     public async Task A_restore_there_isnt_room_for_is_turned_away_before_anything_comes_back()
     {
         using var app = Host();

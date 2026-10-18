@@ -33,12 +33,11 @@ public sealed partial class LibraryService
         try
         {
             var placed = items.Select(item => (Item: item, Folder: Path.GetDirectoryName(PathPolicy.Resolve(root, item.Path))!)).ToArray();
-            foreach (var (_, folder) in placed) AwayFromImport([], folder, "restored");
-
-            var restored = new List<EditedEntry>();
+            // Everything is looked at before anything is moved, so a restore either puts all of it
+            // back or none of it, and trying again never makes a second copy of what came first.
             foreach (var (item, folder) in placed)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                AwayFromImport([], folder, "restored");
                 var name = Path.GetFileName(item.Path);
                 if (item.IsDirectory ? !Directory.Exists(item.Restored) : !File.Exists(item.Restored))
                     throw new LibraryException($"“{name}” didn’t come back from the backup. Try again in a minute.", "unavailable");
@@ -47,8 +46,14 @@ public sealed partial class LibraryService
                         throw new LibraryException(
                             $"“{name}” was in a folder called “{Path.GetFileName(above)}”, and there’s a file by that name "
                             + "there now. Move or rename the file, then try again.", "conflict");
+            }
+
+            var restored = new List<EditedEntry>();
+            foreach (var (item, folder) in placed)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 Directory.CreateDirectory(folder);
-                var placedAs = Place(item.Restored, folder, name, item.IsDirectory, copy: false);
+                var placedAs = Place(item.Restored, folder, Path.GetFileName(item.Path), item.IsDirectory, copy: false);
                 restored.Add(new EditedEntry(item.Path, Join(folder, placedAs)));
             }
             return restored;

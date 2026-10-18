@@ -68,6 +68,9 @@ export default function Backups({ onChanged, open }: Props) {
   useEffect(() => {
     if (!backup) return;
     const controller = new AbortController();
+    // What was showing is from another backup or folder: it goes, rather than staying to be
+    // restored from while the new one is read.
+    setFolder(null);
     setLoading(true);
     setFolderError("");
     api<BackupFolderListing>(`/backups/${backup}/files?path=${encodeURIComponent(path)}`, { signal: controller.signal })
@@ -86,11 +89,14 @@ export default function Backups({ onChanged, open }: Props) {
   }, [backup, path, refresh]);
 
   async function restore(entry: BackupFolderListing["entries"][number]) {
+    // From the backup this listing came from, whatever is chosen meanwhile.
+    const from = folder?.snapshot;
+    if (!from) return;
     setRestoring(entry.path);
     setError("");
     setNotice(null);
     try {
-      const { items } = await api<{ items: EditedEntry[] }>(`/backups/${backup}/restore`, {
+      const { items } = await api<{ items: EditedEntry[] }>(`/backups/${from}/restore`, {
         method: "POST",
         body: JSON.stringify({ paths: [entry.path] }),
       });
@@ -281,7 +287,7 @@ export default function Backups({ onChanged, open }: Props) {
                           <button
                             className="row-action"
                             onClick={() => void restore(entry)}
-                            disabled={restoring !== null}
+                            disabled={restoring !== null || loading}
                             aria-label={`Restore ${entry.name}`}
                           >
                             {restoring === entry.path ? (

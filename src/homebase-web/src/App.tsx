@@ -608,7 +608,8 @@ export default function App() {
               />
             )}
             <HostPower />
-            <HostBackup />
+            {/* Backups set up from here appear in My files without a reload. */}
+            <HostBackup onChanged={() => setRevision((value) => value + 1)} />
             <HostDropbox expanded={dropboxFocus} />
           </>
         )}
