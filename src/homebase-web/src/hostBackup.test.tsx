@@ -375,6 +375,36 @@ describe("backing up offsite", () => {
     expect(screen.queryByRole("button", { name: "Rebuild from the backup" })).toBeNull();
   });
 
+  it("keeps a rebuild going when the first look at it comes back after it was started", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let release!: (response: Response) => void;
+    host({
+      "GET /api/host/backup/account": () => json({ ...ready, paused: true }),
+      "GET /api/host/backup": () => json({ ...never, configured: true }),
+      "GET /api/host/backup/snapshots": () => json(twoKept),
+      "POST /api/host/backup/rebuild": () =>
+        json({ ...notRebuilt, running: true, stage: "restoring", snapshotTime: "2026-10-17T09:00:00Z", bytes: 2 * 1024 ** 3, bytesRestored: 0 }, 202),
+    });
+    const fetch = globalThis.fetch;
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+      if (`${init?.method ?? "GET"} ${url}` === "GET /api/host/backup/rebuild")
+        return new Promise<Response>((resolve) => (release = resolve));
+      return fetch(url, init);
+    });
+    await show();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Rebuild from the backup" }));
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/of 2 GB back so far/);
+
+    await act(async () => {
+      release(json(notRebuilt));
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/of 2 GB back so far/);
+    expect((screen.getByRole("button", { name: "Resume backing up" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("says why a recovery kit wasn't taken, and keeps what was typed but the password", async () => {
     host({
       "GET /api/host/backup/account": () => json(notJoined),

@@ -125,6 +125,8 @@ export default function HostBackup({ onChanged }: Props = {}) {
   // Rebuilding this Uncloud from the backup, and whether it has been gone a while starting again.
   const [rebuild, setRebuild] = useState<BackupRebuild | null>(null);
   const [slow, setSlow] = useState(false);
+  // A look that started before Rebuild was clicked must not paint over the rebuild it started.
+  const rebuildSeen = useRef(0);
   const passwordCode = useRef<HTMLElement>(null);
   const recoveryCode = useRef<HTMLElement>(null);
 
@@ -137,7 +139,9 @@ export default function HostBackup({ onChanged }: Props = {}) {
     setStatus(nextStatus);
     // A host from before checks, or rebuilds, were made answers 404: the rest of the panel still stands.
     setCheck(await api<BackupCheck>("/host/backup/check", { signal }).catch(() => null));
-    setRebuild(await api<BackupRebuild>("/host/backup/rebuild", { signal }).catch(() => null));
+    const seen = rebuildSeen.current;
+    const nextRebuild = await api<BackupRebuild>("/host/backup/rebuild", { signal }).catch(() => null);
+    if (seen === rebuildSeen.current) setRebuild(nextRebuild);
   }, []);
 
   useEffect(() => {
@@ -319,13 +323,13 @@ export default function HostBackup({ onChanged }: Props = {}) {
     setBusy(true);
     setError("");
     setSlow(false);
+    const seen = ++rebuildSeen.current;
     try {
-      setRebuild(
-        await api<BackupRebuild>("/host/backup/rebuild", {
-          method: "POST",
-          body: JSON.stringify({ snapshot: newest.id, confirm: true }),
-        }),
-      );
+      const started = await api<BackupRebuild>("/host/backup/rebuild", {
+        method: "POST",
+        body: JSON.stringify({ snapshot: newest.id, confirm: true }),
+      });
+      if (seen === rebuildSeen.current) setRebuild(started);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Couldn’t start rebuilding this Uncloud.");
     } finally {
