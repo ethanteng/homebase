@@ -43,8 +43,9 @@ public sealed class BackupAccountTests : IDisposable
 
         var joined = await account.JoinAsync($"  {Invite} ", "Mac mini", CancellationToken.None);
 
-        var registering = Assert.Single(service.Requests);
+        var registering = service.Requests[0];
         Assert.Equal("/api/hosts", registering.Path);
+        Assert.Equal("/api/host/recovery", service.Requests[1].Path);
         Assert.Equal(Invite, registering.Body.GetProperty("invite").GetString());
         Assert.Equal("Mac mini", registering.Body.GetProperty("name").GetString());
         Assert.Matches(Code, joined.Password);
@@ -59,12 +60,12 @@ public sealed class BackupAccountTests : IDisposable
         var answer = await account.RefreshStorageAsync(CancellationToken.None);
 
         Assert.NotNull(answer.Storage);
-        Assert.All(service.Requests.Skip(1), request =>
+        Assert.All(service.Requests.Skip(2), request =>
         {
             Assert.Equal("/api/host/storage", request.Path);
             Assert.Equal($"Bearer {service.Credential}", request.Authorization);
         });
-        Assert.Equal(4, service.Requests.Count);
+        Assert.Equal(5, service.Requests.Count);
         Assert.Equal(new BackupTarget(
             "s3:https://s3.example/uncloud-household-1", joined.Password, "AKFAKE1", service.Secrets[0], "us-east-1"), account.Target);
         Assert.Equal("ready", account.Status.Storage);
@@ -124,7 +125,7 @@ public sealed class BackupAccountTests : IDisposable
         var again = await Assert.ThrowsAsync<LibraryException>(() => account.JoinAsync(Invite, "Mac mini", CancellationToken.None));
 
         Assert.Equal("conflict", again.Code);
-        Assert.Single(service.Requests);
+        Assert.Equal(["/api/hosts", "/api/host/recovery"], service.Requests.Select(request => request.Path));
     }
 
     [Fact]
@@ -139,7 +140,7 @@ public sealed class BackupAccountTests : IDisposable
         Assert.Null(answer.Storage);
         Assert.Equal(("setting_up", "storage"), (answer.State, answer.Step));
         Assert.Equal(TimeSpan.FromSeconds(5), answer.RetryAfter);
-        Assert.Equal(2, service.Requests.Count);
+        Assert.Equal(3, service.Requests.Count);
         Assert.Equal("storage", account.Status.Step);
     }
 
@@ -223,6 +224,246 @@ public sealed class BackupAccountTests : IDisposable
             (await admin.PostAsJsonAsync("/api/host/backup/account", new { invite = Invite })).StatusCode);
     }
 
+    [Fact]
+    public async Task Joining_comes_with_a_recovery_kit_and_a_new_kit_retires_the_old()
+    {
+        var service = new FakeBackupService();
+        var account = Account(service);
+
+        var joined = await account.JoinAsync(Invite, "Mac mini", CancellationToken.None);
+
+        Assert.NotNull(joined.Kit);
+        Assert.Equal(joined.Password, joined.Kit.Password);
+        Assert.Equal(service.Recovery, joined.Kit.Recovery);
+        Assert.Equal("household-1", joined.Kit.Household);
+        Assert.Equal(DateTimeOffset.Parse("2026-10-18T12:00:00Z"), account.Status.RecoveryKitMadeAt);
+        Assert.DoesNotContain(joined.Kit.Recovery, Kept());
+
+        var again = await account.MakeKitAsync(CancellationToken.None);
+
+        Assert.NotEqual(joined.Kit.Recovery, again.Recovery);
+        Assert.Equal(service.Recovery, again.Recovery);
+        Assert.Equal(joined.Password, again.Password);
+    }
+
+    [Fact]
+    public async Task Joining_works_when_no_kit_can_be_made_yet_and_one_can_be_made_after()
+    {
+        var service = new FakeBackupService { RecoveryFails = true };
+        var account = Account(service);
+
+        var joined = await account.JoinAsync(Invite, "Mac mini", CancellationToken.None);
+
+        Assert.Null(joined.Kit);
+        Assert.True(account.Joined);
+        Assert.Null(account.Status.RecoveryKitMadeAt);
+        service.RecoveryFails = false;
+        Assert.Equal(joined.Password, (await account.MakeKitAsync(CancellationToken.None)).Password);
+        Assert.NotNull(account.Status.RecoveryKitMadeAt);
+    }
+
+    [Fact]
+    public async Task A_new_host_takes_a_lost_ones_place_with_its_kit_and_starts_paused()
+    {
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF" };
+        var account = Account(service);
+        const string password = "K7QMX-3XPD9-TWAHF-2RBCD-EFGHJ-KLMNP";
+
+        var status = await account.RecoverAsync(service.Recovery, password, "New Mac", _ => Task.FromResult<bool?>(true), CancellationToken.None);
+
+        Assert.True(status.Joined);
+        Assert.True(status.Paused);
+        Assert.Equal("ready", status.Storage);
+        Assert.Equal(DateTimeOffset.Parse("2026-10-01T09:00:00Z"), status.RecoveryKitMadeAt);
+        // Confirmed only once the password had opened the backup.
+        Assert.Equal((1, 0), (service.Confirmed, service.Abandoned));
+        Assert.Equal(password, account.Target?.Password);
+        Assert.Equal($"Bearer {service.Credential}", service.Requests[^1].Authorization);
+        Assert.DoesNotContain(password, Kept());
+        // Joining woke whatever was waiting; resuming wakes it again, so the schedule goes on at once.
+        // A second resume, as a double click sends, must not fail, and must not wake a second time.
+        await account.NapAsync(TimeSpan.Zero, CancellationToken.None);
+        account.Resume();
+        account.Resume();
+        Assert.False(account.Paused);
+        Assert.True(await account.NapAsync(TimeSpan.Zero, CancellationToken.None));
+        Assert.False(await account.NapAsync(TimeSpan.Zero, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_kit_whose_password_doesnt_open_the_backup_leaves_the_host_as_it_was()
+    {
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF" };
+        var account = Account(service);
+
+        var wrong = await Assert.ThrowsAsync<LibraryException>(() =>
+            account.RecoverAsync(service.Recovery, "not the password", null, _ => Task.FromResult<bool?>(false), CancellationToken.None));
+        var unknown = await Assert.ThrowsAsync<LibraryException>(() =>
+            account.RecoverAsync("ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ", "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None));
+
+        Assert.Equal("invalid_recovery", wrong.Code);
+        Assert.Contains("doesn’t open this household’s backup", wrong.Message);
+        Assert.Equal("invalid_recovery", unknown.Code);
+        Assert.Equal(FakeBackupService.InvalidRecovery, unknown.Message);
+        Assert.False(account.Joined);
+        // The wrong password withdrew this host, so the household's hosts are as they were.
+        Assert.Equal((0, 1), (service.Confirmed, service.Abandoned));
+        // The same kit, with the right password, still works.
+        Assert.True((await account.RecoverAsync(service.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None)).Joined);
+    }
+
+    [Fact]
+    public async Task A_recovery_whose_password_cant_be_checked_yet_leaves_the_host_as_it_was()
+    {
+        // Storage not handed over, so there's nothing to try the password on.
+        var waiting = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF", Pending = int.MaxValue };
+        var account = Account(waiting);
+        var unavailable = await Assert.ThrowsAsync<LibraryException>(() =>
+            account.RecoverAsync(waiting.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None));
+        Assert.Equal("unavailable", unavailable.Code);
+        Assert.False(account.Joined);
+        Assert.Equal((0, 1), (waiting.Confirmed, waiting.Abandoned));
+
+        // Storage here, but the check itself fails.
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF" };
+        var other = Account(service, Path.Combine(_temporary, "other"));
+        await Assert.ThrowsAsync<LibraryException>(() => other.RecoverAsync(service.Recovery, "password", null,
+            _ => throw new LibraryException("Uncloud couldn’t open the backup. Try again in a minute.", "unavailable"), CancellationToken.None));
+        Assert.False(other.Joined);
+        Assert.Null(other.Target);
+        Assert.Equal((0, 1), (service.Confirmed, service.Abandoned));
+    }
+
+    [Fact]
+    public async Task A_recovery_that_cant_confirm_withdraws_and_leaves_the_host_as_it_was()
+    {
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF", ConfirmFails = true };
+        var account = Account(service);
+
+        var failed = await Assert.ThrowsAsync<LibraryException>(() =>
+            account.RecoverAsync(service.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None));
+
+        Assert.Equal("unavailable", failed.Code);
+        Assert.False(account.Joined);
+        Assert.Equal((0, 1), (service.Confirmed, service.Abandoned));
+        service.ConfirmFails = false;
+        Assert.True((await account.RecoverAsync(service.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None)).Joined);
+        Assert.Equal(1, service.Confirmed);
+    }
+
+    [Fact]
+    public async Task A_confirm_whose_answer_is_lost_still_leaves_the_host_joined()
+    {
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF", ConfirmDrops = true };
+        var account = Account(service);
+
+        var status = await account.RecoverAsync(service.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None);
+
+        Assert.True(status.Joined);
+        Assert.True(status.Paused);
+        Assert.Equal(1, service.Confirmed);
+        Assert.Equal(0, service.Abandoned);
+    }
+
+    [Fact]
+    public async Task An_account_saved_before_kits_still_opens()
+    {
+        var service = new FakeBackupService();
+        var database = new ControlDatabase(Config);
+        var account = new BackupAccount(database, new SecretProtector(Config),
+            new BackupServiceClient(new HttpClient(service), new Uri("https://backup.test/")),
+            NullLogger<BackupAccount>.Instance);
+        await account.JoinAsync(Invite, "Mac mini", CancellationToken.None);
+
+        using var saved = JsonDocument.Parse(database.Setting("backup_account")!);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var property in saved.RootElement.EnumerateObject())
+            {
+                if (property.Name is "RecoveryMadeAt" or "Paused") continue;
+                property.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
+        database.SetSetting("backup_account", Encoding.UTF8.GetString(stream.ToArray()));
+
+        var again = new BackupAccount(database, new SecretProtector(Config),
+            new BackupServiceClient(new HttpClient(service), new Uri("https://backup.test/")),
+            NullLogger<BackupAccount>.Instance);
+        Assert.True(again.Joined);
+        Assert.False(again.Paused);
+        Assert.Null(again.Status.RecoveryKitMadeAt);
+        Assert.Equal("household-1", again.Status.Household);
+    }
+
+    [Fact]
+    public async Task A_failed_recovery_stays_unjoined_when_storage_is_asked_for_during_the_check()
+    {
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF" };
+        var account = Account(service);
+        var checking = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var recovering = account.RecoverAsync(service.Recovery, "not the password", null, async cancellationToken =>
+        {
+            checking.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+            return false;
+        }, CancellationToken.None);
+
+        await checking.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // The loop that asks for storage wakes as soon as a host joins. It must not be able to
+        // save the account while the password is still being checked, or after the check fails.
+        var refresh = account.RefreshStorageAsync(CancellationToken.None);
+        var resume = Task.Run(account.Resume);
+        Assert.NotSame(refresh, await Task.WhenAny(refresh, Task.Delay(TimeSpan.FromSeconds(2))));
+        Assert.NotSame(resume, await Task.WhenAny(resume, Task.Delay(TimeSpan.FromSeconds(2))));
+
+        release.TrySetResult();
+        var wrong = await Assert.ThrowsAsync<LibraryException>(() => recovering);
+        Assert.Equal("invalid_recovery", wrong.Code);
+        Assert.False(account.Joined);
+        var gone = await Assert.ThrowsAsync<LibraryException>(() => refresh);
+        Assert.Equal("not_configured", gone.Code);
+        await resume;
+        Assert.False(account.Joined);
+    }
+
+    [Fact]
+    public async Task A_recovered_host_backs_up_only_once_resumed_and_can_make_a_new_kit()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        // A restic that opens anything: the backup itself is the stand-in service's, not a real one.
+        var restic = Path.Combine(_temporary, "restic");
+        File.WriteAllText(restic, "#!/bin/sh\nexit 0\n");
+        File.SetUnixFileMode(restic, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF" };
+        using var app = new TestHost(Path.Combine(_temporary, "api"), backupService: service,
+            settings: new Dictionary<string, string?> { ["Homebase:Backup:Nightly"] = "false", ["Homebase:Backup:Restic"] = restic });
+        var admin = await app.SignUpAsync();
+        var member = await app.AddUserAsync(admin, "member");
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await member.PostAsJsonAsync("/api/host/backup/recover", new { recovery = service.Recovery, password = "p" })).StatusCode);
+
+        var recovered = await admin.PostAsJsonAsync("/api/host/backup/recover", new { recovery = service.Recovery, password = "the kit's password" });
+
+        Assert.Equal(HttpStatusCode.Created, recovered.StatusCode);
+        Assert.True((await recovered.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("account").GetProperty("paused").GetBoolean());
+        var refused = await admin.PostAsync("/api/host/backup", null);
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Contains("paused", await refused.Content.ReadAsStringAsync());
+
+        Assert.False((await (await admin.PostAsync("/api/host/backup/resume", null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("paused").GetBoolean());
+        Assert.Equal(HttpStatusCode.Accepted, (await admin.PostAsync("/api/host/backup", null)).StatusCode);
+
+        var kit = await admin.PostAsync("/api/host/backup/kit", null);
+        Assert.Equal(HttpStatusCode.Created, kit.StatusCode);
+        var made = (await kit.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("kit");
+        Assert.Equal("the kit's password", made.GetProperty("password").GetString());
+        Assert.Equal(service.Recovery, made.GetProperty("recovery").GetString());
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_temporary, recursive: true); }
@@ -238,10 +479,21 @@ public sealed class BackupAccountTests : IDisposable
 internal sealed class FakeBackupService : HttpMessageHandler
 {
     public const string InvalidInvite = "That invite code isn't one Uncloud Backup knows, or it has been used, or it has expired.";
+    public const string InvalidRecovery = "That recovery token isn't one Uncloud Backup knows, or a newer kit has replaced it.";
 
     public sealed record Request(string Path, string? Authorization, JsonElement Body);
 
     public int Pending { get; set; }
+    /// <summary>The household's recovery token, once one has been made, or set to stand for a kit from before.</summary>
+    public string? Recovery { get; set; }
+    public bool RecoveryFails { get; set; }
+    /// <summary>A host let in with the token that hasn't yet confirmed or withdrawn.</summary>
+    public string? Provisional { get; private set; }
+    public bool ConfirmFails { get; set; }
+    /// <summary>The service confirmed, and the answer never arrived.</summary>
+    public bool ConfirmDrops { get; set; }
+    public int Confirmed { get; private set; }
+    public int Abandoned { get; private set; }
     public TimeSpan RetryAfter { get; set; } = TimeSpan.Zero;
     public bool Unreachable { get; set; }
     public string? Credential { get; private set; }
@@ -269,7 +521,45 @@ internal sealed class FakeBackupService : HttpMessageHandler
                 });
             case "/api/hosts":
                 return Answer(HttpStatusCode.Forbidden, new { error = new { code = "invite_invalid", message = InvalidInvite } });
-            case "/api/host/storage" when request.Headers.Authorization?.Parameter != Credential || Credential is null:
+            case "/api/hosts/recover" when Recovery is not null && body.GetProperty("recovery").GetString() == Recovery:
+                // Let in provisionally: the household's host before goes on working until this confirms.
+                Provisional = "credential-" + Guid.NewGuid().ToString("N");
+                return Answer(HttpStatusCode.Created, new
+                {
+                    household = new { id = "household-1" },
+                    host = new { id = "host-2", name = body.GetProperty("name").GetString() },
+                    credential = Provisional,
+                    recoveryMadeAt = "2026-10-01T09:00:00Z"
+                });
+            case "/api/host/recovery/confirm" when ConfirmFails:
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            case "/api/host/recovery/confirm" when ConfirmDrops && Provisional is not null && request.Headers.Authorization?.Parameter == Provisional:
+                Credential = Provisional;
+                Provisional = null;
+                Confirmed++;
+                throw new HttpRequestException("The connection was closed.");
+            case "/api/host/recovery/confirm" when Provisional is not null && request.Headers.Authorization?.Parameter == Provisional:
+                Credential = Provisional;
+                Provisional = null;
+                Confirmed++;
+                return Answer(HttpStatusCode.OK, new { revoked = 1 });
+            case "/api/host/recovery/confirm" when Credential is not null && request.Headers.Authorization?.Parameter == Credential:
+                return Answer(HttpStatusCode.Conflict, new { error = new { code = "not_recovering", message = "This host isn't taking another's place." } });
+            case "/api/host/recovery/abandon" when Provisional is not null && request.Headers.Authorization?.Parameter == Provisional:
+                Provisional = null;
+                Abandoned++;
+                return Answer(HttpStatusCode.OK, new { withdrawn = true });
+            case "/api/host/recovery/abandon" when Credential is not null && request.Headers.Authorization?.Parameter == Credential:
+                return Answer(HttpStatusCode.Conflict, new { error = new { code = "not_recovering", message = "This host isn't taking another's place." } });
+            case "/api/hosts/recover":
+                return Answer(HttpStatusCode.Forbidden, new { error = new { code = "recovery_invalid", message = InvalidRecovery } });
+            case "/api/host/recovery" when RecoveryFails:
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            case "/api/host/recovery" when Credential is not null && request.Headers.Authorization?.Parameter == Credential:
+                Recovery = "RCVRY-" + string.Join("-", Enumerable.Range(0, 5).Select(_ => Guid.NewGuid().ToString("N")[..5].ToUpperInvariant()));
+                return Answer(HttpStatusCode.Created, new { recovery = Recovery, madeAt = "2026-10-18T12:00:00Z" });
+            case "/api/host/storage" when (request.Headers.Authorization?.Parameter != Credential || Credential is null)
+                                          && (request.Headers.Authorization?.Parameter != Provisional || Provisional is null):
                 return Answer(HttpStatusCode.Unauthorized, new { error = new { code = "not_a_host", message = "That isn't the credential of a host Uncloud Backup knows." } });
             case "/api/host/storage" when Pending > 0:
                 Pending--;

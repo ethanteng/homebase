@@ -37,6 +37,15 @@ public sealed class ControlDatabase(string directory)
         command.ExecuteNonQuery();
     }
 
+    public void RemoveSetting(string key)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM host_settings WHERE key = $key";
+        command.Parameters.AddWithValue("$key", key);
+        command.ExecuteNonQuery();
+    }
+
     public SqliteConnection Open()
     {
         System.IO.Directory.CreateDirectory(directory);

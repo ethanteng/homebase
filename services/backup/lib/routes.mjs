@@ -4,6 +4,7 @@
 import { authenticateHost } from "./hosts.mjs";
 import { body, carries, json, needDatabase, needIdrive, ServiceError } from "./http.mjs";
 import { createInvite, listInvites, redeemInvite } from "./invites.mjs";
+import { abandonRecovery, confirmRecovery, issueRecovery, recoverHost, removeRevokedKeys } from "./recovery.mjs";
 import { advanceSetup, BUDGET, describe, issueHostKey, timeForKey } from "./setup.mjs";
 
 function operatorOnly(request, env) {
@@ -35,6 +36,7 @@ export async function registerHostRoute(request, { db, now }) {
 }
 
 async function theHost(request, db, now) {
+  // Provisional hosts are hosts here too: they get storage, to try a kit's password on, and confirm or withdraw.
   const host = await authenticateHost(needDatabase(db), request, now);
   if (!host) throw new ServiceError(401, "not_a_host", "That isn't the credential of a host Uncloud Backup knows.");
   return host;
@@ -55,6 +57,8 @@ export async function currentHostRoute(request, { db, now }) {
  */
 export async function hostStorageRoute(request, { db, idrive, now, until = Date.now() + BUDGET }) {
   const host = await theHost(request, db, now);
+  // Any key a revoked host of this household still has goes first, if it hasn't already.
+  await removeRevokedKeys(db, needIdrive(idrive), { household: host.household, now });
   const { household, state } = await advanceSetup(db, needIdrive(idrive), host.household, { now, until });
   // The host isn't told what went wrong, only that it did: that's for the operator, who sees it.
   const askAgain = (setup) => json(202, { setup }, { "retry-after": setup.state === "failing" ? "60" : "5" });
@@ -62,6 +66,54 @@ export async function hostStorageRoute(request, { db, idrive, now, until = Date.
   // Ready, but this request has no time left for a key, or another is making this host's key now.
   const storage = timeForKey(until) ? await issueHostKey(db, idrive, household, host, { now }) : null;
   return storage ? json(201, { storage }) : askAgain({ state: "setting_up", step: "host key" });
+}
+
+/**
+ * POST /api/host/recovery: a new recovery token for this host's household, for its recovery kit,
+ * shown this once. Any token before it stops working.
+ */
+export async function makeRecoveryRoute(request, { db, idrive, now }) {
+  const host = await theHost(request, db, now);
+  // A new kit would retire the token this host is still part-way through using.
+  if (host.provisional) {
+    throw new ServiceError(409, "recovering", "Finish taking the lost host's place before making a new recovery kit.");
+  }
+  const issued = await issueRecovery(needDatabase(db), host, now);
+  // The old token's recovery, if one was under way, was retired with it. Its key goes too.
+  if (idrive) await removeRevokedKeys(db, idrive, { household: host.household, now });
+  return json(201, issued);
+}
+
+/**
+ * POST /api/hosts/recover { recovery, name }: a new host, with the household's recovery token, let
+ * in provisionally to take a lost one's place (lib/recovery.mjs). It gets a credential of its own,
+ * shown this once. The household's hosts stay until it confirms, apart from an earlier recovery
+ * still under way, which this retires, and whose key is removed.
+ */
+export async function recoverHostRoute(request, { db, idrive, now }) {
+  const { recovery, name } = await body(request);
+  // Not without iDrive: confirming will have to remove the lost host's key, and only iDrive can.
+  const reach = needIdrive(idrive);
+  const recovered = await recoverHost(needDatabase(db), { token: recovery, name, now });
+  // An earlier recovery this one retired may have been given a key.
+  await removeRevokedKeys(db, reach, { household: recovered.household.id, now });
+  return json(201, recovered);
+}
+
+/**
+ * POST /api/host/recovery/confirm: a provisional host, the kit's password having opened the
+ * backup, taking the lost host's place. The household's other hosts are revoked and their keys
+ * removed.
+ */
+export async function confirmRecoveryRoute(request, { db, idrive, now }) {
+  const host = await theHost(request, db, now);
+  return json(200, await confirmRecovery(db, needIdrive(idrive), host, now));
+}
+
+/** POST /api/host/recovery/abandon: a provisional host withdrawing. Only it is retired. */
+export async function abandonRecoveryRoute(request, { db, idrive, now }) {
+  const host = await theHost(request, db, now);
+  return json(200, await abandonRecovery(db, needIdrive(idrive), host, now));
 }
 
 /** GET /api/operator/households: every household, how far its setup has got, and why it's stuck if it is. */

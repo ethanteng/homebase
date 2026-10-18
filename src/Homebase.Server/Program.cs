@@ -1122,10 +1122,12 @@ static object HostStorage(string root, StorageAllotment allotment)
 // administrator reaches either.
 app.MapGet("/api/host/backup", (BackupService backups) => Results.Ok(backups.Status));
 
-app.MapPost("/api/host/backup", (BackupService backups, IHostApplicationLifetime lifetime) =>
+app.MapPost("/api/host/backup", (BackupService backups, BackupAccount account, IHostApplicationLifetime lifetime) =>
 {
     if (!backups.IsConfigured)
         return Results.Problem("Backups aren't set up on this Uncloud yet.", statusCode: 409);
+    if (account.Paused)
+        return Results.Problem("Backing up is paused while this Uncloud gets back what it needs from the backup. Resume it first.", statusCode: 409);
     // One already running is the one asked for: a second wouldn't back up anything the first won't.
     backups.TryStart(lifetime.ApplicationStopping);
     return Results.Accepted("/api/host/backup", backups.Status);
@@ -1165,7 +1167,27 @@ app.MapGet("/api/host/backup/account", (BackupAccount account) => Results.Ok(acc
 app.MapPost("/api/host/backup/account", async (JoinBackup request, BackupAccount account, CancellationToken cancellationToken) =>
 {
     var joined = await account.JoinAsync(request.Invite, request.Name, cancellationToken);
-    return Results.Created("/api/host/backup/account", new { password = joined.Password, account = joined.Account });
+    return Results.Created("/api/host/backup/account", new { password = joined.Password, kit = joined.Kit, account = joined.Account });
+});
+
+// A new recovery kit: the backup's password, and a recovery token in place of any before it.
+// Shown this once; whoever looks after the host keeps it somewhere away from this computer.
+app.MapPost("/api/host/backup/kit", async (BackupAccount account, CancellationToken cancellationToken) =>
+    Results.Created("/api/host/backup/kit", new { kit = await account.MakeKitAsync(cancellationToken), account = account.Status }));
+
+// Taking a lost host's place with its household's recovery kit. The kit's password has to open the
+// backup, or this host hasn't joined after all and can be given the kit again.
+app.MapPost("/api/host/backup/recover", async (RecoverBackup request, BackupAccount account, BackupService backups, CancellationToken cancellationToken) =>
+{
+    var status = await account.RecoverAsync(request.Recovery, request.Password, request.Name, backups.OpensAsync, cancellationToken);
+    return Results.Created("/api/host/backup/account", new { account = status });
+});
+
+// Backing up again, after a host that opened a lost one's backup has got back what it needs.
+app.MapPost("/api/host/backup/resume", (BackupAccount account) =>
+{
+    account.Resume();
+    return Results.Ok(account.Status);
 });
 
 // What a v0 library left sitting at the top of the host's folder, belonging to no account.
@@ -1495,6 +1517,7 @@ public static class Sources
 public sealed record ImportRequest(string? RemotePath, string? Label, string? Source, IReadOnlyList<string>? RemotePaths = null);
 public sealed record AddPlace(string? Path, string? Name);
 public sealed record JoinBackup(string? Invite, string? Name);
+public sealed record RecoverBackup(string? Recovery, string? Password, string? Name);
 public sealed record RestoreFromBackup(IReadOnlyList<string>? Paths);
 public sealed record SharePlace(bool Shared);
 public sealed record SetDropboxAppKey(string? AppKey);

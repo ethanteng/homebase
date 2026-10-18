@@ -67,6 +67,35 @@ export const migrations = [
         add column key_lease_until timestamptz;
     `,
   },
+  {
+    name: "003_recovery",
+    sql: `
+      -- The household's recovery token, from its recovery kit: only its hash, the token being in
+      -- the kit and nowhere else. With it a new host can take the place of a lost one. Making a
+      -- new kit replaces it, which is the only way an old one stops working.
+      alter table households
+        add column recovery_hash text unique,
+        add column recovery_made_at timestamptz;
+
+      -- When a revoked host's e2 key was removed. Until then it might still reach the bucket, so
+      -- removing it is tried again until it's done (recovery.mjs, removeRevokedKeys).
+      --
+      -- A host that has used the recovery token but not yet shown it has the kit's password is
+      -- provisional until then: it may get storage to try the password on, and nothing else. If it
+      -- neither confirms nor withdraws by this time, it's retired, as if it had withdrawn.
+      alter table hosts
+        add column key_removed_at timestamptz,
+        add column provisional_until timestamptz;
+    `,
+  },
+  {
+    name: "004_provisional_host",
+    sql: `
+      -- The same column as 003_recovery. That migration was edited to add it before it had merged,
+      -- and a database that already applied the earlier 003 does not run it again.
+      alter table hosts add column if not exists provisional_until timestamptz;
+    `,
+  },
 ];
 
 // Any number will do, as long as nothing else in the database takes the same advisory lock.

@@ -524,6 +524,16 @@ public sealed class BackupTests : IDisposable
     }
 
     [Fact]
+    public async Task Only_the_backups_own_password_opens_it()
+    {
+        Assert.Null(await Backups().OpensAsync(CancellationToken.None));
+        await Backups().RunAsync(CancellationToken.None);
+
+        Assert.True(await Backups().OpensAsync(CancellationToken.None));
+        Assert.False(await Backups(target: new BackupTarget(Repository, "not the password")).OpensAsync(CancellationToken.None));
+    }
+
+    [Fact]
     public async Task With_no_backup_yet_there_is_nothing_to_check()
     {
         var backups = Backups();

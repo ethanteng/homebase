@@ -104,8 +104,12 @@ export function describe(household, now = new Date()) {
  * null, to ask again.
  */
 export async function issueHostKey(db, idrive, household, host, { now = new Date() } = {}) {
+  // A revoked host gets no key. Recovery can land between this and the key actually being made,
+  // which is checked again below: a key made after key_removed_at was set would otherwise stay.
   const { rows: [held] } = await db.query(
-    "update hosts set key_lease_until = $2 where id = $1 and (key_lease_until is null or key_lease_until < $3) returning id",
+    `update hosts set key_lease_until = $2
+     where id = $1 and revoked_at is null and (key_lease_until is null or key_lease_until < $3)
+     returning id`,
     [host.id, new Date(now.getTime() + LEASE_SECONDS * 1000), now]);
   if (!held) return null;
 
@@ -123,12 +127,24 @@ export async function issueHostKey(db, idrive, household, host, { now = new Date
       disable_delete_version: true,
       bypass_governance_retention: false,
     });
+    if (await takeBackRevokedKey(db, idrive.reseller, account, host.id, now)) return null;
     const s3 = idrive.s3(household.storage_dn, key);
     await untilWorks(() => s3.send(new ListObjectsV2Command({ Bucket: household.bucket, MaxKeys: 1 })), idrive.patience);
-    await db.query("update hosts set key_id = $2, key_issued_at = $3, key_lease_until = null where id = $1",
+    if (await takeBackRevokedKey(db, idrive.reseller, account, host.id, now)) return null;
+    const { rows: [saved] } = await db.query(
+      "update hosts set key_id = $2, key_issued_at = $3, key_lease_until = null where id = $1 and revoked_at is null returning id",
       [host.id, key.accessKeyId, now]);
+    // Revoked in this moment, so the key was made but must not be handed out or left in the bucket.
+    if (!saved) {
+      await takeBackRevokedKey(db, idrive.reseller, account, host.id, now);
+      return null;
+    }
+    if (await takeBackRevokedKey(db, idrive.reseller, account, host.id, now)) return null;
   } catch (error) {
     await db.query("update hosts set key_lease_until = null where id = $1", [host.id]).catch(() => {});
+    // The key may exist even though this threw (iDrive did the work and the answer was lost). If
+    // the host was revoked meanwhile, that key has to be picked up again rather than left for good.
+    await takeBackRevokedKey(db, idrive.reseller, account, host.id, now).catch(() => {});
     throw error;
   }
   return {
@@ -138,6 +154,22 @@ export async function issueHostKey(db, idrive, household, host, { now = new Date
     accessKeyId: key.accessKeyId,
     secretAccessKey: key.secretAccessKey,
   };
+}
+
+/**
+ * A host revoked while its key was being made must not keep that key. An earlier cleanup may
+ * already have recorded that the previous key is gone, so that mark is cleared until this one is
+ * too: otherwise nothing comes back for a key made afterwards. Returns whether the host was revoked.
+ */
+async function takeBackRevokedKey(db, reseller, account, hostId, now) {
+  const { rows: [row] } = await db.query("select revoked_at from hosts where id = $1", [hostId]);
+  if (!row?.revoked_at) return false;
+  await db.query("update hosts set key_removed_at = null, key_id = null, key_lease_until = null where id = $1", [hostId]);
+  await removeKeysNamed(reseller, account, `host-${hostId}`);
+  await db.query(
+    "update hosts set key_removed_at = $2 where id = $1 and revoked_at is not null",
+    [hostId, now]);
+  return true;
 }
 
 /** Whether there's time left in this request to give a host its key. */

@@ -4,12 +4,15 @@ import {
   CircleCheck,
   CloudUpload,
   Copy,
+  Download,
+  KeyRound,
   LoaderCircle,
+  Pause,
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize } from "./api";
-import type { BackupAccount, BackupCheck, BackupJoined, BackupSnapshots, BackupStatus } from "./api";
+import type { BackupAccount, BackupCheck, BackupJoined, BackupKit, BackupSnapshots, BackupStatus } from "./api";
 
 /** How often it looks again while something is under way: storage being set up, or a backup running. */
 const UNDER_WAY_EVERY = 5000;
@@ -25,27 +28,57 @@ const STEPS: Record<string, string> = {
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 /**
- * The join under way, and the password it brought until whoever joined says they've kept it. Kept
- * here rather than in the panel, which goes whenever Settings is closed: the password is sent once,
- * so a panel closed mid-join, or before Done, would otherwise take it with it. Reopening Settings
- * picks both up again.
+ * A recovery kit being shown: always the backup's password, and the recovery token unless joining
+ * couldn't get one yet.
  */
-const unsaved: { joining: Promise<BackupJoined> | null; password: string | null } = {
+interface ShownKit {
+  password: string;
+  recovery: string | null;
+  household: string | null;
+  madeAt: string | null;
+}
+
+/**
+ * The join under way, and the kit it brought until whoever joined says they've kept it. Kept here
+ * rather than in the panel, which goes whenever Settings is closed: a kit is sent once, so a panel
+ * closed mid-join, or before Done, would otherwise take it with it. Reopening Settings picks both
+ * up again.
+ */
+const unsaved: { joining: Promise<BackupJoined> | null; kit: ShownKit | null } = {
   joining: null,
-  password: null,
+  kit: null,
 };
 
 /** Only for the tests, which start each one afresh. */
 export function forgetUnsaved() {
   unsaved.joining = null;
-  unsaved.password = null;
+  unsaved.kit = null;
 }
 
-/** Asks before the page is left or reloaded while a password is still to be kept. */
+/** Asks before the page is left or reloaded while a kit is still to be kept. */
 function warnBeforeLeaving(event: BeforeUnloadEvent) {
-  if (!unsaved.password) return;
+  if (!unsaved.kit) return;
   event.preventDefault();
   event.returnValue = "";
+}
+
+const kitOf = (kit: BackupKit): ShownKit => ({ ...kit });
+
+/** The kit as a file to keep: what's in it, and what to do with it on the day it's needed. */
+function kitText(kit: ShownKit) {
+  return [
+    "Uncloud Backup recovery kit",
+    kit.madeAt ? `Made ${when.format(new Date(kit.madeAt))}${kit.household ? ` for household ${kit.household}` : ""}` : "",
+    "",
+    `Backup password: ${kit.password}`,
+    kit.recovery ? `Recovery token:  ${kit.recovery}` : "Recovery token:  (not made yet: make a recovery kit in Settings)",
+    "",
+    "Keep this somewhere safe, away from the computer Uncloud runs on.",
+    "If that computer is lost, set Uncloud up on another, then in Settings,",
+    "under Backing up offsite, choose “Use a recovery kit” and type both in.",
+    "Making a new kit replaces this one, and this one stops working.",
+    "",
+  ].join("\n");
 }
 
 /**
@@ -64,13 +97,18 @@ export default function HostBackup({ onChanged }: Props = {}) {
   const [check, setCheck] = useState<BackupCheck | null>(null);
   const [keptBackups, setKeptBackups] = useState<BackupSnapshots["snapshots"] | null>(null);
   const [invite, setInvite] = useState("");
-  // The backup's password, from the moment of joining until whoever joined says they've kept it.
-  const [password, setPassword] = useState<string | null>(unsaved.password);
+  // The recovery kit, from the moment it's made until whoever made it says they've kept it.
+  const [kit, setKit] = useState<ShownKit | null>(unsaved.kit);
   const [kept, setKept] = useState(false);
-  const [copied, setCopied] = useState<"copied" | "select" | null>(null);
+  const [copied, setCopied] = useState<{ what: "password" | "recovery"; how: "copied" | "select" } | null>(null);
   const [busy, setBusy] = useState(unsaved.joining !== null);
   const [error, setError] = useState("");
-  const code = useRef<HTMLElement>(null);
+  // Taking a lost Uncloud's place with its kit, instead of joining with an invite.
+  const [recovering, setRecovering] = useState(false);
+  const [recovery, setRecovery] = useState("");
+  const [kitPassword, setKitPassword] = useState("");
+  const passwordCode = useRef<HTMLElement>(null);
+  const recoveryCode = useRef<HTMLElement>(null);
 
   const read = useCallback(async (signal?: AbortSignal) => {
     const [nextAccount, nextStatus] = await Promise.all([
@@ -153,8 +191,9 @@ export default function HostBackup({ onChanged }: Props = {}) {
     setError("");
     try {
       const joined = await joining;
-      unsaved.password = joined.password;
-      setPassword(joined.password);
+      const shown = joined.kit ? kitOf(joined.kit) : { password: joined.password, recovery: null, household: null, madeAt: null };
+      unsaved.kit = shown;
+      setKit(shown);
       setKept(false);
       setAccount(joined.account);
       setStatus(await api<BackupStatus>("/host/backup"));
@@ -167,8 +206,70 @@ export default function HostBackup({ onChanged }: Props = {}) {
   }
 
   function done() {
-    unsaved.password = null;
-    setPassword(null);
+    unsaved.kit = null;
+    setKit(null);
+  }
+
+  async function makeKit() {
+    if (
+      account?.recoveryKitMadeAt &&
+      !window.confirm(
+        `Make a new recovery kit? The one made ${when.format(new Date(account.recoveryKitMadeAt))} stops working.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      const made = await api<{ kit: BackupKit; account: BackupAccount }>("/host/backup/kit", { method: "POST" });
+      unsaved.kit = kitOf(made.kit);
+      setKit(unsaved.kit);
+      setKept(false);
+      setAccount(made.account);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Couldn’t make a recovery kit.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recover() {
+    setBusy(true);
+    setError("");
+    try {
+      const recovered = await api<{ account: BackupAccount }>("/host/backup/recover", {
+        method: "POST",
+        body: JSON.stringify({ recovery: recovery.trim(), password: kitPassword.trim() }),
+      });
+      setAccount(recovered.account);
+      setKitPassword("");
+      setRecovery("");
+      setStatus(await api<BackupStatus>("/host/backup"));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Couldn’t open the household’s backup.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resume() {
+    setBusy(true);
+    setError("");
+    try {
+      setAccount(await api<BackupAccount>("/host/backup/resume", { method: "POST" }));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Couldn’t resume backing up.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function download(shown: ShownKit) {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([kitText(shown)], { type: "text/plain" }));
+    link.download = "Uncloud recovery kit.txt";
+    link.click();
+    URL.revokeObjectURL(link.href);
   }
 
   async function backUpNow() {
@@ -196,17 +297,17 @@ export default function HostBackup({ onChanged }: Props = {}) {
   }
 
   // Said to be copied only once it is. Where the browser won't let a page copy (over plain HTTP
-  // from another computer, say), the password is selected instead, for copying by hand.
-  async function copy() {
-    if (!password) return;
+  // from another computer, say), what was asked for is selected instead, for copying by hand.
+  async function copy(what: "password" | "recovery", text: string) {
     try {
       if (!navigator.clipboard) throw new Error("No clipboard here.");
-      await navigator.clipboard.writeText(password);
-      setCopied("copied");
+      await navigator.clipboard.writeText(text);
+      setCopied({ what, how: "copied" });
       window.setTimeout(() => setCopied(null), 2000);
     } catch {
-      if (code.current) window.getSelection()?.selectAllChildren(code.current);
-      setCopied("select");
+      const element = (what === "password" ? passwordCode : recoveryCode).current;
+      if (element) window.getSelection()?.selectAllChildren(element);
+      setCopied({ what, how: "select" });
     }
   }
 
@@ -219,29 +320,54 @@ export default function HostBackup({ onChanged }: Props = {}) {
     </div>
   );
 
-  if (password) {
+  if (kit) {
+    const copyButton = (what: "password" | "recovery", text: string) => (
+      <button type="button" className="button secondary" onClick={() => void copy(what, text)}>
+        {copied?.what === what && copied.how === "copied" ? <Check size={16} /> : <Copy size={16} />}
+        {copied?.what === what && copied.how === "copied" ? "Copied" : "Copy"}
+      </button>
+    );
     return (
       <section className="import-section host-backup">
         {heading}
         <p className="field-help">
-          <strong>This is your backup’s password.</strong> Everything is encrypted with it on this
-          computer before it leaves, so nobody else can read your backup: not iDrive, not Uncloud.
-          It also means nobody can open the backup without it if this computer is lost or broken.
+          <strong>This is your recovery kit.</strong> Everything is encrypted with the password on this
+          computer before it leaves, so nobody else can read your backup: not iDrive, not Uncloud. It
+          also means nobody can open the backup without the kit if this computer is lost or broken.
+          With it, another computer running Uncloud can take this one’s place and get everything back.
         </p>
+        <span className="backup-kit-label">Backup password</span>
         <div className="pairing-code backup-password">
-          <code ref={code} aria-label="Your backup’s password">
-            {password}
+          <code ref={passwordCode} aria-label="Your backup’s password">
+            {kit.password}
           </code>
-          <button type="button" className="button secondary" onClick={() => void copy()}>
-            {copied === "copied" ? <Check size={16} /> : <Copy size={16} />}
-            {copied === "copied" ? "Copied" : "Copy"}
-          </button>
+          {copyButton("password", kit.password)}
         </div>
-        {copied === "select" && (
+        {kit.recovery ? (
+          <>
+            <span className="backup-kit-label">Recovery token</span>
+            <div className="pairing-code backup-password">
+              <code ref={recoveryCode} aria-label="Your recovery token">
+                {kit.recovery}
+              </code>
+              {copyButton("recovery", kit.recovery)}
+            </div>
+          </>
+        ) : (
+          <p className="field-help">
+            The recovery token couldn’t be made just now. Once storage is set up, make a recovery kit
+            from here: it has this password in it too.
+          </p>
+        )}
+        {copied?.how === "select" && (
           <p className="field-help" role="status">
             This browser didn’t let Uncloud copy it. It’s selected: copy it with ⌘C or Ctrl+C.
           </p>
         )}
+        <button type="button" className="button secondary" onClick={() => download(kit)}>
+          <Download size={16} />
+          Download the kit
+        </button>
         <p className="field-help warning-text">
           Keep it somewhere safe away from this computer, like a password manager, or printed and put
           away. This is the only time Uncloud shows it.
@@ -250,15 +376,75 @@ export default function HostBackup({ onChanged }: Props = {}) {
           <input type="checkbox" checked={kept} onChange={(event) => setKept(event.target.checked)} />
           I’ve kept it somewhere safe
         </label>
-        <button
-          type="button"
-          className="button primary"
-          disabled={!kept}
-          onClick={done}
-        >
+        <button type="button" className="button primary" disabled={!kept} onClick={done}>
           <Check size={16} />
           Done
         </button>
+      </section>
+    );
+  }
+
+  if (!account.joined && !status.configured && recovering) {
+    return (
+      <section className="import-section host-backup">
+        {heading}
+        <p className="field-help">
+          Taking the place of an Uncloud that’s been lost? Type in its household’s recovery kit. This
+          Uncloud then opens that backup, and the lost one’s key stops working.
+        </p>
+        <label htmlFor="backup-recovery">Recovery token</label>
+        <input
+          id="backup-recovery"
+          className="path-input"
+          value={recovery}
+          onChange={(event) => setRecovery(event.target.value)}
+          placeholder="K7QMX-3XPD9-TWAHF-2RBCD-EFGHJ-KLMNP"
+          autoComplete="off"
+          spellCheck={false}
+          disabled={busy}
+        />
+        <label htmlFor="backup-kit-password">Backup password</label>
+        <input
+          id="backup-kit-password"
+          className="path-input"
+          value={kitPassword}
+          onChange={(event) => setKitPassword(event.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+          disabled={busy}
+        />
+        {busy && (
+          <p className="field-help" role="status">
+            Opening the household’s backup…
+          </p>
+        )}
+        {error && (
+          <p className="error-message" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="backup-actions">
+          <button
+            type="button"
+            className="button primary"
+            disabled={busy || !recovery.trim() || !kitPassword.trim()}
+            onClick={() => void recover()}
+          >
+            {busy ? <LoaderCircle size={16} className="spin" /> : <KeyRound size={16} />}
+            Open the backup
+          </button>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={busy}
+            onClick={() => {
+              setRecovering(false);
+              setError("");
+            }}
+          >
+            Join with an invite instead
+          </button>
+        </div>
       </section>
     );
   }
@@ -301,6 +487,20 @@ export default function HostBackup({ onChanged }: Props = {}) {
           {busy ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}
           Join
         </button>
+        <p className="field-help">
+          Replacing an Uncloud that’s been lost?{" "}
+          <button
+            type="button"
+            className="link-button"
+            disabled={busy}
+            onClick={() => {
+              setRecovering(true);
+              setError("");
+            }}
+          >
+            Use a recovery kit
+          </button>
+        </p>
       </section>
     );
   }
@@ -330,6 +530,15 @@ export default function HostBackup({ onChanged }: Props = {}) {
         )
       ) : (
         <>
+          {account.paused && (
+            <p className="backup-line">
+              <Pause size={14} className="backup-warn" />
+              <span>
+                This Uncloud has opened its household’s backup and isn’t adding to it yet. Get back what
+                you need from Backups first, then resume backing up.
+              </span>
+            </p>
+          )}
           <LastBackup status={status} />
           <p className="field-help">
             {keptBackups?.length === 1 && `1 backup kept, from ${when.format(new Date(keptBackups[0].time))}. `}
@@ -339,16 +548,37 @@ export default function HostBackup({ onChanged }: Props = {}) {
             leaves.
           </p>
           {check && <LastCheck check={check} />}
+          {account.joined &&
+            (account.recoveryKitMadeAt ? (
+              <p className="backup-line">
+                <KeyRound size={14} />
+                <span>Recovery kit made {when.format(new Date(account.recoveryKitMadeAt))}.</span>
+              </p>
+            ) : (
+              <p className="backup-line">
+                <TriangleAlert size={14} className="backup-warn" />
+                <span>
+                  No recovery kit yet. Without one, nobody can get this backup back if this computer is
+                  lost.
+                </span>
+              </p>
+            ))}
           {error && (
             <p className="error-message" role="alert">
               {error}
             </p>
           )}
           <div className="backup-actions">
+            {account.paused && (
+              <button type="button" className="button primary" disabled={busy} onClick={() => void resume()}>
+                <CloudUpload size={16} />
+                Resume backing up
+              </button>
+            )}
             <button
               type="button"
               className="button secondary"
-              disabled={busy || status.running}
+              disabled={busy || status.running || account.paused}
               onClick={() => void backUpNow()}
             >
               {status.running ? <LoaderCircle size={16} className="spin" /> : <CloudUpload size={16} />}
@@ -363,6 +593,12 @@ export default function HostBackup({ onChanged }: Props = {}) {
               >
                 {check.running ? <LoaderCircle size={16} className="spin" /> : <ShieldCheck size={16} />}
                 Verify the backup
+              </button>
+            )}
+            {account.joined && (
+              <button type="button" className="button secondary" disabled={busy} onClick={() => void makeKit()}>
+                <KeyRound size={16} />
+                {account.recoveryKitMadeAt ? "Make a new recovery kit" : "Make a recovery kit"}
               </button>
             )}
           </div>
