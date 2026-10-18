@@ -12,9 +12,9 @@ import {
 } from "@aws-sdk/client-s3";
 
 /**
- * How long each version is locked, and how long a replaced or deleted one is kept. Not yet decided
- * (docs/backup.md, "The lock period"): 30 days is the design's starting point. Changing it changes
- * what new versions get, never the lock on one already written.
+ * How long each version is locked, and how long a replaced or deleted one is kept (docs/backup.md,
+ * "The lock period"). iDrive bills old versions until the expiry rule removes them, which it does.
+ * Changing these changes what new versions get, never the lock on one already written.
  */
 export const LOCK_DAYS = 30;
 export const EXPIRE_DAYS = 30;
