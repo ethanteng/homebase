@@ -12,7 +12,7 @@ import { authenticateHost } from "../lib/hosts.mjs";
 import { createInvite, redeemInvite } from "../lib/invites.mjs";
 import { newRecoveryToken, normaliseRecovery } from "../lib/recovery.mjs";
 import { hostStorageRoute, makeRecoveryRoute, recoverHostRoute } from "../lib/routes.mjs";
-import { advanceSetup } from "../lib/setup.mjs";
+import { advanceSetup, issueHostKey } from "../lib/setup.mjs";
 import { nightly } from "../lib/nightly.mjs";
 
 const NOW = new Date("2026-10-18T12:00:00Z");
@@ -146,6 +146,28 @@ test("a lost host's key iDrive couldn't remove at first is removed by the next s
     assert.deepEqual(await nightly({ db, idrive, now: later(3600) }), { ran: [{ job: "revoked keys", removed: 1, failed: 0 }] });
     assert.deepEqual(hostKeys(idrive, joined), []);
     assert.deepEqual(await nightly({ db, idrive, now: later(7200) }), { ran: [{ job: "revoked keys", removed: 0, failed: 0 }] });
+  });
+});
+
+test("a key made after its host was revoked does not stay in the bucket", async () => {
+  await withHousehold(async ({ db, idrive, joined }) => {
+    const { rows: [household] } = await db.query("select * from households where id = $1", [joined.household.id]);
+    const host = { id: joined.host.id };
+    const original = idrive.reseller.createAccessKey.bind(idrive.reseller);
+    // Recovery has revoked this host and recorded the key it had as gone, while this request,
+    // already past its lease, is still making a replacement.
+    idrive.reseller.createAccessKey = async (options) => {
+      await db.query("update hosts set revoked_at = $2, key_removed_at = $2 where id = $1", [host.id, later(90)]);
+      return original(options);
+    };
+
+    assert.equal(await issueHostKey(db, idrive, household, host, { now: later(90) }), null);
+
+    assert.deepEqual(hostKeys(idrive, joined), [], "the key made for the revoked host is removed again");
+    const { rows: [row] } = await db.query("select key_removed_at, key_lease_until, key_id from hosts where id = $1", [host.id]);
+    assert.ok(row.key_removed_at);
+    assert.equal(row.key_lease_until, null);
+    assert.equal(row.key_id, null);
   });
 });
 
