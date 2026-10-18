@@ -274,6 +274,7 @@ public sealed class BackupAccountTests : IDisposable
         Assert.True(status.Joined);
         Assert.True(status.Paused);
         Assert.Equal("ready", status.Storage);
+        Assert.Equal(DateTimeOffset.Parse("2026-10-01T09:00:00Z"), status.RecoveryKitMadeAt);
         Assert.Equal(password, account.Target?.Password);
         Assert.Equal($"Bearer {service.Credential}", service.Requests[^1].Authorization);
         Assert.DoesNotContain(password, Kept());
@@ -299,6 +300,26 @@ public sealed class BackupAccountTests : IDisposable
         Assert.False(account.Joined);
         // The same kit, with the right password, still works.
         Assert.True((await account.RecoverAsync(service.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None)).Joined);
+    }
+
+    [Fact]
+    public async Task A_recovery_whose_password_cant_be_checked_yet_leaves_the_host_as_it_was()
+    {
+        // Storage not handed over, so there's nothing to try the password on.
+        var waiting = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF", Pending = int.MaxValue };
+        var account = Account(waiting);
+        var unavailable = await Assert.ThrowsAsync<LibraryException>(() =>
+            account.RecoverAsync(waiting.Recovery, "password", null, _ => Task.FromResult<bool?>(true), CancellationToken.None));
+        Assert.Equal("unavailable", unavailable.Code);
+        Assert.False(account.Joined);
+
+        // Storage here, but the check itself fails.
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF" };
+        var other = Account(service, Path.Combine(_temporary, "other"));
+        await Assert.ThrowsAsync<LibraryException>(() => other.RecoverAsync(service.Recovery, "password", null,
+            _ => throw new LibraryException("Uncloud couldn’t open the backup. Try again in a minute.", "unavailable"), CancellationToken.None));
+        Assert.False(other.Joined);
+        Assert.Null(other.Target);
     }
 
     [Fact]
@@ -392,7 +413,8 @@ internal sealed class FakeBackupService : HttpMessageHandler
                 {
                     household = new { id = "household-1" },
                     host = new { id = "host-2", name = body.GetProperty("name").GetString() },
-                    credential = Credential
+                    credential = Credential,
+                    recoveryMadeAt = "2026-10-01T09:00:00Z"
                 });
             case "/api/hosts/recover":
                 return Answer(HttpStatusCode.Forbidden, new { error = new { code = "recovery_invalid", message = InvalidRecovery } });

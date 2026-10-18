@@ -1,12 +1,15 @@
 import { fromVercelCron } from "../../lib/cron.mjs";
+import { database, ready } from "../../lib/db.mjs";
+import { connectIdrive } from "../../lib/idrive.mjs";
+import { nightly } from "../../lib/nightly.mjs";
 
-// Vercel Cron's nightly call (vercel.json). What it's for comes with the service's first real work:
-// checking every household's bucket is still protected and putting right what isn't, reading usage,
-// and carrying out removals once their delay is up (docs/backup.md). For now it only makes sure it's
-// Vercel calling.
+// Vercel Cron's nightly call (vercel.json). See lib/nightly.mjs for what it does. Only Vercel gets
+// in, by the cron secret.
 export async function GET(request) {
   if (!fromVercelCron(request, process.env.CRON_SECRET)) {
     return new Response("Only Vercel Cron calls this.", { status: 401 });
   }
-  return Response.json({ ran: [] }, { headers: { "cache-control": "no-store" } });
+  const db = database();
+  const done = await nightly({ db: db ? await ready(db) : null, idrive: connectIdrive(process.env), now: new Date() });
+  return Response.json(done, { headers: { "cache-control": "no-store" } });
 }

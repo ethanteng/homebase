@@ -16,8 +16,12 @@ public sealed record BackupStorage(string Endpoint, string Region, string Bucket
 /// </summary>
 public sealed record StorageAnswer(BackupStorage? Storage, string? State, string? Step, TimeSpan RetryAfter);
 
-/// <summary>A host the service has just let in: its household, itself, and the credential it's known by.</summary>
-public sealed record BackupRegistration(string HouseholdId, string HostId, string HostName, string Credential);
+/// <summary>
+/// A host the service has just let in: its household, itself, and the credential it's known by, and
+/// when the household's recovery kit in use was made, where there is one.
+/// </summary>
+public sealed record BackupRegistration(
+    string HouseholdId, string HostId, string HostName, string Credential, DateTimeOffset? RecoveryMadeAt = null);
 
 /// <summary>
 /// Uncloud Backup's service (services/backup in this repository), as a host talks to it. Its errors
@@ -43,7 +47,8 @@ public sealed class BackupServiceClient(HttpClient http, Uri service)
         body.GetProperty("household").GetProperty("id").GetString()!,
         body.GetProperty("host").GetProperty("id").GetString()!,
         body.GetProperty("host").GetProperty("name").GetString()!,
-        body.GetProperty("credential").GetString()!);
+        body.GetProperty("credential").GetString()!,
+        body.TryGetProperty("recoveryMadeAt", out var made) && made.ValueKind == JsonValueKind.String ? made.GetDateTimeOffset() : null);
 
     /// <summary>A new recovery token for this host's household, in place of any before it.</summary>
     public async Task<(string Recovery, DateTimeOffset MadeAt)> IssueRecoveryAsync(string credential, CancellationToken cancellationToken)
@@ -298,9 +303,11 @@ public sealed class BackupAccount(
     /// Takes a lost host's place in its household with the household's recovery kit: the token
     /// gets this host a credential, the lost one's revoked, and the kit's password is the one the
     /// backup opens with. Backing up starts paused, so nothing this host has yet is added to the
-    /// backup before what's needed from it has been got back. Once storage is here,
-    /// <paramref name="opens"/> says whether the kit's password opens the backup; if it doesn't, this
-    /// host forgets it joined, so the kit can be given again.
+    /// backup before what's needed from it has been got back. It counts as joined only once
+    /// <paramref name="opens"/> has said the kit's password opens the backup, or that there's nothing
+    /// backed up there yet to open. Anything short of that, whether storage that isn't handed over,
+    /// a check that can't be made or a password the backup doesn't take, and this host forgets it
+    /// joined, so the kit can be given again: its token goes on working until a new kit replaces it.
     /// </summary>
     public async Task<BackupAccountStatus> RecoverAsync(
         string? recovery, string? password, string? name, Func<CancellationToken, Task<bool?>> opens, CancellationToken cancellationToken)
@@ -318,7 +325,7 @@ public sealed class BackupAccount(
             Save(new Saved(
                 service.Service.ToString(), registration.HouseholdId, registration.HostId, registration.HostName,
                 _time.GetUtcNow(), Seal(registration.Credential, CredentialContext), Seal(password.Trim(), PasswordContext),
-                null, "setting_up", null, Paused: true));
+                null, "setting_up", null, RecoveryMadeAt: registration.RecoveryMadeAt, Paused: true));
             logger.LogInformation("Took a lost host's place in household {Household} as host {Host}", registration.HouseholdId, registration.HostId);
             if (_joined.CurrentCount == 0) _joined.Release();
         }
@@ -326,13 +333,23 @@ public sealed class BackupAccount(
         {
             _changing.Release();
         }
-        // The household is set up already, so its storage is usually there at once.
-        try { await RefreshStorageAsync(cancellationToken); }
-        catch (LibraryException error)
+        bool? opened;
+        try
         {
-            logger.LogWarning("Opened the household's backup, but its storage isn't here yet: {Message}", error.Message);
+            // The household is set up already, so its storage is usually there at once.
+            await RefreshStorageAsync(cancellationToken);
+            if (Target is null)
+                throw new LibraryException(
+                    "Uncloud Backup couldn’t hand this Uncloud the household’s storage just now, so the kit couldn’t be "
+                    + "checked. Try again in a minute: the kit still works.", "unavailable");
+            opened = await opens(cancellationToken);
         }
-        if (Target is not null && await opens(cancellationToken) == false)
+        catch
+        {
+            Forget();
+            throw;
+        }
+        if (opened == false)
         {
             Forget();
             throw new LibraryException(

@@ -13,6 +13,7 @@ import { createInvite, redeemInvite } from "../lib/invites.mjs";
 import { newRecoveryToken, normaliseRecovery } from "../lib/recovery.mjs";
 import { hostStorageRoute, makeRecoveryRoute, recoverHostRoute } from "../lib/routes.mjs";
 import { advanceSetup } from "../lib/setup.mjs";
+import { nightly } from "../lib/nightly.mjs";
 
 const NOW = new Date("2026-10-18T12:00:00Z");
 const later = (seconds) => new Date(NOW.getTime() + seconds * 1000);
@@ -80,6 +81,7 @@ test("a new host takes a lost one's place with the token, and the lost one's cre
 
     assert.equal(answer.status, 201);
     const recovered = await answer.json();
+    assert.equal(recovered.recoveryMadeAt, later(60).toISOString(), "the kit used is still the one in use");
     assert.equal(recovered.household.id, joined.household.id);
     assert.equal(recovered.host.name, "New Mac");
     assert.notEqual(recovered.host.id, joined.host.id);
@@ -104,6 +106,55 @@ test("the same kit works again if a recovery goes wrong partway, and each use re
     assert.ok(await authenticateHost(db, asking("/api/host", { token: second.credential }), later(61)));
     const { rows } = await db.query("select count(*)::int as live from hosts where revoked_at is null");
     assert.equal(rows[0].live, 1);
+  });
+});
+
+test("a lost host's key iDrive couldn't remove at first is removed by the next storage request, or overnight", async () => {
+  await withHousehold(async ({ db, idrive, joined, deps }) => {
+    const { recovery } = await (await makeRecoveryRoute(asking("/api/host/recovery", { method: "POST", token: joined.credential }), deps)).json();
+    idrive.failOnce("listAccessKeys");
+    const original = console.error;
+    console.error = () => {};
+    let recovered;
+    try {
+      recovered = await (await recoverHostRoute(asking("/api/hosts/recover", { method: "POST", body: { recovery } }), deps)).json();
+    } finally {
+      console.error = original;
+    }
+    assert.deepEqual(hostKeys(idrive, joined), [`host-${joined.host.id}`], "still there, for now");
+    const { rows: [pending] } = await db.query("select key_removed_at from hosts where id = $1", [joined.host.id]);
+    assert.equal(pending.key_removed_at, null);
+
+    assert.equal((await hostStorageRoute(asking("/api/host/storage", { method: "POST", token: recovered.credential }), { ...deps, now: later(120) })).status, 201);
+
+    assert.deepEqual(hostKeys(idrive, joined), [`host-${recovered.host.id}`], "the lost host's key is gone, the new host's given");
+    const { rows: [done] } = await db.query("select key_removed_at from hosts where id = $1", [joined.host.id]);
+    assert.ok(done.key_removed_at);
+  });
+
+  await withHousehold(async ({ db, idrive, joined, deps }) => {
+    const { recovery } = await (await makeRecoveryRoute(asking("/api/host/recovery", { method: "POST", token: joined.credential }), deps)).json();
+    idrive.failOnce("listAccessKeys");
+    const original = console.error;
+    console.error = () => {};
+    try {
+      await recoverHostRoute(asking("/api/hosts/recover", { method: "POST", body: { recovery } }), deps);
+    } finally {
+      console.error = original;
+    }
+
+    assert.deepEqual(await nightly({ db, idrive, now: later(3600) }), { ran: [{ job: "revoked keys", removed: 1, failed: 0 }] });
+    assert.deepEqual(hostKeys(idrive, joined), []);
+    assert.deepEqual(await nightly({ db, idrive, now: later(7200) }), { ran: [{ job: "revoked keys", removed: 0, failed: 0 }] });
+  });
+});
+
+test("a recovery is refused where the service can't reach iDrive to remove the lost host's key", async () => {
+  await withHousehold(async ({ db, joined, deps }) => {
+    const { recovery } = await (await makeRecoveryRoute(asking("/api/host/recovery", { method: "POST", token: joined.credential }), deps)).json();
+    await assert.rejects(recoverHostRoute(asking("/api/hosts/recover", { method: "POST", body: { recovery } }), { ...deps, idrive: null }),
+      refused("no_idrive"));
+    assert.ok(await authenticateHost(db, asking("/api/host", { token: joined.credential }), later(61)), "nothing was revoked");
   });
 });
 

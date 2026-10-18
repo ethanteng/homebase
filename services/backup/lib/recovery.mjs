@@ -45,8 +45,8 @@ export async function issueRecovery(db, host, now = new Date()) {
  * wrong partway can be tried again with the same kit.
  *
  * The revoked hosts' e2 keys are removed too, once the rest is done: a stolen computer's key would
- * otherwise go on reaching the bucket. If iDrive can't be reached for that, it's logged, and the
- * new host carries on.
+ * otherwise go on reaching the bucket. Each is marked once it's gone, and any that iDrive couldn't
+ * be reached for is tried again until it is (removeRevokedKeys), so the new host can carry on.
  */
 export async function recoverHost(db, idrive, { token, name, now = new Date() }) {
   const bare = normaliseRecovery(token);
@@ -54,25 +54,51 @@ export async function recoverHost(db, idrive, { token, name, now = new Date() })
   const hostName = typeof name === "string" && name.trim() ? name.trim() : "Uncloud host";
   if (hostName.length > 100) throw new ServiceError(400, "bad_request", "A host's name is up to 100 characters.");
 
-  const { household, host, credential, revoked } = await db.transaction(async (tx) => {
+  const { household, host, credential } = await db.transaction(async (tx) => {
     const { rows: [found] } = await tx.query(
       "select * from households where recovery_hash = $1 for update", [hashToken(bare)]);
     if (!found) throw new ServiceError(403, "recovery_invalid", INVALID);
-    const { rows: gone } = await tx.query(
-      "update hosts set revoked_at = $2 where household_id = $1 and revoked_at is null returning id", [found.id, now]);
+    await tx.query("update hosts set revoked_at = $2 where household_id = $1 and revoked_at is null", [found.id, now]);
     const made = randomBytes(32).toString("base64url");
     const { rows: [added] } = await tx.query(
       "insert into hosts (household_id, name, credential_hash, created_at) values ($1, $2, $3, $4) returning id",
       [found.id, hostName, hashCredential(made), now]);
-    return { household: found, host: { id: added.id, name: hostName }, credential: made, revoked: gone.map((row) => row.id) };
+    return { household: found, host: { id: added.id, name: hostName }, credential: made };
   });
 
-  if (idrive && household.account_email && household.storage_dn) {
-    const account = { email: household.account_email, storageDn: household.storage_dn };
-    for (const id of revoked) {
-      await removeKeysNamed(idrive.reseller, account, `host-${id}`)
-        .catch((error) => console.error(`Removing revoked host ${id}'s key:`, error));
+  await removeRevokedKeys(db, idrive, { household: household.id, now });
+  return {
+    household: { id: household.id },
+    host,
+    credential,
+    // Still the kit in use: the token typed in goes on working until a new kit replaces it.
+    recoveryMadeAt: household.recovery_made_at ? new Date(household.recovery_made_at).toISOString() : null,
+  };
+}
+
+/**
+ * Removes the e2 key of every revoked host whose key may still be there, of one household or of all,
+ * marking each once it's gone. One iDrive won't answer for now is left for next time: this runs
+ * after each recovery, whenever the household's host asks for its storage, and every night.
+ */
+export async function removeRevokedKeys(db, idrive, { household = null, now = new Date() } = {}) {
+  const { rows } = await db.query(
+    `select hosts.id, households.account_email, households.storage_dn from hosts
+     join households on households.id = hosts.household_id
+     where hosts.revoked_at is not null and hosts.key_removed_at is null
+       and households.storage_dn is not null and ($1::uuid is null or households.id = $1)`,
+    [household]);
+  let removed = 0;
+  let failed = 0;
+  for (const row of rows) {
+    try {
+      await removeKeysNamed(idrive.reseller, { email: row.account_email, storageDn: row.storage_dn }, `host-${row.id}`);
+      await db.query("update hosts set key_removed_at = $2 where id = $1", [row.id, now]);
+      removed += 1;
+    } catch (error) {
+      failed += 1;
+      console.error(`Removing revoked host ${row.id}'s key, to be tried again:`, error);
     }
   }
-  return { household: { id: household.id }, host, credential };
+  return { removed, failed };
 }

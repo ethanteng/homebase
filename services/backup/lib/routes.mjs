@@ -4,7 +4,7 @@
 import { authenticateHost } from "./hosts.mjs";
 import { body, carries, json, needDatabase, needIdrive, ServiceError } from "./http.mjs";
 import { createInvite, listInvites, redeemInvite } from "./invites.mjs";
-import { issueRecovery, recoverHost } from "./recovery.mjs";
+import { issueRecovery, recoverHost, removeRevokedKeys } from "./recovery.mjs";
 import { advanceSetup, BUDGET, describe, issueHostKey, timeForKey } from "./setup.mjs";
 
 function operatorOnly(request, env) {
@@ -56,6 +56,8 @@ export async function currentHostRoute(request, { db, now }) {
  */
 export async function hostStorageRoute(request, { db, idrive, now, until = Date.now() + BUDGET }) {
   const host = await theHost(request, db, now);
+  // Any key a revoked host of this household still has goes first, if it hasn't already.
+  await removeRevokedKeys(db, needIdrive(idrive), { household: host.household, now });
   const { household, state } = await advanceSetup(db, needIdrive(idrive), host.household, { now, until });
   // The host isn't told what went wrong, only that it did: that's for the operator, who sees it.
   const askAgain = (setup) => json(202, { setup }, { "retry-after": setup.state === "failing" ? "60" : "5" });
@@ -81,7 +83,8 @@ export async function makeRecoveryRoute(request, { db, now }) {
  */
 export async function recoverHostRoute(request, { db, idrive, now }) {
   const { recovery, name } = await body(request);
-  return json(201, await recoverHost(needDatabase(db), idrive, { token: recovery, name, now }));
+  // Not without iDrive: the lost host's key has to be removed, and only iDrive can.
+  return json(201, await recoverHost(needDatabase(db), needIdrive(idrive), { token: recovery, name, now }));
 }
 
 /** GET /api/operator/households: every household, how far its setup has got, and why it's stuck if it is. */

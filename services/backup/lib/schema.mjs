@@ -76,6 +76,11 @@ export const migrations = [
       alter table households
         add column recovery_hash text unique,
         add column recovery_made_at timestamptz;
+
+      -- When a revoked host's e2 key was removed. Until then it might still reach the bucket, so
+      -- removing it is tried again until it's done (recovery.mjs, removeRevokedKeys).
+      alter table hosts
+        add column key_removed_at timestamptz;
     `,
   },
 ];
