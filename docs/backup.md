@@ -215,7 +215,8 @@ Once the password opens the backup, the new host confirms, and only then does th
 the household's other hosts and remove their e2 keys, so a stolen computer's key stops reaching
 the bucket; a key iDrive couldn't remove at once is tried again until it's gone. If the password
 doesn't open it, the new host withdraws, which retires only itself, and forgets it joined so the
-kit can be typed in again; the token goes on working until a new kit replaces it. A provisional
+kit can be typed in again; the token goes on working until a new kit replaces it, which also
+retires a recovery still under way with the old one. A provisional
 host that neither confirms nor withdraws stops working after an hour, and the night retires it
 and its key. Backing up starts
 **paused**, so nothing on the new computer is added to the backup before what's needed from it

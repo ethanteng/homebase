@@ -88,6 +88,14 @@ export const migrations = [
         add column provisional_until timestamptz;
     `,
   },
+  {
+    name: "004_provisional_host",
+    sql: `
+      -- The same column as 003_recovery. That migration was edited to add it before it had merged,
+      -- and a database that already applied the earlier 003 does not run it again.
+      alter table hosts add column if not exists provisional_until timestamptz;
+    `,
+  },
 ];
 
 // Any number will do, as long as nothing else in the database takes the same advisory lock.

@@ -11,7 +11,7 @@ import { ready } from "../lib/db.mjs";
 import { ServiceError } from "../lib/http.mjs";
 import { authenticateHost } from "../lib/hosts.mjs";
 import { createInvite, redeemInvite } from "../lib/invites.mjs";
-import { newRecoveryToken, normaliseRecovery, PROVISIONAL_SECONDS } from "../lib/recovery.mjs";
+import { abandonRecovery, newRecoveryToken, normaliseRecovery, PROVISIONAL_SECONDS } from "../lib/recovery.mjs";
 import {
   abandonRecoveryRoute, confirmRecoveryRoute, hostStorageRoute, makeRecoveryRoute, recoverHostRoute,
 } from "../lib/routes.mjs";
@@ -149,6 +149,44 @@ test("withdrawing retires only the new host and its key, and the kit works again
     const again = await recover(recovery, { ...deps, now: later(240) });
     assert.equal((await confirm(again.credential, { ...deps, now: later(300) })).status, 200);
     assert.equal(await isHost(db, joined.credential, later(301)), false);
+  });
+});
+
+test("a new kit retires a recovery already under way, and that recovery can no longer take the host's place", async () => {
+  await withHousehold(async ({ db, idrive, joined, deps }) => {
+    const recovery = await tokenOf(joined, deps);
+    const intruder = await recover(recovery, deps);
+    await storageFor(intruder.credential, { ...deps, now: later(120) });
+
+    const { recovery: newer } = await (await makeRecoveryRoute(
+      asking("/api/host/recovery", { method: "POST", token: joined.credential }), { ...deps, now: later(180) })).json();
+
+    assert.equal(await isHost(db, intruder.credential, later(181)), false, "the old token's host is retired");
+    assert.ok(await isHost(db, joined.credential, later(181)), "the household's host goes on working");
+    await assert.rejects(confirm(intruder.credential, { ...deps, now: later(182) }), refused("not_a_host"));
+    assert.deepEqual(hostKeys(idrive, joined), [`host-${joined.host.id}`], "the retired recovery's key is gone");
+    await assert.rejects(recover(recovery, { ...deps, now: later(183) }), refused("recovery_invalid"));
+
+    const again = await recover(newer, { ...deps, now: later(240) });
+    assert.equal((await confirm(again.credential, { ...deps, now: later(300) })).status, 200);
+    assert.equal(await isHost(db, joined.credential, later(301)), false);
+  });
+});
+
+test("withdrawing after a confirm has landed does not retire the host that took the lost one's place", async () => {
+  await withHousehold(async ({ db, idrive, joined, deps }) => {
+    const recovered = await recover(await tokenOf(joined, deps), deps);
+    await storageFor(recovered.credential, { ...deps, now: later(120) });
+    assert.equal((await confirm(recovered.credential, { ...deps, now: later(180) })).status, 200);
+
+    // The withdrawal was decided while this host still looked provisional. Confirm has since landed.
+    await assert.rejects(
+      abandonRecovery(db, idrive, { id: recovered.host.id, household: joined.household.id, provisional: true }, later(181)),
+      refused("not_recovering"));
+
+    assert.ok(await isHost(db, recovered.credential, later(182)), "the host that confirmed is still the household's");
+    assert.equal(await isHost(db, joined.credential, later(182)), false);
+    assert.deepEqual(hostKeys(idrive, joined), [`host-${recovered.host.id}`]);
   });
 });
 

@@ -35,7 +35,7 @@ nightly checks come next.
 - `api/host/recovery/confirm.js`, `api/host/recovery/abandon.js`: the second step. Confirming, once
   the password has opened the backup, revokes the household's other hosts and removes their e2 keys;
   withdrawing retires only the provisional host. The token goes on working until a new kit replaces
-  it, so a recovery can always be tried again.
+  it, which also retires a recovery already under way, so a recovery can always be tried again.
 - `api/host/storage.js`: `POST` with that credential sets the household's storage up if it isn't
   yet, then answers with where the host backs up: the endpoint, the bucket, and a key of its own to
   that bucket alone, shown this once. Setting up takes up to a minute, over one request or a few:

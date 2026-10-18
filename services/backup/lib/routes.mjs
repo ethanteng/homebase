@@ -72,13 +72,16 @@ export async function hostStorageRoute(request, { db, idrive, now, until = Date.
  * POST /api/host/recovery: a new recovery token for this host's household, for its recovery kit,
  * shown this once. Any token before it stops working.
  */
-export async function makeRecoveryRoute(request, { db, now }) {
+export async function makeRecoveryRoute(request, { db, idrive, now }) {
   const host = await theHost(request, db, now);
   // A new kit would retire the token this host is still part-way through using.
   if (host.provisional) {
     throw new ServiceError(409, "recovering", "Finish taking the lost host's place before making a new recovery kit.");
   }
-  return json(201, await issueRecovery(db, host, now));
+  const issued = await issueRecovery(needDatabase(db), host, now);
+  // The old token's recovery, if one was under way, was retired with it. Its key goes too.
+  if (idrive) await removeRevokedKeys(db, idrive, { household: host.household, now });
+  return json(201, issued);
 }
 
 /**
