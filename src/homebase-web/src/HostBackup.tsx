@@ -195,10 +195,12 @@ export default function HostBackup({ onChanged }: Props = {}) {
     return () => window.clearInterval(timer);
   }, [underWay, read]);
 
-  // Followed until Uncloud starts again as the host in the backup. It goes quiet while it stops and
-  // starts; once it answers again it doesn't know this session, which was the old host's, and the
-  // page starts again too, at signing in.
+  // Followed until Uncloud starts again as the host in the backup. Once it has said it's about to,
+  // it goes quiet while it stops and starts; when it answers again it doesn't know this session,
+  // which was the old host's, and the page starts again too, at signing in.
   const rebuilding = rebuild?.running === true;
+  const stage = useRef<BackupRebuild["stage"]>(null);
+  stage.current = rebuild?.stage ?? null;
   useEffect(() => {
     if (!rebuilding) return;
     let gone: number | null = null;
@@ -206,6 +208,7 @@ export default function HostBackup({ onChanged }: Props = {}) {
       api<BackupRebuild>("/host/backup/rebuild")
         .then((now) => {
           gone = null;
+          setSlow(false);
           setRebuild(now);
           // Stopped short: the rest of the panel is as it was, and worth reading again.
           if (!now.running) void read().catch(() => {});
@@ -215,7 +218,9 @@ export default function HostBackup({ onChanged }: Props = {}) {
             page.startOver();
             return;
           }
-          setRebuild((last) => (last ? { ...last, stage: "restarting" } : last));
+          // Out of reach before then says nothing about the rebuild, which goes on regardless:
+          // what it last said stands.
+          if (stage.current !== "restarting") return;
           gone ??= Date.now();
           if (Date.now() - gone > SLOW_RESTART) setSlow(true);
         });

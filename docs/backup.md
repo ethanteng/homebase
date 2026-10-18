@@ -312,6 +312,8 @@ pinned binary comes from `scripts/fetch-restic.sh`.
   place, and does the same with everybody's folders. All of these are renames. Each step is
   written down as it's done, so a start that's interrupted carries on from where it got to, and
   one that fails stops Uncloud starting rather than leave it half one host and half the other.
+  So does the host's folder not being there yet, as an external drive may not be as the computer
+  starts: nothing is swapped until it is, and whatever starts Uncloud tries again.
   Everybody then signs in with the account they had; the one made to get to Settings is gone.
   What was here is kept, in `before-rebuild-<time>` beside the settings and
   `.uncloud-before-rebuild-<time>` in the host's folder. A rebuild that can't be finished changes

@@ -202,6 +202,39 @@ public sealed class BackupRebuildTests : IDisposable
     }
 
     [Fact]
+    public void A_rebuild_waits_for_the_drive_with_everybodys_files_before_changing_anything()
+    {
+        var config = Directory.CreateDirectory(Path.Combine(_temporary, "config")).FullName;
+        // On a drive that isn't there yet as the computer starts.
+        var root = Path.Combine(_temporary, "external", "root");
+        var staging = Path.Combine(root, ".uncloud-rebuild");
+        var restored = Path.Combine(staging, "snapshot", "old", "root", "users");
+        new ControlDatabase(config).SetSetting("whose", "this host's");
+        var ready = Directory.CreateDirectory(Path.Combine(config, "rebuild")).FullName;
+        new ControlDatabase(ready).SetSetting("whose", "the lost host's");
+        var key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        File.WriteAllBytes(Path.Combine(ready, "host.key"), key);
+        File.WriteAllText(Path.Combine(config, "rebuild.json"), JsonSerializer.Serialize(
+            new { Root = root, Users = restored, Staging = staging, Stamp = "20261018-120000", Step = "ready" }));
+
+        Assert.Throws<DirectoryNotFoundException>(() => HostRebuild.ApplyPending(config, NullLogger.Instance));
+
+        Assert.Equal("this host's", new ControlDatabase(config).Setting("whose"));
+        Assert.True(File.Exists(Path.Combine(ready, "homebase.db")));
+        Assert.True(File.Exists(Path.Combine(config, "rebuild.json")));
+
+        // The drive is back, and the rebuild goes in, files and all.
+        Directory.CreateDirectory(Path.Combine(restored, "person"));
+        File.WriteAllText(Path.Combine(restored, "person", "notes.txt"), "from the backup");
+
+        Assert.True(HostRebuild.ApplyPending(config, NullLogger.Instance));
+
+        Assert.Equal("the lost host's", new ControlDatabase(config).Setting("whose"));
+        Assert.Equal(key, File.ReadAllBytes(Path.Combine(config, "host.key")));
+        Assert.Equal("from the backup", File.ReadAllText(Path.Combine(root, "users", "person", "notes.txt")));
+    }
+
+    [Fact]
     public void A_rebuild_no_longer_all_there_is_given_up_before_anything_changes()
     {
         var config = Directory.CreateDirectory(Path.Combine(_temporary, "config")).FullName;

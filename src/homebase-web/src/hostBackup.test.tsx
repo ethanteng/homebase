@@ -315,7 +315,7 @@ describe("backing up offsite", () => {
   it("says when Uncloud hasn't started again by itself after a rebuild, and why one stopped short", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    let rebuild: BackupRebuild = { ...notRebuilt, running: true, stage: "preparing" };
+    let rebuild: BackupRebuild = { ...notRebuilt, running: true, stage: "restoring", bytes: 2 * 1024 ** 3, bytesRestored: 1024 ** 3 };
     let answering = true;
     host({
       "GET /api/host/backup/account": () => json({ ...ready, paused: true }),
@@ -324,18 +324,34 @@ describe("backing up offsite", () => {
       "GET /api/host/backup/rebuild": () => (answering ? json(rebuild) : json({ detail: "Gone." }, 502)),
     });
     await show();
-    expect(screen.getByRole("status").textContent).toMatch(/accounts are being got ready/);
+    expect(screen.getByRole("status").textContent).toMatch(/1 GB of 2 GB back so far/);
 
-    // Gone quiet, and still quiet a minute and a half on.
+    // Out of reach while it's restoring: the rebuild goes on all the same, and nobody is told to quit.
     answering = false;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(94_000);
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/1 GB of 2 GB back so far/);
+
+    // Then about to start again, and quiet a minute and a half on.
+    rebuild = { ...rebuild, stage: "restarting" };
+    answering = true;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     expect(screen.getByRole("status").textContent).toMatch(/starting again/);
+    answering = false;
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(92_000);
+      await vi.advanceTimersByTimeAsync(94_000);
     });
     expect(screen.getByRole("status").textContent).toMatch(/Quit Uncloud and open it again/);
+
+    // Heard from again, so it isn't said to be stuck any more.
+    answering = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByRole("status").textContent).not.toMatch(/Quit Uncloud/);
 
     rebuild = { ...notRebuilt, message: "There isn’t room for everything in the backup." };
     answering = true;

@@ -66,7 +66,10 @@ public static class HostRebuild
     /// Puts a rebuild that's ready in place. Called as Uncloud starts, before anything opens the
     /// database or host.key it replaces. Each step is written down once it's done, so a start that's
     /// interrupted carries on from where it got to; anything that goes wrong stops Uncloud starting,
-    /// rather than leave it running as half one host and half the other. Says whether there was one.
+    /// rather than leave it running as half one host and half the other. So does the host's folder not
+    /// being there, as an external drive isn't for a moment as a computer starts: the accounts from
+    /// the backup without everybody's files would be no use, and whatever starts Uncloud again tries
+    /// again until the drive is back. Says whether there was one.
     /// </summary>
     public static bool ApplyPending(string configDirectory, ILogger logger)
     {
@@ -79,10 +82,17 @@ public static class HostRebuild
         var users = Path.Combine(pending.Root, UserPaths.UsersDirectory);
         var usersAside = Path.Combine(pending.Root, $".uncloud-before-rebuild-{pending.Stamp}", UserPaths.UsersDirectory);
         logger.LogWarning("Putting this Uncloud's rebuild from its backup in place (from {Step})", pending.Step);
+        if (pending.Step != "placed" && !Directory.Exists(pending.Root))
+        {
+            logger.LogError("The folder this Uncloud keeps everybody's files in ({Root}) isn't there, so the rebuild from the backup waits for it", pending.Root);
+            throw new DirectoryNotFoundException(
+                $"The folder this Uncloud keeps everybody's files in ({pending.Root}) isn't there, so the rebuild from the backup can't be put in place yet.");
+        }
 
         if (pending.Step == "ready")
         {
-            if (!File.Exists(Path.Combine(ready, "homebase.db")) || !File.Exists(Path.Combine(ready, "host.key")))
+            if (!File.Exists(Path.Combine(ready, "homebase.db")) || !File.Exists(Path.Combine(ready, "host.key"))
+                || (pending.Users is { } restored && !Directory.Exists(restored)))
             {
                 // Nothing has changed yet, and without these nothing can: this host starts as it was.
                 logger.LogError("The rebuild from the backup isn't all there any more, so it was given up; this Uncloud starts as it was");

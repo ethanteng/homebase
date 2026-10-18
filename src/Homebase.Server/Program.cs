@@ -1216,9 +1216,10 @@ app.MapPost("/api/host/backup/rebuild", (RebuildFromBackup request, BackupServic
         return Results.Problem("Choose the backup to rebuild this Uncloud from.", statusCode: 400);
     if (request.Confirm != true)
         return Results.Problem("Rebuilding replaces everything on this Uncloud with what's in the backup. Say that's what you want.", statusCode: 400);
-    // A moment's grace, so whoever asked hears that Uncloud is about to start again before it stops.
-    // The Mac app, or launchd, starts it again; it then puts the rebuild in place as it starts.
-    backups.TryStartRebuild(request.Snapshot.Trim(), () => _ = Task.Delay(TimeSpan.FromSeconds(2)).ContinueWith(_ =>
+    // A moment's grace, longer than Settings takes to look again, so whoever asked hears that Uncloud
+    // is about to start again before it stops. The Mac app, or launchd, starts it again; it then puts
+    // the rebuild in place as it starts.
+    backups.TryStartRebuild(request.Snapshot.Trim(), () => _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ =>
     {
         try { lifetime.StopApplication(); }
         catch (ObjectDisposedException) { }
