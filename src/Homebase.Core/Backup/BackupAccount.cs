@@ -308,6 +308,8 @@ public sealed class BackupAccount(
     /// backed up there yet to open. Anything short of that, whether storage that isn't handed over,
     /// a check that can't be made or a password the backup doesn't take, and this host forgets it
     /// joined, so the kit can be given again: its token goes on working until a new kit replaces it.
+    /// The account stays held until that check is done: asking for storage the moment a host joins
+    /// would otherwise save it again after it had been forgotten.
     /// </summary>
     public async Task<BackupAccountStatus> RecoverAsync(
         string? recovery, string? password, string? name, Func<CancellationToken, Task<bool?>> opens, CancellationToken cancellationToken)
@@ -327,45 +329,56 @@ public sealed class BackupAccount(
                 _time.GetUtcNow(), Seal(registration.Credential, CredentialContext), Seal(password.Trim(), PasswordContext),
                 null, "setting_up", null, RecoveryMadeAt: registration.RecoveryMadeAt, Paused: true));
             logger.LogInformation("Took a lost host's place in household {Household} as host {Host}", registration.HouseholdId, registration.HostId);
+            try
+            {
+                // The household is set up already, so its storage is usually there at once.
+                await RefreshStorageHeldAsync(cancellationToken);
+                if (Target is null)
+                    throw new LibraryException(
+                        "Uncloud Backup couldn’t hand this Uncloud the household’s storage just now, so the kit couldn’t be "
+                        + "checked. Try again in a minute: the kit still works.", "unavailable");
+                if (await opens(cancellationToken) == false)
+                    throw new LibraryException(
+                        "That password doesn’t open this household’s backup. Check it against the recovery kit, then try again.", "invalid_recovery");
+            }
+            catch
+            {
+                ForgetHeld();
+                throw;
+            }
+            // Only now is this host joined, so whatever is waiting to ask for its storage asks now.
             if (_joined.CurrentCount == 0) _joined.Release();
+            return Status;
         }
         finally
         {
             _changing.Release();
         }
-        bool? opened;
-        try
-        {
-            // The household is set up already, so its storage is usually there at once.
-            await RefreshStorageAsync(cancellationToken);
-            if (Target is null)
-                throw new LibraryException(
-                    "Uncloud Backup couldn’t hand this Uncloud the household’s storage just now, so the kit couldn’t be "
-                    + "checked. Try again in a minute: the kit still works.", "unavailable");
-            opened = await opens(cancellationToken);
-        }
-        catch
-        {
-            Forget();
-            throw;
-        }
-        if (opened == false)
-        {
-            Forget();
-            throw new LibraryException(
-                "That password doesn’t open this household’s backup. Check it against the recovery kit, then try again.", "invalid_recovery");
-        }
-        return Status;
     }
 
     /// <summary>Lets backing up go on: nightly again, and by hand.</summary>
     public void Resume()
     {
-        if (Load() is { } saved) Save(saved with { Paused = false });
+        _changing.Wait();
+        try
+        {
+            if (Load() is { } saved) Save(saved with { Paused = false });
+        }
+        finally
+        {
+            _changing.Release();
+        }
     }
 
     /// <summary>Forgets this host's place in Uncloud Backup, as if it had never joined.</summary>
-    public void Forget() => database.RemoveSetting(Key);
+    public void Forget()
+    {
+        _changing.Wait();
+        try { ForgetHeld(); }
+        finally { _changing.Release(); }
+    }
+
+    private void ForgetHeld() => database.RemoveSetting(Key);
 
     /// <summary>
     /// Asks the service for this host's storage, once. When it's ready the answer carries a new key,
@@ -374,27 +387,27 @@ public sealed class BackupAccount(
     public async Task<StorageAnswer> RefreshStorageAsync(CancellationToken cancellationToken)
     {
         await _changing.WaitAsync(cancellationToken);
-        try
-        {
-            var saved = Load() ?? throw new LibraryException("This Uncloud hasn’t joined Uncloud Backup.", "not_configured");
-            var credential = Open(saved.Credential, CredentialContext) ?? throw new LibraryException(
-                "Uncloud’s host key doesn’t open what it kept for Uncloud Backup. Restore host.key, or ask for a new invite.", "host_key");
-            var answer = await service.StorageAsync(credential, cancellationToken);
-            Save(answer.Storage is { } storage
-                ? saved with
-                {
-                    Storage = new SavedStorage(storage.Endpoint, storage.Region, storage.Bucket, storage.AccessKeyId,
-                        Seal(storage.SecretAccessKey, StorageContext), _time.GetUtcNow()),
-                    SetupState = null,
-                    SetupStep = null
-                }
-                : saved with { SetupState = answer.State, SetupStep = answer.Step });
-            return answer;
-        }
-        finally
-        {
-            _changing.Release();
-        }
+        try { return await RefreshStorageHeldAsync(cancellationToken); }
+        finally { _changing.Release(); }
+    }
+
+    /// <summary>As <see cref="RefreshStorageAsync"/>, for a caller that already holds the change lock.</summary>
+    private async Task<StorageAnswer> RefreshStorageHeldAsync(CancellationToken cancellationToken)
+    {
+        var saved = Load() ?? throw new LibraryException("This Uncloud hasn’t joined Uncloud Backup.", "not_configured");
+        var credential = Open(saved.Credential, CredentialContext) ?? throw new LibraryException(
+            "Uncloud’s host key doesn’t open what it kept for Uncloud Backup. Restore host.key, or ask for a new invite.", "host_key");
+        var answer = await service.StorageAsync(credential, cancellationToken);
+        Save(answer.Storage is { } storage
+            ? saved with
+            {
+                Storage = new SavedStorage(storage.Endpoint, storage.Region, storage.Bucket, storage.AccessKeyId,
+                    Seal(storage.SecretAccessKey, StorageContext), _time.GetUtcNow()),
+                SetupState = null,
+                SetupStep = null
+            }
+            : saved with { SetupState = answer.State, SetupStep = answer.Step });
+        return answer;
     }
 
     /// <summary>

@@ -323,6 +323,71 @@ public sealed class BackupAccountTests : IDisposable
     }
 
     [Fact]
+    public async Task An_account_saved_before_kits_still_opens()
+    {
+        var service = new FakeBackupService();
+        var database = new ControlDatabase(Config);
+        var account = new BackupAccount(database, new SecretProtector(Config),
+            new BackupServiceClient(new HttpClient(service), new Uri("https://backup.test/")),
+            NullLogger<BackupAccount>.Instance);
+        await account.JoinAsync(Invite, "Mac mini", CancellationToken.None);
+
+        using var saved = JsonDocument.Parse(database.Setting("backup_account")!);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var property in saved.RootElement.EnumerateObject())
+            {
+                if (property.Name is "RecoveryMadeAt" or "Paused") continue;
+                property.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
+        database.SetSetting("backup_account", Encoding.UTF8.GetString(stream.ToArray()));
+
+        var again = new BackupAccount(database, new SecretProtector(Config),
+            new BackupServiceClient(new HttpClient(service), new Uri("https://backup.test/")),
+            NullLogger<BackupAccount>.Instance);
+        Assert.True(again.Joined);
+        Assert.False(again.Paused);
+        Assert.Null(again.Status.RecoveryKitMadeAt);
+        Assert.Equal("household-1", again.Status.Household);
+    }
+
+    [Fact]
+    public async Task A_failed_recovery_stays_unjoined_when_storage_is_asked_for_during_the_check()
+    {
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF" };
+        var account = Account(service);
+        var checking = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var recovering = account.RecoverAsync(service.Recovery, "not the password", null, async cancellationToken =>
+        {
+            checking.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+            return false;
+        }, CancellationToken.None);
+
+        await checking.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // The loop that asks for storage wakes as soon as a host joins. It must not be able to
+        // save the account while the password is still being checked, or after the check fails.
+        var refresh = account.RefreshStorageAsync(CancellationToken.None);
+        var resume = Task.Run(account.Resume);
+        Assert.NotSame(refresh, await Task.WhenAny(refresh, Task.Delay(TimeSpan.FromSeconds(2))));
+        Assert.NotSame(resume, await Task.WhenAny(resume, Task.Delay(TimeSpan.FromSeconds(2))));
+
+        release.TrySetResult();
+        var wrong = await Assert.ThrowsAsync<LibraryException>(() => recovering);
+        Assert.Equal("invalid_recovery", wrong.Code);
+        Assert.False(account.Joined);
+        var gone = await Assert.ThrowsAsync<LibraryException>(() => refresh);
+        Assert.Equal("not_configured", gone.Code);
+        await resume;
+        Assert.False(account.Joined);
+    }
+
+    [Fact]
     public async Task A_recovered_host_backs_up_only_once_resumed_and_can_make_a_new_kit()
     {
         if (OperatingSystem.IsWindows()) return;
