@@ -1194,6 +1194,12 @@ app.MapPost("/api/host/backup/recover", async (RecoverBackup request, BackupAcco
 // Backing up again, after a host that opened a lost one's backup has got back what it needs.
 app.MapPost("/api/host/backup/resume", (BackupAccount account, BackupService backups) =>
 {
+    // Still being rebuilt: unpausing now would let a backup of what's here go up, and a rebuild
+    // that then stops short would leave that as this host's backup.
+    if (backups.LastRebuild.Running)
+        return Results.Problem(
+            "This Uncloud is being rebuilt from its backup, so it can't start backing up yet.",
+            statusCode: 409);
     account.Resume();
     // Backing up as itself instead, so a rebuild that didn't finish isn't wanted.
     backups.ForgetRebuild();
