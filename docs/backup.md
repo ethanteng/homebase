@@ -344,6 +344,65 @@ Requests that need a checksum (lock settings, retention, versioning, lifecycle) 
 - **Pricing**, and how long a cancelled household's data is kept before removal.
 - **An opt-in recovery copy held by Uncloud**, or none.
 
+## What's left
+
+Everything not built yet, by when it's needed. The questions above are what's not yet *known*;
+this is what's not yet *done*.
+
+### Before any household but ours joins
+
+- [ ] **Close the expired-lock gap** ("When a lock runs out"). A host's key can destroy any version
+  whose lock has run out, which is most of a backup. Either a key that can only place delete
+  markers (waiting on iDrive), or the service pushing out the lock on every version a snapshot
+  still uses before it runs out. First, confirm it against iDrive: a spike run with a one-day lock,
+  looked at again a day later.
+- [ ] **The nightly protection check** ("What the service watches"). Vercel Cron already calls
+  `/api/cron/nightly`, which does nothing yet. For each ready household: read back versioning, the
+  lock and the expiry rule (`inspectBucket` in `services/backup/lib/protection.mjs` already does
+  this), put right what's changed, sample version lock dates for ones pushed out, and alert.
+- [ ] **Somewhere for alerts to go.** Nothing in the service can tell the operator anything yet:
+  an email, say, for a changed bucket, a failing setup or a removal.
+- [ ] **Send iDrive the questions above**, and write their answers in.
+
+### Small fixes found along the way
+
+- [ ] **Registration safe to retry.** If the service registers a host but the answer is lost, the
+  invite is spent and the host has no credential. The host could make its credential itself and
+  send it, so the service recognises a retry with the same invite and credential (the open thread
+  on #122).
+- [ ] **A forgiving invite field.** Take a code pasted with its quotes or in its whole JSON line, not
+  only the bare code.
+- [ ] **The uncloud-backup project's ignore rule.** `ignoreCommand` in `services/backup/vercel.json`
+  skips any build whose commit didn't touch the service, including a redeploy made to pick up a
+  changed environment variable. Drop it, or redeploy the newest deployment that did build.
+- [ ] **Replacing a key that stopped working.** A backup refused with 403 says only that it was
+  refused. The host should ask the service how its account stands ("A 403 on upload is asked
+  about, not assumed"): full and read-only, or a key to replace through `POST /api/host/storage`.
+- [ ] **pg's sslmode warning** in the service's logs: say `sslmode=verify-full` in the database
+  address, the behaviour it has now, before pg's next major version changes it.
+
+### The rest of phase 1
+
+- [ ] **Rolling back** a compromised bucket: lift the delete markers placed since, and copy back
+  what was overwritten, with the service's key ("Rolling back").
+- [ ] **Delayed removal** of a cancelled household: `disable_user`, then `remove_user` after the
+  delay, alerting on each.
+
+### Phase 2, getting it back
+
+- [ ] **Restoring files from My files**, each person their own, under the Bin's rules.
+- [ ] **A recovery kit**: the backup's password and a recovery token the service takes in place of
+  a lost host's credential. Today the password is shown once, at joining, and there's no token.
+  It should be possible to make a new kit any time the host is alive, retiring the old.
+- [ ] **Rebuilding a host from its kit**: a new computer joins with the token, gets a key, and
+  restores the control database, `host.key` and everybody's files.
+
+### Phases 3 and 4
+
+- [ ] Uncloud accounts, billing, read-only on failed payments, pricing.
+- [ ] Regular kit checks, a kit per administrator, a region per household, verifying the backup on
+  a schedule, and the opt-in recovery copy if there is one.
+
 ## Phases
 
 1. **Phase 0, the spike.** Done. Its last measurements (14 to 17 October) showed old versions
