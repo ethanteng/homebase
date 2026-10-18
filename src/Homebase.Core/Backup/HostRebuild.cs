@@ -134,7 +134,18 @@ public static class HostRebuild
         }
         if (pending.Step == "users aside")
         {
-            if (pending.Users is { } restored && Directory.Exists(restored)) Directory.Move(restored, users);
+            if (pending.Users is { } restored)
+            {
+                // The accounts are already this host's. Starting without the files that belong to them
+                // would be the half-finished rebuild this refuses, so a folder that isn't there yet waits.
+                if (!Directory.Exists(restored))
+                {
+                    logger.LogError("The folder of everybody's files from the backup ({Users}) isn't there, so the rebuild waits for it", restored);
+                    throw new DirectoryNotFoundException(
+                        $"The folder of everybody's files from the backup ({restored}) isn't there, so the rebuild can't be put in place yet.");
+                }
+                Directory.Move(restored, users);
+            }
             pending = Advance(marker, pending, "placed");
         }
         if (pending.Step != "placed")

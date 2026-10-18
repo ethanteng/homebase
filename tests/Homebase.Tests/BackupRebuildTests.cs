@@ -251,6 +251,33 @@ public sealed class BackupRebuildTests : IDisposable
         Assert.False(File.Exists(Path.Combine(config, "rebuild.json")));
     }
 
+    [Fact]
+    public void A_rebuild_does_not_finish_when_the_restored_files_are_gone()
+    {
+        var config = Directory.CreateDirectory(Path.Combine(_temporary, "config-missing-users")).FullName;
+        var root = Root("missing-files");
+        var staging = Directory.CreateDirectory(Path.Combine(root, ".uncloud-rebuild")).FullName;
+        var restored = Path.Combine(staging, "old", "root", "users");
+        var aside = Directory.CreateDirectory(Path.Combine(root, ".uncloud-before-rebuild-20261018-120000", "users", "stand-in")).FullName;
+        File.WriteAllText(Path.Combine(aside, "now.txt"), "stand-in");
+        var ready = Directory.CreateDirectory(Path.Combine(config, "rebuild")).FullName;
+        File.WriteAllText(Path.Combine(ready, "homebase.db"), "the lost host's database");
+        File.WriteAllText(Path.Combine(ready, "host.key"), "the lost host's key");
+        File.WriteAllText(Path.Combine(config, "homebase.db"), "the lost host's database");
+        File.WriteAllText(Path.Combine(config, "host.key"), "the lost host's key");
+        File.WriteAllText(Path.Combine(config, "rebuild.json"), JsonSerializer.Serialize(
+            new { Root = root, Users = restored, Staging = staging, Stamp = "20261018-120000", Step = "users aside" }));
+
+        Assert.Throws<DirectoryNotFoundException>(() => HostRebuild.ApplyPending(config, NullLogger.Instance));
+
+        Assert.Contains("users aside", File.ReadAllText(Path.Combine(config, "rebuild.json")));
+        Assert.False(Directory.Exists(Path.Combine(root, "users")));
+        Assert.True(Directory.Exists(staging));
+        Assert.True(Directory.Exists(ready));
+        Assert.Equal("stand-in", File.ReadAllText(Path.Combine(aside, "now.txt")));
+        Assert.Equal("the lost host's database", File.ReadAllText(Path.Combine(config, "homebase.db")));
+    }
+
     private static async Task Until(Func<Task<bool>> condition)
     {
         var clock = Stopwatch.StartNew();
