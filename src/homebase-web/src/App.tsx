@@ -9,6 +9,7 @@ import {
   House,
   Settings2,
   Trash2,
+  History,
   UserRound,
   Users,
   X,
@@ -25,13 +26,14 @@ import HostBackup from "./HostBackup";
 import { StorageCard, StoragePill } from "./StorageMeter";
 import FileBrowser from "./FileBrowser";
 import Bin from "./Bin";
+import Backups from "./Backups";
 import SyncPanel from "./SyncPanel";
 import HostSetup from "./HostSetup";
 import SignIn from "./SignIn";
 import UsersPanel from "./UsersPanel";
 import AccountPanel from "./AccountPanel";
 
-type View = "files" | "bin" | "sync" | "users";
+type View = "files" | "bin" | "backups" | "sync" | "users";
 type Dialog = "add" | "host" | "account" | null;
 
 function readPath() {
@@ -45,6 +47,8 @@ function readPath() {
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [library, setLibrary] = useState<LibraryState | null>(null);
+  // Whether this Uncloud has backups to look in, so My files offers them only where it does.
+  const [backupsAvailable, setBackupsAvailable] = useState(false);
   const [storage, setStorage] = useState<StorageReport | null>(null);
   const [error, setError] = useState("");
   const [path, setPath] = useState(readPath);
@@ -146,6 +150,17 @@ export default function App() {
       });
     return () => controller.abort();
   }, [me, revision, signedOut]);
+
+  useEffect(() => {
+    if (!me) return;
+    const controller = new AbortController();
+    api<{ configured: boolean }>("/backups/available", { signal: controller.signal })
+      .then((answer) => setBackupsAvailable(answer.configured))
+      .catch(() => {
+        // A host from before backups, or one that can't say: nothing to offer.
+      });
+    return () => controller.abort();
+  }, [me, revision]);
 
   // How much room is left is on screen all the time, so it is kept current: every minute, and
   // every few seconds while files are arriving — imported or sent — and the number is visibly moving.
@@ -319,6 +334,16 @@ export default function App() {
             <Trash2 size={18} />
             Bin
           </button>
+          {backupsAvailable && (
+            <button
+              className={`nav-item${view === "backups" ? " active" : ""}`}
+              onClick={() => setView("backups")}
+              disabled={!hasFolder}
+            >
+              <History size={18} />
+              Backups
+            </button>
+          )}
           <button
             className={`nav-item${view === "sync" ? " active" : ""}`}
             onClick={() => setView("sync")}
@@ -391,7 +416,9 @@ export default function App() {
             <strong>
               {view === "bin"
                 ? "Bin"
-                : view === "sync"
+                : view === "backups"
+                  ? "Backups"
+                  : view === "sync"
                   ? "My computers"
                   : view === "users"
                     ? "People"
@@ -413,6 +440,15 @@ export default function App() {
               onSignOut={() => void signOut(true)}
               approving={approving}
               onApprovalClosed={() => setApproving(null)}
+            />
+          ) : hasFolder && view === "backups" ? (
+            <Backups
+              // What comes back takes room the storage meter should show.
+              onChanged={() => setRevision((value) => value + 1)}
+              open={(folder) => {
+                setView("files");
+                navigate(folder);
+              }}
             />
           ) : hasFolder && view === "bin" ? (
             <Bin

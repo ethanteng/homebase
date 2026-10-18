@@ -198,7 +198,8 @@ public sealed partial class BackupService
             if (ours.Count != 1)
                 throw new LibraryException("That isn't one of this Uncloud's backups.", "backup_snapshot");
             List<string> arguments = ["--no-lock", "restore", ours[0].Id, "--target", target];
-            foreach (var path in include ?? []) arguments.AddRange(["--include", path]);
+            // Each is a pattern to restic, so a name with [ or * in it is escaped to mean only itself.
+            foreach (var path in include ?? []) arguments.AddRange(["--include", Pattern(path)]);
             var result = await restic.RunAsync(arguments, _policy.RestoreLimit, cancellationToken);
             if (!result.Succeeded) throw new LibraryException(Explain(result, "restore from the backup", _policy.RestoreLimit), "backup");
         }
@@ -288,7 +289,9 @@ public sealed partial class BackupService
             // What's rebuilt from the files themselves, and uploads still arriving, which are
             // either finished into place by the next backup or thrown away.
             "--exclude", "**/.homebase/index.db", "--exclude", "**/.homebase/index.db-*",
-            "--exclude", "**/.homebase/uploads"
+            "--exclude", "**/.homebase/uploads",
+            // What's being restored from a backup into somebody's folder, on its way into place.
+            "--exclude", "**/.homebase/restoring"
         ];
         var users = Path.Combine(root, UserPaths.UsersDirectory);
         if (Directory.Exists(users)) arguments.Add(users);

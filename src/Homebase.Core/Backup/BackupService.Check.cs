@@ -288,22 +288,8 @@ public sealed partial class BackupService
     private static bool Under(string path, string folder) =>
         path.StartsWith(folder.TrimEnd('/') + "/", StringComparison.Ordinal);
 
-    private static List<SnapshotFile> SnapshotFiles(IReadOnlyList<string> lines)
-    {
-        var files = new List<SnapshotFile>();
-        foreach (var line in lines)
-        {
-            if (!line.Contains("\"struct_type\":\"node\"", StringComparison.Ordinal)) continue;
-            using var node = JsonDocument.Parse(line);
-            var root = node.RootElement;
-            if (root.GetProperty("type").GetString() != "file") continue;
-            files.Add(new SnapshotFile(
-                root.GetProperty("path").GetString()!,
-                root.TryGetProperty("size", out var size) ? size.GetInt64() : 0,
-                Time(root.GetProperty("mtime").GetString()!)));
-        }
-        return files;
-    }
+    private static List<SnapshotFile> SnapshotFiles(IReadOnlyList<string> lines) =>
+        Nodes(lines).Where(node => !node.IsDirectory).Select(node => new SnapshotFile(node.Path, node.Size, node.Modified)).ToList();
 
     /// <summary>restic's times carry nanoseconds, two places more than .NET reads.</summary>
     private static DateTimeOffset Time(string text) =>
@@ -322,14 +308,23 @@ public sealed partial class BackupService
     private static void Clear(string folder)
     {
         if (!Directory.Exists(folder)) return;
-        // restic restores files and folders as they were, read-only ones included, which Delete
-        // would refuse.
-        if (!OperatingSystem.IsWindows())
-            foreach (var directory in Directory.EnumerateDirectories(folder, "*", SearchOption.AllDirectories))
-                File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
-            File.SetAttributes(file, FileAttributes.Normal);
+        MakeDeletable(folder);
         Directory.Delete(folder, recursive: true);
+    }
+
+    /// <summary>
+    /// restic restores files and folders as they were, read-only ones included, which deleting
+    /// would refuse. Links are passed by rather than followed: restic restores a link as a link,
+    /// and following one would change whatever it points at, wherever that is.
+    /// </summary>
+    internal static void MakeDeletable(string folder)
+    {
+        var walk = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = false };
+        if (!OperatingSystem.IsWindows())
+            foreach (var directory in Directory.EnumerateDirectories(folder, "*", walk))
+                File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        foreach (var file in Directory.EnumerateFiles(folder, "*", walk))
+            File.SetAttributes(file, FileAttributes.Normal);
     }
 
     private BackupCheck LoadCheck()
