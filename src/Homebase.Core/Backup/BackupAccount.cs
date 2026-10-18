@@ -362,14 +362,18 @@ public sealed class BackupAccount(
         _changing.Wait();
         try
         {
-            if (Load() is { } saved) Save(saved with { Paused = false });
+            if (Load() is not { } saved) return;
+            var wake = saved.Paused;
+            Save(saved with { Paused = false });
+            // The nightly schedule picks up at once, not at its next look. Said while this is held,
+            // as it is when the host joins: two resumes at once would otherwise both find the wait
+            // unreleased, and the second would fail.
+            if (wake && _joined.CurrentCount == 0) _joined.Release();
         }
         finally
         {
             _changing.Release();
         }
-        // The nightly schedule picks up at once, not at its next look.
-        if (_joined.CurrentCount == 0) _joined.Release();
     }
 
     /// <summary>Forgets this host's place in Uncloud Backup, as if it had never joined.</summary>

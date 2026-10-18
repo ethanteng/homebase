@@ -279,10 +279,13 @@ public sealed class BackupAccountTests : IDisposable
         Assert.Equal($"Bearer {service.Credential}", service.Requests[^1].Authorization);
         Assert.DoesNotContain(password, Kept());
         // Joining woke whatever was waiting; resuming wakes it again, so the schedule goes on at once.
+        // A second resume, as a double click sends, must not fail, and must not wake a second time.
         await account.NapAsync(TimeSpan.Zero, CancellationToken.None);
         account.Resume();
+        account.Resume();
         Assert.False(account.Paused);
-        Assert.True(await account.NapAsync(TimeSpan.FromSeconds(10), CancellationToken.None));
+        Assert.True(await account.NapAsync(TimeSpan.Zero, CancellationToken.None));
+        Assert.False(await account.NapAsync(TimeSpan.Zero, CancellationToken.None));
     }
 
     [Fact]
