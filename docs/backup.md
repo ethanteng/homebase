@@ -280,6 +280,13 @@ pinned binary comes from `scripts/fetch-restic.sh`.
   away. A file changed or gone since the backup isn't a fault, only nothing to compare with; one
   that's unchanged here but came back different, or didn't come back, is. The answer is counts,
   never names, since whoever looks after the host isn't meant to read everybody's files.
+- **Restoring from My files.** Everybody can look in the backups for their own files (Backups,
+  beside the Bin): pick a backup, go into a folder, and restore a file or folder. It comes back
+  where it was, the folders above it made again if they've gone, and whatever is there now is
+  kept, so what comes back beside a newer copy becomes "name 2", as the Bin does. It's restored
+  out of sight in the account's own `.homebase` folder first, on the same drive, so putting it in
+  place is a rename, and refused before anything is fetched if there isn't room. The account's
+  folder is found from the session, never the request, so nobody can name anybody else's.
 - **Restores without a lock** (`--no-lock`), since taking one is a write and a read-only account
   refuses it.
 - **A 403 on upload is asked about, not assumed.** A full account answers 403, but so do a
@@ -401,7 +408,7 @@ this is what's not yet *done*.
 
 ### Phase 2, getting it back
 
-- [ ] **Restoring files from My files**, each person their own, under the Bin's rules.
+- [x] **Restoring files from My files**, each person their own, under the Bin's rules.
 - [x] **A recovery kit**: the backup's password and a recovery token the service takes in place of
   a lost host's credential. Today the password is shown once, at joining, and there's no token.
   It should be possible to make a new kit any time the host is alive, retiring the old.

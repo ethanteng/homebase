@@ -226,6 +226,26 @@ export interface BackupSnapshots {
   snapshots: { id: string; time: string }[];
 }
 
+/// This Uncloud's backups, newest first, for looking in for one's own files.
+export interface BackupList {
+  configured: boolean;
+  backups: { id: string; time: string }[];
+}
+
+/// One folder of one's own files, as a backup holds it.
+export interface BackupFolderListing {
+  snapshot: string;
+  time: string;
+  path: string;
+  entries: {
+    name: string;
+    path: string;
+    isDirectory: boolean;
+    size: number | null;
+    modifiedAt: string;
+  }[];
+}
+
 export interface ImportEstimate {
   fileCount: number;
   bytes: number;

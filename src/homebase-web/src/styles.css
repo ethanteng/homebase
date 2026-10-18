@@ -2803,3 +2803,23 @@ tbody tr.drop-target {
 .edit-notice.failed > svg {
   color: var(--danger-text);
 }
+
+/* Which backup, and where in it: the folders above, each a way back up. */
+.backup-crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.backup-crumbs span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+.backup-chooser select {
+  min-width: 220px;
+}
