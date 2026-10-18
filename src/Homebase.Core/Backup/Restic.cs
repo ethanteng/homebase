@@ -64,10 +64,12 @@ public sealed class Restic(string binary, BackupTarget target, string cacheDirec
     /// <summary>
     /// Runs restic with <paramref name="arguments"/> and waits up to <paramref name="limit"/>. Past
     /// it, restic and anything it started are stopped and the result says it timed out. A
-    /// cancellation from the caller stops restic too, and is passed on.
+    /// cancellation from the caller stops restic too, and is passed on. With --json, each report of
+    /// progress restic makes goes to <paramref name="progress"/>, if there is one, as it's made.
     /// </summary>
     /// <exception cref="System.ComponentModel.Win32Exception">There's no restic to run.</exception>
-    public async Task<ResticResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan limit, CancellationToken cancellationToken)
+    public async Task<ResticResult> RunAsync(
+        IReadOnlyList<string> arguments, TimeSpan limit, CancellationToken cancellationToken, Action<string>? progress = null)
     {
         var start = new ProcessStartInfo(binary)
         {
@@ -108,8 +110,10 @@ public sealed class Restic(string binary, BackupTarget target, string cacheDirec
         process.OutputDataReceived += (_, line) =>
         {
             // --json reports progress several times a second through a long backup; none of it is kept.
-            if (line.Data is { Length: > 0 } text && !text.StartsWith("{\"message_type\":\"status\"", StringComparison.Ordinal))
+            if (line.Data is not { Length: > 0 } text) return;
+            if (!text.StartsWith("{\"message_type\":\"status\"", StringComparison.Ordinal))
                 lock (output) output.Add(text);
+            else progress?.Invoke(text);
         };
         process.ErrorDataReceived += (_, line) =>
         {

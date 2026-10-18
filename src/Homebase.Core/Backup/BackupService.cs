@@ -64,6 +64,11 @@ public sealed record BackupPolicy
     public TimeSpan PruneLimit { get; init; } = TimeSpan.FromHours(2);
     public TimeSpan RestoreLimit { get; init; } = TimeSpan.FromHours(12);
     /// <summary>
+    /// A rebuild restores all of a household's backup over a home connection, which for a big library
+    /// is days. Tried again, it carries on from what has come back already.
+    /// </summary>
+    public TimeSpan RebuildLimit { get; init; } = TimeSpan.FromDays(4);
+    /// <summary>
     /// How much a check of the backup restores and compares. A backup within both is restored whole;
     /// a bigger one is checked by a random sample within them, a different one each time.
     /// </summary>

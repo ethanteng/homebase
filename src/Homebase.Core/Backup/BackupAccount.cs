@@ -216,7 +216,7 @@ public sealed class BackupAccount(
     ControlDatabase database, SecretProtector protector, BackupServiceClient service, ILogger<BackupAccount> logger,
     TimeProvider? time = null)
 {
-    private const string Key = "backup_account";
+    internal const string Key = "backup_account";
     private const string CredentialContext = "backup:credential";
     private const string PasswordContext = "backup:password";
     private const string StorageContext = "backup:storage";
@@ -440,6 +440,43 @@ public sealed class BackupAccount(
     }
 
     private void ForgetHeld() => database.RemoveSetting(Key);
+
+    /// <summary>
+    /// Carries the place in Uncloud Backup kept in <paramref name="from"/> over to <paramref name="to"/>,
+    /// each secret sealed again with the key <paramref name="to"/> is opened with. A host rebuilt from
+    /// its backup keeps the place the host rebuilding it has, which the service knows, not the lost
+    /// host's from the backup, which taking its place revoked; and it backs up again, nothing being
+    /// left to get back first. Says whether there was a place to carry over that its key opened.
+    /// </summary>
+    public static bool CarryOver(ControlDatabase from, SecretProtector fromKey, ControlDatabase to, SecretProtector toKey)
+    {
+        Saved? saved = null;
+        try { saved = from.Setting(Key) is { } text ? JsonSerializer.Deserialize<Saved>(text) : null; }
+        catch (JsonException) { }
+        string? Again(string sealedText, string context)
+        {
+            try
+            {
+                return fromKey.Open(Convert.FromBase64String(sealedText), context) is { } secret
+                    ? Convert.ToBase64String(toKey.Seal(secret, context))
+                    : null;
+            }
+            catch (FormatException) { return null; }
+        }
+        if (saved is null || Again(saved.Credential, CredentialContext) is not { } credential
+            || Again(saved.Password, PasswordContext) is not { } password)
+            return false;
+        // A storage key that doesn't open is asked for again, as it is before there's ever been one.
+        var storage = saved.Storage is { } kept && Again(kept.SecretAccessKey, StorageContext) is { } secretKey
+            ? kept with { SecretAccessKey = secretKey }
+            : null;
+        to.SetSetting(Key, JsonSerializer.Serialize(saved with
+        {
+            Credential = credential, Password = password, Storage = storage,
+            SetupState = storage is null ? "setting_up" : saved.SetupState, Paused = false
+        }));
+        return true;
+    }
 
     /// <summary>
     /// Asks the service for this host's storage, once. When it's ready the answer carries a new key,

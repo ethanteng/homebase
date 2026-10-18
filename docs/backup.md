@@ -221,7 +221,8 @@ host that neither confirms nor withdraws stops working after an hour, and the ni
 and its key. Only one recovery is under way at a time: a new one, or a new kit, retires any earlier
 provisional host and its key. Backing up starts
 **paused**, so nothing on the new computer is added to the backup before what's needed from it
-has been got back, and Settings has a button to resume. In the beta the kit alone is enough; once
+has been got back. Settings then offers to rebuild the host from the backup (The host), or to
+resume once what's needed has been got back from Backups. In the beta the kit alone is enough; once
 there are Uncloud accounts, rebuilding a host will also need the account's sign-in.
 
 While the host is alive it can make a new kit, which retires the old token. It keeps the same
@@ -295,6 +296,26 @@ pinned binary comes from `scripts/fetch-restic.sh`.
   out of sight in the account's own `.homebase` folder first, on the same drive, so putting it in
   place is a rename, and refused before anything is fetched if there isn't room. The account's
   folder is found from the session, never the request, so nobody can name anybody else's.
+- **Rebuilding a host from its backup** (`POST /api/host/backup/rebuild`, "Rebuild from the
+  backup" in Settings). Offered on a host that has taken a lost one's place with its kit and hasn't
+  backed up since: whoever is setting the new computer up has made an account on it to reach
+  Settings, and nothing on it is anybody's yet. The newest backup is restored whole into a hidden
+  folder in the host's folder, on the same drive, and refused before anything is fetched if there
+  isn't room. Its control database and `host.key` are made ready beside the host's own settings,
+  with this host's folder in place of the lost one's, and without the computers paired with the
+  lost host: they were paired with its Syncthing, which isn't in the backup, so each is paired
+  again. No backup is made from then on, since it would be of the host being replaced. Then
+  Uncloud stops, and the Mac app or launchd starts it again. As it starts, before anything opens
+  them, it carries this host's place in Uncloud Backup into the backup's database (sealed again
+  with the backup's `host.key`, and no longer paused: the lost host's place in it was revoked when
+  this one took over), moves its own database and `host.key` aside, puts the backup's in their
+  place, and does the same with everybody's folders. All of these are renames. Each step is
+  written down as it's done, so a start that's interrupted carries on from where it got to, and
+  one that fails stops Uncloud starting rather than leave it half one host and half the other.
+  Everybody then signs in with the account they had; the one made to get to Settings is gone.
+  What was here is kept, in `before-rebuild-<time>` beside the settings and
+  `.uncloud-before-rebuild-<time>` in the host's folder. A rebuild that can't be finished changes
+  nothing, and says why.
 - **Restores without a lock** (`--no-lock`), since taking one is a write and a read-only account
   refuses it.
 - **A 403 on upload is asked about, not assumed.** A full account answers 403, but so do a
@@ -422,8 +443,15 @@ this is what's not yet *done*.
   It should be possible to make a new kit any time the host is alive, retiring the old.
 - [ ] **A new password with a new kit** (`restic key add`, then `key remove`), so a lost kit's
   password stops opening the backup too, not only its token.
-- [ ] **Rebuilding a host from its kit**: a new computer joins with the token, gets a key, and
+- [x] **Rebuilding a host from its kit**: a new computer joins with the token, gets a key, and
   restores the control database, `host.key` and everybody's files.
+- [ ] **Rebuilding from an older backup** than the newest. The host takes any of its backups;
+  Settings offers only the newest, which on a host that hasn't backed up since is the lost one's last.
+- [ ] **Clearing away what a rebuild set aside**, the new computer's own database, `host.key` and
+  folders, once it's plainly not wanted. Today it stays until somebody removes it.
+- [ ] **Folders on the lost computer**: the places people brought files in from come back with the
+  accounts, pointing at paths on the lost computer, which the new one may not have. Remote access
+  keeps what it was set to, but its tunnel's identity is kept with the settings, not in the backup.
 
 ### Phases 3 and 4
 
@@ -440,7 +468,7 @@ this is what's not yet *done*.
    delayed removal. Tested with a few households before anything is sold. Built so far: restic carried
    and the engine; the service with its invites, and setting up accounts and handing out hosts'
    keys; a host joining with an invite and backing up where it's sent, and checking its backup by
-   restoring it.
+   restoring it. Phase 2's restoring from My files, recovery kit and rebuilding a host are built.
 3. **Phase 2, getting it back.** Restoring files from My files under the Bin's rules, and
    rebuilding a host from its recovery kit.
 4. **Phase 3, selling it.** Uncloud accounts, billing, read-only on failed payments, and the

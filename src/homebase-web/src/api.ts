@@ -221,6 +221,24 @@ export interface BackupCheck {
   hostKeyMatched: boolean | null;
 }
 
+/// Rebuilding this host from one of its backups, and, on a host that was, which backup it came from.
+export interface BackupRebuild {
+  running: boolean;
+  // restarting: everything is ready, and Uncloud is starting again as the host in the backup.
+  stage: "restoring" | "preparing" | "restarting" | null;
+  started: string | null;
+  snapshot: string | null;
+  snapshotTime: string | null;
+  files: number | null;
+  bytes: number | null;
+  filesRestored: number | null;
+  bytesRestored: number | null;
+  // Why the last rebuild stopped short. Nothing on the host had changed.
+  message: string | null;
+  rebuiltAt: string | null;
+  rebuiltFrom: string | null;
+}
+
 /// The backups kept, oldest first.
 export interface BackupSnapshots {
   snapshots: { id: string; time: string }[];

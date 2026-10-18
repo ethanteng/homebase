@@ -6,7 +6,7 @@ namespace Homebase.Core.Accounts;
 /// </summary>
 public sealed class HostService
 {
-    private const string RootKey = "root_path";
+    internal const string RootKey = "root_path";
     private readonly ControlDatabase _database;
     private readonly Lock _lock = new();
     private string? _root;
