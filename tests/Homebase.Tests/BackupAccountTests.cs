@@ -454,14 +454,55 @@ public sealed class BackupAccountTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
         Assert.Contains("paused", await refused.Content.ReadAsStringAsync());
 
+        // Rebuilding from the backup is offered now, and only as asked for.
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PostAsJsonAsync("/api/host/backup/rebuild", new { snapshot = "0123456789abcdef" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await member.PostAsJsonAsync("/api/host/backup/rebuild", new { snapshot = "0123456789abcdef", confirm = true })).StatusCode);
+
         Assert.False((await (await admin.PostAsync("/api/host/backup/resume", null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("paused").GetBoolean());
         Assert.Equal(HttpStatusCode.Accepted, (await admin.PostAsync("/api/host/backup", null)).StatusCode);
+        // Once it's backing up as itself, it's what's here that's the household's, not the backup.
+        var late = await admin.PostAsJsonAsync("/api/host/backup/rebuild", new { snapshot = "0123456789abcdef", confirm = true });
+        Assert.Equal(HttpStatusCode.Conflict, late.StatusCode);
+        Assert.Contains("hasn't backed up since", await late.Content.ReadAsStringAsync());
 
         var kit = await admin.PostAsync("/api/host/backup/kit", null);
         Assert.Equal(HttpStatusCode.Created, kit.StatusCode);
         var made = (await kit.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("kit");
         Assert.Equal("the kit's password", made.GetProperty("password").GetString());
         Assert.Equal(service.Recovery, made.GetProperty("recovery").GetString());
+    }
+
+    [Fact]
+    public async Task A_host_rebuilt_from_the_backup_keeps_this_ones_place_sealed_with_its_own_key()
+    {
+        var service = new FakeBackupService { Recovery = "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF" };
+        var account = Account(service);
+        await account.RecoverAsync(service.Recovery, "the kit's password", "New Mac", _ => Task.FromResult<bool?>(true), CancellationToken.None);
+        var here = account.Target!;
+        // The lost host's database and key, from the backup, with the lost host's place in it.
+        var rebuilt = Path.Combine(_temporary, "rebuilt");
+        var lost = Account(new FakeBackupService(), rebuilt);
+        await lost.JoinAsync(Invite, "Lost Mac", CancellationToken.None);
+
+        Assert.True(BackupAccount.CarryOver(new ControlDatabase(Config), new SecretProtector(Config),
+            new ControlDatabase(rebuilt), new SecretProtector(rebuilt)));
+
+        var carried = Account(service, rebuilt);
+        Assert.Equal(account.Status.Host, carried.Status.Host);
+        Assert.Equal("New Mac", carried.Status.HostName);
+        Assert.Equal("ready", carried.Status.Storage);
+        // Nothing left to get back first: it backs up as the household's host.
+        Assert.False(carried.Paused);
+        Assert.Equal(here, carried.Target);
+        // Sealed with the rebuilt host's key, not this one's.
+        File.Delete(Path.Combine(rebuilt, "host.key"));
+        Assert.Null(Account(service, rebuilt).Target);
+        // A host with no place to carry over has none in the rebuilt one either.
+        var nowhere = Path.Combine(_temporary, "nowhere");
+        Assert.False(BackupAccount.CarryOver(new ControlDatabase(nowhere), new SecretProtector(nowhere),
+            new ControlDatabase(rebuilt), new SecretProtector(rebuilt)));
     }
 
     public void Dispose()

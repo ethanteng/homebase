@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import HostBackup, { forgetUnsaved } from "./HostBackup";
-import type { BackupAccount, BackupCheck, BackupStatus } from "./api";
+import HostBackup, { forgetUnsaved, page } from "./HostBackup";
+import type { BackupAccount, BackupCheck, BackupRebuild, BackupStatus } from "./api";
 
 /**
  * Uncloud Backup in Settings: joining with an invite, the password shown once and only put away
@@ -29,6 +29,17 @@ const never: BackupStatus = {
   configured: false, running: false, lastStarted: null, lastFinished: null, lastOutcome: null, message: null,
   lastSucceeded: null, snapshot: null, filesNew: null, filesChanged: null, bytesAdded: null, totalFiles: null,
   totalBytes: null, lastPruned: null,
+};
+
+const notRebuilt: BackupRebuild = {
+  running: false, stage: null, started: null, snapshot: null, snapshotTime: null, files: null, bytes: null,
+  filesRestored: null, bytesRestored: null, message: null, rebuiltAt: null, rebuiltFrom: null,
+};
+const twoKept = {
+  snapshots: [
+    { id: "aaaaaaaa11111111", time: "2026-10-10T09:00:00Z" },
+    { id: "bbbbbbbb22222222", time: "2026-10-17T09:00:00Z" },
+  ],
 };
 
 type Route = (body: unknown) => Response;
@@ -254,6 +265,144 @@ describe("backing up offsite", () => {
     });
     expect(screen.queryByText(/isn’t adding to it yet/)).toBeNull();
     expect((screen.getByRole("button", { name: "Back up now" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("rebuilds a recovered Uncloud from the newest backup, follows it, and starts again at signing in", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const startOver = vi.spyOn(page, "startOver").mockImplementation(() => {});
+    let rebuild: BackupRebuild = notRebuilt;
+    let answering = true;
+    const asked = host({
+      "GET /api/host/backup/account": () => json({ ...ready, paused: true }),
+      "GET /api/host/backup": () => json({ ...never, configured: true }),
+      "GET /api/host/backup/snapshots": () => json(twoKept),
+      "GET /api/host/backup/rebuild": () => (answering ? json(rebuild) : json({ detail: "Sign in." }, 401)),
+      "POST /api/host/backup/rebuild": () => {
+        rebuild = { ...notRebuilt, running: true, stage: "restoring", snapshotTime: "2026-10-17T09:00:00Z", bytes: 2 * 1024 ** 3, bytesRestored: 0 };
+        return json(rebuild, 202);
+      },
+    });
+    await show();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Rebuild from the backup" }));
+    });
+
+    expect(confirm.mock.calls[0][0]).toMatch(/account you’re signed in with goes/);
+    expect(asked.find((request) => request.route === "POST /api/host/backup/rebuild")?.body).toEqual({
+      snapshot: "bbbbbbbb22222222",
+      confirm: true,
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/of 2 GB back so far/);
+    expect((screen.getByRole("button", { name: "Resume backing up" }) as HTMLButtonElement).disabled).toBe(true);
+
+    rebuild = { ...rebuild, stage: "restarting", bytesRestored: rebuild.bytes };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/starting again as the Uncloud in the backup/);
+    expect(startOver).not.toHaveBeenCalled();
+
+    // Started again as the host in the backup, which doesn't know this session.
+    answering = false;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(startOver).toHaveBeenCalled();
+  });
+
+  it("says when Uncloud hasn't started again by itself after a rebuild, and why one stopped short", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let rebuild: BackupRebuild = { ...notRebuilt, running: true, stage: "restoring", bytes: 2 * 1024 ** 3, bytesRestored: 1024 ** 3 };
+    let answering = true;
+    host({
+      "GET /api/host/backup/account": () => json({ ...ready, paused: true }),
+      "GET /api/host/backup": () => json({ ...never, configured: true }),
+      "GET /api/host/backup/snapshots": () => json(twoKept),
+      "GET /api/host/backup/rebuild": () => (answering ? json(rebuild) : json({ detail: "Gone." }, 502)),
+    });
+    await show();
+    expect(screen.getByRole("status").textContent).toMatch(/1 GB of 2 GB back so far/);
+
+    // Out of reach while it's restoring: the rebuild goes on all the same, and nobody is told to quit.
+    answering = false;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(94_000);
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/1 GB of 2 GB back so far/);
+
+    // Then about to start again, and quiet a minute and a half on.
+    rebuild = { ...rebuild, stage: "restarting" };
+    answering = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/starting again/);
+    answering = false;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(94_000);
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/Quit Uncloud and open it again/);
+
+    // Heard from again, so it isn't said to be stuck any more.
+    answering = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByRole("status").textContent).not.toMatch(/Quit Uncloud/);
+
+    rebuild = { ...notRebuilt, message: "There isn’t room for everything in the backup." };
+    answering = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByRole("alert").textContent).toMatch(/didn’t finish. There isn’t room/);
+    expect((screen.getByRole("button", { name: "Rebuild from the backup" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("says an Uncloud was rebuilt, from which backup, and that computers pair again", async () => {
+    host({
+      "GET /api/host/backup/account": () => json(ready),
+      "GET /api/host/backup": () => json({ ...never, configured: true }),
+      "GET /api/host/backup/rebuild": () =>
+        json({ ...notRebuilt, rebuiltAt: "2026-10-18T10:00:00Z", rebuiltFrom: "2026-10-17T09:00:00Z" }),
+    });
+    await show();
+
+    expect(screen.getByText(/Rebuilt .* from the backup of .*paired again/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Rebuild from the backup" })).toBeNull();
+  });
+
+  it("keeps a rebuild going when the first look at it comes back after it was started", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let release!: (response: Response) => void;
+    host({
+      "GET /api/host/backup/account": () => json({ ...ready, paused: true }),
+      "GET /api/host/backup": () => json({ ...never, configured: true }),
+      "GET /api/host/backup/snapshots": () => json(twoKept),
+      "POST /api/host/backup/rebuild": () =>
+        json({ ...notRebuilt, running: true, stage: "restoring", snapshotTime: "2026-10-17T09:00:00Z", bytes: 2 * 1024 ** 3, bytesRestored: 0 }, 202),
+    });
+    const fetch = globalThis.fetch;
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+      if (`${init?.method ?? "GET"} ${url}` === "GET /api/host/backup/rebuild")
+        return new Promise<Response>((resolve) => (release = resolve));
+      return fetch(url, init);
+    });
+    await show();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Rebuild from the backup" }));
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/of 2 GB back so far/);
+
+    await act(async () => {
+      release(json(notRebuilt));
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/of 2 GB back so far/);
+    expect((screen.getByRole("button", { name: "Resume backing up" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("says why a recovery kit wasn't taken, and keeps what was typed but the password", async () => {

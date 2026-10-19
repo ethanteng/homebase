@@ -193,7 +193,15 @@ builder.Services.AddSingleton<ComputerReleases>();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 WebApplication app;
-try { app = builder.Build(); }
+try
+{
+    app = builder.Build();
+    // A rebuild from the backup that's ready is put in place now, before anything opens the
+    // database and host.key it replaces (HostRebuild). Development reads the host key while the
+    // app is built, which is before that swap, so the key already held is read again afterwards.
+    if (HostRebuild.ApplyPending(app.Configuration["Homebase:ConfigDirectory"] ?? defaultConfig, app.Logger))
+        app.Services.GetRequiredService<SecretProtector>().Reread();
+}
 catch { StopTunnel(); throw; }
 // Run by the menu-bar app, which holds the other end of standard input and never writes to it.
 // When the app goes — quit, crash, force-quit — that end closes, and this stops with it instead of
@@ -1184,10 +1192,47 @@ app.MapPost("/api/host/backup/recover", async (RecoverBackup request, BackupAcco
 });
 
 // Backing up again, after a host that opened a lost one's backup has got back what it needs.
-app.MapPost("/api/host/backup/resume", (BackupAccount account) =>
+app.MapPost("/api/host/backup/resume", (BackupAccount account, BackupService backups) =>
 {
+    // Still being rebuilt: unpausing now would let a backup of what's here go up, and a rebuild
+    // that then stops short would leave that as this host's backup.
+    if (backups.LastRebuild.Running)
+        return Results.Problem(
+            "This Uncloud is being rebuilt from its backup, so it can't start backing up yet.",
+            statusCode: 409);
     account.Resume();
+    // Backing up as itself instead, so a rebuild that didn't finish isn't wanted.
+    backups.ForgetRebuild();
     return Results.Ok(account.Status);
+});
+
+// Rebuilding this host from one of its backups: everybody's accounts and files as they were in it,
+// in place of what's here, and then Uncloud starts again as that host. Only on a host that has taken
+// a lost one's place and hasn't backed up anything of its own since, which is when it's wanted, and
+// when nothing here is anybody's yet. What's here goes aside, not away.
+app.MapGet("/api/host/backup/rebuild", (BackupService backups) => Results.Ok(backups.LastRebuild));
+
+app.MapPost("/api/host/backup/rebuild", (RebuildFromBackup request, BackupService backups, BackupAccount account, IHostApplicationLifetime lifetime) =>
+{
+    if (!backups.IsConfigured)
+        return Results.Problem("Backups aren't set up on this Uncloud yet.", statusCode: 409);
+    if (account.Joined && !account.Paused)
+        return Results.Problem(
+            "Only an Uncloud that has just taken a lost one's place, and hasn't backed up since, can be rebuilt from the backup.",
+            statusCode: 409);
+    if (string.IsNullOrWhiteSpace(request.Snapshot))
+        return Results.Problem("Choose the backup to rebuild this Uncloud from.", statusCode: 400);
+    if (request.Confirm != true)
+        return Results.Problem("Rebuilding replaces everything on this Uncloud with what's in the backup. Say that's what you want.", statusCode: 400);
+    // A moment's grace, longer than Settings takes to look again, so whoever asked hears that Uncloud
+    // is about to start again before it stops. The Mac app, or launchd, starts it again; it then puts
+    // the rebuild in place as it starts.
+    backups.TryStartRebuild(request.Snapshot.Trim(), () => _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ =>
+    {
+        try { lifetime.StopApplication(); }
+        catch (ObjectDisposedException) { }
+    }, TaskScheduler.Default), lifetime.ApplicationStopping);
+    return Results.Accepted("/api/host/backup/rebuild", backups.LastRebuild);
 });
 
 // What a v0 library left sitting at the top of the host's folder, belonging to no account.
@@ -1518,6 +1563,7 @@ public sealed record ImportRequest(string? RemotePath, string? Label, string? So
 public sealed record AddPlace(string? Path, string? Name);
 public sealed record JoinBackup(string? Invite, string? Name);
 public sealed record RecoverBackup(string? Recovery, string? Password, string? Name);
+public sealed record RebuildFromBackup(string? Snapshot, bool? Confirm);
 public sealed record RestoreFromBackup(IReadOnlyList<string>? Paths);
 public sealed record SharePlace(bool Shared);
 public sealed record SetDropboxAppKey(string? AppKey);

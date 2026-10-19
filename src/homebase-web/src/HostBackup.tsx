@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArchiveRestore,
   Check,
   CircleCheck,
   CloudUpload,
@@ -11,11 +12,25 @@ import {
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
-import { api, formatSize } from "./api";
-import type { BackupAccount, BackupCheck, BackupJoined, BackupKit, BackupSnapshots, BackupStatus } from "./api";
+import { api, formatSize, SignedOutError } from "./api";
+import type {
+  BackupAccount,
+  BackupCheck,
+  BackupJoined,
+  BackupKit,
+  BackupRebuild,
+  BackupSnapshots,
+  BackupStatus,
+} from "./api";
 
 /** How often it looks again while something is under way: storage being set up, or a backup running. */
 const UNDER_WAY_EVERY = 5000;
+/** How often it looks again while this Uncloud is being rebuilt, and how long it waits for one starting again. */
+const REBUILD_EVERY = 2000;
+const SLOW_RESTART = 90_000;
+
+/** Starts the page again, at signing in once this Uncloud no longer knows the session. */
+export const page = { startOver: () => window.location.reload() };
 
 /** The parts of setting a household up, as the service names them, in words. */
 const STEPS: Record<string, string> = {
@@ -107,6 +122,11 @@ export default function HostBackup({ onChanged }: Props = {}) {
   const [recovering, setRecovering] = useState(false);
   const [recovery, setRecovery] = useState("");
   const [kitPassword, setKitPassword] = useState("");
+  // Rebuilding this Uncloud from the backup, and whether it has been gone a while starting again.
+  const [rebuild, setRebuild] = useState<BackupRebuild | null>(null);
+  const [slow, setSlow] = useState(false);
+  // A look that started before Rebuild was clicked must not paint over the rebuild it started.
+  const rebuildSeen = useRef(0);
   const passwordCode = useRef<HTMLElement>(null);
   const recoveryCode = useRef<HTMLElement>(null);
 
@@ -117,8 +137,11 @@ export default function HostBackup({ onChanged }: Props = {}) {
     ]);
     setAccount(nextAccount);
     setStatus(nextStatus);
-    // A host from before checks were made answers 404: the rest of the panel still stands.
+    // A host from before checks, or rebuilds, were made answers 404: the rest of the panel still stands.
     setCheck(await api<BackupCheck>("/host/backup/check", { signal }).catch(() => null));
+    const seen = rebuildSeen.current;
+    const nextRebuild = await api<BackupRebuild>("/host/backup/rebuild", { signal }).catch(() => null);
+    if (seen === rebuildSeen.current) setRebuild(nextRebuild);
   }, []);
 
   useEffect(() => {
@@ -175,6 +198,39 @@ export default function HostBackup({ onChanged }: Props = {}) {
     const timer = window.setInterval(() => void read().catch(() => {}), UNDER_WAY_EVERY);
     return () => window.clearInterval(timer);
   }, [underWay, read]);
+
+  // Followed until Uncloud starts again as the host in the backup. Once it has said it's about to,
+  // it goes quiet while it stops and starts; when it answers again it doesn't know this session,
+  // which was the old host's, and the page starts again too, at signing in.
+  const rebuilding = rebuild?.running === true;
+  const stage = useRef<BackupRebuild["stage"]>(null);
+  stage.current = rebuild?.stage ?? null;
+  useEffect(() => {
+    if (!rebuilding) return;
+    let gone: number | null = null;
+    const timer = window.setInterval(() => {
+      api<BackupRebuild>("/host/backup/rebuild")
+        .then((now) => {
+          gone = null;
+          setSlow(false);
+          setRebuild(now);
+          // Stopped short: the rest of the panel is as it was, and worth reading again.
+          if (!now.running) void read().catch(() => {});
+        })
+        .catch((failure: unknown) => {
+          if (failure instanceof SignedOutError) {
+            page.startOver();
+            return;
+          }
+          // Out of reach before then says nothing about the rebuild, which goes on regardless:
+          // what it last said stands.
+          if (stage.current !== "restarting") return;
+          gone ??= Date.now();
+          if (Date.now() - gone > SLOW_RESTART) setSlow(true);
+        });
+    }, REBUILD_EVERY);
+    return () => window.clearInterval(timer);
+  }, [rebuilding, read]);
 
   if (!account || !status) return null;
 
@@ -247,6 +303,35 @@ export default function HostBackup({ onChanged }: Props = {}) {
       setStatus(await api<BackupStatus>("/host/backup"));
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Couldn’t open the household’s backup.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rebuildNow() {
+    const newest = keptBackups?.at(-1);
+    if (!newest) return;
+    if (
+      !window.confirm(
+        `Rebuild this Uncloud from the backup of ${when.format(new Date(newest.time))}?\n\n` +
+          "Everyone’s accounts and files come back as they were then, in place of what’s here now. " +
+          "The account you’re signed in with goes: sign in again with your account from before. " +
+          "Computers that synced with the lost Uncloud need to be paired again.",
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    setSlow(false);
+    const seen = ++rebuildSeen.current;
+    try {
+      const started = await api<BackupRebuild>("/host/backup/rebuild", {
+        method: "POST",
+        body: JSON.stringify({ snapshot: newest.id, confirm: true }),
+      });
+      if (seen === rebuildSeen.current) setRebuild(started);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Couldn’t start rebuilding this Uncloud.");
     } finally {
       setBusy(false);
     }
@@ -530,12 +615,14 @@ export default function HostBackup({ onChanged }: Props = {}) {
         )
       ) : (
         <>
-          {account.paused && (
+          {rebuild && <Rebuilding rebuild={rebuild} slow={slow} />}
+          {account.paused && !rebuilding && (
             <p className="backup-line">
               <Pause size={14} className="backup-warn" />
               <span>
-                This Uncloud has opened its household’s backup and isn’t adding to it yet. Get back what
-                you need from Backups first, then resume backing up.
+                This Uncloud has opened its household’s backup and isn’t adding to it yet. Rebuild it from
+                the backup to bring back everyone’s accounts and files as they were. Or get back only what
+                you need from Backups, then resume backing up.
               </span>
             </p>
           )}
@@ -569,8 +656,24 @@ export default function HostBackup({ onChanged }: Props = {}) {
             </p>
           )}
           <div className="backup-actions">
+            {account.paused && (keptBackups?.length ?? 0) > 0 && (
+              <button
+                type="button"
+                className="button primary"
+                disabled={busy || rebuilding}
+                onClick={() => void rebuildNow()}
+              >
+                {rebuilding ? <LoaderCircle size={16} className="spin" /> : <ArchiveRestore size={16} />}
+                Rebuild from the backup
+              </button>
+            )}
             {account.paused && (
-              <button type="button" className="button primary" disabled={busy} onClick={() => void resume()}>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy || rebuilding}
+                onClick={() => void resume()}
+              >
                 <CloudUpload size={16} />
                 Resume backing up
               </button>
@@ -578,7 +681,7 @@ export default function HostBackup({ onChanged }: Props = {}) {
             <button
               type="button"
               className="button secondary"
-              disabled={busy || status.running || account.paused}
+              disabled={busy || rebuilding || status.running || account.paused}
               onClick={() => void backUpNow()}
             >
               {status.running ? <LoaderCircle size={16} className="spin" /> : <CloudUpload size={16} />}
@@ -588,7 +691,7 @@ export default function HostBackup({ onChanged }: Props = {}) {
               <button
                 type="button"
                 className="button secondary"
-                disabled={busy || check.running || !status.lastSucceeded}
+                disabled={busy || rebuilding || check.running || !status.lastSucceeded}
                 onClick={() => void checkNow()}
               >
                 {check.running ? <LoaderCircle size={16} className="spin" /> : <ShieldCheck size={16} />}
@@ -596,7 +699,7 @@ export default function HostBackup({ onChanged }: Props = {}) {
               </button>
             )}
             {account.joined && (
-              <button type="button" className="button secondary" disabled={busy} onClick={() => void makeKit()}>
+              <button type="button" className="button secondary" disabled={busy || rebuilding} onClick={() => void makeKit()}>
                 <KeyRound size={16} />
                 {account.recoveryKitMadeAt ? "Make a new recovery kit" : "Make a recovery kit"}
               </button>
@@ -606,6 +709,50 @@ export default function HostBackup({ onChanged }: Props = {}) {
       )}
     </section>
   );
+}
+
+/**
+ * This Uncloud being rebuilt from the backup, how far it has got, or why it stopped short; and on an
+ * Uncloud that was rebuilt, from which backup, and what that leaves to do.
+ */
+function Rebuilding({ rebuild, slow }: { rebuild: BackupRebuild; slow: boolean }) {
+  const from = rebuild.snapshotTime ? ` from the backup of ${when.format(new Date(rebuild.snapshotTime))}` : " from the backup";
+  if (rebuild.running) {
+    const text =
+      rebuild.stage === "restarting"
+        ? slow
+          ? "Everything from the backup is ready, and Uncloud hasn’t started again by itself. Quit Uncloud and open it again: it finishes the rebuild as it starts."
+          : "Everything from the backup is ready. Uncloud is starting again as the Uncloud in the backup: sign in with your account from before once it has."
+        : rebuild.stage === "preparing"
+          ? `Rebuilding this Uncloud${from}: everything is back, and the accounts are being got ready.`
+          : rebuild.bytes !== null
+            ? `Rebuilding this Uncloud${from}: ${formatSize(rebuild.bytesRestored ?? 0)} of ${formatSize(rebuild.bytes)} back so far. This can take a while; leave this computer on.`
+            : `Rebuilding this Uncloud${from}: reading what’s in it.`;
+    return (
+      <p className="backup-line" role="status">
+        {slow ? <TriangleAlert size={14} className="backup-warn" /> : <LoaderCircle size={14} className="spin" />}
+        <span>{text}</span>
+      </p>
+    );
+  }
+  if (rebuild.message)
+    return (
+      <p className="backup-line" role="alert">
+        <TriangleAlert size={14} className="backup-warn" />
+        <span>The rebuild didn’t finish. {rebuild.message}</span>
+      </p>
+    );
+  if (rebuild.rebuiltAt && rebuild.rebuiltFrom)
+    return (
+      <p className="backup-line">
+        <ArchiveRestore size={14} />
+        <span>
+          Rebuilt {when.format(new Date(rebuild.rebuiltAt))} from the backup of {when.format(new Date(rebuild.rebuiltFrom))}.
+          Computers that synced with the lost Uncloud need to be paired again.
+        </span>
+      </p>
+    );
+  return null;
 }
 
 const count = (n: number | null, one: string, many: string) =>
