@@ -278,6 +278,31 @@ public sealed class BackupRebuildTests : IDisposable
         Assert.Equal("the lost host's database", File.ReadAllText(Path.Combine(config, "homebase.db")));
     }
 
+    [Fact]
+    public void A_rebuild_interrupted_after_the_files_were_moved_into_place_finishes()
+    {
+        var config = Directory.CreateDirectory(Path.Combine(_temporary, "config-moved")).FullName;
+        var root = Root("moved-files");
+        var staging = Directory.CreateDirectory(Path.Combine(root, ".uncloud-rebuild")).FullName;
+        var restored = Path.Combine(staging, "old", "root", "users");
+        // The rename into place happened, and the process died before the marker said so.
+        Directory.CreateDirectory(Path.Combine(root, "users", "person"));
+        File.WriteAllText(Path.Combine(root, "users", "person", "notes.txt"), "from the backup");
+        var aside = Directory.CreateDirectory(Path.Combine(root, ".uncloud-before-rebuild-20261018-120000", "users", "stand-in")).FullName;
+        File.WriteAllText(Path.Combine(aside, "now.txt"), "stand-in");
+        File.WriteAllText(Path.Combine(config, "homebase.db"), "the lost host's database");
+        File.WriteAllText(Path.Combine(config, "host.key"), "the lost host's key");
+        File.WriteAllText(Path.Combine(config, "rebuild.json"), JsonSerializer.Serialize(
+            new { Root = root, Users = restored, Staging = staging, Stamp = "20261018-120000", Step = "users aside" }));
+
+        Assert.True(HostRebuild.ApplyPending(config, NullLogger.Instance));
+
+        Assert.Equal("from the backup", File.ReadAllText(Path.Combine(root, "users", "person", "notes.txt")));
+        Assert.Equal("stand-in", File.ReadAllText(Path.Combine(aside, "now.txt")));
+        Assert.False(File.Exists(Path.Combine(config, "rebuild.json")));
+        Assert.False(Directory.Exists(staging));
+    }
+
     private static async Task Until(Func<Task<bool>> condition)
     {
         var clock = Stopwatch.StartNew();

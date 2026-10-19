@@ -138,13 +138,21 @@ public static class HostRebuild
             {
                 // The accounts are already this host's. Starting without the files that belong to them
                 // would be the half-finished rebuild this refuses, so a folder that isn't there yet waits.
+                // The marker is written after the rename, so a start interrupted in between finds the
+                // folder already in place and the restored one gone: that rename is done.
                 if (!Directory.Exists(restored))
                 {
-                    logger.LogError("The folder of everybody's files from the backup ({Users}) isn't there, so the rebuild waits for it", restored);
-                    throw new DirectoryNotFoundException(
-                        $"The folder of everybody's files from the backup ({restored}) isn't there, so the rebuild can't be put in place yet.");
+                    if (!Directory.Exists(users))
+                    {
+                        logger.LogError("The folder of everybody's files from the backup ({Users}) isn't there, so the rebuild waits for it", restored);
+                        throw new DirectoryNotFoundException(
+                            $"The folder of everybody's files from the backup ({restored}) isn't there, so the rebuild can't be put in place yet.");
+                    }
                 }
-                Directory.Move(restored, users);
+                else
+                {
+                    Directory.Move(restored, users);
+                }
             }
             pending = Advance(marker, pending, "placed");
         }
