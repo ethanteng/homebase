@@ -241,7 +241,7 @@ public sealed partial class BackupService
         var restoredUsers = users is null ? null : Restored(target, users);
         HostRebuild.MarkReady(_configDirectory, new PendingRebuild(
             root, restoredUsers is not null && Directory.Exists(restoredUsers) ? restoredUsers : null, staging,
-            _time.GetUtcNow().ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture), "ready"));
+            HostRebuild.AsideStamp(_configDirectory, root, _time.GetUtcNow()), "ready"));
         _logger.LogWarning("Rebuild from backup {Snapshot} of {Time} is ready", chosen.Id, chosen.Time);
     }
 

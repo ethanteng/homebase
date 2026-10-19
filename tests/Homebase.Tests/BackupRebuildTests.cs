@@ -303,6 +303,20 @@ public sealed class BackupRebuildTests : IDisposable
         Assert.False(Directory.Exists(staging));
     }
 
+    [Fact]
+    public void A_second_rebuild_in_the_same_second_gets_its_own_aside_folders()
+    {
+        var config = Directory.CreateDirectory(Path.Combine(_temporary, "config-stamp")).FullName;
+        var root = Root("stamp");
+        var now = new DateTimeOffset(2026, 10, 18, 12, 0, 0, TimeSpan.Zero);
+        Directory.CreateDirectory(Path.Combine(config, "before-rebuild-20261018-120000"));
+
+        Assert.Equal("20261018-120000-2", HostRebuild.AsideStamp(config, root, now));
+
+        Directory.CreateDirectory(Path.Combine(root, ".uncloud-before-rebuild-20261018-120000-2"));
+        Assert.Equal("20261018-120000-3", HostRebuild.AsideStamp(config, root, now));
+    }
+
     private static async Task Until(Func<Task<bool>> condition)
     {
         var clock = Stopwatch.StartNew();

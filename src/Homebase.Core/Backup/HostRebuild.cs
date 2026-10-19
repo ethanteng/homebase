@@ -183,6 +183,22 @@ public static class HostRebuild
     internal static void MarkReady(string configDirectory, PendingRebuild pending) =>
         Write(Path.Combine(configDirectory, MarkerName), pending with { Step = "ready" });
 
+    /// <summary>
+    /// A name for the folders what was here is set aside in. The clock is only to a second, so a
+    /// second rebuild in that same second would otherwise be renamed onto the first's folders.
+    /// </summary>
+    internal static string AsideStamp(string configDirectory, string root, DateTimeOffset now)
+    {
+        var stamp = now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        var chosen = stamp;
+        for (var extra = 2;
+             Directory.Exists(Path.Combine(configDirectory, $"before-rebuild-{chosen}"))
+             || Directory.Exists(Path.Combine(root, $".uncloud-before-rebuild-{chosen}"));
+             extra++)
+            chosen = $"{stamp}-{extra}";
+        return chosen;
+    }
+
     private static PendingRebuild Advance(string marker, PendingRebuild pending, string step)
     {
         var next = pending with { Step = step };
