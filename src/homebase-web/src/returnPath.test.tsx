@@ -61,6 +61,8 @@ function serve(path: string) {
   if (/^\/imports\/sources\/[^/]+\/files/.test(path)) return [];
   if (path.startsWith("/imports/sources")) return dropbox(connected);
   if (path.startsWith("/imports/job")) return { job: null };
+  // No uploads left unfinished by an earlier page.
+  if (path === "/uploads") return [];
   if (path.startsWith("/files")) return { path: "", entries: [], parent: null };
   if (path.startsWith("/sync")) return { folders: [], devices: [], available: false };
   return {};

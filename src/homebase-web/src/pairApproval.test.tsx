@@ -74,6 +74,8 @@ function serve(method: string, path: string, body: string | undefined) {
   if (path.startsWith("/library")) return json(LIBRARY);
   if (path.startsWith("/storage")) return json(STORAGE);
   if (path.startsWith("/imports/job")) return json({ job: null });
+  // No uploads left unfinished by an earlier page.
+  if (path === "/uploads") return json([]);
   if (path.startsWith("/files")) return json({ path: "", entries: [], parent: null });
   return json({});
 }
