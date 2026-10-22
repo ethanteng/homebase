@@ -72,12 +72,13 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   `POST /api/uploads/{id}/finish` with `{ destination, merge }`; `DELETE /api/uploads/{id}` throws one
   away). Before that begins, `POST /api/uploads/compare` with `{ destination, files: [{ path, bytes, modified }] }`
   says which of those files are already there: `same` (equal size, and modified times within 2 seconds,
-  since a Windows-formatted drive keeps time only that finely), `changed`, or `newer` (changed in
+  since a Windows-formatted drive keeps time only that finely; a file described without a time is
+  never `same`), `changed`, or `newer` (changed in
   Uncloud more recently than the copy about to be sent), plus which top-level `folders` already exist.
   A path Uncloud won't keep, or that goes through a link, is left off those lists. The page asks
   before sending anything when some of it is already there: adding the differences sends only the
   new and changed files and finishes with `merge: true`, which adds to folders already there and
-  puts a replaced file in the bin; a file changed in Uncloud more recently than what arrived — asked
+  puts a replaced file in the bin once what replaces it is in the folder beside it; a file changed in Uncloud more recently than what arrived — asked
   again under the edit lock, because the comparison is from before the upload — is kept, and the
   arrival goes beside it. `merge` defaults to false, which is the previous behaviour. Keeping both
   sends everything and finishes with `merge: false`. Files that weren't sent are never deleted. The account's folder comes from the session like every other edit; the id is a random one

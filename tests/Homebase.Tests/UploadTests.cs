@@ -142,6 +142,7 @@ public sealed class UploadTests : IDisposable
         await WriteAsync(root, "Archive/Photos/edited.jpg", "old", then);
         await WriteAsync(root, "Archive/Photos/touched.jpg", "abc", then);
         await WriteAsync(root, "Archive/Photos/kept here.jpg", "kept", later);
+        await WriteAsync(root, "Archive/Photos/undated.jpg", "abc", then);
         var outside = Directory.CreateDirectory(Path.Combine(_temporary, "Outside")).FullName;
         await WriteAsync(outside, "secret.txt", "secret", then);
         Directory.CreateSymbolicLink(Path.Combine(root, "Archive", "Linked"), outside);
@@ -156,6 +157,8 @@ public sealed class UploadTests : IDisposable
             Described("Photos/touched.jpg", "abc", later),
             // Changed here since this copy was: sending it would undo that.
             Described("Photos/kept here.jpg", "kept", then),
+            // The same size, but with no time there's no telling it's the same.
+            new { path = "Photos/undated.jpg", bytes = 3 },
             Described("Photos/new.jpg", "new", then),
             Described("Photos/.DS_Store", "finder", then),
             Described("Linked/secret.txt", "secret", then),
@@ -163,7 +166,7 @@ public sealed class UploadTests : IDisposable
             Described("Elsewhere/note.txt", "note", then));
 
         Assert.Equal(["Photos/beach.jpg", "Photos/Trips/day.jpg"], same);
-        Assert.Equal(["Photos/edited.jpg", "Photos/touched.jpg"], changed);
+        Assert.Equal(["Photos/edited.jpg", "Photos/touched.jpg", "Photos/undated.jpg"], changed);
         Assert.Equal(["Photos/kept here.jpg"], newer);
         // A link is somewhere else, so it's never a folder to add to.
         Assert.Equal(["Photos"], folders);

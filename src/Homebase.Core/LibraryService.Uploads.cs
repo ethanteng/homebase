@@ -188,10 +188,13 @@ public sealed partial class LibraryService
             if (!there.Exists) continue;
             DateTimeOffset? sent = file.Modified is > 0 and < 253402300800000
                 ? DateTimeOffset.FromUnixTimeMilliseconds(file.Modified.Value) : null;
-            var ahead = sent is null ? TimeSpan.Zero : there.LastWriteTimeUtc - sent.Value.UtcDateTime;
-            if (there.Length == file.Bytes && ahead.Duration() <= SameTime) same.Add(path);
+            // Without a time there's no telling it's the same, nor which is newer; sending it replaces
+            // the one there, which the bin keeps.
+            if (sent is null) changed.Add(path);
+            else if (there.Length == file.Bytes && (there.LastWriteTimeUtc - sent.Value.UtcDateTime).Duration() <= SameTime)
+                same.Add(path);
             // Changed here since: sending this one would put back what somebody changed it from.
-            else if (ahead > SameTime) newer.Add(path);
+            else if (there.LastWriteTimeUtc - sent.Value.UtcDateTime > SameTime) newer.Add(path);
             else changed.Add(path);
         }
         var folders = tops.Where(top =>
@@ -264,13 +267,23 @@ public sealed partial class LibraryService
                 // Asked again now, in the edits' turn: the comparison was made before anything was sent,
                 // and a laptop syncing, or another browser, may have changed the one there since. One
                 // changed more recently than what arrived is kept, and what arrived goes beside it.
-                if (entry is FileInfo arrived && File.Exists(target) && !IsLink(target)
-                    && File.GetLastWriteTimeUtc(target) - arrived.LastWriteTimeUtc <= SameTime)
+                var replacing = entry is FileInfo arrived && File.Exists(target) && !IsLink(target)
+                    && File.GetLastWriteTimeUtc(target) - arrived.LastWriteTimeUtc <= SameTime;
+                // In beside the one it replaces before that goes to the bin, so that something going
+                // wrong in between leaves both in the folder rather than neither.
+                name = Place(entry.FullName, into, entry.Name, entry is DirectoryInfo, copy: false);
+                if (replacing)
                 {
                     ToBin(bin, new Item(Relative(target), target, IsDirectory: false));
                     replaced++;
+                    try
+                    {
+                        File.Move(Path.Combine(into, name), target, overwrite: false);
+                        name = entry.Name;
+                    }
+                    // Something took the name meanwhile: what arrived keeps the one it has, and says so.
+                    catch (IOException) when (Taken(target)) { }
                 }
-                name = Place(entry.FullName, into, entry.Name, entry is DirectoryInfo, copy: false);
             }
             if (above.Length == 0 || name != entry.Name) placed.Add(new EditedEntry(path, Join(into, name)));
             if (joining) replaced += Merge(entry.FullName, target, path, bin, placed);
