@@ -468,20 +468,21 @@ export default function App() {
               onAdd={() => setDialog("add")}
               // Dropped onto the list: into the folder it shows, or the folder dropped on.
               onDropFiles={(folder, picked) => uploads.start(folder, picked)}
-              uploading={uploads.running}
               // The storage meter, too: copying fills the drive and deleting frees it.
               onChanged={() => setRevision((value) => value + 1)}
               status={
                 <>
-                  {uploads.upload && (
+                  {/* Each upload from this device, in the order they go: on its way, waiting its turn, or how it went. */}
+                  {uploads.uploads.map((upload) => (
                     <UploadStatus
-                      upload={uploads.upload}
-                      onStop={uploads.stop}
-                      onDismiss={uploads.dismiss}
+                      key={upload.key}
+                      upload={upload}
+                      onStop={() => uploads.stop(upload.key)}
+                      onDismiss={() => uploads.dismiss(upload.key)}
                       onOpen={navigate}
-                      onDecide={uploads.decide}
+                      onDecide={(merge) => uploads.decide(upload.key, merge)}
                     />
-                  )}
+                  ))}
                   {imports.job && (
                     <ImportStatus
                       job={imports.job}

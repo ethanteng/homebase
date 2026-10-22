@@ -59,7 +59,6 @@ async function open(onChanged = vi.fn(), path = "") {
       onAdd={() => {}}
       onChanged={onChanged}
       onDropFiles={async () => {}}
-      uploading={false}
     />,
   );
   await screen.findByText(path ? "Old" : "a.txt");

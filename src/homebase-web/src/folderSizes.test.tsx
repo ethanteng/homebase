@@ -62,7 +62,6 @@ describe("folder sizes", () => {
         onAdd={() => {}}
         onChanged={() => {}}
         onDropFiles={async () => {}}
-        uploading={false}
       />,
     );
     const row = async (name: string) => (await screen.findByText(name)).closest("tr")!;

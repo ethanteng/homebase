@@ -280,7 +280,8 @@ On **My files**, click **Add files** and choose where they are:
   you have open in **My files**. You can also skip **Add files** and drop them straight onto the
   list in **My files**, or onto a folder in the list to put them in that folder. Keep the page open until **My files** says they're in: unlike the
   other ways in, the page is what's sending them. **Stop** ends it early, and then nothing from it
-  is added.
+  is added. You can keep adding while some are still on their way: each waits its turn above your
+  files and goes once the ones before it are in, and **Remove** takes one away before it starts.
 
   If some of it is already there — a folder you added before, say, with new things in it since —
   Uncloud says so before sending anything: how many files are new, how many have changed, and how

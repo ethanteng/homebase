@@ -3,6 +3,7 @@ import {
   ChevronRight,
   CircleCheck,
   CircleStop,
+  Clock,
   FolderSync,
   LoaderCircle,
   TriangleAlert,
@@ -70,7 +71,15 @@ async function walk(entry: FileSystemEntry, above: string, picked: Picked[]) {
   }
 }
 
-export type UploadStage = "checking" | "review" | "sending" | "placing" | "done" | "stopped" | "failed";
+export type UploadStage =
+  | "waiting"
+  | "checking"
+  | "review"
+  | "sending"
+  | "placing"
+  | "done"
+  | "stopped"
+  | "failed";
 
 /** What was chosen that's partly in the folder already, for whoever chose it to decide about. */
 export interface Review {
@@ -88,9 +97,10 @@ export interface Review {
   several: boolean;
 }
 
-/** Files on their way from this device, or how that went. */
+/** Files on their way from this device, or waiting their turn, or how that went. */
 export interface Upload {
-  id: string;
+  /** This page's own name for it, from the moment it's chosen. */
+  key: string;
   label: string;
   /** The folder in My files they go into. */
   folder: string;
@@ -198,59 +208,86 @@ async function discard(id: string) {
 }
 
 const isRunning = (upload: Upload) => upload.stage === "sending" || upload.stage === "placing";
-/** Started, and not yet over: on its way, or still being asked about or decided on. */
-const isUnder = (upload: Upload) =>
-  isRunning(upload) || upload.stage === "checking" || upload.stage === "review";
+/** Still to be sent, or being sent: what leaving the page now would lose. */
+const isPending = (upload: Upload) =>
+  isRunning(upload) || upload.stage === "waiting" || upload.stage === "checking";
 
-/** One upload as it runs: the requests in flight, and how far each has got. */
-interface Run {
+/** One upload, from being chosen until it's over. */
+interface Job {
+  key: string;
+  folder: string;
+  label: string;
+  /** Everything chosen, hidden files left out. */
+  items: Picked[];
+  /** What to send, once that's settled: all of it, or only what differs from what's there. */
+  plan: { items: Picked[]; merge: boolean } | null;
+  /** While somebody decides what to do about the part of it that's there already: what differs. */
+  differ: Picked[] | null;
+  /** Begun with Uncloud, after which it can be stopped but not simply taken away. */
+  begun: boolean;
   stopped: boolean;
+  /** Ends the question about what's already there, when this is taken away or the account signs out. */
+  cancel: AbortController;
+  /** The requests in flight, and how far each has got. */
   requests: Set<XMLHttpRequest>;
   loaded: Map<string, number>;
-  /** What's waiting while somebody decides what to do about the part of it that's there already. */
-  deciding: { folder: string; label: string; items: Picked[]; differ: Picked[] } | null;
 }
 
 /** The folder something went into, as somebody would call it. */
 const called = (folder: string) => folder.split("/").at(-1) || "My files";
 
+const signedOut = "You were signed out, so nothing was added. Sign in, then add them again.";
+
 /**
  * Files on their way from this device into My files, watched from My files like an import. Unlike
- * an import, this page is what sends them, so it lasts only as long as the page does — and says so.
+ * an import, this page is what sends them, so they last only as long as the page does — and it says
+ * so. More can be added at any time: each waits its turn and goes once those ahead of it are in, one
+ * at a time, so each is checked against what's there by then and none competes with another for the
+ * room left.
  */
 export function useUpload(active: boolean, onUploaded: () => void) {
-  const [upload, setUpload] = useState<Upload | null>(null);
-  const current = useRef<Run | null>(null);
-  const sending = upload != null && isRunning(upload);
-  const running = upload != null && isUnder(upload);
+  const [uploads, setUploads] = useState<Upload[]>([]);
+  // In the order they were added, which is the order they go in.
+  const jobs = useRef(new Map<string, Job>());
+  const working = useRef(false);
+  const added = useRef(0);
+  const running = uploads.some(isPending);
 
-  // Signing out ends whatever was on its way, and whoever signs in next doesn't see what it was.
+  const update = useCallback(
+    (key: string, change: Partial<Upload>) =>
+      setUploads((list) => list.map((upload) => (upload.key === key ? { ...upload, ...change } : upload))),
+    [],
+  );
+
+  // Signing out ends whatever was on its way or waiting, and whoever signs in next doesn't see any of it.
   useEffect(() => {
     if (active) return;
-    const run = current.current;
-    if (run) {
-      run.stopped = true;
-      run.requests.forEach((request) => request.abort());
-      // Nothing is on its way while somebody decides, so nothing else would let go of it.
-      if (run.deciding) current.current = null;
+    for (const job of jobs.current.values()) {
+      job.stopped = true;
+      job.cancel.abort();
+      job.requests.forEach((request) => request.abort());
     }
-    setUpload(null);
+    jobs.current.clear();
+    setUploads([]);
   }, [active]);
 
-  // Leaving now would stop it, so the browser asks first.
+  // Leaving now would stop it, and lose whatever is waiting, so the browser asks first.
   useEffect(() => {
-    if (!sending) return;
+    if (!running) return;
     const stay = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener("beforeunload", stay);
     return () => window.removeEventListener("beforeunload", stay);
-  }, [sending]);
+  }, [running]);
 
   /**
-   * Sends files once it's settled which: all of what was chosen, or — bringing a folder added again
-   * up to date — only what differs from what's there. Settles once Uncloud has agreed to take them.
+   * Sends what's been settled on: all of what was chosen, or — bringing a folder added again up to
+   * date — only what differs from what's there. Over once it's in place, or failed, or stopped.
    */
-  const begin = useCallback(
-    async (run: Run, folder: string, label: string, items: Picked[], merge: boolean, unchanged: number) => {
+  const deliver = useCallback(
+    async (job: Job, items: Picked[], merge: boolean) => {
+      const { key, folder } = job;
+      job.begun = true;
+      update(key, { stage: "sending" });
       const bytes = items.reduce((sum, item) => sum + item.file.size, 0);
       let id: string;
       try {
@@ -260,165 +297,262 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           body: JSON.stringify({ destination: folder, bytes }),
         }));
       } catch (problem: unknown) {
-        current.current = null;
-        throw problem;
-      }
-      // Signed out while Uncloud was being asked: nobody is here to send them.
-      if (run.stopped) {
-        current.current = null;
-        void discard(id);
+        update(key, {
+          stage: "failed",
+          error:
+            problem instanceof SignedOutError
+              ? signedOut
+              : problem instanceof Error
+                ? problem.message
+                : `Couldn’t add ${job.label}.`,
+        });
         return;
       }
-      const update = (change: Partial<Upload>) =>
-        setUpload((value) => (value?.id === id ? { ...value, ...change } : value));
-      setUpload({
-        id,
-        label,
-        folder,
-        files: items.length,
-        bytes,
-        doneFiles: 0,
-        sentBytes: 0,
-        arrivedBytes: 0,
-        stage: "sending",
-        error: null,
-        placed: [],
-        openTo: folder,
-        skipped: [],
-        review: null,
-        replaced: 0,
-        unchanged,
-      });
+      // Stopped, or signed out, while Uncloud was being asked: nobody wants them sent.
+      if (job.stopped) {
+        await discard(id);
+        update(key, { stage: "stopped" });
+        return;
+      }
 
-      void (async () => {
-        try {
-          let next = 0;
-          let doneFiles = 0;
-          let doneBytes = 0;
-          let arrived = 0;
-          let arrivedBytes = 0;
-          let fatal: string | null = null;
-          const skipped: Upload["skipped"] = [];
-          // What was last shown, so a tick with nothing new doesn't redraw the page under it.
-          let shown = "";
-          const progress = () => {
-            let inFlight = 0;
-            for (const loaded of run.loaded.values()) inFlight += loaded;
-            const sentBytes = doneBytes + inFlight;
-            const now = `${doneFiles}:${sentBytes}:${skipped.length}`;
-            if (now === shown) return;
-            shown = now;
-            update({ doneFiles, sentBytes, arrivedBytes, skipped: [...skipped] });
-          };
-          const timer = window.setInterval(progress, 250);
+      let next = 0;
+      let doneFiles = 0;
+      let doneBytes = 0;
+      let arrived = 0;
+      let arrivedBytes = 0;
+      let fatal: string | null = null;
+      const skipped: Upload["skipped"] = [];
+      // What was last shown, so a tick with nothing new doesn't redraw the page under it.
+      let shown = "";
+      const progress = () => {
+        let inFlight = 0;
+        for (const loaded of job.loaded.values()) inFlight += loaded;
+        const sentBytes = doneBytes + inFlight;
+        const now = `${doneFiles}:${sentBytes}:${skipped.length}`;
+        if (now === shown) return;
+        shown = now;
+        update(key, { doneFiles, sentBytes, arrivedBytes, skipped: [...skipped] });
+      };
+      const timer = window.setInterval(progress, 250);
 
-          const worker = async () => {
-            while (!run.stopped && fatal === null && next < items.length) {
-              const item = items[next++];
-              for (let attempt = 1; ; attempt++) {
-                // Somebody pressed Stop, or another file found the upload can't go on, while this one waited.
-                if (run.stopped || fatal !== null) return;
-                try {
-                  await send(id, item, (loaded) => run.loaded.set(item.path, loaded), run.requests);
-                  arrived++;
-                  arrivedBytes += item.file.size;
-                  break;
-                } catch (error) {
-                  run.loaded.delete(item.path);
-                  if (run.stopped || fatal !== null) return;
-                  const refused = error instanceof Refused ? error : new Refused(String(error), 0);
-                  // A name Uncloud won't keep is this file's problem, not the upload's.
-                  if (refused.status === 400) {
-                    skipped.push({ path: item.path, reason: refused.message });
-                    break;
-                  }
-                  if (refused.status === 0 || refused.status >= 500) {
-                    if (!(await readable(item.file))) {
-                      skipped.push({
-                        path: item.path,
-                        reason: "This device couldn’t read it. It may have been moved or deleted after it was chosen.",
-                      });
-                      break;
-                    }
-                    if (attempt < ATTEMPTS) {
-                      await pause(attempt * 1000);
-                      continue;
-                    }
-                    fatal = "Uncloud stopped answering, so nothing was added. Check you’re still connected, then try again.";
-                  } else
-                    fatal =
-                      refused.status === 401
-                        ? "You were signed out, so nothing was added. Sign in, then add them again."
-                        : refused.message || "The upload was interrupted, so nothing was added.";
-                  run.requests.forEach((request) => request.abort());
-                  return;
-                }
+      const worker = async () => {
+        while (!job.stopped && fatal === null && next < items.length) {
+          const item = items[next++];
+          for (let attempt = 1; ; attempt++) {
+            // Somebody pressed Stop, or another file found the upload can't go on, while this one waited.
+            if (job.stopped || fatal !== null) return;
+            try {
+              await send(id, item, (loaded) => job.loaded.set(item.path, loaded), job.requests);
+              arrived++;
+              arrivedBytes += item.file.size;
+              break;
+            } catch (error) {
+              job.loaded.delete(item.path);
+              if (job.stopped || fatal !== null) return;
+              const refused = error instanceof Refused ? error : new Refused(String(error), 0);
+              // A name Uncloud won't keep is this file's problem, not the upload's.
+              if (refused.status === 400) {
+                skipped.push({ path: item.path, reason: refused.message });
+                break;
               }
-              run.loaded.delete(item.path);
-              doneFiles++;
-              doneBytes += item.file.size;
+              if (refused.status === 0 || refused.status >= 500) {
+                if (!(await readable(item.file))) {
+                  skipped.push({
+                    path: item.path,
+                    reason: "This device couldn’t read it. It may have been moved or deleted after it was chosen.",
+                  });
+                  break;
+                }
+                if (attempt < ATTEMPTS) {
+                  await pause(attempt * 1000);
+                  continue;
+                }
+                fatal = "Uncloud stopped answering, so nothing was added. Check you’re still connected, then try again.";
+              } else
+                fatal =
+                  refused.status === 401
+                    ? signedOut
+                    : refused.message || "The upload was interrupted, so nothing was added.";
+              job.requests.forEach((request) => request.abort());
+              return;
             }
-          };
-          await Promise.all(Array.from({ length: Math.min(AT_ONCE, items.length) }, worker));
-          window.clearInterval(timer);
-          progress();
-
-          if (run.stopped) {
-            await discard(id);
-            update({ stage: "stopped" });
-            return;
           }
-          if (fatal !== null || arrived === 0) {
-            await discard(id);
-            update({
-              stage: "failed",
-              error: fatal ?? `None of ${items.length === 1 ? "it" : "these"} could be added.`,
-            });
-            return;
-          }
-          update({ stage: "placing" });
-          try {
-            const { items: placed, replaced } = await api<{ items: EditedEntry[]; replaced?: number }>(
-              `/uploads/${encodeURIComponent(id)}/finish`,
-              { method: "POST", body: JSON.stringify({ destination: folder, merge }) },
-            );
-            // A merge also names what deeper in had to take a new name; only the top says where it went.
-            const tops = placed.filter((entry) => !entry.from.includes("/"));
-            const one = tops.length === 1 ? tops[0] : null;
-            update({
-              stage: "done",
-              placed,
-              replaced: replaced ?? 0,
-              openTo:
-                one && items.some((item) => item.path.startsWith(`${one.from}/`)) ? one.to : folder,
-            });
-            onUploaded();
-          } catch (problem: unknown) {
-            await discard(id);
-            // No answer at all, rather than a refusal: Uncloud may well have put them in place and
-            // only the reply was lost. Saying nothing was added would have them added twice.
-            const unanswered = problem instanceof TypeError;
-            if (unanswered) onUploaded();
-            update({
-              stage: "failed",
-              error: unanswered
-                ? "Uncloud didn’t answer while putting them in place, so they may already be in your files. Look there before adding them again."
-                : problem instanceof SignedOutError
-                  ? "You were signed out, so nothing was added. Sign in, then add them again."
-                  : problem instanceof Error
-                    ? problem.message
-                    : "The files arrived but couldn’t be put in place, so nothing was added.",
-            });
-          }
-        } finally {
-          // However it ended, the next upload can start.
-          if (current.current === run) current.current = null;
+          job.loaded.delete(item.path);
+          doneFiles++;
+          doneBytes += item.file.size;
         }
-      })();
+      };
+      await Promise.all(Array.from({ length: Math.min(AT_ONCE, items.length) }, worker));
+      window.clearInterval(timer);
+      progress();
+
+      if (job.stopped) {
+        await discard(id);
+        update(key, { stage: "stopped" });
+        return;
+      }
+      if (fatal !== null || arrived === 0) {
+        await discard(id);
+        update(key, {
+          stage: "failed",
+          error: fatal ?? `None of ${items.length === 1 ? "it" : "these"} could be added.`,
+        });
+        return;
+      }
+      update(key, { stage: "placing" });
+      try {
+        const { items: placed, replaced } = await api<{ items: EditedEntry[]; replaced?: number }>(
+          `/uploads/${encodeURIComponent(id)}/finish`,
+          { method: "POST", body: JSON.stringify({ destination: folder, merge }) },
+        );
+        // A merge also names what deeper in had to take a new name; only the top says where it went.
+        const tops = placed.filter((entry) => !entry.from.includes("/"));
+        const one = tops.length === 1 ? tops[0] : null;
+        update(key, {
+          stage: "done",
+          placed,
+          replaced: replaced ?? 0,
+          openTo: one && items.some((item) => item.path.startsWith(`${one.from}/`)) ? one.to : folder,
+        });
+        onUploaded();
+      } catch (problem: unknown) {
+        await discard(id);
+        // No answer at all, rather than a refusal: Uncloud may well have put them in place and
+        // only the reply was lost. Saying nothing was added would have them added twice.
+        const unanswered = problem instanceof TypeError;
+        if (unanswered) onUploaded();
+        update(key, {
+          stage: "failed",
+          error: unanswered
+            ? "Uncloud didn’t answer while putting them in place, so they may already be in your files. Look there before adding them again."
+            : problem instanceof SignedOutError
+              ? signedOut
+              : problem instanceof Error
+                ? problem.message
+                : "The files arrived but couldn’t be put in place, so nothing was added.",
+        });
+      }
     },
-    [onUploaded],
+    [onUploaded, update],
   );
 
+  /**
+   * Takes one upload as far as it can go without anybody: asks what of it is there already, and
+   * then either sends it or leaves it for somebody to decide about.
+   */
+  const advance = useCallback(
+    async (job: Job) => {
+      // Already taken away: asking again would hold the line, and would never finish.
+      if (job.stopped) {
+        jobs.current.delete(job.key);
+        return;
+      }
+      // Asked about again when it was decided on to bring what's there up to date: while it waited
+      // for that answer, the ones behind it went ahead and may have brought some of the same in.
+      if (!job.plan || job.plan.merge) {
+        update(job.key, { stage: "checking" });
+        let there: UploadComparison;
+        try {
+          // What of it is in the folder already, asked when its turn comes rather than when it was
+          // chosen, so what went ahead of it counts — and a folder added again need only send
+          // what's new or changed in it.
+          there = await api<UploadComparison>("/uploads/compare", {
+            method: "POST",
+            signal: job.cancel.signal,
+            body: JSON.stringify({
+              destination: job.folder,
+              files: (job.plan?.items ?? job.items).map((item) => ({
+                path: item.path,
+                bytes: item.file.size,
+                modified: item.file.lastModified,
+              })),
+            }),
+          });
+        } catch (problem: unknown) {
+          jobs.current.delete(job.key);
+          // Taken away, or signed out, while Uncloud was being asked. Not a failure: nothing of it
+          // was sent, and the ones behind it can go. The panel is already gone.
+          if (job.stopped) return;
+          update(job.key, {
+            stage: "failed",
+            error:
+              problem instanceof SignedOutError
+                ? signedOut
+                : problem instanceof Error
+                  ? problem.message
+                  : `Couldn’t add ${job.label}.`,
+          });
+          return;
+        }
+        // Taken away, or signed out, while Uncloud was being asked. Left in the line it would be
+        // asked again, forever, and hold up the ones behind it.
+        if (job.stopped) {
+          jobs.current.delete(job.key);
+          return;
+        }
+        if (job.plan) {
+          // Already decided: what's the same there now, or changed there since, isn't sent after all.
+          const settled = new Set([...there.same, ...there.newer]);
+          const items = job.plan.items.filter((item) => !settled.has(item.path));
+          job.plan = { items, merge: true };
+          update(job.key, {
+            files: items.length,
+            bytes: items.reduce((sum, item) => sum + item.file.size, 0),
+            unchanged: job.items.length - items.length,
+          });
+          if (items.length === 0) {
+            jobs.current.delete(job.key);
+            update(job.key, { stage: "done" });
+            return;
+          }
+        }
+        // None of it is there, so there's nothing to decide: it all goes, as it always has.
+        else if (there.same.length + there.changed.length + there.newer.length + there.folders.length === 0)
+          job.plan = { items: job.items, merge: false };
+        else {
+          const same = new Set(there.same);
+          const newer = new Set(there.newer);
+          const changed = new Set(there.changed);
+          const tops = [...new Set(job.items.map((item) => item.path.split("/")[0]))];
+          const found = new Set([...there.folders, ...there.same, ...there.changed, ...there.newer]);
+          job.differ = job.items.filter((item) => !same.has(item.path) && !newer.has(item.path));
+          update(job.key, {
+            stage: "review",
+            review: {
+              fresh: job.differ.filter((item) => !changed.has(item.path)).map((item) => item.path),
+              changed: there.changed,
+              same: there.same.length,
+              newer: there.newer,
+              whole: tops.every((top) => found.has(top)),
+              several: tops.length > 1,
+            },
+          });
+          // It waits for an answer; the ones behind it needn't.
+          return;
+        }
+      }
+      await deliver(job, job.plan.items, job.plan.merge);
+      jobs.current.delete(job.key);
+    },
+    [deliver, update],
+  );
+
+  /** Works through what's waiting, in order and one at a time, skipping any waiting on an answer. */
+  const pump = useCallback(async () => {
+    if (working.current) return;
+    working.current = true;
+    try {
+      for (;;) {
+        const job = [...jobs.current.values()].find((candidate) => candidate.differ === null);
+        if (!job) return;
+        await advance(job);
+      }
+    } finally {
+      working.current = false;
+    }
+  }, [advance]);
+
+  /** Adds files to the end of the line. Settles at once: what happens to them shows in their own status. */
   const start = useCallback(
     async (folder: string, chosen: Picked[]) => {
       const items = chosen.filter((item) => !hidden(item.path));
@@ -428,135 +562,95 @@ export function useUpload(active: boolean, onUploaded: () => void) {
             ? "There’s nothing here to add. Uncloud leaves hidden files out, and that’s all there was."
             : "Nothing was chosen.",
         );
-      // One at a time, claimed before Uncloud is even asked: a second drop while the first is still
-      // being agreed to would otherwise start an upload nobody could see or stop.
-      if (current.current)
-        throw new Error("Some files are still on their way. You can add more once they’re in.");
-      const run: Run = { stopped: false, requests: new Set(), loaded: new Map(), deciding: null };
-      current.current = run;
-      const tops = [...new Set(items.map((item) => item.path.split("/")[0]))];
-      const label = nameTogether(tops);
-      const bytes = items.reduce((sum, item) => sum + item.file.size, 0);
-      const waiting: Upload = {
-        id: "",
-        label,
+      const key = `upload-${++added.current}`;
+      const label = nameTogether([...new Set(items.map((item) => item.path.split("/")[0]))]);
+      jobs.current.set(key, {
+        key,
         folder,
-        files: items.length,
-        bytes,
-        doneFiles: 0,
-        sentBytes: 0,
-        arrivedBytes: 0,
-        stage: "checking",
-        error: null,
-        placed: [],
-        openTo: folder,
-        skipped: [],
-        review: null,
-        replaced: 0,
-        unchanged: 0,
-      };
-      setUpload(waiting);
-      let there: UploadComparison;
-      try {
-        // What of it is in the folder already, so that a folder added again need only send what's
-        // new or changed in it — the way everything about a file is known before it's sent.
-        there = await api<UploadComparison>("/uploads/compare", {
-          method: "POST",
-          body: JSON.stringify({
-            destination: folder,
-            files: items.map((item) => ({
-              path: item.path,
-              bytes: item.file.size,
-              modified: item.file.lastModified,
-            })),
-          }),
-        });
-        if (run.stopped) {
-          current.current = null;
-          return;
-        }
-        // None of it is there, so there's nothing to decide: it all goes, as it always has.
-        if (there.same.length + there.changed.length + there.newer.length + there.folders.length === 0)
-          return await begin(run, folder, label, items, false, 0);
-      } catch (problem: unknown) {
-        current.current = null;
-        setUpload((value) => (value === waiting ? null : value));
-        throw problem;
-      }
-      const same = new Set(there.same);
-      const newer = new Set(there.newer);
-      const changed = new Set(there.changed);
-      const differ = items.filter((item) => !same.has(item.path) && !newer.has(item.path));
-      const found = new Set([...there.folders, ...there.same, ...there.changed, ...there.newer]);
-      run.deciding = { folder, label, items, differ };
-      setUpload({
-        ...waiting,
-        stage: "review",
-        review: {
-          fresh: differ.filter((item) => !changed.has(item.path)).map((item) => item.path),
-          changed: there.changed,
-          same: there.same.length,
-          newer: there.newer,
-          whole: tops.every((top) => found.has(top)),
-          several: tops.length > 1,
-        },
+        label,
+        items,
+        plan: null,
+        differ: null,
+        begun: false,
+        stopped: false,
+        requests: new Set(),
+        loaded: new Map(),
+        cancel: new AbortController(),
       });
+      setUploads((list) => [
+        ...list,
+        {
+          key,
+          label,
+          folder,
+          files: items.length,
+          bytes: items.reduce((sum, item) => sum + item.file.size, 0),
+          doneFiles: 0,
+          sentBytes: 0,
+          arrivedBytes: 0,
+          stage: "waiting",
+          error: null,
+          placed: [],
+          openTo: folder,
+          skipped: [],
+          review: null,
+          replaced: 0,
+          unchanged: 0,
+        },
+      ]);
+      void pump();
     },
-    [begin],
+    [pump],
   );
 
   /**
    * What to do about something chosen that's partly there already: bring what's there up to date
    * with it — only what's new or changed is sent, and a changed file takes the place of the one
-   * there — or add all of it again beside what's there, the way Finder keeps both.
+   * there — or add all of it again beside what's there, the way Finder keeps both. Either way it
+   * takes its place in line again.
    */
   const decide = useCallback(
-    (merge: boolean) => {
-      const run = current.current;
-      const waiting = run?.deciding;
-      if (!run || !waiting) return;
-      run.deciding = null;
-      const items = merge ? waiting.differ : waiting.items;
-      void begin(run, waiting.folder, waiting.label, items, merge, waiting.items.length - items.length).catch(
-        (problem: unknown) =>
-          setUpload((value) =>
-            value?.stage === "review"
-              ? {
-                  ...value,
-                  stage: "failed",
-                  review: null,
-                  error:
-                    problem instanceof SignedOutError
-                      ? "You were signed out, so nothing was added. Sign in, then add them again."
-                      : problem instanceof Error
-                        ? problem.message
-                        : `Couldn’t add ${waiting.label}.`,
-                }
-              : value,
-          ),
-      );
+    (key: string, merge: boolean) => {
+      const job = jobs.current.get(key);
+      if (!job?.differ) return;
+      const items = merge ? job.differ : job.items;
+      job.plan = { items, merge };
+      job.differ = null;
+      update(key, {
+        stage: "waiting",
+        review: null,
+        files: items.length,
+        bytes: items.reduce((sum, item) => sum + item.file.size, 0),
+        unchanged: job.items.length - items.length,
+      });
+      void pump();
     },
-    [begin],
+    [pump, update],
   );
 
-  const stop = useCallback(() => {
-    const run = current.current;
-    if (!run) return;
-    run.stopped = true;
-    run.requests.forEach((request) => request.abort());
+  const stop = useCallback((key: string) => {
+    const job = jobs.current.get(key);
+    if (!job) return;
+    job.stopped = true;
+    job.requests.forEach((request) => request.abort());
   }, []);
 
-  const dismiss = useCallback(() => {
-    // Not deciding is deciding not to add them.
-    if (current.current?.deciding) {
-      current.current = null;
-      setUpload(null);
-      return;
+  /**
+   * Takes one away: one that's over, or one still waiting — its turn, or an answer — which is then
+   * never sent. One on its way is stopped instead.
+   */
+  const dismiss = useCallback((key: string) => {
+    const job = jobs.current.get(key);
+    if (job?.begun) return;
+    if (job) {
+      job.stopped = true;
+      job.cancel.abort();
+      jobs.current.delete(key);
     }
-    setUpload((value) => (value && !isUnder(value) ? null : value));
+    setUploads((list) => list.filter((upload) => upload.key !== key));
   }, []);
 
-  return { upload, running, start, decide, stop, dismiss };
+  return { uploads, running, start, decide, stop, dismiss };
 }
 
 interface Props {
@@ -576,6 +670,25 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
   const [stopping, setStopping] = useState(false);
   const [showProblems, setShowProblems] = useState(false);
 
+  if (upload.stage === "waiting")
+    return (
+      <section className="import-progress upload-waiting" aria-live="polite">
+        <div className="import-progress-head">
+          <strong>
+            <Clock size={16} />
+            Waiting to add {upload.label}
+          </strong>
+          <button className="button secondary refresh-button" onClick={onDismiss}>
+            Remove
+          </button>
+        </div>
+        <span className="muted">
+          {files(upload.files)} · {formatSize(upload.bytes)} · into {called(upload.folder)}, once
+          what’s ahead of it is in.
+        </span>
+      </section>
+    );
+
   if (upload.stage === "checking")
     return (
       <section className="import-progress" aria-live="polite">
@@ -584,6 +697,10 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
             <LoaderCircle size={16} className="spin" />
             Looking at what’s already in {called(upload.folder)}…
           </strong>
+          {/* Nothing is sent during this, so it can still be taken out of the line. */}
+          <button className="button secondary refresh-button" onClick={onDismiss}>
+            Remove
+          </button>
         </div>
       </section>
     );
@@ -645,7 +762,11 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
       ? (upload.error ?? `Couldn’t add ${upload.label}.`)
       : upload.stage === "stopped"
         ? `Stopped adding ${upload.label}. Nothing from it was added.`
-        : `Added ${arrived} file${arrived === 1 ? "" : "s"} from this device (${formatSize(upload.arrivedBytes)}).` +
+        : upload.files === 0
+          ? // What differed came in some other way while it waited, likely another upload of the same.
+            `Nothing left to add from ${upload.label}: it’s all in ${called(upload.folder)} already.`
+          : // Named, since several can be in sight at once.
+          `Added ${upload.label} from this device: ${files(arrived)}, ${formatSize(upload.arrivedBytes)}.` +
           (upload.replaced === 1
             ? " One took the place of an older copy, which is in the bin."
             : upload.replaced > 1

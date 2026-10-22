@@ -2761,9 +2761,21 @@ tbody tr.selected {
 .drop-zone .card-actions {
   justify-content: center;
 }
-/* Something being sent from this device and something being imported can both be on their way. */
-.page-heading + .import-progress + .import-progress {
+/* Several uploads from this device, and an import, can all be on their way at once, one under the other. */
+.page-heading ~ .import-progress + .import-progress {
   margin: -10px 0 22px;
+}
+/* An upload waiting its turn: quieter than the one on its way. */
+.upload-waiting {
+  padding-top: 11px;
+  padding-bottom: 11px;
+  border-style: dashed;
+}
+.upload-waiting .import-progress-head strong {
+  font-weight: 500;
+}
+.upload-waiting .import-progress-head strong svg {
+  color: var(--muted);
 }
 
 /* Files held over My files. The list stays in sight, so the folder row they'd land in can light up;
