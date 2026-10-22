@@ -298,6 +298,9 @@ export function useUpload(active: boolean, onUploaded: () => void) {
 
   useEffect(() => {
     if (!active) {
+      // Whoever signs in next isn't shown an upload this page began. A new fetch, once they're in,
+      // says what's still unfinished for them.
+      ours.current.clear();
       setUnfinished([]);
       return;
     }

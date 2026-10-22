@@ -1022,6 +1022,22 @@ describe("when the connection or the page goes away partway", () => {
     }
   });
 
+  it("offers a kept upload again after this page signs out and somebody signs back in", async () => {
+    unfinished = () => [left("u1", ["Holiday"], { files: 1, bytes: 4 })];
+    answer = accepting();
+    const view = render(<Harness chosen={pickedFrom([file("Holiday/sea.jpg", "sea!")])} />);
+    expect(await screen.findByText("Adding Holiday didn’t finish.")).toBeInTheDocument();
+
+    await click(screen.getByText("Send"));
+    // Picked up by this page, so it isn't offered here while the page is still signed in.
+    await waitFor(() => expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument());
+
+    view.rerender(<Harness chosen={[]} signedIn={false} />);
+    view.rerender(<Harness chosen={[]} signedIn />);
+
+    expect(await screen.findByText("Adding Holiday didn’t finish.")).toBeInTheDocument();
+  });
+
   it("stops asking, once its minute and a bit is up, about one another page is still sending", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
