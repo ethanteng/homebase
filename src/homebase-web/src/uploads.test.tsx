@@ -78,7 +78,29 @@ beforeEach(() => {
     const method = init?.method ?? "GET";
     const body: unknown = init?.body ? JSON.parse(String(init.body)) : null;
     asked.push({ method, path, body });
-    return Promise.resolve(answer(path, method, body));
+    const signal = init?.signal;
+    if (signal?.aborted)
+      return Promise.reject(new DOMException("The operation was aborted.", "AbortError"));
+    const result = Promise.resolve(answer(path, method, body));
+    if (!signal) return result;
+    // A request taken back — one removed while Uncloud is still being asked — ends here, rather
+    // than whenever the answer shows up.
+    return new Promise((resolve, reject) => {
+      const fail = () => reject(new DOMException("The operation was aborted.", "AbortError"));
+      const onAbort = () => fail();
+      signal.addEventListener("abort", onAbort, { once: true });
+      result.then(
+        (response) => {
+          signal.removeEventListener("abort", onAbort);
+          if (signal.aborted) fail();
+          else resolve(response);
+        },
+        (error: unknown) => {
+          signal.removeEventListener("abort", onAbort);
+          reject(error);
+        },
+      );
+    });
   });
 });
 
@@ -494,6 +516,39 @@ describe("adding more while some are on their way", () => {
       { destination: "Trips", bytes: 2 },
     ]);
     expect(asked.map((request) => request.path)).toContain("/uploads/u2/finish");
+  });
+
+  it("takes away one still being looked at, and lets the one behind it go", async () => {
+    let releaseCompare: (response: Response) => void = () => {};
+    const accept = accepting();
+    let compares = 0;
+    answer = (path, method, body) => {
+      if (path === "/uploads/compare" && compares++ === 0)
+        return new Promise<Response>((resolve) => {
+          releaseCompare = resolve;
+        });
+      return accept(path, method, body);
+    };
+    render(<Harness chosen={pickedFrom([file("film.mov")])} more={pickedFrom([file("notes.txt")])} />);
+
+    await click(screen.getByText("Send"));
+    const looking = await screen.findByText(/Looking at what’s already/);
+    await click(screen.getByText("Send more"));
+    await screen.findByText("Waiting to add notes.txt");
+
+    await click(within(looking.closest("section")!).getByRole("button", { name: "Remove" }));
+
+    // The one behind doesn't wait for an answer about the one that was taken away.
+    await screen.findByText("Added notes.txt from this device: 1 file, 1 B.");
+    expect(screen.queryByText(/film\.mov/)).toBeNull();
+    expect(FakeRequest.sent.map((request) => request.path)).toEqual(["notes.txt"]);
+
+    // The answer showing up afterwards doesn't bring it back, or call it a failure.
+    await act(async () => {
+      releaseCompare(json({ same: [], changed: [], newer: [], folders: [] }));
+    });
+    expect(screen.queryByText(/film\.mov/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("takes one that's still waiting away without sending any of it", async () => {

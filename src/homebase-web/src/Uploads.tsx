@@ -226,6 +226,8 @@ interface Job {
   /** Begun with Uncloud, after which it can be stopped but not simply taken away. */
   begun: boolean;
   stopped: boolean;
+  /** Ends the question about what's already there, when this is taken away or the account signs out. */
+  cancel: AbortController;
   /** The requests in flight, and how far each has got. */
   requests: Set<XMLHttpRequest>;
   loaded: Map<string, number>;
@@ -262,6 +264,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
     if (active) return;
     for (const job of jobs.current.values()) {
       job.stopped = true;
+      job.cancel.abort();
       job.requests.forEach((request) => request.abort());
     }
     jobs.current.clear();
@@ -439,6 +442,11 @@ export function useUpload(active: boolean, onUploaded: () => void) {
    */
   const advance = useCallback(
     async (job: Job) => {
+      // Already taken away: asking again would hold the line, and would never finish.
+      if (job.stopped) {
+        jobs.current.delete(job.key);
+        return;
+      }
       if (!job.plan) {
         update(job.key, { stage: "checking" });
         let there: UploadComparison;
@@ -448,6 +456,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           // what's new or changed in it.
           there = await api<UploadComparison>("/uploads/compare", {
             method: "POST",
+            signal: job.cancel.signal,
             body: JSON.stringify({
               destination: job.folder,
               files: job.items.map((item) => ({
@@ -459,6 +468,9 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           });
         } catch (problem: unknown) {
           jobs.current.delete(job.key);
+          // Taken away, or signed out, while Uncloud was being asked. Not a failure: nothing of it
+          // was sent, and the ones behind it can go. The panel is already gone.
+          if (job.stopped) return;
           update(job.key, {
             stage: "failed",
             error:
@@ -470,8 +482,12 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           });
           return;
         }
-        // Taken away, or signed out, while Uncloud was being asked.
-        if (job.stopped) return;
+        // Taken away, or signed out, while Uncloud was being asked. Left in the line it would be
+        // asked again, forever, and hold up the ones behind it.
+        if (job.stopped) {
+          jobs.current.delete(job.key);
+          return;
+        }
         // None of it is there, so there's nothing to decide: it all goes, as it always has.
         if (there.same.length + there.changed.length + there.newer.length + there.folders.length === 0)
           job.plan = { items: job.items, merge: false };
@@ -541,6 +557,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         stopped: false,
         requests: new Set(),
         loaded: new Map(),
+        cancel: new AbortController(),
       });
       setUploads((list) => [
         ...list,
@@ -609,6 +626,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
     if (job?.begun) return;
     if (job) {
       job.stopped = true;
+      job.cancel.abort();
       jobs.current.delete(key);
     }
     setUploads((list) => list.filter((upload) => upload.key !== key));
@@ -661,6 +679,10 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
             <LoaderCircle size={16} className="spin" />
             Looking at what’s already in {called(upload.folder)}…
           </strong>
+          {/* Nothing is sent during this, so it can still be taken out of the line. */}
+          <button className="button secondary refresh-button" onClick={onDismiss}>
+            Remove
+          </button>
         </div>
       </section>
     );
