@@ -796,7 +796,9 @@ public sealed class UploadTests : IDisposable
         Assert.Equal(["Holiday"], unfinished.GetProperty("names").EnumerateArray().Select(name => name.GetString()));
         Assert.Equal(1, unfinished.GetProperty("files").GetInt32());
         Assert.Equal(3, unfinished.GetProperty("bytes").GetInt64());
-        Assert.False(unfinished.GetProperty("arriving").GetBoolean());
+        // A file just arrived, so it still counts as arriving for a few seconds: the gap before the
+        // next file isn't a reason to offer it to be thrown away. Adding the same files doesn't wait.
+        Assert.True(unfinished.GetProperty("arriving").GetBoolean());
         Assert.True(unfinished.GetProperty("keptUntil").GetDateTimeOffset() > DateTimeOffset.UtcNow.AddHours(23));
         // Nobody else's page is told of it.
         Assert.Empty(await UnfinishedAsync(admin));
@@ -860,7 +862,7 @@ public sealed class UploadTests : IDisposable
     public async Task An_upload_still_arriving_is_never_picked_up_by_another_page()
     {
         var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
-        using var library = new LibraryService(root, new MetadataIndex());
+        using var library = new LibraryService(root, new MetadataIndex()) { StillArrivingFor = TimeSpan.FromMilliseconds(400) };
         library.Initialize();
         var then = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero);
         UploadFile[] files = [new("a.bin", 10, then.ToUnixTimeMilliseconds()), new("b.bin", 1000, then.ToUnixTimeMilliseconds())];
@@ -883,8 +885,12 @@ public sealed class UploadTests : IDisposable
 
         go.SetResult();
         await arriving;
-        Assert.False(library.UnfinishedUploads(CancellationToken.None).Single(upload => upload.Id == id).Arriving);
+        // Nothing is in flight, so the same files can be picked up at once. It still counts as
+        // arriving for a moment, so another page doesn't offer to throw it away between files.
+        Assert.True(library.UnfinishedUploads(CancellationToken.None).Single(upload => upload.Id == id).Arriving);
         Assert.Equal(id, (await library.BeginUploadAsync("", 0, merge: false, files, CancellationToken.None)).Id);
+        await Task.Delay(TimeSpan.FromMilliseconds(700));
+        Assert.False(library.UnfinishedUploads(CancellationToken.None).Single(upload => upload.Id == id).Arriving);
     }
 
     [Fact]

@@ -26,7 +26,7 @@ public sealed record BegunUpload(string Id, IReadOnlyList<string> Arrived);
 /// <param name="Destination">Where it was going, or null for one begun before uploads said.</param>
 /// <param name="Merge">Whether it was to bring what's there up to date, which is how it's to be finished.</param>
 /// <param name="Names">What's at the top of it: the folder being added, usually.</param>
-/// <param name="Arriving">Whether a file of it is arriving now, from a page still sending it.</param>
+/// <param name="Arriving">Whether a file of it is arriving now, or one just did, so a page still sending it isn't told it has stopped.</param>
 public sealed record UnfinishedUpload(
     string Id, string? Destination, bool Merge, IReadOnlyList<string> Names, int Files, long Bytes,
     DateTimeOffset LastArrived, DateTimeOffset KeptUntil, bool Arriving);

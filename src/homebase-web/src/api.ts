@@ -126,7 +126,7 @@ export interface UnfinishedUpload {
   lastArrived: string;
   /// When Uncloud lets go of it, if nothing more arrives.
   keptUntil: string;
-  /// A file of it is arriving now, from a page still sending it.
+  /// A file of it is arriving now, or one just did, so a page still sending it isn't offered this.
   arriving: boolean;
 }
 

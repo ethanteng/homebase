@@ -45,6 +45,21 @@ public sealed partial class LibraryService
     /// </summary>
     public TimeSpan StalledAfter { get; init; } = TimeSpan.FromSeconds(45);
 
+    /// <summary>
+    /// How long an upload still counts as arriving after a file has, while nothing else is arriving
+    /// yet. The next file isn't asked for until this one has been answered, so there's always a gap —
+    /// a round trip, and on a slow tunnel that can be a few seconds. Without this, a page that asked
+    /// in that gap would be told the upload had stopped, and could throw away one that's still going.
+    /// Adding the same files again doesn't wait out this gap: only a file actually arriving blocks that.
+    /// </summary>
+    public TimeSpan StillArrivingFor { get; init; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// When an upload with nothing in flight stops counting as arriving, by its id, in
+    /// <see cref="Environment.TickCount64"/>.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, long> _quietUntil = new();
+
     /// <summary>Where an upload is going, kept in it so it can still be put there once the page that began it has gone.</summary>
     private sealed record Intent(string? Destination, bool Merge);
 
@@ -95,7 +110,8 @@ public sealed partial class LibraryService
     /// which is among <paramref name="files"/>, the same size and last changed at the same time: the
     /// same files being added again, of which only the rest need be sent. Where it was going before
     /// doesn't matter; the same files are the same files. One with a file arriving now is a page still
-    /// sending it, and is left to that page.
+    /// sending it, and is left to that page. One that only just finished a file is not: the page that
+    /// was sending it may have given up, and adding the same files again shouldn't have to wait.
     /// </summary>
     private (string Id, List<string> Arrived, long Bytes)? Resumable(string uploads, IReadOnlyList<UploadFile> files)
     {
@@ -140,8 +156,9 @@ public sealed partial class LibraryService
     /// <summary>
     /// The uploads begun and never finished, with what of each arrived, for as long as they're kept:
     /// a page closed partway, or a connection that gave out. One with nothing in it isn't listed,
-    /// having nothing to keep. One with a file arriving now is still being sent — by another page,
-    /// perhaps — and says so.
+    /// having nothing to keep. One with a file arriving now, or that just finished one, is still being
+    /// sent — by another page, perhaps — and says so, so it isn't offered to be thrown away in the
+    /// gap before the next file.
     /// </summary>
     public IReadOnlyList<UnfinishedUpload> UnfinishedUploads(CancellationToken cancellationToken)
     {
@@ -169,7 +186,7 @@ public sealed partial class LibraryService
                 catch (Exception error) when (error is FileNotFoundException or JsonException) { }
                 var lastArrived = new DateTimeOffset(upload.LastWriteTimeUtc, TimeSpan.Zero);
                 unfinished.Add(new UnfinishedUpload(upload.Name, intent?.Destination, intent?.Merge ?? false, names, files, bytes,
-                    lastArrived, lastArrived + KeepAbandonedUploadsFor, Arriving(upload.Name)));
+                    lastArrived, lastArrived + KeepAbandonedUploadsFor, ShownArriving(upload.Name)));
             }
             // Finished or thrown away while it was looked at.
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
@@ -192,6 +209,28 @@ public sealed partial class LibraryService
     }
 
     private bool Arriving(string id) => _arriving.TryGetValue(id, out var count) && count > 0;
+
+    /// <summary>
+    /// Whether a page should be told this upload is still being sent: a file is arriving now, or one
+    /// just did and the next hasn't started, which is only the round trip away.
+    /// </summary>
+    private bool ShownArriving(string id) => Arriving(id) || RecentlyQuiet(id);
+
+    /// <summary>The gap after a file has arrived, during which <see cref="ShownArriving"/> stays true.</summary>
+    private void NoteQuiet(string id)
+    {
+        var grace = StillArrivingFor;
+        if (grace <= TimeSpan.Zero) return;
+        _quietUntil[id] = Environment.TickCount64 + (long)grace.TotalMilliseconds;
+    }
+
+    private bool RecentlyQuiet(string id)
+    {
+        if (!_quietUntil.TryGetValue(id, out var until)) return false;
+        if (Environment.TickCount64 < until) return true;
+        _quietUntil.TryRemove(new(id, until));
+        return false;
+    }
 
     /// <summary>
     /// Keeps one file of an upload, at <paramref name="path"/> inside it: its name alone, or where it
@@ -311,7 +350,10 @@ public sealed partial class LibraryService
         }
         finally
         {
-            if (_arriving.AddOrUpdate(id!, 0, (_, count) => count - 1) == 0) _arriving.TryRemove(new(id!, 0));
+            // The last file to finish opens the gap before the next. Still say it's arriving, so a
+            // page that asks in that gap doesn't offer to throw a live upload away.
+            if (_arriving.AddOrUpdate(id!, 0, (_, count) => count - 1) == 0 && _arriving.TryRemove(new(id!, 0)))
+                NoteQuiet(id!);
             _receiving.Release();
         }
     }
@@ -397,6 +439,7 @@ public sealed partial class LibraryService
                 }
             // A recursive delete removes a link it meets rather than following it.
             Directory.Delete(upload, recursive: true);
+            if (id is not null) _quietUntil.TryRemove(id, out _);
             return new FinishedUpload(placed, replaced);
         }
         finally { _edits.Release(); }
@@ -472,6 +515,7 @@ public sealed partial class LibraryService
             var upload = Path.Combine(UploadsFolder(), id);
             PathPolicy.RejectLink(upload);
             if (Directory.Exists(upload)) Directory.Delete(upload, recursive: true);
+            _quietUntil.TryRemove(id, out _);
         }
         finally { _edits.Release(); }
     }

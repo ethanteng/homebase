@@ -1022,7 +1022,7 @@ describe("when the connection or the page goes away partway", () => {
     }
   });
 
-  it("stops asking, after a minute, about one another page is still sending", async () => {
+  it("stops asking, once its minute and a bit is up, about one another page is still sending", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       unfinished = () => [left("u9", ["Holiday"], { arriving: true })];
@@ -1032,7 +1032,7 @@ describe("when the connection or the page goes away partway", () => {
 
       await passes(120_000);
 
-      expect(listed).toBe(5);
+      expect(listed).toBe(6);
       expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();

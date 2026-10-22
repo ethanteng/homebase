@@ -140,12 +140,13 @@ const ATTEMPTS = 3;
  */
 export const STALLED_AFTER = 60_000;
 /**
- * How soon, and how many times, an unfinished upload still arriving is asked about again: long enough
- * for this page's own last files from before a refresh to be noticed gone, even one that had gone
- * quiet, which Uncloud gives up on after 45 seconds. Past that it's another page's, still sending.
+ * How soon, and for how long, an unfinished upload still arriving is asked about again. Uncloud gives
+ * up on a file it has heard nothing more of after 45 seconds, and for a few seconds after a file
+ * arrives it still counts the upload as arriving, so the gap before the next isn't taken for the page
+ * having gone. This keeps asking a little past both. Past that it's another page's, still sending.
  */
 const RECHECK = 15_000;
-const RECHECKS = 4;
+const RECHECKS = 5;
 
 class Refused extends Error {
   constructor(
@@ -178,7 +179,8 @@ function send(
     );
     request.setRequestHeader("X-Homebase-Request", "1");
     request.setRequestHeader("Content-Type", "application/octet-stream");
-    // Each piece of it sent puts off giving up; once it's all sent, the answer has as long to come.
+    // Each piece of it sent puts off giving up. Once the last piece has gone, the answer gets the
+    // same long: a connection can go quiet after the body has left, too.
     let watch = 0;
     let stalled = false;
     const wait = () => {
