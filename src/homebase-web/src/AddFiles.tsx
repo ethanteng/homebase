@@ -67,7 +67,7 @@ interface Step {
 interface Props {
   /** Whether an import is already going, since only one runs at a time. */
   importing: boolean;
-  /** Whether files are already on their way from this device; one upload at a time, too. */
+  /** Whether files are already on their way from this device, which more from it will follow. */
   uploading: boolean;
   isAdmin: boolean;
   /** The folder open in My files, which is where files from this device go. */
@@ -535,7 +535,7 @@ export default function AddFiles({
             name="This device"
             detail={
               uploading
-                ? "Still sending the last ones…"
+                ? "Still sending some; more will follow them"
                 : "Files and folders on the computer or phone you’re using"
             }
             onClick={() => go({ at: "device" })}
@@ -726,17 +726,18 @@ export default function AddFiles({
         {messages}
         {uploading && (
           <p className="library-note add-wait" role="status">
-            Some files from this device are still on their way. You can add more once they’re in.
+            Some files from this device are still on their way. Anything you add now follows them.
           </p>
         )}
         <DeviceDrop
           busy={busy === "upload"}
-          disabled={uploading || busy !== ""}
+          disabled={busy !== ""}
           onPicked={(picking) => void upload(picking)}
         />
         <p className="field-help add-promise">
           <Lock size={13} /> They go into <strong>{destination}</strong>, the folder you have open in
-          My files, where only you can see them. Nothing already there is replaced.
+          My files, where only you can see them. If some of it is there already, Uncloud asks before
+          replacing anything.
         </p>
       </div>
     );

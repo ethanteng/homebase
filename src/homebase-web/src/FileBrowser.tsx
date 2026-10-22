@@ -43,12 +43,10 @@ interface Props {
   status?: ReactNode;
   /**
    * Files and folders dropped onto the list, sent into the folder it shows — or into a folder in
-   * it, when they were dropped on that folder's row. Settles once Uncloud has agreed to take them,
-   * and throws with the reason when it won't.
+   * it, when they were dropped on that folder's row. They go after whatever is already on its way.
+   * Throws with the reason when there's nothing in them to send.
    */
   onDropFiles: (folder: string, picked: Picked[]) => Promise<void>;
-  /** Whether files from this device are already on their way; one upload runs at a time. */
-  uploading: boolean;
 }
 type Sort = "name" | "modified" | "size";
 /** A folder something held over the list would go into: a folder's row, or one in the path above. */
@@ -88,7 +86,6 @@ export default function FileBrowser({
   onChanged,
   status,
   onDropFiles,
-  uploading,
 }: Props) {
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [loading, setLoading] = useState(true);
@@ -303,7 +300,6 @@ export default function FileBrowser({
     if (kind !== "files") return;
     event.preventDefault();
     letGo();
-    if (uploading) return;
     setNotice("");
     setProblem("");
     const into = folderUnder(event)?.path ?? path;
@@ -320,9 +316,7 @@ export default function FileBrowser({
     ? dropInto
       ? `${copying ? "Copy" : "Move"} ${describe(dragged)} to ${dropInto.name}`
       : `Drop on a folder to ${copying ? "copy" : "move"} ${dragged.length === 1 ? "it" : "them"} there`
-    : uploading
-      ? "Some files are still on their way. Add more once they’re in."
-      : `Drop to add to ${here}`;
+    : `Drop to add to ${here}`;
 
   return (
     <>
@@ -406,8 +400,8 @@ export default function FileBrowser({
               event.dataTransfer.dropEffect = copies(event) ? "copy" : "move";
             } else {
               event.preventDefault();
-              event.dataTransfer.dropEffect = uploading ? "none" : "copy";
-              under = uploading ? null : folderUnder(event);
+              event.dataTransfer.dropEffect = "copy";
+              under = folderUnder(event);
             }
             setDropInto((current) => (current?.path === under?.path ? current : under));
           }}
