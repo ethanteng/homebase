@@ -112,7 +112,8 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   again, rather than inviting them to be added twice. More can be chosen or dropped while one is on
   its way: each waits in line on the page and goes once those ahead of it are in, one at a time, so
   it's compared with what's there by then and no two compete for the room left. One waiting for an
-  answer about what's already there doesn't hold up the ones behind it, and one still waiting — or
+  answer about what's already there doesn't hold up the ones behind it, and is asked about again
+  when its turn comes, so it doesn't send what they brought in meanwhile. One still waiting — or
   still being looked at — can be taken away before anything of it is sent.
 - Deleting moves things into a per-account bin at `.homebase/bin/`: a folder per deletion, named
   by a random id, holding the item under its own name, beside an `<id>.json` record of where it

@@ -591,6 +591,42 @@ describe("adding more while some are on their way", () => {
     expect(FakeRequest.sent.map((request) => request.path)).toEqual(["notes.txt", "Holiday/boat.jpg"]);
   });
 
+  it("doesn't send again what another upload brought in while it waited for an answer", async () => {
+    // Uncloud as it is: sea.jpg there from before, and whatever was put in place since.
+    const landed = new Set(["Holiday/sea.jpg"]);
+    const accept = accepting([{ from: "Holiday", to: "Trips/Holiday" }], (paths) => ({
+      same: paths.filter((path) => landed.has(path)),
+      folders: ["Holiday"],
+    }));
+    answer = (path, method, body) => {
+      if (/\/finish$/.test(path)) landed.add("Holiday/boat.jpg");
+      return accept(path, method, body);
+    };
+    render(
+      <Harness
+        chosen={pickedFrom([file("Holiday/sea.jpg"), file("Holiday/boat.jpg")])}
+        more={pickedFrom([file("Holiday/boat.jpg")])}
+      />,
+    );
+
+    await click(screen.getByText("Send"));
+    await screen.findByRole("button", { name: "Add 1 file" });
+    await click(screen.getByText("Send more"));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Add 1 file" })).toHaveLength(2));
+    // The second is answered first, and brings boat.jpg in.
+    await click(screen.getAllByRole("button", { name: "Add 1 file" })[1]);
+    await screen.findByText(/from this device: 1 file,/);
+
+    // Answered now, the first finds boat.jpg there already, and has nothing left to send.
+    await click(screen.getByRole("button", { name: "Add 1 file" }));
+
+    expect(
+      await screen.findByText("Nothing left to add from Holiday: it’s all in Trips already."),
+    ).toBeInTheDocument();
+    expect(FakeRequest.sent.map((request) => request.path)).toEqual(["Holiday/boat.jpg"]);
+    expect(asked.filter((request) => request.path === "/uploads")).toHaveLength(1);
+  });
+
   it("ends everything on its way or waiting when its account signs out", async () => {
     answer = accepting();
     FakeRequest.respond = () => {};
@@ -652,7 +688,10 @@ describe("adding a folder that's already there", () => {
     await click(screen.getByRole("button", { name: "Add 2 files" }));
 
     await screen.findByText(/from this device: 2 files,/);
-    expect(asked[1]).toEqual({ method: "POST", path: "/uploads", body: { destination: "Trips", bytes: 13 } });
+    // Asked again about what it's sending when its turn comes, in case anything landed meanwhile.
+    expect(asked[1].path).toBe("/uploads/compare");
+    expect(comparing(asked[1].body)).toEqual(["Holiday/map.pdf", "Holiday/day 2/boat.jpg"]);
+    expect(asked[2]).toEqual({ method: "POST", path: "/uploads", body: { destination: "Trips", bytes: 13 } });
     expect(FakeRequest.sent.map((request) => request.path)).toEqual(["Holiday/map.pdf", "Holiday/day 2/boat.jpg"]);
     expect(asked.at(-1)).toEqual({
       method: "POST",

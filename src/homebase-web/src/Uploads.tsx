@@ -447,7 +447,9 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         jobs.current.delete(job.key);
         return;
       }
-      if (!job.plan) {
+      // Asked about again when it was decided on to bring what's there up to date: while it waited
+      // for that answer, the ones behind it went ahead and may have brought some of the same in.
+      if (!job.plan || job.plan.merge) {
         update(job.key, { stage: "checking" });
         let there: UploadComparison;
         try {
@@ -459,7 +461,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
             signal: job.cancel.signal,
             body: JSON.stringify({
               destination: job.folder,
-              files: job.items.map((item) => ({
+              files: (job.plan?.items ?? job.items).map((item) => ({
                 path: item.path,
                 bytes: item.file.size,
                 modified: item.file.lastModified,
@@ -488,8 +490,24 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           jobs.current.delete(job.key);
           return;
         }
+        if (job.plan) {
+          // Already decided: what's the same there now, or changed there since, isn't sent after all.
+          const settled = new Set([...there.same, ...there.newer]);
+          const items = job.plan.items.filter((item) => !settled.has(item.path));
+          job.plan = { items, merge: true };
+          update(job.key, {
+            files: items.length,
+            bytes: items.reduce((sum, item) => sum + item.file.size, 0),
+            unchanged: job.items.length - items.length,
+          });
+          if (items.length === 0) {
+            jobs.current.delete(job.key);
+            update(job.key, { stage: "done" });
+            return;
+          }
+        }
         // None of it is there, so there's nothing to decide: it all goes, as it always has.
-        if (there.same.length + there.changed.length + there.newer.length + there.folders.length === 0)
+        else if (there.same.length + there.changed.length + there.newer.length + there.folders.length === 0)
           job.plan = { items: job.items, merge: false };
         else {
           const same = new Set(there.same);
@@ -744,7 +762,10 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
       ? (upload.error ?? `Couldn’t add ${upload.label}.`)
       : upload.stage === "stopped"
         ? `Stopped adding ${upload.label}. Nothing from it was added.`
-        : // Named, since several can be in sight at once.
+        : upload.files === 0
+          ? // What differed came in some other way while it waited, likely another upload of the same.
+            `Nothing left to add from ${upload.label}: it’s all in ${called(upload.folder)} already.`
+          : // Named, since several can be in sight at once.
           `Added ${upload.label} from this device: ${files(arrived)}, ${formatSize(upload.arrivedBytes)}.` +
           (upload.replaced === 1
             ? " One took the place of an older copy, which is in the bin."
