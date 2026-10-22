@@ -957,6 +957,23 @@ describe("when the connection or the page goes away partway", () => {
     expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument();
   });
 
+  it("keeps what an earlier try left when Uncloud refuses something this time", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path === "/uploads" && method === "POST" ? json({ id: "u7", arrived: ["Holiday/sea.jpg"] }) : accept(path, method, body);
+    FakeRequest.respond = (request) =>
+      request.finish(409, { detail: "Too many files are arriving at once. Wait for some to finish, then try again." });
+    render(<Harness chosen={pickedFrom([file("Holiday/sea.jpg", "sea!"), file("Holiday/day 1/map.pdf", "a map")])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Too many files are arriving at once. Wait for some to finish, then try again. What had arrived is kept for a day",
+    );
+    expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+    expect(asked.some((request) => request.path.endsWith("/finish"))).toBe(false);
+  });
+
   it("puts what arrived in place as it is, or throws it away, when somebody would rather", async () => {
     unfinished = () => [left("u9", ["Holiday"]), left("u8", ["Old photos"], { destination: null, files: 1, bytes: 5 })];
     answer = accepting([{ from: "Holiday", to: "Trips/Holiday" }]);

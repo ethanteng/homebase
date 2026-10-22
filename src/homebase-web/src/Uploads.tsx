@@ -497,6 +497,14 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         });
         return;
       }
+      // Whatever went wrong this time, what an earlier try left was never this one's to throw away.
+      if (fatal !== null && resumed > 0) {
+        update(key, {
+          stage: "failed",
+          error: `${fatal} What had arrived is kept for a day, so adding the same files again sends only the rest.`,
+        });
+        return;
+      }
       if (fatal !== null || arrived === 0) {
         await discard(id);
         update(key, {
