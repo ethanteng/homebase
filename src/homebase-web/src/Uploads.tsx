@@ -636,7 +636,10 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
   }
 
   const arrived = upload.files - upload.skipped.length;
-  const renamed = upload.placed.filter((entry) => entry.from !== entry.to.split("/").at(-1));
+  // A merge reports a renamed file by its path inside the upload ("Holiday/map.pdf"), while a
+  // folder kept whole reports only the name. Either way the clash is the last part of each path.
+  const baseName = (itemPath: string) => itemPath.split("/").at(-1);
+  const renamed = upload.placed.filter((entry) => baseName(entry.from) !== baseName(entry.to));
   const message =
     upload.stage === "failed"
       ? (upload.error ?? `Couldn’t add ${upload.label}.`)
@@ -652,7 +655,7 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
             ? ` ${upload.unchanged} ${upload.unchanged === 1 ? "was" : "were"} already there, so ${upload.unchanged === 1 ? "it wasn’t" : "they weren’t"} sent again.`
             : "") +
           (renamed.length === 1
-            ? ` There was already something called “${renamed[0].from}” there, so this one is “${renamed[0].to.split("/").at(-1)}”.`
+            ? ` There was already something called “${baseName(renamed[0].from)}” there, so this one is “${baseName(renamed[0].to)}”.`
             : renamed.length > 1
               ? ` ${renamed.length} names were already taken there, so those arrived with a number after them.`
               : "");

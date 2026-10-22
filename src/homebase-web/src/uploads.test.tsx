@@ -507,6 +507,21 @@ describe("adding a folder that's already there", () => {
     expect(opened).toHaveBeenCalledWith("Trips/Holiday");
   });
 
+  it("names a file inside the folder that had to take a new name, rather than its path", async () => {
+    answer = accepting(
+      [{ from: "Holiday/map.pdf", to: "Trips/Holiday/map 2.pdf" }],
+      { changed: ["Holiday/map.pdf"], folders: ["Holiday"] },
+    );
+    render(<Harness chosen={pickedFrom([file("Holiday/map.pdf", "a new map")])} />);
+
+    await click(screen.getByText("Send"));
+    await click(await screen.findByRole("button", { name: "Add 1 file" }));
+
+    expect(await screen.findByText(/Added 1 file from this device/)).toHaveTextContent(
+      "There was already something called “map.pdf” there, so this one is “map 2.pdf”.",
+    );
+  });
+
   it("adds all of it again beside what's there when asked to keep both", async () => {
     answer = accepting([{ from: "notes.txt", to: "Trips/notes 2.txt" }], { same: ["notes.txt"] });
     render(<Harness chosen={pickedFrom([file("notes.txt")])} />);
