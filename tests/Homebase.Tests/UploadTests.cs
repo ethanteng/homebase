@@ -193,6 +193,11 @@ public sealed class UploadTests : IDisposable
         Directory.CreateSymbolicLink(Path.Combine(root, "Archive", "Linked"), outside);
 
         var id = await BeginAsync(member, "Archive");
+        // Older than what was there when the upload was compared, which was older still. Changed
+        // there since, on a laptop say, the one there is now the newer of the two.
+        (await SendAsync(member, id, "Photos/changed since.jpg", "this device's", then.AddDays(1).ToUnixTimeMilliseconds()))
+            .EnsureSuccessStatusCode();
+        await WriteAsync(root, "Archive/Photos/changed since.jpg", "changed in Uncloud meanwhile", then.AddDays(2));
         foreach (var (path, content) in new[]
                  {
                      ("Notes.txt", "new notes"),
@@ -214,6 +219,7 @@ public sealed class UploadTests : IDisposable
                 ("Linked", "Archive/Linked 2"),
                 ("Notes.txt", "Archive/Notes.txt"),
                 ("Photos", "Archive/Photos"),
+                ("Photos/changed since.jpg", "Archive/Photos/changed since 2.jpg"),
                 ("Photos/clash", "Archive/Photos/clash 2")
             ],
             body.GetProperty("items").EnumerateArray()
@@ -231,6 +237,9 @@ public sealed class UploadTests : IDisposable
         Assert.Equal("day", Read("Photos/Trips/day.jpg"));
         Assert.Equal("only here", Read("Photos/only here.jpg"));
         Assert.Equal("a file, not a folder", Read("Photos/clash"));
+        // A file changed there since the upload was compared is kept, and what arrived goes beside it.
+        Assert.Equal("changed in Uncloud meanwhile", Read("Photos/changed since.jpg"));
+        Assert.Equal("this device's", Read("Photos/changed since 2.jpg"));
         Assert.Empty(Directory.EnumerateFileSystemEntries(outside));
         Assert.Empty(Directory.EnumerateFileSystemEntries(Uploads(root)));
 

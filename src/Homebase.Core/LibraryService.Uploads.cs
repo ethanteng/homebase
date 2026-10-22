@@ -244,7 +244,8 @@ public sealed partial class LibraryService
     /// Moves what an upload gathered in <paramref name="from"/> into <paramref name="into"/>, joining a
     /// folder already there rather than arriving beside it, and taking the place of a file already
     /// there, which goes to the bin. Something arriving where the other kind is — a folder where there's
-    /// a file, say — or where there's a link still arrives beside it, under a new name.
+    /// a file, say — or where there's a link still arrives beside it, under a new name, and so does a
+    /// file arriving where one was changed more recently than it.
     /// </summary>
     /// <param name="above">Where <paramref name="from"/> is in the upload; empty for the top of it.</param>
     /// <param name="placed">Where each thing at the top of the upload went, and anything deeper that took a new name.</param>
@@ -260,7 +261,11 @@ public sealed partial class LibraryService
             var joining = entry is DirectoryInfo && Directory.Exists(target) && !IsLink(target);
             if (!joining)
             {
-                if (entry is FileInfo && File.Exists(target) && !IsLink(target))
+                // Asked again now, in the edits' turn: the comparison was made before anything was sent,
+                // and a laptop syncing, or another browser, may have changed the one there since. One
+                // changed more recently than what arrived is kept, and what arrived goes beside it.
+                if (entry is FileInfo arrived && File.Exists(target) && !IsLink(target)
+                    && File.GetLastWriteTimeUtc(target) - arrived.LastWriteTimeUtc <= SameTime)
                 {
                     ToBin(bin, new Item(Relative(target), target, IsDirectory: false));
                     replaced++;
