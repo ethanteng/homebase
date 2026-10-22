@@ -160,13 +160,60 @@ public sealed partial class LibraryService
         finally { _receiving.Release(); }
     }
 
+    /// <summary>How far apart two times a file was last changed can be and still be the same time: a
+    /// drive formatted for Windows keeps them only to two seconds.</summary>
+    private static readonly TimeSpan SameTime = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Says which of the files an upload is about to send are already in <paramref name="destination"/>,
+    /// so that adding a folder again need only send what is new or has changed in it. A file counts as
+    /// the same when its size and the time it was last changed both match, the way rsync judges it:
+    /// reading every file on both sides to compare them would take longer than sending them.
+    /// </summary>
+    /// <param name="files">What the browser is about to send, each by where it sits in the upload.</param>
+    public UploadComparison CompareUpload(string? destination, IReadOnlyList<UploadFile>? files, CancellationToken cancellationToken)
+    {
+        var folder = Folder(destination);
+        List<string> same = [], changed = [], newer = [];
+        var tops = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var file in files ?? [])
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (file.Path is not { Length: > 0 } path) continue;
+            if (path.IndexOf('/') is > 0 and var slash) tops.Add(path[..slash]);
+            FileInfo there;
+            // A path Uncloud won't keep is refused on its own when it's sent; here it simply isn't there.
+            try { there = new FileInfo(PathPolicy.Resolve(folder, path)); }
+            catch (Exception error) when (error is LibraryException or IOException) { continue; }
+            if (!there.Exists) continue;
+            DateTimeOffset? sent = file.Modified is > 0 and < 253402300800000
+                ? DateTimeOffset.FromUnixTimeMilliseconds(file.Modified.Value) : null;
+            var ahead = sent is null ? TimeSpan.Zero : there.LastWriteTimeUtc - sent.Value.UtcDateTime;
+            if (there.Length == file.Bytes && ahead.Duration() <= SameTime) same.Add(path);
+            // Changed here since: sending this one would put back what somebody changed it from.
+            else if (ahead > SameTime) newer.Add(path);
+            else changed.Add(path);
+        }
+        var folders = tops.Where(top =>
+        {
+            try { return Directory.Exists(PathPolicy.Resolve(folder, top)); }
+            catch (LibraryException) { return false; }
+        }).Order(StringComparer.Ordinal).ToArray();
+        return new UploadComparison(same, changed, newer, folders);
+    }
+
     /// <summary>
     /// Moves everything an upload gathered into <paramref name="destination"/>. Nothing already there
     /// is overwritten: something arriving under a name that's taken becomes “name 2”, a folder
-    /// included, the way Finder keeps both.
+    /// included, the way Finder keeps both — unless the upload is to be merged, when a folder joins
+    /// the one already there and a file takes the place of the one there, which goes to the bin.
     /// </summary>
-    public async Task<IReadOnlyList<EditedEntry>> FinishUploadAsync(
-        string? id, string? destination, CancellationToken cancellationToken)
+    /// <param name="merge">
+    /// Whether this is a folder added again, to bring what is new or changed in it into the copy
+    /// already here. Only what differed was sent, so whatever wasn't is left as it is.
+    /// </param>
+    public async Task<FinishedUpload> FinishUploadAsync(
+        string? id, string? destination, bool merge, CancellationToken cancellationToken)
     {
         await _edits.WaitAsync(cancellationToken);
         try
@@ -175,24 +222,65 @@ public sealed partial class LibraryService
             var folder = Folder(destination);
             AwayFromImport([], folder, "added");
             var placed = new List<EditedEntry>();
+            var replaced = 0;
             // Not given up partway, even if whoever asked has gone: each move is a rename, so this is
             // quick, and stopping between two would leave some of the upload in My files and the rest
             // waiting to be thrown away.
-            foreach (var entry in new DirectoryInfo(upload).EnumerateFileSystemInfos("*", Children)
-                         .OrderBy(entry => entry.Name, StringComparer.Ordinal))
-            {
-                // Nothing an upload is sent can be hidden or a link; this is only never trusting that.
-                if (Unseen(entry)) continue;
-                var isDirectory = entry is DirectoryInfo;
-                var name = Place(entry.FullName, folder, entry.Name, isDirectory, copy: false);
-                placed.Add(new EditedEntry(entry.Name, Join(folder, name)));
-            }
+            if (merge) replaced = Merge(upload, folder, "", BinFolder(), placed);
+            else
+                foreach (var entry in Gathered(upload))
+                {
+                    var name = Place(entry.FullName, folder, entry.Name, entry is DirectoryInfo, copy: false);
+                    placed.Add(new EditedEntry(entry.Name, Join(folder, name)));
+                }
             // A recursive delete removes a link it meets rather than following it.
             Directory.Delete(upload, recursive: true);
-            return placed;
+            return new FinishedUpload(placed, replaced);
         }
         finally { _edits.Release(); }
     }
+
+    /// <summary>
+    /// Moves what an upload gathered in <paramref name="from"/> into <paramref name="into"/>, joining a
+    /// folder already there rather than arriving beside it, and taking the place of a file already
+    /// there, which goes to the bin. Something arriving where the other kind is — a folder where there's
+    /// a file, say — or where there's a link still arrives beside it, under a new name.
+    /// </summary>
+    /// <param name="above">Where <paramref name="from"/> is in the upload; empty for the top of it.</param>
+    /// <param name="placed">Where each thing at the top of the upload went, and anything deeper that took a new name.</param>
+    /// <returns>How many files already there were replaced.</returns>
+    private int Merge(string from, string into, string above, string bin, List<EditedEntry> placed)
+    {
+        var replaced = 0;
+        foreach (var entry in Gathered(from))
+        {
+            var path = above.Length == 0 ? entry.Name : $"{above}/{entry.Name}";
+            var target = Path.Combine(into, entry.Name);
+            var name = entry.Name;
+            var joining = entry is DirectoryInfo && Directory.Exists(target) && !IsLink(target);
+            if (!joining)
+            {
+                if (entry is FileInfo && File.Exists(target) && !IsLink(target))
+                {
+                    ToBin(bin, new Item(Relative(target), target, IsDirectory: false));
+                    replaced++;
+                }
+                name = Place(entry.FullName, into, entry.Name, entry is DirectoryInfo, copy: false);
+            }
+            if (above.Length == 0 || name != entry.Name) placed.Add(new EditedEntry(path, Join(into, name)));
+            if (joining) replaced += Merge(entry.FullName, target, path, bin, placed);
+        }
+        return replaced;
+    }
+
+    /// <summary>What an upload has gathered in one of its folders, in a settled order.</summary>
+    private static IEnumerable<FileSystemInfo> Gathered(string folder) =>
+        new DirectoryInfo(folder).EnumerateFileSystemInfos("*", Children)
+            // Nothing an upload is sent can be hidden or a link; this is only never trusting that.
+            .Where(entry => !Unseen(entry))
+            .OrderBy(entry => entry.Name, StringComparer.Ordinal)
+            // Read whole first, since what is read is then moved away.
+            .ToArray();
 
     /// <summary>
     /// Throws away an upload and whatever of it had arrived. One that has already gone, finished or

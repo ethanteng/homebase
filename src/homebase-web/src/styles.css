@@ -2214,6 +2214,13 @@ tbody tr.selected {
   .heading-actions .button.primary {
     padding: 10px 13px;
   }
+  /* Three buttons don't fit beside a heading on a phone; this one is clear enough as its icon. */
+  .new-folder-button {
+    padding: 10px 13px;
+  }
+  .new-folder-button span {
+    display: none;
+  }
 }
 
 /* How much room is left. Everybody here shares one drive, so this is on every page: large in the
@@ -2769,9 +2776,31 @@ tbody tr.selected {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
 }
-tbody tr.drop-target {
+tbody tr.drop-target,
+.breadcrumbs button.drop-target {
   background: var(--surface-2);
   box-shadow: inset 0 0 0 2px var(--accent);
+}
+.breadcrumbs button.drop-target {
+  border-radius: 6px;
+  color: var(--text);
+}
+/* Rows picked up to go into another folder: what they are, by the pointer, the way the banner says
+   where they're going. Drawn once for the browser to take a picture of, then gone. */
+.drag-label {
+  position: fixed;
+  z-index: 30;
+  max-width: 280px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 .drop-banner {
   position: fixed;

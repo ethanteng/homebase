@@ -5,6 +5,7 @@ import AddFiles from "./AddFiles";
 import FileBrowser from "./FileBrowser";
 import UploadStatus, { pickedFrom, useUpload } from "./Uploads";
 import type { Picked } from "./Uploads";
+import type { UploadComparison } from "./api";
 
 /**
  * Sending files from the computer or phone somebody is using. It is the one way into Uncloud that
@@ -89,11 +90,16 @@ function file(path: string, content = "x"): File {
   return made;
 }
 
-/** Uncloud agreeing to an upload, taking each file, and putting what arrived in place. */
-function accepting(placed: { from: string; to: string }[] = []) {
+/**
+ * Uncloud agreeing to an upload, taking each file, and putting what arrived in place — having found
+ * none of it there already, unless told what is.
+ */
+function accepting(placed: { from: string; to: string }[] = [], there: Partial<UploadComparison> = {}, replaced = 0) {
   return (path: string, method: string) => {
+    if (path === "/uploads/compare")
+      return json({ same: [], changed: [], newer: [], folders: [], ...there });
     if (path === "/uploads" && method === "POST") return json({ id: "u1" });
-    if (path === "/uploads/u1/finish") return json({ items: placed });
+    if (path === "/uploads/u1/finish") return json({ items: placed, replaced });
     if (path === "/uploads/u1" && method === "DELETE") return json({});
     return json({});
   };
@@ -130,6 +136,7 @@ function Harness({
           onStop={uploads.stop}
           onDismiss={uploads.dismiss}
           onOpen={onOpen}
+          onDecide={uploads.decide}
         />
       )}
     </>
@@ -270,7 +277,19 @@ describe("adding files from this device", () => {
     await click(screen.getByText("Send"));
 
     await screen.findByText(/Added 2 files from this device/);
-    expect(asked[0]).toEqual({ method: "POST", path: "/uploads", body: { destination: "Trips", bytes: 9 } });
+    // Uncloud is asked what of it is there already, and then, finding none of it, agrees to take it all.
+    expect(asked[0]).toEqual({
+      method: "POST",
+      path: "/uploads/compare",
+      body: {
+        destination: "Trips",
+        files: [
+          { path: "Holiday/sea.jpg", bytes: 4, modified: 1577934245000 },
+          { path: "Holiday/day 1/map.pdf", bytes: 5, modified: 1577934245000 },
+        ],
+      },
+    });
+    expect(asked[1]).toEqual({ method: "POST", path: "/uploads", body: { destination: "Trips", bytes: 9 } });
     expect(FakeRequest.sent.map((request) => [request.method, request.path])).toEqual([
       ["PUT", "Holiday/sea.jpg"],
       ["PUT", "Holiday/day 1/map.pdf"],
@@ -279,7 +298,11 @@ describe("adding files from this device", () => {
     expect(FakeRequest.sent[0].url).toContain("modified=1577934245000");
     expect(FakeRequest.sent[0].headers["X-Homebase-Request"]).toBe("1");
     expect(FakeRequest.sent[0].body).toBe(chosen[0].file);
-    expect(asked.at(-1)).toEqual({ method: "POST", path: "/uploads/u1/finish", body: { destination: "Trips" } });
+    expect(asked.at(-1)).toEqual({
+      method: "POST",
+      path: "/uploads/u1/finish",
+      body: { destination: "Trips", merge: false },
+    });
     expect(uploaded).toHaveBeenCalledTimes(1);
 
     // One folder was chosen, so that's where "Show them" goes.
@@ -424,6 +447,129 @@ describe("adding files from this device", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Uncloud leaves hidden files out");
     expect(asked).toHaveLength(0);
+  });
+});
+
+describe("adding a folder that's already there", () => {
+  const holiday = () =>
+    pickedFrom([
+      file("Holiday/sea.jpg", "sea!"),
+      file("Holiday/map.pdf", "a new map"),
+      file("Holiday/day 2/boat.jpg", "boat"),
+      file("Holiday/edited there.jpg", "old"),
+    ]);
+  const there = {
+    same: ["Holiday/sea.jpg"],
+    changed: ["Holiday/map.pdf"],
+    newer: ["Holiday/edited there.jpg"],
+    folders: ["Holiday"],
+  };
+
+  it("says what of it is new or changed before sending anything, then sends only that", async () => {
+    answer = accepting([{ from: "Holiday", to: "Trips/Holiday" }], there, 1);
+    const opened = vi.fn();
+    render(<Harness chosen={holiday()} onOpen={opened} />);
+
+    await click(screen.getByText("Send"));
+
+    const decision = await screen.findByRole("status");
+    expect(decision).toHaveTextContent("Holiday is already in Trips.");
+    expect(decision).toHaveTextContent("2 files to add: 1 new and 1 changed.");
+    expect(decision).toHaveTextContent("1 file is the same in both and won’t be sent again.");
+    expect(decision).toHaveTextContent("1 file was changed in Uncloud since, so it’s left as it is.");
+    expect(decision).toHaveTextContent("A changed file takes the place of the one there, which goes to the bin.");
+    // Nothing is begun, let alone sent, until somebody says what to do.
+    expect(asked.map((request) => request.path)).toEqual(["/uploads/compare"]);
+    expect(FakeRequest.sent).toHaveLength(0);
+
+    await click(screen.getByRole("button", { name: "See which" }));
+    expect(within(decision).getByText("Holiday/day 2/boat.jpg").nextSibling).toHaveTextContent("New");
+    expect(within(decision).getByText("Holiday/map.pdf").nextSibling).toHaveTextContent(/^Changed\./);
+    expect(within(decision).getByText("Holiday/edited there.jpg").nextSibling).toHaveTextContent(
+      "left as it is",
+    );
+    expect(within(decision).queryByText("Holiday/sea.jpg")).toBeNull();
+
+    await click(screen.getByRole("button", { name: "Add 2 files" }));
+
+    await screen.findByText(/Added 2 files from this device/);
+    expect(asked[1]).toEqual({ method: "POST", path: "/uploads", body: { destination: "Trips", bytes: 13 } });
+    expect(FakeRequest.sent.map((request) => request.path)).toEqual(["Holiday/map.pdf", "Holiday/day 2/boat.jpg"]);
+    expect(asked.at(-1)).toEqual({
+      method: "POST",
+      path: "/uploads/u1/finish",
+      body: { destination: "Trips", merge: true },
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "One took the place of an older copy, which is in the bin. 2 were already there, so they weren’t sent again.",
+    );
+    await click(screen.getByRole("button", { name: /Show them/ }));
+    expect(opened).toHaveBeenCalledWith("Trips/Holiday");
+  });
+
+  it("adds all of it again beside what's there when asked to keep both", async () => {
+    answer = accepting([{ from: "notes.txt", to: "Trips/notes 2.txt" }], { same: ["notes.txt"] });
+    render(<Harness chosen={pickedFrom([file("notes.txt")])} />);
+
+    await click(screen.getByText("Send"));
+
+    const decision = await screen.findByRole("status");
+    expect(decision).toHaveTextContent("Nothing new to add: notes.txt is already in Trips.");
+    expect(within(decision).queryByRole("button", { name: /^Add/ })).toBeNull();
+    await click(within(decision).getByRole("button", { name: "Keep both" }));
+
+    expect(await screen.findByText(/Added 1 file from this device/)).toHaveTextContent("this one is “notes 2.txt”");
+    expect(FakeRequest.sent.map((request) => request.path)).toEqual(["notes.txt"]);
+    expect(asked.at(-1)?.body).toEqual({ destination: "Trips", merge: false });
+  });
+
+  it("adds nothing when somebody decides not to, and is ready for the next", async () => {
+    answer = accepting([], there);
+    render(<Harness chosen={holiday()} />);
+
+    await click(screen.getByText("Send"));
+    await click(await screen.findByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(asked.map((request) => request.path)).toEqual(["/uploads/compare"]);
+    await click(screen.getByText("Send"));
+    expect(await screen.findByRole("button", { name: "Add 2 files" })).toBeInTheDocument();
+  });
+
+  it("lets go of what was waiting to be decided when its account signs out", async () => {
+    answer = accepting([], there);
+    const chosen = holiday();
+    const { rerender } = render(<Harness chosen={chosen} />);
+    await click(screen.getByText("Send"));
+    await screen.findByRole("button", { name: "Add 2 files" });
+
+    rerender(<Harness chosen={chosen} signedIn={false} />);
+    await waitFor(() => expect(screen.queryByText(/Holiday/)).not.toBeInTheDocument());
+    rerender(<Harness chosen={chosen} />);
+
+    // Whoever signs in next can add their own, rather than finding something still on its way.
+    await click(screen.getByText("Send"));
+    expect(await screen.findByRole("button", { name: "Add 2 files" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("says why when Uncloud won't take what was decided on", async () => {
+    const accept = accepting([], there);
+    answer = (path, method) =>
+      path === "/uploads" && method === "POST"
+        ? json({ detail: "This would add 4 GB and only 1 GB is free on your Uncloud drive." }, 409)
+        : accept(path, method);
+    render(<Harness chosen={holiday()} />);
+
+    await click(screen.getByText("Send"));
+    await click(await screen.findByRole("button", { name: "Add 2 files" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("only 1 GB is free");
+    expect(FakeRequest.sent).toHaveLength(0);
+    // And the next can still go.
+    answer = accept;
+    await click(screen.getByText("Send"));
+    expect(await screen.findByRole("button", { name: "Add 2 files" })).toBeInTheDocument();
   });
 });
 

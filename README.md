@@ -43,10 +43,10 @@ plugged into it.
 
 - Browse your folders, see how big each one is, look at file details, and download files, from any
   browser.
-- Copy, move, rename and delete files and folders in the browser, and get deleted ones back from the
-  **Bin** for 30 days.
+- Make folders, and copy, move, rename and delete files and folders in the browser, or drag them
+  onto a folder to move them, and get deleted ones back from the **Bin** for 30 days.
 - Add files and folders from the computer or phone you're using, by choosing them in **Add files** or
-  dropping them onto **My files**.
+  dropping them onto **My files**. Add a folder again and only what's new or changed in it is sent.
 - Add files from Dropbox, or from folders and drives on the host, all from the same **Add files**
   button: everything at once, a whole folder, or any mix of files and folders you tick, with how big
   it all is shown before you start.
@@ -254,10 +254,14 @@ button, filter and sort, and click a file to see its details or download it. The
 top of every page show how much room is left on the host, and how much of it is yours. They turn
 amber, then red, when it runs low.
 
-Tick the box beside files and folders to **Copy to…**, **Move to…** or **Delete** them, or tick
-one to **Rename…** it. A file's details have the same buttons. Nothing is ever overwritten: if the
-folder you choose already has something with the same name, the new arrival gets a new one, like
-`notes 2.txt`, and Uncloud tells you. Renaming to a name that's already taken is refused instead.
+**New folder** makes an empty folder in the one you have open. Tick the box beside files and
+folders to **Copy to…**, **Move to…** or **Delete** them, or tick one to **Rename…** it. A file's
+details have the same buttons. Or drag them: drop files and folders onto a folder in the list, or
+onto one of the folders above in the path at the top, to move them there. Hold **Option** (**Ctrl**
+on Windows) as you drop to copy them instead. Dragging one you've ticked brings everything else
+ticked along. Nothing is ever overwritten: if the folder you choose already has something with the
+same name, the new arrival gets a new one, like `notes 2.txt`, and Uncloud tells you. Renaming to a
+name that's already taken, or making a folder with one, is refused instead.
 A folder that syncs with one of your computers can't be moved, renamed or deleted until you stop
 syncing it.
 
@@ -276,8 +280,16 @@ On **My files**, click **Add files** and choose where they are:
   you have open in **My files**. You can also skip **Add files** and drop them straight onto the
   list in **My files**, or onto a folder in the list to put them in that folder. Keep the page open until **My files** says they're in: unlike the
   other ways in, the page is what's sending them. **Stop** ends it early, and then nothing from it
-  is added. Something already there with the same name is kept, and what you add arrives beside it
-  as "name 2".
+  is added.
+
+  If some of it is already there — a folder you added before, say, with new things in it since —
+  Uncloud says so before sending anything: how many files are new, how many have changed, and how
+  many are the same. **Add** sends only the new and changed ones into the folder that's there. A
+  changed file takes the place of the old copy, which goes to the **Bin**, and a file changed in
+  Uncloud more recently than the copy you're adding is left alone. Nothing already there is deleted
+  because it's missing from what you add. **Keep both** adds all of it again beside what's there
+  instead, as "name 2". Files count as the same when their size and the time they were last
+  changed match.
 - **Host computer** (for whoever looks after Uncloud): the folders and drives on the host, such as
   Documents, Pictures, an old backup drive, or the folder your Dropbox or Google Drive app keeps.
   Open one to look inside, or add the whole thing. **Choose another folder…** finds anything else.

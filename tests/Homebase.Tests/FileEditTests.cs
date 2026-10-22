@@ -210,6 +210,40 @@ public sealed class FileEditTests : IDisposable
     }
 
     [Fact]
+    public async Task A_new_folder_is_made_where_asked_and_never_takes_a_name_in_use()
+    {
+        var (app, client, root) = await StartAsync();
+        using var _ = app;
+        using var __ = client;
+        await WriteAsync(root, "Docs/Notes.txt", "notes");
+        Task<HttpResponseMessage> Make(string path, string? name) =>
+            client.PostAsJsonAsync("/api/files/folder", new { path, name });
+
+        var made = await Make("Docs", "  Receipts ");
+        made.EnsureSuccessStatusCode();
+        Assert.Equal("Docs/Receipts", (await made.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("path").GetString());
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(root, "Docs", "Receipts")));
+        (await Make("", "Taxes")).EnsureSuccessStatusCode();
+        Assert.True(Directory.Exists(Path.Combine(root, "Taxes")));
+
+        // A name in use, by a folder or a file, is refused, and whatever has it is left as it was.
+        await WriteAsync(root, "Docs/Receipts/march.pdf", "march");
+        Assert.Equal(HttpStatusCode.Conflict, (await Make("Docs", "Receipts")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Make("Docs", "Notes.txt")).StatusCode);
+        Assert.Equal("march", await File.ReadAllTextAsync(Path.Combine(root, "Docs", "Receipts", "march.pdf")));
+        Assert.Equal("notes", await File.ReadAllTextAsync(Path.Combine(root, "Docs", "Notes.txt")));
+
+        // So are names Uncloud would hide or couldn't keep, and places outside My files or not there.
+        foreach (var name in new[] { "", "  ", ".hidden", "..", "a/b", "a\\b", "a:b", null })
+            Assert.Equal(HttpStatusCode.BadRequest, (await Make("Docs", name)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Make("Nowhere", "New")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Make("../..", "Escaped")).StatusCode);
+        Assert.Empty(Directory.EnumerateDirectories(_temporary, "Escaped", SearchOption.AllDirectories));
+        Assert.Equal(["Notes.txt", "Receipts"],
+            Directory.EnumerateFileSystemEntries(Path.Combine(root, "Docs")).Select(Path.GetFileName).Order());
+    }
+
+    [Fact]
     public async Task Delete_moves_files_and_folders_with_everything_in_them_to_the_bin()
     {
         var (app, client, root) = await StartAsync();
@@ -418,6 +452,8 @@ public sealed class FileEditTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "move", ["Elsewhere/mine.txt"], "Dropbox/work")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await BinAsync(client, "restore", binned)).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await RenameAsync(client, "Dropbox", "Old Dropbox")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict,
+            (await client.PostAsJsonAsync("/api/files/folder", new { path = "Dropbox/work", name = "Mine" })).StatusCode);
         // Everywhere else is still anybody's to change.
         (await EditAsync(client, "move", ["Elsewhere/mine.txt"], "")).EnsureSuccessStatusCode();
 
