@@ -92,11 +92,24 @@ export interface BinListing {
   bytes: number;
 }
 
-export type EditAction = "copy" | "move" | "rename" | "delete";
+/// What can be done in My files. Making a new folder acts on no entries, only on where it goes.
+export type EditAction = "copy" | "move" | "rename" | "delete" | "folder";
 /// Where one copied or moved item ended up: a different name when its own was taken there.
 export interface EditedEntry {
   from: string;
   to: string;
+}
+/// What of an upload is already where it's going, each file by its path in the upload. A file not
+/// named in any of these is new there.
+export interface UploadComparison {
+  /// Already there, the same size and last changed at the same time: no need to send it.
+  same: string[];
+  /// Already there, but this one is different: sending it replaces that one, which goes to the bin.
+  changed: string[];
+  /// Already there, and changed there since this one was: sending it would undo that.
+  newer: string[];
+  /// Folders at the top of the upload that are already there, for the new files to join.
+  folders: string[];
 }
 
 export interface StorageReport {

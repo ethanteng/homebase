@@ -3,12 +3,13 @@ import {
   ChevronRight,
   CircleCheck,
   CircleStop,
+  FolderSync,
   LoaderCircle,
   TriangleAlert,
   X,
 } from "lucide-react";
 import { api, formatSize, nameTogether, SignedOutError } from "./api";
-import type { EditedEntry } from "./api";
+import type { EditedEntry, UploadComparison } from "./api";
 
 /** One file chosen on this device, and where it sits in what was chosen: its name, or its place in a folder. */
 export interface Picked {
@@ -69,7 +70,23 @@ async function walk(entry: FileSystemEntry, above: string, picked: Picked[]) {
   }
 }
 
-export type UploadStage = "sending" | "placing" | "done" | "stopped" | "failed";
+export type UploadStage = "checking" | "review" | "sending" | "placing" | "done" | "stopped" | "failed";
+
+/** What was chosen that's partly in the folder already, for whoever chose it to decide about. */
+export interface Review {
+  /** Files that aren't there yet. */
+  fresh: string[];
+  /** Files there already that this device has a different copy of. */
+  changed: string[];
+  /** How many are there already, just the same. */
+  same: number;
+  /** Files changed there since this device's copy was, which bringing it up to date leaves alone. */
+  newer: string[];
+  /** Whether all of it is there already, rather than some. */
+  whole: boolean;
+  /** Whether more than one thing was chosen. */
+  several: boolean;
+}
 
 /** Files on their way from this device, or how that went. */
 export interface Upload {
@@ -92,6 +109,12 @@ export interface Upload {
   /** Where "Show them" goes: into the one folder that was chosen, or else where they all went. */
   openTo: string;
   skipped: { path: string; reason: string }[];
+  /** While somebody decides: what of it is there already. */
+  review: Review | null;
+  /** Files already there that it took the place of, which are in the bin. */
+  replaced: number;
+  /** Files left out because they were there already, the same or changed there since. */
+  unchanged: number;
 }
 
 /** Several files at once, so a folder of small ones doesn't wait on a request per file. */
@@ -175,13 +198,21 @@ async function discard(id: string) {
 }
 
 const isRunning = (upload: Upload) => upload.stage === "sending" || upload.stage === "placing";
+/** Started, and not yet over: on its way, or still being asked about or decided on. */
+const isUnder = (upload: Upload) =>
+  isRunning(upload) || upload.stage === "checking" || upload.stage === "review";
 
 /** One upload as it runs: the requests in flight, and how far each has got. */
 interface Run {
   stopped: boolean;
   requests: Set<XMLHttpRequest>;
   loaded: Map<string, number>;
+  /** What's waiting while somebody decides what to do about the part of it that's there already. */
+  deciding: { folder: string; label: string; items: Picked[]; differ: Picked[] } | null;
 }
+
+/** The folder something went into, as somebody would call it. */
+const called = (folder: string) => folder.split("/").at(-1) || "My files";
 
 /**
  * Files on their way from this device into My files, watched from My files like an import. Unlike
@@ -190,7 +221,8 @@ interface Run {
 export function useUpload(active: boolean, onUploaded: () => void) {
   const [upload, setUpload] = useState<Upload | null>(null);
   const current = useRef<Run | null>(null);
-  const running = upload != null && isRunning(upload);
+  const sending = upload != null && isRunning(upload);
+  const running = upload != null && isUnder(upload);
 
   // Signing out ends whatever was on its way, and whoever signs in next doesn't see what it was.
   useEffect(() => {
@@ -199,33 +231,26 @@ export function useUpload(active: boolean, onUploaded: () => void) {
     if (run) {
       run.stopped = true;
       run.requests.forEach((request) => request.abort());
+      // Nothing is on its way while somebody decides, so nothing else would let go of it.
+      if (run.deciding) current.current = null;
     }
     setUpload(null);
   }, [active]);
 
   // Leaving now would stop it, so the browser asks first.
   useEffect(() => {
-    if (!running) return;
+    if (!sending) return;
     const stay = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener("beforeunload", stay);
     return () => window.removeEventListener("beforeunload", stay);
-  }, [running]);
+  }, [sending]);
 
-  const start = useCallback(
-    async (folder: string, chosen: Picked[]) => {
-      const items = chosen.filter((item) => !hidden(item.path));
-      if (items.length === 0)
-        throw new Error(
-          chosen.length > 0
-            ? "There’s nothing here to add. Uncloud leaves hidden files out, and that’s all there was."
-            : "Nothing was chosen.",
-        );
-      // One at a time, claimed before Uncloud is even asked: a second drop while the first is still
-      // being agreed to would otherwise start an upload nobody could see or stop.
-      if (current.current)
-        throw new Error("Some files are still on their way. You can add more once they’re in.");
-      const run: Run = { stopped: false, requests: new Set(), loaded: new Map() };
-      current.current = run;
+  /**
+   * Sends files once it's settled which: all of what was chosen, or — bringing a folder added again
+   * up to date — only what differs from what's there. Settles once Uncloud has agreed to take them.
+   */
+  const begin = useCallback(
+    async (run: Run, folder: string, label: string, items: Picked[], merge: boolean, unchanged: number) => {
       const bytes = items.reduce((sum, item) => sum + item.file.size, 0);
       let id: string;
       try {
@@ -244,12 +269,11 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         void discard(id);
         return;
       }
-      const tops = [...new Set(items.map((item) => item.path.split("/")[0]))];
       const update = (change: Partial<Upload>) =>
         setUpload((value) => (value?.id === id ? { ...value, ...change } : value));
       setUpload({
         id,
-        label: nameTogether(tops),
+        label,
         folder,
         files: items.length,
         bytes,
@@ -261,6 +285,9 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         placed: [],
         openTo: folder,
         skipped: [],
+        review: null,
+        replaced: 0,
+        unchanged,
       });
 
       void (async () => {
@@ -351,14 +378,17 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           }
           update({ stage: "placing" });
           try {
-            const { items: placed } = await api<{ items: EditedEntry[] }>(
+            const { items: placed, replaced } = await api<{ items: EditedEntry[]; replaced?: number }>(
               `/uploads/${encodeURIComponent(id)}/finish`,
-              { method: "POST", body: JSON.stringify({ destination: folder }) },
+              { method: "POST", body: JSON.stringify({ destination: folder, merge }) },
             );
-            const one = placed.length === 1 ? placed[0] : null;
+            // A merge also names what deeper in had to take a new name; only the top says where it went.
+            const tops = placed.filter((entry) => !entry.from.includes("/"));
+            const one = tops.length === 1 ? tops[0] : null;
             update({
               stage: "done",
               placed,
+              replaced: replaced ?? 0,
               openTo:
                 one && items.some((item) => item.path.startsWith(`${one.from}/`)) ? one.to : folder,
             });
@@ -389,6 +419,126 @@ export function useUpload(active: boolean, onUploaded: () => void) {
     [onUploaded],
   );
 
+  const start = useCallback(
+    async (folder: string, chosen: Picked[]) => {
+      const items = chosen.filter((item) => !hidden(item.path));
+      if (items.length === 0)
+        throw new Error(
+          chosen.length > 0
+            ? "There’s nothing here to add. Uncloud leaves hidden files out, and that’s all there was."
+            : "Nothing was chosen.",
+        );
+      // One at a time, claimed before Uncloud is even asked: a second drop while the first is still
+      // being agreed to would otherwise start an upload nobody could see or stop.
+      if (current.current)
+        throw new Error("Some files are still on their way. You can add more once they’re in.");
+      const run: Run = { stopped: false, requests: new Set(), loaded: new Map(), deciding: null };
+      current.current = run;
+      const tops = [...new Set(items.map((item) => item.path.split("/")[0]))];
+      const label = nameTogether(tops);
+      const bytes = items.reduce((sum, item) => sum + item.file.size, 0);
+      const waiting: Upload = {
+        id: "",
+        label,
+        folder,
+        files: items.length,
+        bytes,
+        doneFiles: 0,
+        sentBytes: 0,
+        arrivedBytes: 0,
+        stage: "checking",
+        error: null,
+        placed: [],
+        openTo: folder,
+        skipped: [],
+        review: null,
+        replaced: 0,
+        unchanged: 0,
+      };
+      setUpload(waiting);
+      let there: UploadComparison;
+      try {
+        // What of it is in the folder already, so that a folder added again need only send what's
+        // new or changed in it — the way everything about a file is known before it's sent.
+        there = await api<UploadComparison>("/uploads/compare", {
+          method: "POST",
+          body: JSON.stringify({
+            destination: folder,
+            files: items.map((item) => ({
+              path: item.path,
+              bytes: item.file.size,
+              modified: item.file.lastModified,
+            })),
+          }),
+        });
+        if (run.stopped) {
+          current.current = null;
+          return;
+        }
+        // None of it is there, so there's nothing to decide: it all goes, as it always has.
+        if (there.same.length + there.changed.length + there.newer.length + there.folders.length === 0)
+          return await begin(run, folder, label, items, false, 0);
+      } catch (problem: unknown) {
+        current.current = null;
+        setUpload((value) => (value === waiting ? null : value));
+        throw problem;
+      }
+      const same = new Set(there.same);
+      const newer = new Set(there.newer);
+      const changed = new Set(there.changed);
+      const differ = items.filter((item) => !same.has(item.path) && !newer.has(item.path));
+      const found = new Set([...there.folders, ...there.same, ...there.changed, ...there.newer]);
+      run.deciding = { folder, label, items, differ };
+      setUpload({
+        ...waiting,
+        stage: "review",
+        review: {
+          fresh: differ.filter((item) => !changed.has(item.path)).map((item) => item.path),
+          changed: there.changed,
+          same: there.same.length,
+          newer: there.newer,
+          whole: tops.every((top) => found.has(top)),
+          several: tops.length > 1,
+        },
+      });
+    },
+    [begin],
+  );
+
+  /**
+   * What to do about something chosen that's partly there already: bring what's there up to date
+   * with it — only what's new or changed is sent, and a changed file takes the place of the one
+   * there — or add all of it again beside what's there, the way Finder keeps both.
+   */
+  const decide = useCallback(
+    (merge: boolean) => {
+      const run = current.current;
+      const waiting = run?.deciding;
+      if (!run || !waiting) return;
+      run.deciding = null;
+      const items = merge ? waiting.differ : waiting.items;
+      void begin(run, waiting.folder, waiting.label, items, merge, waiting.items.length - items.length).catch(
+        (problem: unknown) =>
+          setUpload((value) =>
+            value?.stage === "review"
+              ? {
+                  ...value,
+                  stage: "failed",
+                  review: null,
+                  error:
+                    problem instanceof SignedOutError
+                      ? "You were signed out, so nothing was added. Sign in, then add them again."
+                      : problem instanceof Error
+                        ? problem.message
+                        : `Couldn’t add ${waiting.label}.`,
+                }
+              : value,
+          ),
+      );
+    },
+    [begin],
+  );
+
   const stop = useCallback(() => {
     const run = current.current;
     if (!run) return;
@@ -396,9 +546,17 @@ export function useUpload(active: boolean, onUploaded: () => void) {
     run.requests.forEach((request) => request.abort());
   }, []);
 
-  const dismiss = useCallback(() => setUpload((value) => (value && !isRunning(value) ? null : value)), []);
+  const dismiss = useCallback(() => {
+    // Not deciding is deciding not to add them.
+    if (current.current?.deciding) {
+      current.current = null;
+      setUpload(null);
+      return;
+    }
+    setUpload((value) => (value && !isUnder(value) ? null : value));
+  }, []);
 
-  return { upload, running, start, stop, dismiss };
+  return { upload, running, start, decide, stop, dismiss };
 }
 
 interface Props {
@@ -406,12 +564,32 @@ interface Props {
   onStop: () => void;
   onDismiss: () => void;
   onOpen: (path: string) => void;
+  /** Bring what's there up to date (true), or keep both (false), when some of it is there already. */
+  onDecide: (merge: boolean) => void;
 }
 
+/** The most of a list worth showing, before it's only a count. */
+const LISTED = 100;
+
 /** How an upload from this device is going, above the files it's on its way to. */
-export default function UploadStatus({ upload, onStop, onDismiss, onOpen }: Props) {
+export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDecide }: Props) {
   const [stopping, setStopping] = useState(false);
   const [showProblems, setShowProblems] = useState(false);
+
+  if (upload.stage === "checking")
+    return (
+      <section className="import-progress" aria-live="polite">
+        <div className="import-progress-head">
+          <strong>
+            <LoaderCircle size={16} className="spin" />
+            Looking at what’s already in {called(upload.folder)}…
+          </strong>
+        </div>
+      </section>
+    );
+
+  if (upload.stage === "review" && upload.review)
+    return <Decision upload={upload} review={upload.review} onDecide={onDecide} onDismiss={onDismiss} />;
 
   if (isRunning(upload)) {
     const share = upload.bytes > 0 ? upload.sentBytes / upload.bytes : upload.doneFiles / upload.files;
@@ -458,15 +636,26 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen }: Prop
   }
 
   const arrived = upload.files - upload.skipped.length;
-  const renamed = upload.placed.filter((entry) => entry.from !== entry.to.split("/").at(-1));
+  // A merge reports a renamed file by its path inside the upload ("Holiday/map.pdf"), while a
+  // folder kept whole reports only the name. Either way the clash is the last part of each path.
+  const baseName = (itemPath: string) => itemPath.split("/").at(-1);
+  const renamed = upload.placed.filter((entry) => baseName(entry.from) !== baseName(entry.to));
   const message =
     upload.stage === "failed"
       ? (upload.error ?? `Couldn’t add ${upload.label}.`)
       : upload.stage === "stopped"
         ? `Stopped adding ${upload.label}. Nothing from it was added.`
         : `Added ${arrived} file${arrived === 1 ? "" : "s"} from this device (${formatSize(upload.arrivedBytes)}).` +
+          (upload.replaced === 1
+            ? " One took the place of an older copy, which is in the bin."
+            : upload.replaced > 1
+              ? ` ${upload.replaced} took the place of older copies, which are in the bin.`
+              : "") +
+          (upload.unchanged > 0
+            ? ` ${upload.unchanged} ${upload.unchanged === 1 ? "was" : "were"} already there, so ${upload.unchanged === 1 ? "it wasn’t" : "they weren’t"} sent again.`
+            : "") +
           (renamed.length === 1
-            ? ` There was already something called “${renamed[0].from}” there, so this one is “${renamed[0].to.split("/").at(-1)}”.`
+            ? ` There was already something called “${baseName(renamed[0].from)}” there, so this one is “${baseName(renamed[0].to)}”.`
             : renamed.length > 1
               ? ` ${renamed.length} names were already taken there, so those arrived with a number after them.`
               : "");
@@ -521,6 +710,111 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen }: Prop
             </ul>
           )}
         </>
+      )}
+    </section>
+  );
+}
+
+interface DecisionProps {
+  upload: Upload;
+  review: Review;
+  onDecide: (merge: boolean) => void;
+  onDismiss: () => void;
+}
+
+const files = (count: number) => `${count} ${count === 1 ? "file" : "files"}`;
+
+/**
+ * Some of what was chosen is in the folder already — a folder added again, usually, with something
+ * new in it. Said before anything is sent: what's new, what's changed and what's the same, and
+ * whether to bring the copy there up to date or keep both.
+ */
+function Decision({ upload, review, onDecide, onDismiss }: DecisionProps) {
+  const [chosen, setChosen] = useState(false);
+  const [showFiles, setShowFiles] = useState(false);
+  const differ = review.fresh.length + review.changed.length;
+  const where = called(upload.folder);
+  const listed = [
+    ...review.fresh.map((path) => ({ path, note: "New" })),
+    ...review.changed.map((path) => ({
+      path,
+      note: "Changed. This copy takes the place of the one there, which goes to the bin.",
+    })),
+    ...review.newer.map((path) => ({
+      path,
+      note: "Changed in Uncloud since this copy was, so it’s left as it is.",
+    })),
+  ];
+  const decide = (merge: boolean) => {
+    setChosen(true);
+    onDecide(merge);
+  };
+
+  return (
+    <section className="import-progress import-outcome import-decision" role="status">
+      <div className="import-progress-head">
+        <strong>
+          <FolderSync size={16} />
+          {review.whole
+            ? `${differ === 0 ? "Nothing new to add: " : ""}${upload.label} ${review.several ? "are" : "is"} already in ${where}.`
+            : `Some of what you chose is already in ${where}.`}
+        </strong>
+        <span className="import-outcome-actions">
+          <button className="icon-button" onClick={onDismiss} aria-label="Cancel" title="Cancel" disabled={chosen}>
+            <X size={16} />
+          </button>
+        </span>
+      </div>
+      <span className="muted">
+        {differ > 0
+          ? `${files(differ)} to add: ${[
+              review.fresh.length > 0 && `${review.fresh.length} new`,
+              review.changed.length > 0 && `${review.changed.length} changed`,
+            ]
+              .filter(Boolean)
+              .join(" and ")}. `
+          : ""}
+        {review.same > 0 &&
+          `${files(review.same)} ${review.same === 1 ? "is" : "are"} the same in both and won’t be sent again. `}
+        {review.newer.length > 0 &&
+          `${files(review.newer.length)} ${review.newer.length === 1 ? "was" : "were"} changed in Uncloud since, so ${review.newer.length === 1 ? "it’s" : "they’re"} left as ${review.newer.length === 1 ? "it is" : "they are"}. `}
+        {review.changed.length > 0 && "A changed file takes the place of the one there, which goes to the bin."}
+      </span>
+      <div className="card-actions">
+        {differ > 0 && (
+          <button className="button primary" onClick={() => decide(true)} disabled={chosen}>
+            Add {files(differ)}
+          </button>
+        )}
+        <button
+          className="button secondary"
+          onClick={() => decide(false)}
+          disabled={chosen}
+          title="Add all of it again, beside what’s there, under new names"
+        >
+          Keep both
+        </button>
+        {listed.length > 0 && (
+          <button className="link-button" onClick={() => setShowFiles((open) => !open)} aria-expanded={showFiles}>
+            {showFiles ? "Hide which" : "See which"}
+          </button>
+        )}
+      </div>
+      {showFiles && (
+        <ul className="import-list">
+          {listed.slice(0, LISTED).map((item) => (
+            <li key={item.path}>
+              <FolderSync size={18} strokeWidth={1.6} />
+              <div>
+                <strong>{item.path}</strong>
+                <span className="muted">{item.note}</span>
+              </div>
+            </li>
+          ))}
+          {listed.length > LISTED && (
+            <li className="muted">and {listed.length - LISTED} more</li>
+          )}
+        </ul>
       )}
     </section>
   );

@@ -54,16 +54,34 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   and moved into place whole, and leaves hidden entries and links behind. A folder that syncs with
   a computer, or holds one that does, can't be moved, renamed or deleted, since Syncthing would
   stop that folder with its marker gone. Nor can the folder an import is still writing into, until
-  it finishes.
+  it finishes. In the browser, rows can be dragged onto a folder in the list, or onto a folder
+  above in the path, to move them there; holding Option (Ctrl on Windows) copies instead, and a
+  ticked row brings the rest of what's ticked. A drop onto the folder they're already in, or onto
+  a folder that is one of them, does nothing.
 - Renaming one file or folder where it is (`POST /api/files/rename` with `{ path, name }`). A name
   already in use there is refused rather than changed, since the name is the point; a change of
   capitals alone is allowed. Names can't be empty, start with a dot (they would be hidden), contain
   `/`, `\`, `:` or control characters, or run past 255 bytes.
+- Making an empty folder (`POST /api/files/folder` with `{ path, name }`), in the folder `path`
+  names, or at the top of My files when `path` is empty. The name is checked the same way as a
+  rename, and one already in use there — by a file or a folder — is refused rather than changed.
+  It is refused inside a folder an import is still writing to.
 - Sending files and folders from the browser, from whichever computer or phone somebody is using,
   into the folder they have open (`POST /api/uploads` with `{ destination, bytes }`, then
   `PUT /api/uploads/{id}?path=&modified=` once per file with the file as the body, then
-  `POST /api/uploads/{id}/finish` with `{ destination }`; `DELETE /api/uploads/{id}` throws one
-  away). The account's folder comes from the session like every other edit; the id is a random one
+  `POST /api/uploads/{id}/finish` with `{ destination, merge }`; `DELETE /api/uploads/{id}` throws one
+  away). Before that begins, `POST /api/uploads/compare` with `{ destination, files: [{ path, bytes, modified }] }`
+  says which of those files are already there: `same` (equal size, and modified times within 2 seconds,
+  since a Windows-formatted drive keeps time only that finely; a file described without a time is
+  never `same`), `changed`, or `newer` (changed in
+  Uncloud more recently than the copy about to be sent), plus which top-level `folders` already exist.
+  A path Uncloud won't keep, or that goes through a link, is left off those lists. The page asks
+  before sending anything when some of it is already there: adding the differences sends only the
+  new and changed files and finishes with `merge: true`, which adds to folders already there and
+  puts a replaced file in the bin once what replaces it is in the folder beside it; a file changed in Uncloud more recently than what arrived — asked
+  again under the edit lock, because the comparison is from before the upload — is kept, and the
+  arrival goes beside it. `merge` defaults to false, which is the previous behaviour. Keeping both
+  sends everything and finishes with `merge: false`. Files that weren't sent are never deleted. The account's folder comes from the session like every other edit; the id is a random one
   only ever matched under that account's `.homebase/uploads/`, and the path inside it goes through
   the same path policy as browsing, so hidden names and anything reaching outside it are refused.
   Files are gathered there out of sight and moved into place together at the end, so a stopped
@@ -79,11 +97,15 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   still lingering on a dropped connection never write over each other, and finishing an upload never
   picks up a file half-written. At most eight files arrive at once per account, and an upload still
   arriving is marked as such every megabyte, so one file that takes more than a day isn't cleared away. Once files start
-  moving into place, all of them are moved, even if the browser has gone. Nothing is overwritten: a
-  name already taken arrives as `name 2`, a folder included. Each file keeps its modification
-  time. The request size limit is lifted for these requests alone. Files and folders can be chosen
-  in **Add files** or dropped onto it, or dropped straight onto the list in My files, where a
-  folder's row takes them into that folder; a drop anywhere else is refused rather than letting the browser open the file in place of Uncloud. The
+  moving into place, all of them are moved, even if the browser has gone. Without `merge`, nothing
+  is overwritten: a name already taken arrives as `name 2`, a folder included. With `merge`, a
+  folder joins the one already there and a file takes the place of the file there; a folder
+  arriving where a file is, or anything arriving where a link is, still becomes `name 2`. Each
+  file keeps its modification time. The request size limit is lifted for these requests alone.
+  Files and folders can be chosen in **Add files** or dropped onto it, or dropped straight onto
+  the list in My files, where a folder's row — or a folder above, in the path — takes them into
+  that folder; a drop anywhere else is refused rather than letting the browser open the file in
+  place of Uncloud. The
   page sends three files at a time with progress, retries one whose connection drops, skips one Uncloud refuses by name, and
   gives up on the whole upload when the drive runs out of room or the session ends. If Uncloud doesn't
   answer the request to put them in place, the page says they may already be there and reads My files

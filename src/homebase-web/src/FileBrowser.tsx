@@ -13,6 +13,7 @@ import {
   Folder,
   FolderInput,
   FolderOpen,
+  FolderPlus,
   Pencil,
   Plus,
   RefreshCw,
@@ -23,8 +24,8 @@ import {
   X,
 } from "lucide-react";
 import { api, downloadUrl, formatSize } from "./api";
-import type { DirectoryListing, EditAction, LibraryEntry } from "./api";
-import EditDialog from "./FileEdits";
+import type { DirectoryListing, EditAction, EditedEntry, LibraryEntry } from "./api";
+import EditDialog, { describe, summarize } from "./FileEdits";
 import type { Edit } from "./FileEdits";
 import { useFolderSizes } from "./folderSizes";
 import { pickedFromDrop } from "./Uploads";
@@ -50,6 +51,12 @@ interface Props {
   uploading: boolean;
 }
 type Sort = "name" | "modified" | "size";
+/** A folder something held over the list would go into: a folder's row, or one in the path above. */
+interface Target {
+  path: string;
+  name: string;
+}
+const nameOf = (folder: string) => (folder ? folder.split("/").at(-1)! : "My files");
 const dateFormat = new Intl.DateTimeFormat(undefined, {
   year: "numeric",
   month: "short",
@@ -96,14 +103,20 @@ export default function FileBrowser({
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [edit, setEdit] = useState<Edit | null>(null);
   const [notice, setNotice] = useState("");
-  // Why files dropped here weren't taken, such as there being no room for them.
+  // Why files dropped here weren't taken, such as there being no room for them, or why rows
+  // dragged onto a folder couldn't go there.
   const [problem, setProblem] = useState("");
   // Files held over the list. Counted rather than tracked by where they went: entering a row is
   // also leaving the list, and not every browser says where a drag went when it left.
   const [dropping, setDropping] = useState(false);
   const depth = useRef(0);
-  // The folder row they're held over, which is where they'd go instead of the folder on screen.
-  const [dropInto, setDropInto] = useState<LibraryEntry | null>(null);
+  // The folder they're held over, which is where they'd go instead of the folder on screen.
+  const [dropInto, setDropInto] = useState<Target | null>(null);
+  // Rows picked up to put in another folder, and whether they'd be copied there rather than moved.
+  const [dragged, setDragged] = useState<LibraryEntry[] | null>(null);
+  const [copying, setCopying] = useState(false);
+  // What dropping them set going, while it's under way.
+  const [moving, setMoving] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -200,20 +213,96 @@ export default function FileBrowser({
     setNotice("");
     setEdit({ action, entries: targets });
   }
+  /** A new folder, starting from a name nothing here has. */
+  function newFolder() {
+    const taken = new Set(listing?.entries.map((entry) => entry.name.toLocaleLowerCase()));
+    let name = "New folder";
+    for (let number = 2; taken.has(name.toLocaleLowerCase()); number++) name = `New folder ${number}`;
+    setNotice("");
+    setEdit({ action: "folder", entries: [], name });
+  }
 
-  // Only a drag carrying files from outside the page is this list's to take.
-  const carriesFiles = (event: DragEvent) => event.dataTransfer.types.includes("Files");
-  /** The folder whose row the pointer is on, if it's on one; anywhere else in the list is the folder on screen. */
-  const folderUnder = (event: DragEvent) => {
-    const row = (event.target as Element).closest?.("tr[data-folder]");
-    return entries.find((entry) => entry.isDirectory && entry.path === row?.getAttribute("data-folder")) ?? null;
+  // Rows picked up here are moving within My files; anything else held over the list is this
+  // list's to take only if it carries files from outside the page.
+  const holding = (event: DragEvent) =>
+    dragged ? "rows" : event.dataTransfer.types.includes("Files") ? "files" : null;
+  /** The folder whose row or path the pointer is on, if it's on one; anywhere else in the list is the folder on screen. */
+  const folderUnder = (event: DragEvent): Target | null => {
+    const folder = (event.target as Element).closest?.("[data-folder]")?.getAttribute("data-folder");
+    return folder == null ? null : { path: folder, name: nameOf(folder) };
   };
-  function drop(event: DragEvent) {
-    if (!carriesFiles(event)) return;
-    event.preventDefault();
+  /** Where rows held here would go: a folder that isn't one of them, other than the one they're in. */
+  const rowsInto = (event: DragEvent) => {
+    const under = folderUnder(event);
+    return under && under.path !== path && !dragged?.some((entry) => entry.path === under.path)
+      ? under
+      : null;
+  };
+  // As in Finder, holding Option copies rather than moves; Ctrl does it on Windows.
+  const copies = (event: DragEvent) => event.altKey || event.ctrlKey;
+
+  function pickUp(event: DragEvent, entry: LibraryEntry) {
+    // A ticked row brings everything else ticked with it; any other comes alone.
+    const rows = checked.has(entry.path) ? chosen : [entry];
+    event.dataTransfer.effectAllowed = "copyMove";
+    // Not every browser starts a drag that carries nothing, though only this page reads it.
+    event.dataTransfer.setData(
+      "application/x-uncloud-paths",
+      JSON.stringify(rows.map((row) => row.path)),
+    );
+    // What's being carried, by the pointer: a row's own picture would show only one of several.
+    const label = document.createElement("div");
+    label.className = "drag-label";
+    label.textContent = describe(rows);
+    label.style.left = `${event.clientX - 12}px`;
+    label.style.top = `${event.clientY - 12}px`;
+    document.body.append(label);
+    event.dataTransfer.setDragImage?.(label, 12, 12);
+    window.setTimeout(() => label.remove());
+    // Any notice above the list stays until they're dropped: taking it away now would move every
+    // row up under the pointer, and they'd land in a folder nobody aimed for.
+    setDragged(rows);
+  }
+  function letGo() {
     depth.current = 0;
     setDropping(false);
     setDropInto(null);
+    setDragged(null);
+    setCopying(false);
+  }
+  async function put(rows: LibraryEntry[], into: Target, copy: boolean) {
+    const action = copy ? "copy" : "move";
+    setChecked(new Set());
+    setNotice("");
+    setProblem("");
+    setMoving(`${copy ? "Copying" : "Moving"} ${describe(rows)} to ${into.name}…`);
+    try {
+      const result = await api<{ items?: EditedEntry[] }>(`/files/${action}`, {
+        method: "POST",
+        body: JSON.stringify({ paths: rows.map((row) => row.path), destination: into.path }),
+      });
+      setNotice(summarize({ action, entries: rows }, into.path, result.items ?? []));
+      onChanged();
+    } catch (failure) {
+      setProblem(failure instanceof Error ? failure.message : "Uncloud couldn’t make that change.");
+    } finally {
+      setMoving("");
+    }
+  }
+
+  function drop(event: DragEvent) {
+    const kind = holding(event);
+    if (kind === "rows") {
+      event.preventDefault();
+      const into = rowsInto(event);
+      const rows = dragged!;
+      letGo();
+      if (into) void put(rows, into, copies(event));
+      return;
+    }
+    if (kind !== "files") return;
+    event.preventDefault();
+    letGo();
     if (uploading) return;
     setNotice("");
     setProblem("");
@@ -226,7 +315,14 @@ export default function FileBrowser({
         setProblem(failure instanceof Error ? failure.message : "Those files couldn’t be added."),
       );
   }
-  const here = dropInto?.name ?? (path ? path.split("/").at(-1) : "My files");
+  const here = dropInto?.name ?? nameOf(path);
+  const banner = dragged
+    ? dropInto
+      ? `${copying ? "Copy" : "Move"} ${describe(dragged)} to ${dropInto.name}`
+      : `Drop on a folder to ${copying ? "copy" : "move"} ${dragged.length === 1 ? "it" : "them"} there`
+    : uploading
+      ? "Some files are still on their way. Add more once they’re in."
+      : `Drop to add to ${here}`;
 
   return (
     <>
@@ -248,6 +344,16 @@ export default function FileBrowser({
             title="Refresh"
           >
             <RefreshCw size={16} className={loading ? "spin" : ""} />
+          </button>
+          <button
+            className="button secondary new-folder-button"
+            onClick={newFolder}
+            disabled={loading || !!error}
+            aria-label="New folder"
+            title="New folder"
+          >
+            <FolderPlus size={16} />
+            <span>New folder</span>
           </button>
           <button className="button primary" onClick={onAdd}>
             <Plus size={16} />
@@ -278,20 +384,35 @@ export default function FileBrowser({
           aria-label="File browser"
           aria-busy={loading}
           onDragEnter={(event) => {
-            if (!carriesFiles(event)) return;
+            const kind = holding(event);
+            if (!kind) return;
             event.preventDefault();
             depth.current++;
-            setDropping(true);
+            if (kind === "files") setDropping(true);
           }}
           onDragOver={(event) => {
-            if (!carriesFiles(event)) return;
-            event.preventDefault();
-            event.dataTransfer.dropEffect = uploading ? "none" : "copy";
-            const under = uploading ? null : folderUnder(event);
+            const kind = holding(event);
+            if (!kind) return;
+            let under: Target | null;
+            if (kind === "rows") {
+              under = rowsInto(event);
+              setCopying(copies(event));
+              // Anywhere but a folder they can go into, letting go does nothing, and the pointer says so.
+              if (!under) {
+                setDropInto(null);
+                return;
+              }
+              event.preventDefault();
+              event.dataTransfer.dropEffect = copies(event) ? "copy" : "move";
+            } else {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = uploading ? "none" : "copy";
+              under = uploading ? null : folderUnder(event);
+            }
             setDropInto((current) => (current?.path === under?.path ? current : under));
           }}
           onDragLeave={(event) => {
-            if (!carriesFiles(event)) return;
+            if (!holding(event)) return;
             depth.current = Math.max(0, depth.current - 1);
             if (depth.current > 0) return;
             setDropping(false);
@@ -300,37 +421,46 @@ export default function FileBrowser({
           onDrop={drop}
         >
           {/* The rows stay in sight, so the one being dropped on can be seen to light up. */}
-          {dropping && (
+          {(dropping || dragged) && (
             <div className="drop-banner" aria-hidden="true">
-              <Upload size={16} />
-              <span>
-                {uploading
-                  ? "Some files are still on their way. Add more once they’re in."
-                  : `Drop to add to ${here}`}
-              </span>
+              {dragged ? (
+                copying ? <Copy size={16} /> : <FolderInput size={16} />
+              ) : (
+                <Upload size={16} />
+              )}
+              <span>{banner}</span>
             </div>
           )}
           <div className="file-toolbar">
+            {/* Each folder above this one is somewhere to drop things too. */}
             <nav aria-label="Folder path" className="breadcrumbs">
-              <button onClick={() => navigate("")}>My files</button>
+              <button
+                data-folder={path ? "" : undefined}
+                className={path && dropInto?.path === "" ? "drop-target" : undefined}
+                onClick={() => navigate("")}
+              >
+                My files
+              </button>
               {path
                 .split("/")
                 .filter(Boolean)
-                .map((part, index, parts) => (
-                  <span key={index}>
-                    <ChevronRight size={14} />
-                    <button
-                      aria-current={
-                        index === parts.length - 1 ? "location" : undefined
-                      }
-                      onClick={() =>
-                        navigate(parts.slice(0, index + 1).join("/"))
-                      }
-                    >
-                      {part}
-                    </button>
-                  </span>
-                ))}
+                .map((part, index, parts) => {
+                  const folder = parts.slice(0, index + 1).join("/");
+                  const current = index === parts.length - 1;
+                  return (
+                    <span key={index}>
+                      <ChevronRight size={14} />
+                      <button
+                        aria-current={current ? "location" : undefined}
+                        data-folder={current ? undefined : folder}
+                        className={!current && dropInto?.path === folder ? "drop-target" : undefined}
+                        onClick={() => navigate(folder)}
+                      >
+                        {part}
+                      </button>
+                    </span>
+                  );
+                })}
             </nav>
             <div className="filter-input">
               <Search size={16} />
@@ -343,7 +473,7 @@ export default function FileBrowser({
               />
             </div>
           </div>
-          {chosen.length > 0 ? (
+          {chosen.length > 0 && !moving ? (
             <div
               className="selection-bar"
               role="toolbar"
@@ -390,6 +520,11 @@ export default function FileBrowser({
                   <X size={16} />
                 </button>
               </div>
+            </div>
+          ) : moving ? (
+            <div className="edit-notice" role="status">
+              <RefreshCw size={16} className="spin" />
+              <span>{moving}</span>
             </div>
           ) : problem ? (
             <div className="edit-notice failed" role="alert">
@@ -536,6 +671,10 @@ export default function FileBrowser({
                     <tr
                       key={entry.path}
                       data-folder={entry.isDirectory ? entry.path : undefined}
+                      // Picked up to put in a folder here or above, as a Move to… or Copy to… would.
+                      draggable={!moving}
+                      onDragStart={(event) => pickUp(event, entry)}
+                      onDragEnd={letGo}
                       className={
                         dropInto?.path === entry.path
                           ? "drop-target"

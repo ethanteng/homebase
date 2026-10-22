@@ -12,6 +12,8 @@ import type {
 export interface Edit {
   action: EditAction;
   entries: LibraryEntry[];
+  /** The name a new folder starts with, ready to type over. */
+  name?: string;
 }
 
 interface Props {
@@ -26,7 +28,7 @@ interface Props {
 
 const nameOf = (path: string) => path.split("/").at(-1) || "My files";
 
-function describe(entries: LibraryEntry[]) {
+export function describe(entries: LibraryEntry[]) {
   return entries.length === 1
     ? `“${entries[0].name}”`
     : `${entries.length} items`;
@@ -36,7 +38,7 @@ function describe(entries: LibraryEntry[]) {
  * What happened, in a sentence. Nothing is ever overwritten, so an item arriving where its name
  * is taken gets a new one — and somebody looking for it under the old name needs to be told.
  */
-function summarize(edit: Edit, destination: string, items: EditedEntry[]) {
+export function summarize(edit: Edit, destination: string, items: EditedEntry[]) {
   if (edit.action === "delete")
     return `Moved ${describe(edit.entries)} to the bin.`;
   const done = `${edit.action === "copy" ? "Copied" : "Moved"} ${describe(edit.entries)} to ${nameOf(destination)}.`;
@@ -48,8 +50,8 @@ function summarize(edit: Edit, destination: string, items: EditedEntry[]) {
 }
 
 /**
- * Copying or moving files somewhere else in My files, renaming one, or deleting them: one dialog
- * for each.
+ * Copying or moving files somewhere else in My files, renaming one, deleting them, or making a new
+ * folder: one dialog for each.
  */
 export default function EditDialog({ edit, from, onClose, onDone }: Props) {
   const [element, setElement] = useState<HTMLDialogElement | null>(null);
@@ -61,12 +63,15 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
   const [named, setNamed] = useState<Edit | null>(null);
   const [nameField, setNameField] = useState<HTMLInputElement | null>(null);
   const choosing = edit?.action === "copy" || edit?.action === "move";
+  // Renaming and making a folder are both a name typed into one field.
+  const naming = edit?.action === "rename" || edit?.action === "folder";
 
-  // A rename starts from the name it has. Set while rendering rather than in an effect, so the
-  // field never shows the last one first and loses the selection made below.
+  // A rename starts from the name it has, and a new folder from one that's free. Set while
+  // rendering rather than in an effect, so the field never shows the last one first and loses the
+  // selection made below.
   if (edit !== named) {
     setNamed(edit);
-    setName(edit?.entries[0]?.name ?? "");
+    setName(edit?.name ?? edit?.entries[0]?.name ?? "");
   }
 
   // Every edit starts afresh, looking at the folder its files are in.
@@ -84,12 +89,13 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
 
   // As Finder does it: the name is ready to type over, leaving a file's extension alone.
   useEffect(() => {
-    if (edit?.action !== "rename" || !nameField) return;
-    const entry = edit.entries[0];
-    const dot = entry.isDirectory ? -1 : entry.name.lastIndexOf(".");
+    if (!edit || !naming || !nameField) return;
+    const entry = edit.entries.at(0);
+    const start = nameField.value;
+    const dot = !entry || entry.isDirectory ? -1 : start.lastIndexOf(".");
     nameField.focus();
-    nameField.setSelectionRange(0, dot > 0 ? dot : entry.name.length);
-  }, [edit, nameField]);
+    nameField.setSelectionRange(0, dot > 0 ? dot : start.length);
+  }, [edit, naming, nameField]);
 
   useEffect(() => {
     if (!choosing) return;
@@ -133,6 +139,14 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
         onDone(`Renamed “${edit.entries[0].name}” to “${nameOf(renamed.to)}”.`);
         return;
       }
+      if (edit.action === "folder") {
+        const made = await api<{ path: string }>("/files/folder", {
+          method: "POST",
+          body: JSON.stringify({ path: from, name }),
+        });
+        onDone(`Made a new folder, “${nameOf(made.path)}”.`);
+        return;
+      }
       const paths = edit.entries.map((entry) => entry.path);
       const result = await api<{ items?: EditedEntry[] }>(
         `/files/${edit.action}`,
@@ -164,8 +178,8 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
   const alreadyThere = edit?.action === "move" && folder === from;
   const one = edit?.entries.length === 1;
   const unnamed =
-    edit?.action === "rename" &&
-    (name.trim() === "" || name.trim() === edit.entries[0].name);
+    naming &&
+    (name.trim() === "" || (edit?.action === "rename" && name.trim() === edit.entries[0].name));
   const folderCount = edit?.entries.filter((entry) => entry.isDirectory).length ?? 0;
 
   return (
@@ -186,7 +200,9 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
                   ? `Delete ${describe(edit.entries)}?`
                   : edit.action === "rename"
                     ? `Rename ${describe(edit.entries)}`
-                    : `${edit.action === "copy" ? "Copy" : "Move"} ${describe(edit.entries)}`}
+                    : edit.action === "folder"
+                      ? `New folder in ${nameOf(from)}`
+                      : `${edit.action === "copy" ? "Copy" : "Move"} ${describe(edit.entries)}`}
               </h2>
             </div>
             <button
@@ -215,10 +231,10 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
                 and comes back there if you put it back.
               </p>
             </div>
-          ) : edit.action === "rename" ? (
+          ) : naming ? (
             <div className="edit-body">
               <label className="rename-label" htmlFor="rename-name">
-                New name
+                {edit.action === "rename" ? "New name" : "Name"}
               </label>
               <input
                 id="rename-name"
@@ -341,13 +357,17 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
                   ? busy
                     ? "Renaming…"
                     : "Rename"
-                  : edit.action === "copy"
+                  : edit.action === "folder"
                     ? busy
-                      ? "Copying…"
-                      : "Copy here"
-                    : busy
-                      ? "Moving…"
-                      : "Move here"}
+                      ? "Making…"
+                      : "Make folder"
+                    : edit.action === "copy"
+                      ? busy
+                        ? "Copying…"
+                        : "Copy here"
+                      : busy
+                        ? "Moving…"
+                        : "Move here"}
             </button>
           </div>
         </>

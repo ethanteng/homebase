@@ -695,6 +695,9 @@ app.MapPost("/api/files/rename", async (RenameFile request, CurrentUser user, Us
     Results.Ok(await workspaces.For(user.Account).Library.RenameAsync(
         request.Path, request.Name, Synced(ownership, user), cancellationToken)));
 
+app.MapPost("/api/files/folder", async (NewFolder request, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+    Results.Ok(new { path = await workspaces.For(user.Account).Library.CreateFolderAsync(request.Path, request.Name, cancellationToken) }));
+
 // Deleting moves things into the bin, which is still this account's folder and still takes room,
 // so nothing is freed until the bin lets go of it.
 app.MapPost("/api/files/delete", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, CancellationToken cancellationToken) =>
@@ -711,6 +714,11 @@ app.MapPost("/api/uploads", async (BeginUpload request, CurrentUser user, UserWo
     {
         id = await workspaces.For(user.Account).Library.BeginUploadAsync(request.Destination, request.Bytes, cancellationToken)
     }));
+
+// Which of the files about to be sent are already where they're going, so that a folder added again
+// need only send what is new or changed in it. Asked before the upload begins, and only ever read.
+app.MapPost("/api/uploads/compare", (CompareUpload request, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+    Results.Ok(workspaces.For(user.Account).Library.CompareUpload(request.Destination, request.Files, cancellationToken)));
 
 // One file of an upload, as the request body. The path says where it sits in the upload — its name,
 // or its place in a folder being sent — and only ever inside it.
@@ -730,9 +738,9 @@ app.MapPut("/api/uploads/{id}", async (string id, string? path, long? modified, 
 app.MapPost("/api/uploads/{id}/finish", async (string id, FinishUpload request, CurrentUser user, UserWorkspaces workspaces, UsageService usage, CancellationToken cancellationToken) =>
 {
     var workspace = workspaces.For(user.Account);
-    var placed = await workspace.Library.FinishUploadAsync(id, request.Destination, cancellationToken);
+    var finished = await workspace.Library.FinishUploadAsync(id, request.Destination, request.Merge, cancellationToken);
     usage.Invalidate(workspace.Root);
-    return Results.Ok(new { items = placed });
+    return Results.Ok(new { items = finished.Items, replaced = finished.Replaced });
 });
 
 app.MapDelete("/api/uploads/{id}", async (string id, CurrentUser user, UserWorkspaces workspaces, UsageService usage, CancellationToken cancellationToken) =>
@@ -1535,11 +1543,17 @@ public sealed record SelectRoot(string Path);
 /// <param name="Destination">The folder to copy or move into; unused by a delete. Empty is the top of My files.</param>
 public sealed record EditFiles(IReadOnlyList<string>? Paths, string? Destination);
 public sealed record RenameFile(string? Path, string? Name);
+/// <param name="Path">The folder to make the new one in. Empty is the top of My files.</param>
+public sealed record NewFolder(string? Path, string? Name);
 /// <param name="Destination">The folder in My files the upload goes into. Empty is the top of My files.</param>
 /// <param name="Bytes">What the browser is about to send, all of it together, so a drive without room says so first.</param>
 public sealed record BeginUpload(string? Destination, long Bytes);
+/// <param name="Destination">The folder in My files the upload goes into, about to be asked what of it is there already.</param>
+/// <param name="Files">Every file about to be sent.</param>
+public sealed record CompareUpload(string? Destination, IReadOnlyList<UploadFile>? Files);
 /// <param name="Destination">The folder in My files the upload goes into, checked again now it's arrived.</param>
-public sealed record FinishUpload(string? Destination);
+/// <param name="Merge">Bring it into what's already there, as a folder added again, rather than beside it.</param>
+public sealed record FinishUpload(string? Destination, bool Merge = false);
 /// <param name="Ids">Things in the bin, by the ids it lists them with.</param>
 public sealed record BinItems(IReadOnlyList<string>? Ids);
 public sealed record ReachFromAnywhere(bool Enabled);

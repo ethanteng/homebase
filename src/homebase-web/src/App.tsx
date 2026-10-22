@@ -479,6 +479,7 @@ export default function App() {
                       onStop={uploads.stop}
                       onDismiss={uploads.dismiss}
                       onOpen={navigate}
+                      onDecide={uploads.decide}
                     />
                   )}
                   {imports.job && (

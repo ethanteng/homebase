@@ -66,6 +66,28 @@ public sealed class UploadTests : IDisposable
             .Select(item => (item.GetProperty("from").GetString()!, item.GetProperty("to").GetString()!)).ToArray();
     }
 
+    /// <summary>The file about to be sent, as the browser describes it: where it sits, how big, and when last changed.</summary>
+    private static object Described(string path, string content, DateTimeOffset modified) =>
+        new { path, bytes = Encoding.UTF8.GetByteCount(content), modified = modified.ToUnixTimeMilliseconds() };
+
+    private static async Task<(string[] Same, string[] Changed, string[] Newer, string[] Folders)> CompareAsync(
+        HttpClient client, string destination, params object[] files)
+    {
+        var response = await client.PostAsJsonAsync("/api/uploads/compare", new { destination, files });
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        string[] Paths(string name) => body.GetProperty(name).EnumerateArray().Select(path => path.GetString()!).ToArray();
+        return (Paths("same"), Paths("changed"), Paths("newer"), Paths("folders"));
+    }
+
+    private static async Task WriteAsync(string root, string path, string content, DateTimeOffset modified)
+    {
+        var fullPath = Path.Combine(root, path);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        await File.WriteAllTextAsync(fullPath, content);
+        File.SetLastWriteTimeUtc(fullPath, modified.UtcDateTime);
+    }
+
     private static string Uploads(string root) => Path.Combine(root, ".homebase", "uploads");
 
     [Fact]
@@ -104,6 +126,133 @@ public sealed class UploadTests : IDisposable
         Assert.Equal([("Photos", "Archive/Photos 2")], await FinishAsync(member, again, "Archive"));
         Assert.Equal("beach", await File.ReadAllTextAsync(Path.Combine(root, "Archive", "Photos", "beach.jpg")));
         Assert.Equal("beach again", await File.ReadAllTextAsync(Path.Combine(root, "Archive", "Photos 2", "beach.jpg")));
+    }
+
+    [Fact]
+    public async Task Adding_a_folder_again_finds_what_of_it_is_already_there_and_unchanged()
+    {
+        var (app, admin, adminRoot, member, root) = await StartAsync();
+        using var _ = app;
+        using var __ = admin;
+        using var ___ = member;
+        var then = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero);
+        var later = then.AddDays(3);
+        await WriteAsync(root, "Archive/Photos/beach.jpg", "beach", then);
+        await WriteAsync(root, "Archive/Photos/Trips/day.jpg", "day", then);
+        await WriteAsync(root, "Archive/Photos/edited.jpg", "old", then);
+        await WriteAsync(root, "Archive/Photos/touched.jpg", "abc", then);
+        await WriteAsync(root, "Archive/Photos/kept here.jpg", "kept", later);
+        await WriteAsync(root, "Archive/Photos/undated.jpg", "abc", then);
+        var outside = Directory.CreateDirectory(Path.Combine(_temporary, "Outside")).FullName;
+        await WriteAsync(outside, "secret.txt", "secret", then);
+        Directory.CreateSymbolicLink(Path.Combine(root, "Archive", "Linked"), outside);
+        // Another account's identical folder is nothing to do with this one.
+        await WriteAsync(adminRoot, "Archive/Photos/new.jpg", "new", then);
+
+        var (same, changed, newer, folders) = await CompareAsync(member, "Archive",
+            Described("Photos/beach.jpg", "beach", then),
+            // A drive formatted for Windows keeps times to two seconds, so a second out is the same time.
+            Described("Photos/Trips/day.jpg", "day", then.AddSeconds(1)),
+            Described("Photos/edited.jpg", "new and longer", later),
+            Described("Photos/touched.jpg", "abc", later),
+            // Changed here since this copy was: sending it would undo that.
+            Described("Photos/kept here.jpg", "kept", then),
+            // The same size, but with no time there's no telling it's the same.
+            new { path = "Photos/undated.jpg", bytes = 3 },
+            Described("Photos/new.jpg", "new", then),
+            Described("Photos/.DS_Store", "finder", then),
+            Described("Linked/secret.txt", "secret", then),
+            Described("../escaped.txt", "x", then),
+            Described("Elsewhere/note.txt", "note", then));
+
+        Assert.Equal(["Photos/beach.jpg", "Photos/Trips/day.jpg"], same);
+        Assert.Equal(["Photos/edited.jpg", "Photos/touched.jpg", "Photos/undated.jpg"], changed);
+        Assert.Equal(["Photos/kept here.jpg"], newer);
+        // A link is somewhere else, so it's never a folder to add to.
+        Assert.Equal(["Photos"], folders);
+
+        // Asking changes nothing, and asking about somewhere that isn't there says so.
+        Assert.False(File.Exists(Path.Combine(root, "Archive", "Photos", "new.jpg")));
+        Assert.False(Directory.Exists(Uploads(root)) && Directory.EnumerateFileSystemEntries(Uploads(root)).Any());
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await member.PostAsJsonAsync("/api/uploads/compare", new { destination = "Nowhere", files = Array.Empty<object>() })).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_folder_added_again_brings_in_only_what_was_sent_and_puts_what_it_replaces_in_the_bin()
+    {
+        var (app, admin, _, member, root) = await StartAsync();
+        using var __ = app;
+        using var ___ = admin;
+        using var ____ = member;
+        var then = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero);
+        await WriteAsync(root, "Archive/Notes.txt", "old notes", then);
+        await WriteAsync(root, "Archive/Photos/beach.jpg", "beach", then);
+        await WriteAsync(root, "Archive/Photos/edited.jpg", "old", then);
+        await WriteAsync(root, "Archive/Photos/only here.jpg", "only here", then);
+        await WriteAsync(root, "Archive/Photos/Trips/day.jpg", "day", then);
+        await WriteAsync(root, "Archive/Photos/clash", "a file, not a folder", then);
+        var outside = Directory.CreateDirectory(Path.Combine(_temporary, "Outside")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(root, "Archive", "Linked"), outside);
+
+        var id = await BeginAsync(member, "Archive");
+        // Older than what was there when the upload was compared, which was older still. Changed
+        // there since, on a laptop say, the one there is now the newer of the two.
+        (await SendAsync(member, id, "Photos/changed since.jpg", "this device's", then.AddDays(1).ToUnixTimeMilliseconds()))
+            .EnsureSuccessStatusCode();
+        await WriteAsync(root, "Archive/Photos/changed since.jpg", "changed in Uncloud meanwhile", then.AddDays(2));
+        foreach (var (path, content) in new[]
+                 {
+                     ("Notes.txt", "new notes"),
+                     ("Photos/edited.jpg", "edited"),
+                     ("Photos/Trips/night.jpg", "night"),
+                     ("Photos/New/one.jpg", "one"),
+                     ("Photos/clash/inside.jpg", "inside"),
+                     ("Linked/planted.txt", "planted")
+                 })
+            (await SendAsync(member, id, path, content)).EnsureSuccessStatusCode();
+        var response = await member.PostAsJsonAsync($"/api/uploads/{id}/finish", new { destination = "Archive", merge = true });
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        // Folders already there are added to rather than arriving beside them, and a file already
+        // there is replaced. Only the other kind of thing, or a link, still makes it keep both.
+        Assert.Equal(
+            [
+                ("Linked", "Archive/Linked 2"),
+                ("Notes.txt", "Archive/Notes.txt"),
+                ("Photos", "Archive/Photos"),
+                ("Photos/changed since.jpg", "Archive/Photos/changed since 2.jpg"),
+                ("Photos/clash", "Archive/Photos/clash 2")
+            ],
+            body.GetProperty("items").EnumerateArray()
+                .Select(item => (item.GetProperty("from").GetString()!, item.GetProperty("to").GetString()!)));
+        Assert.Equal(2, body.GetProperty("replaced").GetInt32());
+        string Read(string path) => File.ReadAllText(Path.Combine(root, "Archive", path));
+        Assert.Equal("new notes", Read("Notes.txt"));
+        Assert.Equal("edited", Read("Photos/edited.jpg"));
+        Assert.Equal("night", Read("Photos/Trips/night.jpg"));
+        Assert.Equal("one", Read("Photos/New/one.jpg"));
+        Assert.Equal("inside", Read("Photos/clash 2/inside.jpg"));
+        Assert.Equal("planted", Read("Linked 2/planted.txt"));
+        // What wasn't sent is left exactly as it was, even what's no longer where the upload came from.
+        Assert.Equal("beach", Read("Photos/beach.jpg"));
+        Assert.Equal("day", Read("Photos/Trips/day.jpg"));
+        Assert.Equal("only here", Read("Photos/only here.jpg"));
+        Assert.Equal("a file, not a folder", Read("Photos/clash"));
+        // A file changed there since the upload was compared is kept, and what arrived goes beside it.
+        Assert.Equal("changed in Uncloud meanwhile", Read("Photos/changed since.jpg"));
+        Assert.Equal("this device's", Read("Photos/changed since 2.jpg"));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(outside));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Uploads(root)));
+
+        // What was replaced is in the bin, and comes back beside what replaced it.
+        var bin = (await member.GetFromJsonAsync<BinListing>("/api/bin"))!;
+        Assert.Equal(["Archive/Notes.txt", "Archive/Photos/edited.jpg"], bin.Entries.Select(entry => entry.Path).Order());
+        var edited = bin.Entries.Single(entry => entry.Name == "edited.jpg");
+        (await member.PostAsJsonAsync("/api/bin/restore", new { ids = new[] { edited.Id } })).EnsureSuccessStatusCode();
+        Assert.Equal("old", Read("Photos/edited 2.jpg"));
+        Assert.Equal("edited", Read("Photos/edited.jpg"));
     }
 
     [Fact]
@@ -341,7 +490,7 @@ public sealed class UploadTests : IDisposable
 
         // Within the room left, either way is fine.
         Assert.Equal(800, await library.ReceiveAsync(id, "fits.bin", new MemoryStream(new byte[800]), null, null, CancellationToken.None));
-        Assert.Equal([new EditedEntry("fits.bin", "fits.bin")], await library.FinishUploadAsync(id, "", CancellationToken.None));
+        Assert.Equal([new EditedEntry("fits.bin", "fits.bin")], (await library.FinishUploadAsync(id, "", merge: false, CancellationToken.None)).Items);
         Assert.Equal(800, new FileInfo(Path.Combine(root, "fits.bin")).Length);
     }
 
@@ -520,7 +669,7 @@ public sealed class UploadTests : IDisposable
         Assert.Equal(3 * 1024 * 1024, await library.ReceiveAsync(id, "film.mov", slow, null, null, CancellationToken.None));
 
         Assert.True(another);
-        Assert.Equal([new EditedEntry("film.mov", "film.mov")], await library.FinishUploadAsync(id, "", CancellationToken.None));
+        Assert.Equal([new EditedEntry("film.mov", "film.mov")], (await library.FinishUploadAsync(id, "", merge: false, CancellationToken.None)).Items);
     }
 
     [Fact]
@@ -535,7 +684,7 @@ public sealed class UploadTests : IDisposable
         var halfway = new Trickle(2 * 1024 * 1024, async sent =>
         {
             if (finished is null && sent >= 1024 * 1024)
-                finished = await library.FinishUploadAsync(id, "", CancellationToken.None);
+                finished = (await library.FinishUploadAsync(id, "", merge: false, CancellationToken.None)).Items;
         });
 
         await Assert.ThrowsAnyAsync<Exception>(() => library.ReceiveAsync(id, "a.bin", halfway, null, null, CancellationToken.None));

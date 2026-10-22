@@ -230,6 +230,29 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
     }
 
     /// <summary>
+    /// Makes an empty folder in <paramref name="parent"/>. As with a rename, the name is the whole
+    /// point, so one already taken there is refused rather than changed.
+    /// </summary>
+    /// <returns>Where the new folder is, relative to the root.</returns>
+    public async Task<string> CreateFolderAsync(string? parent, string? name, CancellationToken cancellationToken)
+    {
+        await _edits.WaitAsync(cancellationToken);
+        try
+        {
+            var folder = Folder(parent);
+            var newName = NewName(name);
+            AwayFromImport([], folder, "added");
+            var to = Path.Combine(folder, newName);
+            // Making a folder that is already there succeeds without a word, so it is asked first.
+            if (Taken(to))
+                throw new LibraryException($"There’s already something called “{newName}” here. Choose another name.", "conflict");
+            Directory.CreateDirectory(to);
+            return Join(folder, newName);
+        }
+        finally { _edits.Release(); }
+    }
+
+    /// <summary>
     /// Deletes files, and folders with everything in them, into the bin: gone from My files at
     /// once, and for good after <see cref="KeepDeletedFor"/> unless put back first.
     /// </summary>
@@ -415,6 +438,13 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
     // A dangling link isn't there as far as File.Exists is concerned, but its name is still taken.
     private static bool Taken(string path) =>
         File.Exists(path) || Directory.Exists(path) || new FileInfo(path).LinkTarget is not null;
+
+    /// <summary>Whether what is at <paramref name="path"/> is a link to somewhere else rather than a file or folder of its own.</summary>
+    private static bool IsLink(string path)
+    {
+        var entry = new FileInfo(path);
+        return entry.LinkTarget is not null || (Path.Exists(path) && entry.Attributes.HasFlag(FileAttributes.ReparsePoint));
+    }
 
     private static readonly EnumerationOptions Children = new() { IgnoreInaccessible = false, AttributesToSkip = 0 };
 

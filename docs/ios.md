@@ -359,7 +359,10 @@ nothing is browsed, copied or synced.
 
 **Uploading** fits what's there. `/api/uploads` is begin, then a `PUT` per file, then finish, and it
 is already open to every account: it checks there is room before anything is sent, nothing appears
-until the end, and sending a file again under the same name replaces the earlier attempt. From the
+until the end, and sending a file again under the same name replaces the earlier attempt. Before
+beginning, `/api/uploads/compare` says which files are already in the destination with the same
+size and modified time, and finishing with `merge` adds to folders already there rather than beside
+them. From the
 phone that means a Photos picker, a document picker, and a share extension. Uploads carry on in the
 background only through a background `URLSession`, which uploads from a file, so photos are written
 out to files first. All of that goes behind `Transfers`.
