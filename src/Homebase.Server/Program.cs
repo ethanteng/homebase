@@ -463,6 +463,8 @@ app.Use(async (context, next) =>
                 "unauthenticated" or "invalid_credentials" => 401,
                 "forbidden" => 403,
                 "too_many_attempts" => 429,
+                // A request that stopped arriving partway, which can be sent again.
+                "timeout" => 408,
                 "host_key" => 500,
                 "not_configured" or "unavailable" or "busy" or "conflict"
                     or "provider_unconfigured" or "provider_disconnected" or "provider_auth" or "provider_failed"
@@ -708,12 +710,16 @@ app.MapPost("/api/files/delete", async (EditFiles request, CurrentUser user, Use
 
 // Files sent from the browser, from whichever computer or phone somebody is using, into their own
 // folder — which, like every other edit's, comes from the session and never from the request. An
-// upload is gathered out of sight a file at a time and put in place whole when it finishes.
+// upload is gathered out of sight a file at a time and put in place whole when it finishes. One
+// of the same files that never finished is picked up instead, and says which of them it has.
 app.MapPost("/api/uploads", async (BeginUpload request, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
-    Results.Ok(new
-    {
-        id = await workspaces.For(user.Account).Library.BeginUploadAsync(request.Destination, request.Bytes, cancellationToken)
-    }));
+    Results.Ok(await workspaces.For(user.Account).Library.BeginUploadAsync(
+        request.Destination, request.Bytes, request.Merge, request.Files, cancellationToken)));
+
+// Uploads that were begun and never finished — a page closed partway — for the next page to offer
+// to pick up, put in place as they are, or throw away.
+app.MapGet("/api/uploads", (CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+    Results.Ok(workspaces.For(user.Account).Library.UnfinishedUploads(cancellationToken)));
 
 // Which of the files about to be sent are already where they're going, so that a folder added again
 // need only send what is new or changed in it. Asked before the upload begins, and only ever read.
@@ -1547,7 +1553,9 @@ public sealed record RenameFile(string? Path, string? Name);
 public sealed record NewFolder(string? Path, string? Name);
 /// <param name="Destination">The folder in My files the upload goes into. Empty is the top of My files.</param>
 /// <param name="Bytes">What the browser is about to send, all of it together, so a drive without room says so first.</param>
-public sealed record BeginUpload(string? Destination, long Bytes);
+/// <param name="Merge">Whether it's to bring what's there up to date when it's finished.</param>
+/// <param name="Files">What's about to be sent, so that an upload of the same files that never finished can be picked up.</param>
+public sealed record BeginUpload(string? Destination, long Bytes, bool Merge = false, IReadOnlyList<UploadFile>? Files = null);
 /// <param name="Destination">The folder in My files the upload goes into, about to be asked what of it is there already.</param>
 /// <param name="Files">Every file about to be sent.</param>
 public sealed record CompareUpload(string? Destination, IReadOnlyList<UploadFile>? Files);

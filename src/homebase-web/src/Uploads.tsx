@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { api, formatSize, nameTogether, SignedOutError } from "./api";
-import type { EditedEntry, UploadComparison } from "./api";
+import type { EditedEntry, UnfinishedUpload, UploadComparison } from "./api";
 
 /** One file chosen on this device, and where it sits in what was chosen: its name, or its place in a folder. */
 export interface Picked {
@@ -125,12 +125,27 @@ export interface Upload {
   replaced: number;
   /** Files left out because they were there already, the same or changed there since. */
   unchanged: number;
+  /** Files that had arrived on an earlier try that never finished, so weren't sent again. */
+  resumed: number;
 }
 
 /** Several files at once, so a folder of small ones doesn't wait on a request per file. */
 const AT_ONCE = 3;
 /** A file whose request fails partway is tried this many times before the connection is blamed. */
 const ATTEMPTS = 3;
+/**
+ * How long a file can go with none of it moving before it's given up on and tried again. A
+ * connection can stop carrying anything without either end hearing that it has gone, and the
+ * request would otherwise wait for an answer for ever — and the whole upload with it.
+ */
+export const STALLED_AFTER = 60_000;
+/**
+ * How soon, and how many times, an unfinished upload still arriving is asked about again: long enough
+ * for this page's own last files from before a refresh to be noticed gone, even one that had gone
+ * quiet, which Uncloud gives up on after 45 seconds. Past that it's another page's, still sending.
+ */
+const RECHECK = 15_000;
+const RECHECKS = 4;
 
 class Refused extends Error {
   constructor(
@@ -163,8 +178,22 @@ function send(
     );
     request.setRequestHeader("X-Homebase-Request", "1");
     request.setRequestHeader("Content-Type", "application/octet-stream");
-    request.upload.onprogress = (event) => onProgress(event.loaded);
+    // Each piece of it sent puts off giving up; once it's all sent, the answer has as long to come.
+    let watch = 0;
+    let stalled = false;
+    const wait = () => {
+      window.clearTimeout(watch);
+      watch = window.setTimeout(() => {
+        stalled = true;
+        request.abort();
+      }, STALLED_AFTER);
+    };
+    request.upload.onprogress = (event) => {
+      wait();
+      onProgress(event.loaded);
+    };
     request.onload = () => {
+      window.clearTimeout(watch);
       requests.delete(request);
       if (request.status >= 200 && request.status < 300) return resolve();
       let detail: string | undefined;
@@ -176,16 +205,23 @@ function send(
       reject(new Refused(detail ?? `Uncloud couldn’t take this file (${request.status}).`, request.status));
     };
     request.onerror = () => {
+      window.clearTimeout(watch);
       requests.delete(request);
       reject(new Refused("", 0));
     };
     request.onabort = () => {
+      window.clearTimeout(watch);
       requests.delete(request);
-      reject(new Refused("", -1));
+      // Given up on for going quiet, it's tried again like any connection that dropped.
+      reject(new Refused("", stalled ? 0 : -1));
     };
     request.send(item.file);
+    wait();
   });
 }
+
+/** A file about to be sent, as Uncloud is told of it beforehand. */
+const described = (item: Picked) => ({ path: item.path, bytes: item.file.size, modified: item.file.lastModified });
 
 /** Whether this device can still read a file, which is the other reason a request can fail without an answer. */
 async function readable(file: File): Promise<boolean> {
@@ -243,7 +279,8 @@ const signedOut = "You were signed out, so nothing was added. Sign in, then add 
  * an import, this page is what sends them, so they last only as long as the page does — and it says
  * so. More can be added at any time: each waits its turn and goes once those ahead of it are in, one
  * at a time, so each is checked against what's there by then and none competes with another for the
- * room left.
+ * room left. What arrived before the page went away is kept on the host for a while: the next page
+ * says so, and adding the same files again sends only the rest.
  */
 export function useUpload(active: boolean, onUploaded: () => void) {
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -252,6 +289,42 @@ export function useUpload(active: boolean, onUploaded: () => void) {
   const working = useRef(false);
   const added = useRef(0);
   const running = uploads.some(isPending);
+  // Begun by a page that went away before they were in — this one, before it was refreshed, say.
+  const [unfinished, setUnfinished] = useState<UnfinishedUpload[]>([]);
+  // The ones this page began, which are never offered back to it as somebody else's.
+  const ours = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!active) {
+      setUnfinished([]);
+      return;
+    }
+    let gone = false;
+    let again = 0;
+    let looked = 0;
+    const look = async () => {
+      looked++;
+      let list: UnfinishedUpload[];
+      try {
+        list = await api<UnfinishedUpload[]>("/uploads");
+      } catch {
+        // Nothing to offer, then: the page is as it always was.
+        return;
+      }
+      if (gone) return;
+      const theirs = list.filter((upload) => !ours.current.has(upload.id));
+      setUnfinished(theirs.filter((upload) => !upload.arriving));
+      // Still arriving: another page's, or this one's from just before it was refreshed, its last
+      // files not yet noticed gone. Asked about again, so it's offered once it has stopped.
+      if (looked <= RECHECKS && theirs.some((upload) => upload.arriving))
+        again = window.setTimeout(() => void look(), RECHECK);
+    };
+    void look();
+    return () => {
+      gone = true;
+      window.clearTimeout(again);
+    };
+  }, [active]);
 
   const update = useCallback(
     (key: string, change: Partial<Upload>) =>
@@ -290,12 +363,17 @@ export function useUpload(active: boolean, onUploaded: () => void) {
       update(key, { stage: "sending" });
       const bytes = items.reduce((sum, item) => sum + item.file.size, 0);
       let id: string;
+      let already: Set<string>;
       try {
-        // Asked first, so a drive without room — or a folder that's gone — says so before anything is sent.
-        ({ id } = await api<{ id: string }>("/uploads", {
+        // Asked first, so a drive without room — or a folder that's gone — says so before anything
+        // is sent. Named, so that if the same files were being added before and didn't all arrive,
+        // Uncloud picks that up instead and says which are there already.
+        const begun = await api<{ id: string; arrived?: string[] }>("/uploads", {
           method: "POST",
-          body: JSON.stringify({ destination: folder, bytes }),
-        }));
+          body: JSON.stringify({ destination: folder, bytes, merge, files: items.map(described) }),
+        });
+        id = begun.id;
+        already = new Set(begun.arrived ?? []);
       } catch (problem: unknown) {
         update(key, {
           stage: "failed",
@@ -308,6 +386,9 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         });
         return;
       }
+      ours.current.add(id);
+      // Picked up again, it's this page's now rather than one to offer.
+      setUnfinished((list) => list.filter((upload) => upload.id !== id));
       // Stopped, or signed out, while Uncloud was being asked: nobody wants them sent.
       if (job.stopped) {
         await discard(id);
@@ -315,12 +396,18 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         return;
       }
 
+      // What arrived on an earlier try is done from the start, and isn't sent again.
+      const rest = items.filter((item) => !already.has(item.path));
+      const resumed = items.length - rest.length;
       let next = 0;
-      let doneFiles = 0;
-      let doneBytes = 0;
-      let arrived = 0;
-      let arrivedBytes = 0;
+      let doneFiles = resumed;
+      let doneBytes = bytes - rest.reduce((sum, item) => sum + item.file.size, 0);
+      let arrived = resumed;
+      let arrivedBytes = doneBytes;
       let fatal: string | null = null;
+      // The connection gave out, rather than Uncloud refusing something.
+      let unanswered = false;
+      if (resumed > 0) update(key, { resumed, doneFiles, sentBytes: doneBytes, arrivedBytes });
       const skipped: Upload["skipped"] = [];
       // What was last shown, so a tick with nothing new doesn't redraw the page under it.
       let shown = "";
@@ -336,8 +423,8 @@ export function useUpload(active: boolean, onUploaded: () => void) {
       const timer = window.setInterval(progress, 250);
 
       const worker = async () => {
-        while (!job.stopped && fatal === null && next < items.length) {
-          const item = items[next++];
+        while (!job.stopped && fatal === null && next < rest.length) {
+          const item = rest[next++];
           for (let attempt = 1; ; attempt++) {
             // Somebody pressed Stop, or another file found the upload can't go on, while this one waited.
             if (job.stopped || fatal !== null) return;
@@ -355,7 +442,8 @@ export function useUpload(active: boolean, onUploaded: () => void) {
                 skipped.push({ path: item.path, reason: refused.message });
                 break;
               }
-              if (refused.status === 0 || refused.status >= 500) {
+              // No answer, or Uncloud saying the file stopped arriving: the connection, not the file.
+              if (refused.status === 0 || refused.status === 408 || refused.status >= 500) {
                 if (!(await readable(item.file))) {
                   skipped.push({
                     path: item.path,
@@ -368,11 +456,14 @@ export function useUpload(active: boolean, onUploaded: () => void) {
                   continue;
                 }
                 fatal = "Uncloud stopped answering, so nothing was added. Check you’re still connected, then try again.";
-              } else
+                unanswered = true;
+              } else {
                 fatal =
                   refused.status === 401
                     ? signedOut
                     : refused.message || "The upload was interrupted, so nothing was added.";
+                unanswered = false;
+              }
               job.requests.forEach((request) => request.abort());
               return;
             }
@@ -382,13 +473,23 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           doneBytes += item.file.size;
         }
       };
-      await Promise.all(Array.from({ length: Math.min(AT_ONCE, items.length) }, worker));
+      await Promise.all(Array.from({ length: Math.min(AT_ONCE, rest.length) }, worker));
       window.clearInterval(timer);
       progress();
 
       if (job.stopped) {
         await discard(id);
         update(key, { stage: "stopped" });
+        return;
+      }
+      // Lost to the connection, what arrived is kept, so adding them again needn't send it all again.
+      if (unanswered && arrived > 0) {
+        update(key, {
+          stage: "failed",
+          error:
+            "Uncloud stopped answering, so not all of it was added. What arrived is kept for a day: check " +
+            "you’re still connected, then add the same files again and only the rest is sent.",
+        });
         return;
       }
       if (fatal !== null || arrived === 0) {
@@ -459,14 +560,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           there = await api<UploadComparison>("/uploads/compare", {
             method: "POST",
             signal: job.cancel.signal,
-            body: JSON.stringify({
-              destination: job.folder,
-              files: (job.plan?.items ?? job.items).map((item) => ({
-                path: item.path,
-                bytes: item.file.size,
-                modified: item.file.lastModified,
-              })),
-            }),
+            body: JSON.stringify({ destination: job.folder, files: (job.plan?.items ?? job.items).map(described) }),
           });
         } catch (problem: unknown) {
           jobs.current.delete(job.key);
@@ -596,6 +690,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           review: null,
           replaced: 0,
           unchanged: 0,
+          resumed: 0,
         },
       ]);
       void pump();
@@ -650,7 +745,26 @@ export function useUpload(active: boolean, onUploaded: () => void) {
     setUploads((list) => list.filter((upload) => upload.key !== key));
   }, []);
 
-  return { uploads, running, start, decide, stop, dismiss };
+  /** Puts what arrived of an unfinished upload where it was going, as it is, without the rest. */
+  const place = useCallback(
+    async (upload: UnfinishedUpload) => {
+      await api(`/uploads/${encodeURIComponent(upload.id)}/finish`, {
+        method: "POST",
+        body: JSON.stringify({ destination: upload.destination, merge: upload.merge }),
+      });
+      setUnfinished((list) => list.filter((other) => other.id !== upload.id));
+      onUploaded();
+    },
+    [onUploaded],
+  );
+
+  /** Throws away what arrived of an unfinished upload, giving its room back. */
+  const throwAway = useCallback(async (id: string) => {
+    await api(`/uploads/${encodeURIComponent(id)}`, { method: "DELETE" });
+    setUnfinished((list) => list.filter((other) => other.id !== id));
+  }, []);
+
+  return { uploads, running, start, decide, stop, dismiss, unfinished, place, throwAway };
 }
 
 interface Props {
@@ -745,8 +859,9 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
         </div>
         <span className="muted">
           {upload.doneFiles} of {upload.files} file{upload.files === 1 ? "" : "s"} ·{" "}
-          {formatSize(upload.sentBytes)} of {formatSize(upload.bytes)} · Keep this page open until
-          they’re in.
+          {formatSize(upload.sentBytes)} of {formatSize(upload.bytes)} ·{" "}
+          {upload.resumed > 0 && `${upload.resumed} had arrived on an earlier try. `}Keep this page open
+          until they’re in.
         </span>
       </section>
     );
@@ -774,6 +889,9 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
               : "") +
           (upload.unchanged > 0
             ? ` ${upload.unchanged} ${upload.unchanged === 1 ? "was" : "were"} already there, so ${upload.unchanged === 1 ? "it wasn’t" : "they weren’t"} sent again.`
+            : "") +
+          (upload.resumed > 0
+            ? ` ${upload.resumed} had arrived on an earlier try, so ${upload.resumed === 1 ? "it wasn’t" : "they weren’t"} sent again.`
             : "") +
           (renamed.length === 1
             ? ` There was already something called “${baseName(renamed[0].from)}” there, so this one is “${baseName(renamed[0].to)}”.`
@@ -844,6 +962,70 @@ interface DecisionProps {
 }
 
 const files = (count: number) => `${count} ${count === 1 ? "file" : "files"}`;
+
+const until = new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+
+interface UnfinishedProps {
+  upload: UnfinishedUpload;
+  onPlace: () => Promise<void>;
+  onThrowAway: () => Promise<void>;
+}
+
+/**
+ * Files a page was sending that never all arrived, because it was closed or refreshed partway or
+ * its connection gave out. What did arrive is kept on the host for a day, so adding the same files
+ * again sends only the rest. It can also be put in place as it is, or thrown away to give its room back.
+ */
+export function UnfinishedStatus({ upload, onPlace, onThrowAway }: UnfinishedProps) {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const label = nameTogether(upload.names);
+  const run = (action: () => Promise<void>) => {
+    setBusy(true);
+    setProblem(null);
+    action().catch((error: unknown) => {
+      setBusy(false);
+      setProblem(error instanceof Error ? error.message : `Couldn’t do that with ${label}. Try again.`);
+    });
+  };
+
+  return (
+    <section className="import-progress import-outcome import-decision" role="status">
+      <div className="import-progress-head">
+        <strong>
+          <TriangleAlert size={16} />
+          Adding {label} didn’t finish.
+        </strong>
+      </div>
+      <span className="muted">
+        {files(upload.files)}, {formatSize(upload.bytes)}, arrived
+        {upload.destination !== null && ` for ${called(upload.destination)}`} before it stopped. Add the same
+        files again and only the rest is sent. Uncloud keeps what arrived until {until.format(new Date(upload.keptUntil))}.
+      </span>
+      {problem && (
+        <p className="error-message" role="alert">
+          {problem}
+        </p>
+      )}
+      <div className="card-actions">
+        {/* Begun before Uncloud kept where an upload was going, it can only be picked up by adding it again. */}
+        {upload.destination !== null && (
+          <button
+            className="button secondary"
+            onClick={() => run(onPlace)}
+            disabled={busy}
+            title={`Put what arrived in ${called(upload.destination)} now, without the rest`}
+          >
+            Add what arrived
+          </button>
+        )}
+        <button className="button secondary" onClick={() => run(onThrowAway)} disabled={busy}>
+          Throw away
+        </button>
+      </div>
+    </section>
+  );
+}
 
 /**
  * Some of what was chosen is in the folder already — a folder added again, usually, with something
