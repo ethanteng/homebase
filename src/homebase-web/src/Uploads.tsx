@@ -127,12 +127,22 @@ export interface Upload {
   unchanged: number;
   /** Files that had arrived on an earlier try that never finished, so weren't sent again. */
   resumed: number;
+  /** Why it's waiting to carry on, while it is: this device is offline, or Uncloud isn't answering. */
+  lost: "offline" | "unanswered" | null;
 }
 
 /** Several files at once, so a folder of small ones doesn't wait on a request per file. */
 const AT_ONCE = 3;
-/** A file whose request fails partway is tried this many times before the connection is blamed. */
-const ATTEMPTS = 3;
+/**
+ * How long a file Uncloud isn't answering for keeps being tried, counted in the waits between tries,
+ * before the connection is given up on. Only time awake and online counts: a computer asleep, its
+ * lid closed, isn't trying, and one offline waits to be back before it tries again.
+ */
+export const GIVE_UP_AFTER = 10 * 60_000;
+/** The wait before trying a file again: soon at first, for a blip, then every half a minute. */
+const backOff = (attempt: number) => Math.min(1000 * 2 ** (attempt - 1), 30_000);
+/** How often a file on its way is looked at, to notice it has stopped moving. */
+const LOOK_EVERY = 1000;
 /**
  * How long a file can go with none of it moving before it's given up on and tried again. A
  * connection can stop carrying anything without either end hearing that it has gone, and the
@@ -180,22 +190,22 @@ function send(
     request.setRequestHeader("X-Homebase-Request", "1");
     request.setRequestHeader("Content-Type", "application/octet-stream");
     // Each piece of it sent puts off giving up. Once the last piece has gone, the answer gets the
-    // same long: a connection can go quiet after the body has left, too.
-    let watch = 0;
+    // same long: a connection can go quiet after the body has left, too. Measured by the clock, not
+    // a timer, which stops while the computer sleeps: one woken — its lid opened — sends it again at
+    // once, since its connections went to sleep with it and can take as long again to admit it.
+    let moved = Date.now();
     let stalled = false;
-    const wait = () => {
-      window.clearTimeout(watch);
-      watch = window.setTimeout(() => {
-        stalled = true;
-        request.abort();
-      }, STALLED_AFTER);
-    };
+    const watch = window.setInterval(() => {
+      if (Date.now() - moved < STALLED_AFTER) return;
+      stalled = true;
+      request.abort();
+    }, LOOK_EVERY);
     request.upload.onprogress = (event) => {
-      wait();
+      moved = Date.now();
       onProgress(event.loaded);
     };
     request.onload = () => {
-      window.clearTimeout(watch);
+      window.clearInterval(watch);
       requests.delete(request);
       if (request.status >= 200 && request.status < 300) return resolve();
       let detail: string | undefined;
@@ -207,18 +217,17 @@ function send(
       reject(new Refused(detail ?? `Uncloud couldn’t take this file (${request.status}).`, request.status));
     };
     request.onerror = () => {
-      window.clearTimeout(watch);
+      window.clearInterval(watch);
       requests.delete(request);
       reject(new Refused("", 0));
     };
     request.onabort = () => {
-      window.clearTimeout(watch);
+      window.clearInterval(watch);
       requests.delete(request);
       // Given up on for going quiet, it's tried again like any connection that dropped.
       reject(new Refused("", stalled ? 0 : -1));
     };
     request.send(item.file);
-    wait();
   });
 }
 
@@ -235,7 +244,32 @@ async function readable(file: File): Promise<boolean> {
   }
 }
 
-const pause = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+/** Waits a while, or until the upload is over. */
+const pause = (ms: number, quit: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      window.clearTimeout(timer);
+      quit.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = window.setTimeout(done, ms);
+    quit.addEventListener("abort", done);
+  });
+
+/** Waits for this device to be back online, or for the upload to be over. */
+const online = (quit: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      window.removeEventListener("online", done);
+      quit.removeEventListener("abort", done);
+      resolve();
+    };
+    window.addEventListener("online", done);
+    quit.addEventListener("abort", done);
+  });
+
+/** Whether this device says it's offline: between networks, or just woken and not yet reconnected. */
+const offline = () => navigator.onLine === false;
 
 async function discard(id: string) {
   try {
@@ -415,22 +449,37 @@ export function useUpload(active: boolean, onUploaded: () => void) {
       let unanswered = false;
       if (resumed > 0) update(key, { resumed, doneFiles, sentBytes: doneBytes, arrivedBytes });
       const skipped: Upload["skipped"] = [];
+      // Files waiting to be tried again, and whether any is waiting for this device to be back online.
+      let waiting = 0;
+      let waitingOnline = 0;
+      // Ends any wait for the connection: Stop, signing out, or another file finding it can't go on.
+      const quit = new AbortController();
+      job.cancel.signal.addEventListener("abort", () => quit.abort(), { once: true });
       // What was last shown, so a tick with nothing new doesn't redraw the page under it.
       let shown = "";
       const progress = () => {
         let inFlight = 0;
         for (const loaded of job.loaded.values()) inFlight += loaded;
         const sentBytes = doneBytes + inFlight;
-        const now = `${doneFiles}:${sentBytes}:${skipped.length}`;
+        const lost = waitingOnline > 0 ? "offline" : waiting > 0 ? "unanswered" : null;
+        const now = `${doneFiles}:${sentBytes}:${skipped.length}:${lost}`;
         if (now === shown) return;
         shown = now;
-        update(key, { doneFiles, sentBytes, arrivedBytes, skipped: [...skipped] });
+        update(key, { doneFiles, sentBytes, arrivedBytes, skipped: [...skipped], lost });
       };
       const timer = window.setInterval(progress, 250);
+      const giveUp = (reason: string, connection: boolean) => {
+        fatal = reason;
+        unanswered = connection;
+        job.requests.forEach((request) => request.abort());
+        quit.abort();
+      };
 
       const worker = async () => {
         while (!job.stopped && fatal === null && next < rest.length) {
           const item = rest[next++];
+          // How long this file has waited to be tried again while Uncloud wasn't answering.
+          let waited = 0;
           for (let attempt = 1; ; attempt++) {
             // Somebody pressed Stop, or another file found the upload can't go on, while this one waited.
             if (job.stopped || fatal !== null) return;
@@ -457,20 +506,32 @@ export function useUpload(active: boolean, onUploaded: () => void) {
                   });
                   break;
                 }
-                if (attempt < ATTEMPTS) {
-                  await pause(attempt * 1000);
+                // Offline — just woken, say, and not yet reconnected — it waits to be back, which
+                // isn't Uncloud failing to answer and doesn't count towards giving up.
+                if (offline()) {
+                  waiting++;
+                  waitingOnline++;
+                  await online(quit.signal);
+                  waiting--;
+                  waitingOnline--;
                   continue;
                 }
-                fatal = "Uncloud stopped answering, so nothing was added. Check you’re still connected, then try again.";
-                unanswered = true;
-              } else {
-                fatal =
+                if (waited < GIVE_UP_AFTER) {
+                  const wait = backOff(attempt);
+                  waited += wait;
+                  waiting++;
+                  await pause(wait, quit.signal);
+                  waiting--;
+                  continue;
+                }
+                giveUp("Uncloud stopped answering, so nothing was added. Check you’re still connected, then try again.", true);
+              } else
+                giveUp(
                   refused.status === 401
                     ? signedOut
-                    : refused.message || "The upload was interrupted, so nothing was added.";
-                unanswered = false;
-              }
-              job.requests.forEach((request) => request.abort());
+                    : refused.message || "The upload was interrupted, so nothing was added.",
+                  false,
+                );
               return;
             }
           }
@@ -722,6 +783,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           replaced: 0,
           unchanged: 0,
           resumed: 0,
+          lost: null,
         },
       ]);
       void pump();
@@ -759,6 +821,8 @@ export function useUpload(active: boolean, onUploaded: () => void) {
     if (!job) return;
     job.stopped = true;
     job.requests.forEach((request) => request.abort());
+    // And any file waiting for the connection to come back stops waiting.
+    job.cancel.abort();
   }, []);
 
   /**
@@ -859,10 +923,12 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
       <section className="import-progress" aria-live="polite">
         <div className="import-progress-head">
           <strong>
-            <LoaderCircle size={16} className="spin" />
+            {upload.lost ? <Clock size={16} /> : <LoaderCircle size={16} className="spin" />}
             {upload.stage === "placing"
               ? `Putting ${upload.label} in place…`
-              : `Adding ${upload.label} from this device`}
+              : upload.lost
+                ? `Waiting to carry on adding ${upload.label}`
+                : `Adding ${upload.label} from this device`}
           </strong>
           {upload.stage === "sending" && (
             <button
@@ -891,8 +957,12 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
         <span className="muted">
           {upload.doneFiles} of {upload.files} file{upload.files === 1 ? "" : "s"} ·{" "}
           {formatSize(upload.sentBytes)} of {formatSize(upload.bytes)} ·{" "}
-          {upload.resumed > 0 && `${upload.resumed} had arrived on an earlier try. `}Keep this page open
-          until they’re in.
+          {upload.resumed > 0 && `${upload.resumed} had arrived on an earlier try. `}
+          {upload.lost === "offline"
+            ? "This device is offline. They carry on by themselves once it’s back."
+            : upload.lost === "unanswered"
+              ? "Uncloud isn’t answering. They carry on by themselves once it does."
+              : "Keep this page open until they’re in. If this computer sleeps, they carry on when it wakes."}
         </span>
       </section>
     );

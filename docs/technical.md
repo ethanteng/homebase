@@ -124,8 +124,15 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   page sends three files at a time with progress, retries one whose connection drops — or that
   Uncloud answers with a 408, or that nothing of has moved for a minute, which the page aborts — skips
   one Uncloud refuses by name, and gives up on the whole upload when the drive runs out of room or the
-  session ends. When the connection is still gone after three tries, it keeps what arrived rather
-  than throwing it away, and an upload picked up from an earlier try is kept whatever ends it — a
+  session ends. "Nothing has moved for a minute" is measured by the clock, which carries on while the
+  computer sleeps, rather than by a timer, which doesn't: so a laptop whose lid was closed partway
+  sends what was on its way again within a second of waking, rather than waiting on connections that
+  went to sleep with it. A file retried starts again from its beginning. While the browser says it's
+  offline, a file waits for the `online` event and isn't counted as Uncloud failing to answer; while
+  it's online, tries come 1, 2, 4, 8 and 16 seconds apart and then every 30, and the progress says
+  which it's waiting for. Only once those waits add up to 10 minutes is the connection given up on,
+  so a page left open carries on by itself, however long the computer slept. Then it keeps what
+  arrived rather than throwing it away, and an upload picked up from an earlier try is kept whatever ends it — a
   refusal while sending, or while putting them in place — except **Stop**, since what that try left
   was never this one's to throw away. A page that opens lists the unfinished uploads not its own: while one is
   still arriving it asks again every 15 seconds for a little over a minute, long enough for its own last

@@ -284,6 +284,11 @@ On **My files**, click **Add files** and choose where they are:
   files and goes once the ones before it are in, and **Remove** takes one away before it starts.
   A file that stops moving for a minute is sent again.
 
+  You don't have to stay with it. If your laptop goes to sleep partway, when you close the lid, say,
+  the upload pauses and carries on by itself when you open it again, as long as the page is still
+  open. So does one that loses its connection, once it's back. A file that was partway when it paused
+  starts again from its beginning.
+
   If the page is closed or refreshed partway, or the connection drops for good, what arrived is kept
   for a day, and **My files** says so the next time you open it. Add the same files again and only
   the rest is sent. **Add what arrived** puts what's there in place as it is, without the rest, and
