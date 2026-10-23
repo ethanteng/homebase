@@ -1095,6 +1095,50 @@ describe("when the connection or the page goes away partway", () => {
     }
   });
 
+  it("says so when the upload was dealt with somewhere else while this page waited", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path === "/uploads" && method === "POST" ? json({ id: "u7", arrived: ["Holiday/sea.jpg"] }) : accept(path, method, body);
+    // Thrown away, or put in place, on another device while this one slept.
+    FakeRequest.respond = (request) => request.finish(404, { detail: "This upload is no longer here. Start it again." });
+    render(<Harness chosen={pickedFrom([file("Holiday/sea.jpg", "sea!"), file("Holiday/day 1/map.pdf", "a map")])} />);
+
+    await click(screen.getByText("Send"));
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("This upload was put in place or thrown away somewhere else, or waited too long");
+    // It isn't kept: it's gone.
+    expect(status).not.toHaveTextContent("kept for a day");
+  });
+
+  it("says it's waiting only once every file on its way is, not while another is still moving", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      answer = accepting();
+      let finishMoving = () => {};
+      FakeRequest.respond = (request) => {
+        if (request.path === "moving.mov") {
+          request.upload.onprogress?.({ loaded: 1 });
+          finishMoving = () => request.finish(200, { bytes: 1 });
+        } else request.onerror?.();
+      };
+      render(<Harness chosen={pickedFrom([file("moving.mov"), file("stuck.mov")])} />);
+
+      await click(screen.getByText("Send"));
+      await passes(3000);
+      expect(screen.getByText(/Adding moving.mov and stuck.mov from this device/)).toBeInTheDocument();
+      expect(screen.queryByText(/Uncloud isn’t answering/)).toBeNull();
+
+      await act(async () => finishMoving());
+      await passes(1000);
+
+      expect(screen.getByText(/Waiting to carry on adding moving.mov and stuck.mov/)).toBeInTheDocument();
+      expect(screen.getByText(/Uncloud isn’t answering/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stops at once when Stop is pressed while it waits for the connection", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
@@ -1234,7 +1278,9 @@ describe("when the connection or the page goes away partway", () => {
     render(<Harness chosen={[]} onUploaded={uploaded} />);
 
     const holiday = (await screen.findByText("Adding Holiday didn’t finish.")).closest("section")!;
-    expect(holiday).toHaveTextContent("201 files, 3.7 GB, arrived for Trips before it stopped.");
+    expect(holiday).toHaveTextContent("201 files, 3.7 GB, arrived for Trips, the last at");
+    // Another device can't tell a page closed from one on a laptop asleep, so it says so.
+    expect(holiday).toHaveTextContent("If the page sending them is still open, on a computer that’s asleep, say");
     const old = screen.getByText("Adding Old photos didn’t finish.").closest("section")!;
     // Where that one was going was never kept, so it can only be picked up, or thrown away.
     expect(within(old).queryByRole("button", { name: "Add what arrived" })).toBeNull();
@@ -1308,7 +1354,7 @@ describe("when the connection or the page goes away partway", () => {
     expect(await screen.findByText("Adding Holiday didn’t finish.")).toBeInTheDocument();
   });
 
-  it("stops asking, once its minute and a bit is up, about one another page is still sending", async () => {
+  it("stops asking, once its two minutes are up, about one another page is still sending", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       unfinished = () => [left("u9", ["Holiday"], { arriving: true })];
@@ -1316,9 +1362,9 @@ describe("when the connection or the page goes away partway", () => {
       render(<Harness chosen={[]} />);
       await waitFor(() => expect(listed).toBe(1));
 
-      await passes(120_000);
+      await passes(180_000, 5000);
 
-      expect(listed).toBe(6);
+      expect(listed).toBe(9);
       expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();

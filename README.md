@@ -292,7 +292,9 @@ On **My files**, click **Add files** and choose where they are:
   If the page is closed or refreshed partway, or the connection drops for good, what arrived is kept
   for a day, and **My files** says so the next time you open it. Add the same files again and only
   the rest is sent. **Add what arrived** puts what's there in place as it is, without the rest, and
-  **Throw away** deletes it.
+  **Throw away** deletes it. Another device can't tell a closed page from one on a laptop that's
+  asleep, so it says when the last file arrived: if the laptop that was sending them is only asleep,
+  leave it, and it carries on when you open it.
 
   If some of it is already there — a folder you added before, say, with new things in it since —
   Uncloud says so before sending anything: how many files are new, how many have changed, and how

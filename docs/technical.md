@@ -90,11 +90,13 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   `.upload.json` beside what's arrived, and `GET /api/uploads` lists the account's unfinished ones
   that have anything in them — `{ id, destination, merge, names, files, bytes, lastArrived, keptUntil,
   arriving }`, `destination` being null for one begun before uploads kept it, and `arriving` true while a
-  file of it is arriving now and for a few seconds after one arrived, so the pause before the next
-  file isn't read as the upload having stopped. Beginning with `files` (`{ path, bytes, modified }`, as for a comparison)
+  file of it is arriving now and for a minute after one arrived, so neither the pause before the next
+  file nor the half a minute a page waits between tries of a file Uncloud didn't answer is read as the
+  upload having stopped. A page that's offline, or on a computer asleep, can't say it's still there,
+  so after that minute its upload is listed like any other. Beginning with `files` (`{ path, bytes, modified }`, as for a comparison)
   picks up the latest unfinished upload whose every arrived file is among them, the same size and
   modified within 2 seconds, wherever it was going, unless a file of it is being received at that
-  moment. The few seconds after a file, which still show as `arriving`, don't make adding the same
+  moment. The minute after a file, which still shows as `arriving`, doesn't make adding the same
   files wait. `arrived`
   names those files, which needn't be sent again, the room check counts only the rest, and the upload
   then goes where, and finishes how, this beginning says. Without `files`, or with nothing that
@@ -135,10 +137,13 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   arrived rather than throwing it away, and an upload picked up from an earlier try is kept whatever ends it — a
   refusal while sending, or while putting them in place — except **Stop**, since what that try left
   was never this one's to throw away. A page that opens lists the unfinished uploads not its own: while one is
-  still arriving it asks again every 15 seconds for a little over a minute, long enough for its own last
+  still arriving it asks again every 15 seconds for two minutes, long enough for its own last
   files from before a refresh to be noticed gone — including one Uncloud gives up on after 45 seconds,
-  and the few seconds after that it still counts as arriving — and each stopped one is offered to be put in place
-  as it is (where it was going, finished with its `merge`) or thrown away. Adding the same files
+  and the minute after that it still counts as arriving — and each stopped one is offered to be put in place
+  as it is (where it was going, finished with its `merge`) or thrown away. That offer says when the last
+  file arrived, and that a page still open on a computer asleep carries on by itself, since nothing
+  can tell the two apart from here. A page that wakes to find its upload gone — put in place or
+  thrown away elsewhere meanwhile, or cleared away after a day — says so rather than that it's kept. Adding the same files
   again picks it up, sending only the rest. If Uncloud doesn't
   answer the request to put them in place, the page says they may already be there and reads My files
   again, rather than inviting them to be added twice. More can be chosen or dropped while one is on
