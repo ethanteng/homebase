@@ -244,7 +244,10 @@ async function readable(file: File): Promise<boolean> {
   }
 }
 
-/** Waits a while, or until the upload is over. */
+/**
+ * Waits a while, or until the upload is over. One over already doesn't wait at all: its signal
+ * won't say so again.
+ */
 const pause = (ms: number, quit: AbortSignal) =>
   new Promise<void>((resolve) => {
     const done = () => {
@@ -254,9 +257,10 @@ const pause = (ms: number, quit: AbortSignal) =>
     };
     const timer = window.setTimeout(done, ms);
     quit.addEventListener("abort", done);
+    if (quit.aborted) done();
   });
 
-/** Waits for this device to be back online, or for the upload to be over. */
+/** Waits for this device to be back online, or for the upload to be over — at once, if it is already. */
 const online = (quit: AbortSignal) =>
   new Promise<void>((resolve) => {
     const done = () => {
@@ -266,6 +270,7 @@ const online = (quit: AbortSignal) =>
     };
     window.addEventListener("online", done);
     quit.addEventListener("abort", done);
+    if (quit.aborted) done();
   });
 
 /** Whether this device says it's offline: between networks, or just woken and not yet reconnected. */
@@ -455,6 +460,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
       // Ends any wait for the connection: Stop, signing out, or another file finding it can't go on.
       const quit = new AbortController();
       job.cancel.signal.addEventListener("abort", () => quit.abort(), { once: true });
+      if (job.cancel.signal.aborted) quit.abort();
       // What was last shown, so a tick with nothing new doesn't redraw the page under it.
       let shown = "";
       const progress = () => {
@@ -506,6 +512,8 @@ export function useUpload(active: boolean, onUploaded: () => void) {
                   });
                   break;
                 }
+                // Stopped, or given up on by another file, while this one was being read.
+                if (job.stopped || fatal !== null) return;
                 // Offline — just woken, say, and not yet reconnected — it waits to be back, which
                 // isn't Uncloud failing to answer and doesn't count towards giving up.
                 if (offline()) {

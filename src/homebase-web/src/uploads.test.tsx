@@ -1000,6 +1000,30 @@ describe("when the connection or the page goes away partway", () => {
     }
   });
 
+  it("stops when Stop is pressed while an offline file is being checked, rather than waiting to be back online", async () => {
+    answer = accepting();
+    FakeRequest.respond = (request) => request.onerror?.();
+    // Checking the file can still be read is held open, so Stop comes before the wait to be online.
+    let read = () => {};
+    vi.spyOn(Blob.prototype, "arrayBuffer").mockImplementation(
+      () => new Promise((resolve) => (read = () => resolve(new ArrayBuffer(1)))),
+    );
+    try {
+      render(<Harness chosen={pickedFrom([file("film.mov")])} />);
+      goesOnline(false);
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent).toHaveLength(1));
+
+      await click(screen.getByRole("button", { name: "Stop" }));
+      await act(async () => read());
+
+      expect(await screen.findByText("Stopped adding film.mov. Nothing from it was added.")).toBeInTheDocument();
+      expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u1", body: null });
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("stops at once when Stop is pressed while it waits for the connection", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
