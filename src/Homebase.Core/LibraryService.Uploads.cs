@@ -50,9 +50,11 @@ public sealed partial class LibraryService
     /// yet. The next file isn't asked for until this one has been answered, so there's always a gap —
     /// a round trip, and on a slow tunnel that can be a few seconds. Without this, a page that asked
     /// in that gap would be told the upload had stopped, and could throw away one that's still going.
-    /// Adding the same files again doesn't wait out this gap: only a file actually arriving blocks that.
+    /// Longer, too, than the page waits between tries of a file Uncloud didn't answer, half a minute,
+    /// so a page still trying isn't taken for one that has gone. Adding the same files again doesn't
+    /// wait out this gap: only a file actually arriving blocks that.
     /// </summary>
-    public TimeSpan StillArrivingFor { get; init; } = TimeSpan.FromSeconds(15);
+    public TimeSpan StillArrivingFor { get; init; } = TimeSpan.FromSeconds(60);
 
     /// <summary>
     /// When an upload with nothing in flight stops counting as arriving, by its id, in
@@ -211,12 +213,17 @@ public sealed partial class LibraryService
     private bool Arriving(string id) => _arriving.TryGetValue(id, out var count) && count > 0;
 
     /// <summary>
-    /// Whether a page should be told this upload is still being sent: a file is arriving now, or one
-    /// just did and the next hasn't started, which is only the round trip away.
+    /// Whether a page should be told this upload is still being sent: a file is arriving now, or the
+    /// last request for one just ended and the next hasn't started. That gap is
+    /// <see cref="StillArrivingFor"/> — a minute, longer than the half-minute a page waits between
+    /// tries — so a page still trying isn't offered to be thrown away.
     /// </summary>
     private bool ShownArriving(string id) => Arriving(id) || RecentlyQuiet(id);
 
-    /// <summary>The gap after a file has arrived, during which <see cref="ShownArriving"/> stays true.</summary>
+    /// <summary>
+    /// The gap after the last in-flight request ends, whether the file arrived or the attempt failed,
+    /// during which <see cref="ShownArriving"/> stays true.
+    /// </summary>
     private void NoteQuiet(string id)
     {
         var grace = StillArrivingFor;

@@ -284,10 +284,17 @@ On **My files**, click **Add files** and choose where they are:
   files and goes once the ones before it are in, and **Remove** takes one away before it starts.
   A file that stops moving for a minute is sent again.
 
+  You don't have to stay with it. If your laptop goes to sleep partway, when you close the lid, say,
+  the upload pauses and carries on by itself when you open it again, as long as the page is still
+  open. So does one that loses its connection, once it's back. A file that was partway when it paused
+  starts again from its beginning.
+
   If the page is closed or refreshed partway, or the connection drops for good, what arrived is kept
   for a day, and **My files** says so the next time you open it. Add the same files again and only
   the rest is sent. **Add what arrived** puts what's there in place as it is, without the rest, and
-  **Throw away** deletes it.
+  **Throw away** deletes it. Another device can't tell a closed page from one on a laptop that's
+  asleep, so it says when the last file arrived: if the laptop that was sending them is only asleep,
+  leave it, and it carries on when you open it.
 
   If some of it is already there — a folder you added before, say, with new things in it since —
   Uncloud says so before sending anything: how many files are new, how many have changed, and how

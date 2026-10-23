@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import AddFiles from "./AddFiles";
 import FileBrowser from "./FileBrowser";
-import UploadStatus, { pickedFrom, STALLED_AFTER, UnfinishedStatus, useUpload } from "./Uploads";
+import UploadStatus, { GIVE_UP_AFTER, pickedFrom, STALLED_AFTER, UnfinishedStatus, useUpload } from "./Uploads";
 import type { Picked } from "./Uploads";
 import type { UploadComparison } from "./api";
 
@@ -858,11 +858,17 @@ function carrying(...entries: unknown[]) {
 
 describe("when the connection or the page goes away partway", () => {
   /** Time going by, as far as the page can tell, a little at a time so what it starts meanwhile gets its turn. */
-  async function passes(ms: number) {
-    for (let gone = 0; gone < ms; gone += 500)
+  async function passes(ms: number, step = 500) {
+    for (let gone = 0; gone < ms; gone += step)
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(500);
+        await vi.advanceTimersByTimeAsync(step);
       });
+  }
+
+  /** Whether this device says it's online, as the browser would, and the event it fires on coming back. */
+  function goesOnline(online: boolean) {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(online);
+    if (online) window.dispatchEvent(new Event("online"));
   }
 
   /** What a page that went away left behind, as Uncloud lists it. */
@@ -913,24 +919,242 @@ describe("when the connection or the page goes away partway", () => {
     }
   });
 
-  it("keeps what arrived when Uncloud stops answering partway, rather than throwing it away", async () => {
+  it("keeps trying for a while when Uncloud stops answering, then keeps what arrived rather than throwing it away", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       answer = accepting();
       FakeRequest.respond = (request) =>
         request.path === "first.txt" ? request.finish(200, { bytes: 1 }) : request.onerror?.();
       render(<Harness chosen={pickedFrom([file("first.txt"), file("second.txt")])} />);
+      const tries = () => FakeRequest.sent.filter((request) => request.path === "second.txt").length;
 
       await click(screen.getByText("Send"));
-      await waitFor(() => expect(FakeRequest.sent.filter((request) => request.path === "second.txt")).toHaveLength(1));
-      await passes(4000);
+      await waitFor(() => expect(tries()).toBe(1));
+      await passes(5 * 60_000, 5000);
+
+      // Still at it, and saying why it isn't getting anywhere.
+      expect(screen.getByText(/Waiting to carry on adding first.txt and second.txt/)).toBeInTheDocument();
+      expect(screen.getByText(/Uncloud isn’t answering. They carry on by themselves once it does./)).toBeInTheDocument();
+      expect(tries()).toBeGreaterThan(5);
+
+      await passes(GIVE_UP_AFTER, 5000);
 
       expect(await screen.findByRole("status")).toHaveTextContent(
         "What arrived is kept for a day: check you’re still connected, then add the same files again and only the rest is sent.",
       );
-      expect(FakeRequest.sent.filter((request) => request.path === "second.txt")).toHaveLength(3);
       expect(asked.some((request) => request.method === "DELETE")).toBe(false);
       expect(asked.some((request) => request.path.endsWith("/finish"))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits while this device is offline, however long, and carries on once it's back", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      answer = accepting();
+      let reachable = false;
+      FakeRequest.respond = (request) => (reachable ? request.finish(200, { bytes: 1 }) : request.onerror?.());
+      render(<Harness chosen={pickedFrom([file("film.mov")])} />);
+      goesOnline(false);
+
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent).toHaveLength(1));
+      // Far longer than it would keep trying a host that isn't answering: offline isn't that.
+      await passes(GIVE_UP_AFTER * 2, 30_000);
+
+      expect(FakeRequest.sent).toHaveLength(1);
+      expect(screen.getByText(/This device is offline. They carry on by themselves once it’s back./)).toBeInTheDocument();
+
+      reachable = true;
+      goesOnline(true);
+
+      await screen.findByText("Added film.mov from this device: 1 file, 1 B.");
+      expect(FakeRequest.sent).toHaveLength(2);
+    } finally {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
+  });
+
+  it("doesn't leave out a file it couldn't read while offline, and sends it once this device is back", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      answer = accepting();
+      let reachable = false;
+      FakeRequest.respond = (request) => (reachable ? request.finish(200, { bytes: 1 }) : request.onerror?.());
+      let reads = 0;
+      vi.spyOn(Blob.prototype, "arrayBuffer").mockImplementation(() => {
+        reads++;
+        return navigator.onLine
+          ? Promise.resolve(new ArrayBuffer(1))
+          : Promise.reject(new DOMException("The file isn't on this device yet.", "NotFoundError"));
+      });
+      render(<Harness chosen={pickedFrom([file("film.mov")])} />);
+      goesOnline(false);
+
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent).toHaveLength(1));
+      await passes(1000);
+
+      // Being offline isn't the file having gone. It's still to be sent, not skipped.
+      expect(screen.getByText(/This device is offline. They carry on by themselves once it’s back./)).toBeInTheDocument();
+      expect(reads).toBe(0);
+      expect(screen.queryByRole("status")).toBeNull();
+
+      reachable = true;
+      goesOnline(true);
+
+      await screen.findByText("Added film.mov from this device: 1 file, 1 B.");
+      expect(reads).toBe(0);
+      expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+    } finally {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves out a file this device can no longer read once it's back online", async () => {
+    answer = accepting();
+    FakeRequest.respond = (request) => request.onerror?.();
+    vi.spyOn(Blob.prototype, "arrayBuffer").mockRejectedValue(new DOMException("gone", "NotFoundError"));
+    try {
+      render(<Harness chosen={pickedFrom([file("film.mov")])} />);
+      await click(screen.getByText("Send"));
+
+      expect(await screen.findByRole("status")).toHaveTextContent("None of it could be added.");
+      expect(screen.getByRole("button", { name: /couldn’t be added/ })).toBeInTheDocument();
+      expect(FakeRequest.sent).toHaveLength(1);
+      expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u1", body: null });
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("doesn't say a sleep will carry the upload on while the files are being put in place", async () => {
+    let release: (response: Response) => void = () => {};
+    const accept = accepting([{ from: "notes.txt", to: "Trips/notes.txt" }]);
+    answer = (path, method, body) =>
+      path.endsWith("/finish") ? new Promise((resolve) => (release = resolve)) : accept(path, method, body);
+    render(<Harness chosen={pickedFrom([file("notes.txt")])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByText(/Putting notes.txt in place/)).toBeInTheDocument();
+    expect(screen.getByText(/Keep this page open until they’re in\./)).toBeInTheDocument();
+    expect(screen.queryByText(/If this computer sleeps/)).toBeNull();
+
+    await act(async () => release(json({ items: [{ from: "notes.txt", to: "Trips/notes.txt" }], replaced: 0 })));
+    await screen.findByText(/Added notes.txt from this device/);
+  });
+
+  it("sends again at once what was on its way when the computer went to sleep, once it wakes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      answer = accepting();
+      // The first try never hears back: its connection went to sleep with the computer.
+      FakeRequest.respond = (request) =>
+        FakeRequest.sent.length === 1 ? request.upload.onprogress?.({ loaded: 1 }) : request.finish(200, { bytes: 1 });
+      render(<Harness chosen={pickedFrom([file("film.mov")])} />);
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent).toHaveLength(1));
+
+      // Hours asleep, the lid closed: the clock moves on, but nothing ran meanwhile.
+      vi.setSystemTime(Date.now() + 3 * 60 * 60_000);
+      await passes(2000);
+
+      await screen.findByText("Added film.mov from this device: 1 file, 1 B.");
+      expect(FakeRequest.sent[0].aborted).toBe(true);
+      expect(FakeRequest.sent).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops when Stop is pressed while an offline file is being checked, rather than waiting to be back online", async () => {
+    answer = accepting();
+    FakeRequest.respond = (request) => request.onerror?.();
+    // Checking the file can still be read is held open, so Stop comes before the wait to be online.
+    let read = () => {};
+    vi.spyOn(Blob.prototype, "arrayBuffer").mockImplementation(
+      () => new Promise((resolve) => (read = () => resolve(new ArrayBuffer(1)))),
+    );
+    try {
+      render(<Harness chosen={pickedFrom([file("film.mov")])} />);
+      goesOnline(false);
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent).toHaveLength(1));
+
+      await click(screen.getByRole("button", { name: "Stop" }));
+      await act(async () => read());
+
+      expect(await screen.findByText("Stopped adding film.mov. Nothing from it was added.")).toBeInTheDocument();
+      expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u1", body: null });
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("says so when the upload was dealt with somewhere else while this page waited", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path === "/uploads" && method === "POST" ? json({ id: "u7", arrived: ["Holiday/sea.jpg"] }) : accept(path, method, body);
+    // Thrown away, or put in place, on another device while this one slept.
+    FakeRequest.respond = (request) => request.finish(404, { detail: "This upload is no longer here. Start it again." });
+    render(<Harness chosen={pickedFrom([file("Holiday/sea.jpg", "sea!"), file("Holiday/day 1/map.pdf", "a map")])} />);
+
+    await click(screen.getByText("Send"));
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("This upload was put in place or thrown away somewhere else, or waited too long");
+    // It isn't kept: it's gone.
+    expect(status).not.toHaveTextContent("kept for a day");
+  });
+
+  it("says it's waiting only once every file on its way is, not while another is still moving", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      answer = accepting();
+      let finishMoving = () => {};
+      FakeRequest.respond = (request) => {
+        if (request.path === "moving.mov") {
+          request.upload.onprogress?.({ loaded: 1 });
+          finishMoving = () => request.finish(200, { bytes: 1 });
+        } else request.onerror?.();
+      };
+      render(<Harness chosen={pickedFrom([file("moving.mov"), file("stuck.mov")])} />);
+
+      await click(screen.getByText("Send"));
+      await passes(3000);
+      expect(screen.getByText(/Adding moving.mov and stuck.mov from this device/)).toBeInTheDocument();
+      expect(screen.queryByText(/Uncloud isn’t answering/)).toBeNull();
+
+      await act(async () => finishMoving());
+      await passes(1000);
+
+      expect(screen.getByText(/Waiting to carry on adding moving.mov and stuck.mov/)).toBeInTheDocument();
+      expect(screen.getByText(/Uncloud isn’t answering/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops at once when Stop is pressed while it waits for the connection", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      answer = accepting();
+      FakeRequest.respond = (request) => request.onerror?.();
+      render(<Harness chosen={pickedFrom([file("film.mov")])} />);
+      await click(screen.getByText("Send"));
+      // Long enough to be waiting half a minute between tries.
+      await passes(60_000, 5000);
+      const tries = FakeRequest.sent.length;
+
+      await click(screen.getByRole("button", { name: "Stop" }));
+
+      expect(await screen.findByText("Stopped adding film.mov. Nothing from it was added.")).toBeInTheDocument();
+      expect(FakeRequest.sent).toHaveLength(tries);
+      expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u1", body: null });
     } finally {
       vi.useRealTimers();
     }
@@ -1054,7 +1278,9 @@ describe("when the connection or the page goes away partway", () => {
     render(<Harness chosen={[]} onUploaded={uploaded} />);
 
     const holiday = (await screen.findByText("Adding Holiday didn’t finish.")).closest("section")!;
-    expect(holiday).toHaveTextContent("201 files, 3.7 GB, arrived for Trips before it stopped.");
+    expect(holiday).toHaveTextContent("201 files, 3.7 GB, arrived for Trips, the last at");
+    // Another device can't tell a page closed from one on a laptop asleep, so it says so.
+    expect(holiday).toHaveTextContent("If the page sending them is still open, on a computer that’s asleep, say");
     const old = screen.getByText("Adding Old photos didn’t finish.").closest("section")!;
     // Where that one was going was never kept, so it can only be picked up, or thrown away.
     expect(within(old).queryByRole("button", { name: "Add what arrived" })).toBeNull();
@@ -1128,7 +1354,7 @@ describe("when the connection or the page goes away partway", () => {
     expect(await screen.findByText("Adding Holiday didn’t finish.")).toBeInTheDocument();
   });
 
-  it("stops asking, once its minute and a bit is up, about one another page is still sending", async () => {
+  it("stops asking, once its two minutes are up, about one another page is still sending", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       unfinished = () => [left("u9", ["Holiday"], { arriving: true })];
@@ -1136,9 +1362,9 @@ describe("when the connection or the page goes away partway", () => {
       render(<Harness chosen={[]} />);
       await waitFor(() => expect(listed).toBe(1));
 
-      await passes(120_000);
+      await passes(180_000, 5000);
 
-      expect(listed).toBe(6);
+      expect(listed).toBe(9);
       expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
