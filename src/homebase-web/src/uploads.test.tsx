@@ -977,6 +977,60 @@ describe("when the connection or the page goes away partway", () => {
     }
   });
 
+  it("doesn't leave out a file it couldn't read while offline, and sends it once this device is back", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      answer = accepting();
+      let reachable = false;
+      FakeRequest.respond = (request) => (reachable ? request.finish(200, { bytes: 1 }) : request.onerror?.());
+      let reads = 0;
+      vi.spyOn(Blob.prototype, "arrayBuffer").mockImplementation(() => {
+        reads++;
+        return navigator.onLine
+          ? Promise.resolve(new ArrayBuffer(1))
+          : Promise.reject(new DOMException("The file isn't on this device yet.", "NotFoundError"));
+      });
+      render(<Harness chosen={pickedFrom([file("film.mov")])} />);
+      goesOnline(false);
+
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent).toHaveLength(1));
+      await passes(1000);
+
+      // Being offline isn't the file having gone. It's still to be sent, not skipped.
+      expect(screen.getByText(/This device is offline. They carry on by themselves once it’s back./)).toBeInTheDocument();
+      expect(reads).toBe(0);
+      expect(screen.queryByRole("status")).toBeNull();
+
+      reachable = true;
+      goesOnline(true);
+
+      await screen.findByText("Added film.mov from this device: 1 file, 1 B.");
+      expect(reads).toBe(0);
+      expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+    } finally {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves out a file this device can no longer read once it's back online", async () => {
+    answer = accepting();
+    FakeRequest.respond = (request) => request.onerror?.();
+    vi.spyOn(Blob.prototype, "arrayBuffer").mockRejectedValue(new DOMException("gone", "NotFoundError"));
+    try {
+      render(<Harness chosen={pickedFrom([file("film.mov")])} />);
+      await click(screen.getByText("Send"));
+
+      expect(await screen.findByRole("status")).toHaveTextContent("None of it could be added.");
+      expect(screen.getByRole("button", { name: /couldn’t be added/ })).toBeInTheDocument();
+      expect(FakeRequest.sent).toHaveLength(1);
+      expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u1", body: null });
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("sends again at once what was on its way when the computer went to sleep, once it wakes", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {

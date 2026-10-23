@@ -505,6 +505,19 @@ export function useUpload(active: boolean, onUploaded: () => void) {
               }
               // No answer, or Uncloud saying the file stopped arriving: the connection, not the file.
               if (refused.status === 0 || refused.status === 408 || refused.status >= 500) {
+                // Offline — just woken, say, and not yet reconnected — it waits to be back, which
+                // isn't Uncloud failing to answer and doesn't count towards giving up. Before asking
+                // whether the file can still be read: one that isn't on this device yet can't be
+                // read while it's offline, and that isn't a reason to leave it out.
+                if (offline()) {
+                  waiting++;
+                  waitingOnline++;
+                  await online(quit.signal);
+                  waiting--;
+                  waitingOnline--;
+                  if (job.stopped || fatal !== null) return;
+                  continue;
+                }
                 if (!(await readable(item.file))) {
                   skipped.push({
                     path: item.path,
@@ -514,16 +527,6 @@ export function useUpload(active: boolean, onUploaded: () => void) {
                 }
                 // Stopped, or given up on by another file, while this one was being read.
                 if (job.stopped || fatal !== null) return;
-                // Offline — just woken, say, and not yet reconnected — it waits to be back, which
-                // isn't Uncloud failing to answer and doesn't count towards giving up.
-                if (offline()) {
-                  waiting++;
-                  waitingOnline++;
-                  await online(quit.signal);
-                  waiting--;
-                  waitingOnline--;
-                  continue;
-                }
                 if (waited < GIVE_UP_AFTER) {
                   const wait = backOff(attempt);
                   waited += wait;
