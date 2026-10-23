@@ -969,11 +969,13 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
           {upload.doneFiles} of {upload.files} file{upload.files === 1 ? "" : "s"} ·{" "}
           {formatSize(upload.sentBytes)} of {formatSize(upload.bytes)} ·{" "}
           {upload.resumed > 0 && `${upload.resumed} had arrived on an earlier try. `}
-          {upload.lost === "offline"
-            ? "This device is offline. They carry on by themselves once it’s back."
-            : upload.lost === "unanswered"
-              ? "Uncloud isn’t answering. They carry on by themselves once it does."
-              : "Keep this page open until they’re in. If this computer sleeps, they carry on when it wakes."}
+          {upload.stage === "placing"
+            ? "Keep this page open until they’re in."
+            : upload.lost === "offline"
+              ? "This device is offline. They carry on by themselves once it’s back."
+              : upload.lost === "unanswered"
+                ? "Uncloud isn’t answering. They carry on by themselves once it does."
+                : "Keep this page open until they’re in. If this computer sleeps, they carry on when it wakes."}
         </span>
       </section>
     );

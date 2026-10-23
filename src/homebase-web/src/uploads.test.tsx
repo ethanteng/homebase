@@ -1031,6 +1031,23 @@ describe("when the connection or the page goes away partway", () => {
     }
   });
 
+  it("doesn't say a sleep will carry the upload on while the files are being put in place", async () => {
+    let release: (response: Response) => void = () => {};
+    const accept = accepting([{ from: "notes.txt", to: "Trips/notes.txt" }]);
+    answer = (path, method, body) =>
+      path.endsWith("/finish") ? new Promise((resolve) => (release = resolve)) : accept(path, method, body);
+    render(<Harness chosen={pickedFrom([file("notes.txt")])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByText(/Putting notes.txt in place/)).toBeInTheDocument();
+    expect(screen.getByText(/Keep this page open until they’re in\./)).toBeInTheDocument();
+    expect(screen.queryByText(/If this computer sleeps/)).toBeNull();
+
+    await act(async () => release(json({ items: [{ from: "notes.txt", to: "Trips/notes.txt" }], replaced: 0 })));
+    await screen.findByText(/Added notes.txt from this device/);
+  });
+
   it("sends again at once what was on its way when the computer went to sleep, once it wakes", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
