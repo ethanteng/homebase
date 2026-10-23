@@ -409,7 +409,8 @@ export function useUpload(active: boolean, onUploaded: () => void) {
       let doneBytes = bytes - rest.reduce((sum, item) => sum + item.file.size, 0);
       let arrived = resumed;
       let arrivedBytes = doneBytes;
-      let fatal: string | null = null;
+      // Set by the workers, out of the type checker's sight, so it mustn't be taken as always null here.
+      let fatal = null as string | null;
       // The connection gave out, rather than Uncloud refusing something.
       let unanswered = false;
       if (resumed > 0) update(key, { resumed, doneFiles, sentBytes: doneBytes, arrivedBytes });
