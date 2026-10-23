@@ -530,20 +530,33 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         });
         onUploaded();
       } catch (problem: unknown) {
-        await discard(id);
         // No answer at all, rather than a refusal: Uncloud may well have put them in place and
         // only the reply was lost. Saying nothing was added would have them added twice.
         const unanswered = problem instanceof TypeError;
+        // What an earlier try left isn't this one's to throw away when it never got into My files.
+        // If the host did finish and only the reply was lost, the upload is already gone.
+        if (resumed === 0) await discard(id);
         if (unanswered) onUploaded();
+        const kept =
+          " What had arrived is kept for a day, so adding the same files again sends only the rest.";
+        const refused =
+          problem instanceof SignedOutError
+            ? "You were signed out before they were put in place. Sign in, then add the same files again."
+            : problem instanceof Error
+              ? problem.message
+              : "The files arrived but couldn’t be put in place.";
         update(key, {
           stage: "failed",
           error: unanswered
-            ? "Uncloud didn’t answer while putting them in place, so they may already be in your files. Look there before adding them again."
-            : problem instanceof SignedOutError
-              ? signedOut
-              : problem instanceof Error
-                ? problem.message
-                : "The files arrived but couldn’t be put in place, so nothing was added.",
+            ? "Uncloud didn’t answer while putting them in place, so they may already be in your files. Look there before adding them again." +
+              (resumed > 0 ? " If they aren’t, what had arrived is kept for a day." : "")
+            : resumed > 0
+              ? refused + kept
+              : problem instanceof SignedOutError
+                ? signedOut
+                : problem instanceof Error
+                  ? problem.message
+                  : "The files arrived but couldn’t be put in place, so nothing was added.",
         });
       }
     },

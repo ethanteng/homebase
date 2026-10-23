@@ -125,8 +125,9 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   Uncloud answers with a 408, or that nothing of has moved for a minute, which the page aborts — skips
   one Uncloud refuses by name, and gives up on the whole upload when the drive runs out of room or the
   session ends. When the connection is still gone after three tries, it keeps what arrived rather
-  than throwing it away, and an upload picked up from an earlier try is kept whatever ends it, except
-  **Stop**, since what that try left was never this one's to throw away. A page that opens lists the unfinished uploads not its own: while one is
+  than throwing it away, and an upload picked up from an earlier try is kept whatever ends it — a
+  refusal while sending, or while putting them in place — except **Stop**, since what that try left
+  was never this one's to throw away. A page that opens lists the unfinished uploads not its own: while one is
   still arriving it asks again every 15 seconds for a little over a minute, long enough for its own last
   files from before a refresh to be noticed gone — including one Uncloud gives up on after 45 seconds,
   and the few seconds after that it still counts as arriving — and each stopped one is offered to be put in place

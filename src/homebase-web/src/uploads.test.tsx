@@ -957,6 +957,63 @@ describe("when the connection or the page goes away partway", () => {
     expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument();
   });
 
+  it("keeps what an earlier try left when putting it in place is refused", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path.endsWith("/finish")
+        ? json({ detail: "That folder is no longer here. Refresh and try again." }, 404)
+        : path === "/uploads" && method === "POST"
+          ? json({ id: "u7", arrived: ["Holiday/sea.jpg"] })
+          : accept(path, method, body);
+    render(<Harness chosen={pickedFrom([file("Holiday/sea.jpg", "sea!"), file("Holiday/day 1/map.pdf", "a map")])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "That folder is no longer here. Refresh and try again. What had arrived is kept for a day",
+    );
+    expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+  });
+
+  it("keeps what an earlier try left when the answer to putting it in place never came", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path.endsWith("/finish")
+        ? Promise.reject(new TypeError("Failed to fetch"))
+        : path === "/uploads" && method === "POST"
+          ? json({ id: "u7", arrived: ["Holiday/sea.jpg"] })
+          : accept(path, method, body);
+    const uploaded = vi.fn();
+    render(
+      <Harness
+        chosen={pickedFrom([file("Holiday/sea.jpg", "sea!"), file("Holiday/day 1/map.pdf", "a map")])}
+        onUploaded={uploaded}
+      />,
+    );
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("they may already be in your files");
+    expect(screen.getByRole("status")).toHaveTextContent("If they aren’t, what had arrived is kept for a day");
+    expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+    expect(uploaded).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws away a new upload when putting it in place is refused", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path.endsWith("/finish")
+        ? json({ detail: "That folder is no longer here. Refresh and try again." }, 404)
+        : accept(path, method, body);
+    render(<Harness chosen={pickedFrom([file("notes.txt")])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("That folder is no longer here");
+    expect(screen.getByRole("status")).not.toHaveTextContent("kept for a day");
+    expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u1", body: null });
+  });
+
   it("keeps what an earlier try left when Uncloud refuses something this time", async () => {
     const accept = accepting();
     answer = (path, method, body) =>
