@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import AddFiles from "./AddFiles";
 import FileBrowser from "./FileBrowser";
-import UploadStatus, { pickedFrom, useUpload } from "./Uploads";
+import UploadStatus, { pickedFrom, STALLED_AFTER, UnfinishedStatus, useUpload } from "./Uploads";
 import type { Picked } from "./Uploads";
 import type { UploadComparison } from "./api";
 
@@ -24,6 +24,12 @@ interface Asked {
 
 let asked: Asked[] = [];
 let answer: (path: string, method: string, body: unknown) => Response | Promise<Response>;
+/**
+ * Uploads a page went away from, as Uncloud lists them whenever a page opens. Answered apart from
+ * everything else, and left out of what was asked, which is about what an upload does.
+ */
+let unfinished: () => unknown[];
+let listed = 0;
 
 /** A request for one file, held until the test says how it went. */
 class FakeRequest {
@@ -70,12 +76,18 @@ class FakeRequest {
 
 beforeEach(() => {
   asked = [];
+  unfinished = () => [];
+  listed = 0;
   FakeRequest.sent = [];
   FakeRequest.respond = (request) => request.finish(200, { bytes: 1 });
   vi.stubGlobal("XMLHttpRequest", FakeRequest);
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input).replace(/^.*\/api/, "");
     const method = init?.method ?? "GET";
+    if (path === "/uploads" && method === "GET") {
+      listed++;
+      return Promise.resolve(json(unfinished()));
+    }
     const body: unknown = init?.body ? JSON.parse(String(init.body)) : null;
     asked.push({ method, path, body });
     const signal = init?.signal;
@@ -166,6 +178,14 @@ function Harness({
       <button onClick={() => send(chosen)}>Send</button>
       <button onClick={() => send(more)}>Send more</button>
       {problem && <p role="alert">{problem}</p>}
+      {uploads.unfinished.map((upload) => (
+        <UnfinishedStatus
+          key={upload.id}
+          upload={upload}
+          onPlace={() => uploads.place(upload)}
+          onThrowAway={() => uploads.throwAway(upload.id)}
+        />
+      ))}
       {uploads.uploads.map((upload) => (
         <UploadStatus
           key={upload.key}
@@ -326,7 +346,20 @@ describe("adding files from this device", () => {
         ],
       },
     });
-    expect(asked[1]).toEqual({ method: "POST", path: "/uploads", body: { destination: "Trips", bytes: 9 } });
+    // Told what's coming, too, in case these are files an earlier page didn't finish sending.
+    expect(asked[1]).toEqual({
+      method: "POST",
+      path: "/uploads",
+      body: {
+        destination: "Trips",
+        bytes: 9,
+        merge: false,
+        files: [
+          { path: "Holiday/sea.jpg", bytes: 4, modified: 1577934245000 },
+          { path: "Holiday/day 1/map.pdf", bytes: 5, modified: 1577934245000 },
+        ],
+      },
+    });
     expect(FakeRequest.sent.map((request) => [request.method, request.path])).toEqual([
       ["PUT", "Holiday/sea.jpg"],
       ["PUT", "Holiday/day 1/map.pdf"],
@@ -511,10 +544,11 @@ describe("adding more while some are on their way", () => {
     expect(screen.getByText("Added film.mov from this device: 1 file, 1 B.")).toBeInTheDocument();
     expect(screen.getByText("Added Taxes from this device: 2 files, 2 B.")).toBeInTheDocument();
     expect(FakeRequest.sent.map((request) => request.path)).toEqual(["film.mov", "Taxes/receipt.pdf", "Taxes/w2.pdf"]);
-    expect(asked.filter((request) => request.path === "/uploads").map((request) => request.body)).toEqual([
-      { destination: "Trips", bytes: 1 },
-      { destination: "Trips", bytes: 2 },
-    ]);
+    expect(
+      asked
+        .filter((request) => request.path === "/uploads")
+        .map((request) => comparing(request.body)),
+    ).toEqual([["film.mov"], ["Taxes/receipt.pdf", "Taxes/w2.pdf"]]);
     expect(asked.map((request) => request.path)).toContain("/uploads/u2/finish");
   });
 
@@ -691,7 +725,8 @@ describe("adding a folder that's already there", () => {
     // Asked again about what it's sending when its turn comes, in case anything landed meanwhile.
     expect(asked[1].path).toBe("/uploads/compare");
     expect(comparing(asked[1].body)).toEqual(["Holiday/map.pdf", "Holiday/day 2/boat.jpg"]);
-    expect(asked[2]).toEqual({ method: "POST", path: "/uploads", body: { destination: "Trips", bytes: 13 } });
+    expect(asked[2]).toMatchObject({ method: "POST", path: "/uploads", body: { destination: "Trips", bytes: 13, merge: true } });
+    expect(comparing(asked[2].body)).toEqual(["Holiday/map.pdf", "Holiday/day 2/boat.jpg"]);
     expect(FakeRequest.sent.map((request) => request.path)).toEqual(["Holiday/map.pdf", "Holiday/day 2/boat.jpg"]);
     expect(asked.at(-1)).toEqual({
       method: "POST",
@@ -820,6 +855,296 @@ function carrying(...entries: unknown[]) {
     },
   };
 }
+
+describe("when the connection or the page goes away partway", () => {
+  /** Time going by, as far as the page can tell, a little at a time so what it starts meanwhile gets its turn. */
+  async function passes(ms: number) {
+    for (let gone = 0; gone < ms; gone += 500)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+  }
+
+  /** What a page that went away left behind, as Uncloud lists it. */
+  const left = (id: string, names: string[], more: object = {}) => ({
+    id,
+    destination: "Trips",
+    merge: false,
+    names,
+    files: 201,
+    bytes: 4_000_000_000,
+    lastArrived: "2026-10-22T18:46:35Z",
+    keptUntil: "2026-10-23T18:46:35Z",
+    arriving: false,
+    ...more,
+  });
+
+  it("sends a file again when it stops moving, whether the page or Uncloud notices", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      answer = accepting();
+      const tries = new Map<string, number>();
+      FakeRequest.respond = (request) => {
+        const attempt = (tries.get(request.path!) ?? 0) + 1;
+        tries.set(request.path!, attempt);
+        if (attempt > 1) request.finish(200, { bytes: 1 });
+        // Some of it goes, then nothing more, and no answer: only the page can tell.
+        else if (request.path === "film.mov") request.upload.onprogress?.({ loaded: 1 });
+        // Uncloud heard nothing more of it for a while, and said so.
+        else request.finish(408, { detail: "Nothing more of “song.mp3” arrived for a while. Try adding it again." });
+      };
+      render(<Harness chosen={pickedFrom([file("film.mov"), file("song.mp3")])} />);
+
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent).toHaveLength(2));
+      await passes(5000);
+      expect(tries.get("song.mp3")).toBe(2);
+      // Waiting on the one that went quiet, which is never going to answer by itself.
+      expect(screen.getByText(/Adding film.mov and song.mp3/)).toBeInTheDocument();
+      expect(FakeRequest.sent[0].aborted).toBe(false);
+
+      await passes(STALLED_AFTER);
+
+      await screen.findByText(/from this device: 2 files,/);
+      expect(FakeRequest.sent[0].aborted).toBe(true);
+      expect(tries.get("film.mov")).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps what arrived when Uncloud stops answering partway, rather than throwing it away", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      answer = accepting();
+      FakeRequest.respond = (request) =>
+        request.path === "first.txt" ? request.finish(200, { bytes: 1 }) : request.onerror?.();
+      render(<Harness chosen={pickedFrom([file("first.txt"), file("second.txt")])} />);
+
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent.filter((request) => request.path === "second.txt")).toHaveLength(1));
+      await passes(4000);
+
+      expect(await screen.findByRole("status")).toHaveTextContent(
+        "What arrived is kept for a day: check you’re still connected, then add the same files again and only the rest is sent.",
+      );
+      expect(FakeRequest.sent.filter((request) => request.path === "second.txt")).toHaveLength(3);
+      expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+      expect(asked.some((request) => request.path.endsWith("/finish"))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("picks up what an earlier page didn't finish when the same files are added again, sending only the rest", async () => {
+    unfinished = () => [left("u7", ["Holiday"], { files: 1, bytes: 4 })];
+    const accept = accepting([{ from: "Holiday", to: "Trips/Holiday" }]);
+    answer = (path, method, body) =>
+      path === "/uploads" && method === "POST" ? json({ id: "u7", arrived: ["Holiday/sea.jpg"] }) : accept(path, method, body);
+    render(<Harness chosen={pickedFrom([file("Holiday/sea.jpg", "sea!"), file("Holiday/day 1/map.pdf", "a map")])} />);
+    // Offered as soon as the page opens.
+    expect(await screen.findByText("Adding Holiday didn’t finish.")).toBeInTheDocument();
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByText(/from this device: 2 files,/)).toHaveTextContent(
+      "Added Holiday from this device: 2 files, 9 B. 1 had arrived on an earlier try, so it wasn’t sent again.",
+    );
+    expect(FakeRequest.sent.map((request) => request.path)).toEqual(["Holiday/day 1/map.pdf"]);
+    expect(FakeRequest.sent[0].url).toContain("/api/uploads/u7?");
+    expect(asked.at(-1)).toEqual({ method: "POST", path: "/uploads/u7/finish", body: { destination: "Trips", merge: false } });
+    // It's this page's now, so it isn't offered any more.
+    expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument();
+  });
+
+  it("keeps what an earlier try left when putting it in place is refused", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path.endsWith("/finish")
+        ? json({ detail: "That folder is no longer here. Refresh and try again." }, 404)
+        : path === "/uploads" && method === "POST"
+          ? json({ id: "u7", arrived: ["Holiday/sea.jpg"] })
+          : accept(path, method, body);
+    render(<Harness chosen={pickedFrom([file("Holiday/sea.jpg", "sea!"), file("Holiday/day 1/map.pdf", "a map")])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "That folder is no longer here. Refresh and try again. What had arrived is kept for a day",
+    );
+    expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+  });
+
+  it("keeps what an earlier try left when the answer to putting it in place never came", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path.endsWith("/finish")
+        ? Promise.reject(new TypeError("Failed to fetch"))
+        : path === "/uploads" && method === "POST"
+          ? json({ id: "u7", arrived: ["Holiday/sea.jpg"] })
+          : accept(path, method, body);
+    const uploaded = vi.fn();
+    render(
+      <Harness
+        chosen={pickedFrom([file("Holiday/sea.jpg", "sea!"), file("Holiday/day 1/map.pdf", "a map")])}
+        onUploaded={uploaded}
+      />,
+    );
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("they may already be in your files");
+    expect(screen.getByRole("status")).toHaveTextContent("If they aren’t, what had arrived is kept for a day");
+    expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+    expect(uploaded).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws away a new upload when putting it in place is refused", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path.endsWith("/finish")
+        ? json({ detail: "That folder is no longer here. Refresh and try again." }, 404)
+        : accept(path, method, body);
+    render(<Harness chosen={pickedFrom([file("notes.txt")])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("That folder is no longer here");
+    expect(screen.getByRole("status")).not.toHaveTextContent("kept for a day");
+    expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u1", body: null });
+  });
+
+  it("keeps what an earlier try left when the session ends while the rest is on its way", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path === "/uploads" && method === "POST" ? json({ id: "u7", arrived: ["Holiday/sea.jpg"] }) : accept(path, method, body);
+    FakeRequest.respond = (request) => request.finish(401, { detail: "Sign in to Uncloud to continue." });
+    render(<Harness chosen={pickedFrom([file("Holiday/sea.jpg", "sea!"), file("Holiday/day 1/map.pdf", "a map")])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "You were signed out, so the rest wasn’t added. What had arrived is kept for a day",
+    );
+    expect(screen.getByRole("status")).not.toHaveTextContent("nothing was added");
+    expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+  });
+
+  it("keeps what an earlier try left when Uncloud refuses something this time", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path === "/uploads" && method === "POST" ? json({ id: "u7", arrived: ["Holiday/sea.jpg"] }) : accept(path, method, body);
+    FakeRequest.respond = (request) =>
+      request.finish(409, { detail: "Too many files are arriving at once. Wait for some to finish, then try again." });
+    render(<Harness chosen={pickedFrom([file("Holiday/sea.jpg", "sea!"), file("Holiday/day 1/map.pdf", "a map")])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Too many files are arriving at once. Wait for some to finish, then try again. What had arrived is kept for a day",
+    );
+    expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+    expect(asked.some((request) => request.path.endsWith("/finish"))).toBe(false);
+  });
+
+  it("puts what arrived in place as it is, or throws it away, when somebody would rather", async () => {
+    unfinished = () => [left("u9", ["Holiday"]), left("u8", ["Old photos"], { destination: null, files: 1, bytes: 5 })];
+    answer = accepting([{ from: "Holiday", to: "Trips/Holiday" }]);
+    const uploaded = vi.fn();
+    render(<Harness chosen={[]} onUploaded={uploaded} />);
+
+    const holiday = (await screen.findByText("Adding Holiday didn’t finish.")).closest("section")!;
+    expect(holiday).toHaveTextContent("201 files, 3.7 GB, arrived for Trips before it stopped.");
+    const old = screen.getByText("Adding Old photos didn’t finish.").closest("section")!;
+    // Where that one was going was never kept, so it can only be picked up, or thrown away.
+    expect(within(old).queryByRole("button", { name: "Add what arrived" })).toBeNull();
+
+    await click(within(holiday).getByRole("button", { name: "Add what arrived" }));
+    await waitFor(() => expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument());
+    expect(asked).toContainEqual({ method: "POST", path: "/uploads/u9/finish", body: { destination: "Trips", merge: false } });
+    expect(uploaded).toHaveBeenCalledTimes(1);
+
+    await click(within(old).getByRole("button", { name: "Throw away" }));
+    await waitFor(() => expect(screen.queryByText("Adding Old photos didn’t finish.")).not.toBeInTheDocument());
+    expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u8", body: null });
+  });
+
+  it("says why, and offers it still, when what arrived couldn't be put in place", async () => {
+    unfinished = () => [left("u9", ["Holiday"])];
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path === "/uploads/u9/finish"
+        ? json({ detail: "That folder is no longer here. Refresh and try again." }, 404)
+        : accept(path, method, body);
+    render(<Harness chosen={[]} />);
+
+    await click(await screen.findByRole("button", { name: "Add what arrived" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("That folder is no longer here.");
+    expect(screen.getByRole("button", { name: "Add what arrived" })).toBeEnabled();
+  });
+
+  it("waits to offer one that's still arriving, and offers it once it has stopped", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      // Another page still sending it, or this one's last files from before a refresh not yet noticed gone.
+      let arriving = true;
+      unfinished = () => [left("u9", ["Holiday"], { arriving })];
+      answer = accepting();
+      render(<Harness chosen={[]} />);
+      await waitFor(() => expect(listed).toBe(1));
+      expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument();
+
+      await passes(15_000);
+      expect(listed).toBe(2);
+      expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument();
+
+      arriving = false;
+      await passes(15_000);
+
+      expect(await screen.findByText("Adding Holiday didn’t finish.")).toBeInTheDocument();
+      expect(listed).toBe(3);
+      // Stopped, it isn't asked about again.
+      await passes(15_000);
+      expect(listed).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("offers a kept upload again after this page signs out and somebody signs back in", async () => {
+    unfinished = () => [left("u1", ["Holiday"], { files: 1, bytes: 4 })];
+    answer = accepting();
+    const view = render(<Harness chosen={pickedFrom([file("Holiday/sea.jpg", "sea!")])} />);
+    expect(await screen.findByText("Adding Holiday didn’t finish.")).toBeInTheDocument();
+
+    await click(screen.getByText("Send"));
+    // Picked up by this page, so it isn't offered here while the page is still signed in.
+    await waitFor(() => expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument());
+
+    view.rerender(<Harness chosen={[]} signedIn={false} />);
+    view.rerender(<Harness chosen={[]} signedIn />);
+
+    expect(await screen.findByText("Adding Holiday didn’t finish.")).toBeInTheDocument();
+  });
+
+  it("stops asking, once its minute and a bit is up, about one another page is still sending", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      unfinished = () => [left("u9", ["Holiday"], { arriving: true })];
+      answer = accepting();
+      render(<Harness chosen={[]} />);
+      await waitFor(() => expect(listed).toBe(1));
+
+      await passes(120_000);
+
+      expect(listed).toBe(6);
+      expect(screen.queryByText("Adding Holiday didn’t finish.")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("dropping onto My files", () => {
   const onDropFiles = vi.fn<(folder: string, picked: Picked[]) => Promise<void>>();

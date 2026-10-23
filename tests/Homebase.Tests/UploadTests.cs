@@ -90,6 +90,20 @@ public sealed class UploadTests : IDisposable
 
     private static string Uploads(string root) => Path.Combine(root, ".homebase", "uploads");
 
+    /// <summary>Begins an upload the way the page does, saying what it's about to send.</summary>
+    private static async Task<(string Id, string[] Arrived)> BeginSendingAsync(
+        HttpClient client, string destination, object[] files, bool merge = false)
+    {
+        var response = await client.PostAsJsonAsync("/api/uploads", new { destination, bytes = 0, merge, files });
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return (body.GetProperty("id").GetString()!,
+            body.GetProperty("arrived").EnumerateArray().Select(path => path.GetString()!).ToArray());
+    }
+
+    private static async Task<JsonElement[]> UnfinishedAsync(HttpClient client) =>
+        (await client.GetFromJsonAsync<JsonElement>("/api/uploads")).EnumerateArray().ToArray();
+
     [Fact]
     public async Task A_member_uploads_files_and_folders_into_their_own_files()
     {
@@ -756,6 +770,172 @@ public sealed class UploadTests : IDisposable
         await FinishAsync(member, id);
 
         Assert.Equal("retry", await File.ReadAllTextAsync(Path.Combine(root, "a.txt")));
+    }
+
+    [Fact]
+    public async Task Adding_the_same_files_again_picks_up_an_upload_whose_page_went_away()
+    {
+        var (app, admin, _, member, root) = await StartAsync();
+        using var __ = app;
+        using var ___ = admin;
+        using var ____ = member;
+        Directory.CreateDirectory(Path.Combine(root, "Trips"));
+        var then = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero);
+        object[] holiday = [Described("Holiday/sea.jpg", "sea", then), Described("Holiday/day 1/map.pdf", "a map", then)];
+        var first = await BeginSendingAsync(member, "Trips", holiday);
+        Assert.Empty(first.Arrived);
+        (await SendAsync(member, first.Id, "Holiday/sea.jpg", "sea", then.ToUnixTimeMilliseconds())).EnsureSuccessStatusCode();
+        // Begun and given up on before anything arrived: nothing in it to keep, so nothing to offer.
+        await BeginSendingAsync(member, "Trips", [Described("other.txt", "other", then)]);
+
+        // The page goes away here. The next one is told what arrived, and where it was going.
+        var unfinished = Assert.Single(await UnfinishedAsync(member));
+        Assert.Equal(first.Id, unfinished.GetProperty("id").GetString());
+        Assert.Equal("Trips", unfinished.GetProperty("destination").GetString());
+        Assert.False(unfinished.GetProperty("merge").GetBoolean());
+        Assert.Equal(["Holiday"], unfinished.GetProperty("names").EnumerateArray().Select(name => name.GetString()));
+        Assert.Equal(1, unfinished.GetProperty("files").GetInt32());
+        Assert.Equal(3, unfinished.GetProperty("bytes").GetInt64());
+        // A file just arrived, so it still counts as arriving for a few seconds: the gap before the
+        // next file isn't a reason to offer it to be thrown away. Adding the same files doesn't wait.
+        Assert.True(unfinished.GetProperty("arriving").GetBoolean());
+        Assert.True(unfinished.GetProperty("keptUntil").GetDateTimeOffset() > DateTimeOffset.UtcNow.AddHours(23));
+        // Nobody else's page is told of it.
+        Assert.Empty(await UnfinishedAsync(admin));
+
+        // The same files added again — even somewhere else — pick it up, and only the rest is sent.
+        var again = await BeginSendingAsync(member, "", holiday);
+        Assert.Equal(first.Id, again.Id);
+        Assert.Equal(["Holiday/sea.jpg"], again.Arrived);
+        (await SendAsync(member, again.Id, "Holiday/day 1/map.pdf", "a map", then.ToUnixTimeMilliseconds())).EnsureSuccessStatusCode();
+        Assert.Equal([("Holiday", "Holiday")], await FinishAsync(member, again.Id, ""));
+
+        Assert.Equal("sea", await File.ReadAllTextAsync(Path.Combine(root, "Holiday", "sea.jpg")));
+        Assert.Equal("a map", await File.ReadAllTextAsync(Path.Combine(root, "Holiday", "day 1", "map.pdf")));
+        Assert.Empty(await UnfinishedAsync(member));
+    }
+
+    [Fact]
+    public async Task Only_the_same_files_pick_up_an_unfinished_upload()
+    {
+        var (app, admin, _, member, root) = await StartAsync();
+        using var __ = app;
+        using var ___ = admin;
+        using var ____ = member;
+        var then = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero);
+        var notes = Described("notes.txt", "notes", then);
+        var first = await BeginSendingAsync(member, "", [notes]);
+        (await SendAsync(member, first.Id, "notes.txt", "notes", then.ToUnixTimeMilliseconds())).EnsureSuccessStatusCode();
+
+        // What arrived has to be among what's being sent, the same size and changed at the same time:
+        // finishing it would otherwise add something nobody chose this time, or an older copy.
+        foreach (var different in new object[][]
+                 {
+                     [Described("other.txt", "other", then)],
+                     [Described("notes.txt", "notes, since changed", then)],
+                     [Described("notes.txt", "notes", then.AddMinutes(5))],
+                     [new { path = "notes.txt", bytes = 5 }],
+                 })
+        {
+            var begun = await BeginSendingAsync(member, "", different);
+            Assert.NotEqual(first.Id, begun.Id);
+            Assert.Empty(begun.Arrived);
+        }
+        // Nor does a page that doesn't say what it's sending.
+        Assert.NotEqual(first.Id, await BeginAsync(member));
+
+        // One begun before uploads said where they were going can still be picked up, though not put
+        // anywhere by itself.
+        File.Delete(Path.Combine(Uploads(root), first.Id, ".upload.json"));
+        var listed = Assert.Single(await UnfinishedAsync(member), upload => upload.GetProperty("id").GetString() == first.Id);
+        Assert.Equal(JsonValueKind.Null, listed.GetProperty("destination").ValueKind);
+        var picked = await BeginSendingAsync(member, "", [notes, Described("more.txt", "more", then)], merge: true);
+        Assert.Equal(first.Id, picked.Id);
+        Assert.Equal(["notes.txt"], picked.Arrived);
+        // Picked up, it says where it's going now, and how.
+        listed = Assert.Single(await UnfinishedAsync(member), upload => upload.GetProperty("id").GetString() == first.Id);
+        Assert.Equal("", listed.GetProperty("destination").GetString());
+        Assert.True(listed.GetProperty("merge").GetBoolean());
+    }
+
+    [Fact]
+    public async Task An_upload_still_arriving_is_never_picked_up_by_another_page()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        using var library = new LibraryService(root, new MetadataIndex()) { StillArrivingFor = TimeSpan.FromMilliseconds(400) };
+        library.Initialize();
+        var then = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero);
+        UploadFile[] files = [new("a.bin", 10, then.ToUnixTimeMilliseconds()), new("b.bin", 1000, then.ToUnixTimeMilliseconds())];
+        var id = (await library.BeginUploadAsync("", 0, merge: false, files, CancellationToken.None)).Id;
+        Assert.Equal(10, await library.ReceiveAsync(id, "a.bin", new MemoryStream(new byte[10]), 10, then, CancellationToken.None));
+        var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var go = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var arriving = library.ReceiveAsync(id, "b.bin", new Trickle(1000, async sent =>
+        {
+            if (sent > 0) return;
+            holding.SetResult();
+            await go.Task;
+        }), 1000, then, CancellationToken.None);
+        await holding.Task;
+
+        // A page is still sending it — another one, or this one before it's noticed gone.
+        Assert.True(Assert.Single(library.UnfinishedUploads(CancellationToken.None)).Arriving);
+        var begun = await library.BeginUploadAsync("", 0, merge: false, files, CancellationToken.None);
+        Assert.NotEqual(id, begun.Id);
+
+        go.SetResult();
+        await arriving;
+        // Nothing is in flight, so the same files can be picked up at once. It still counts as
+        // arriving for a moment, so another page doesn't offer to throw it away between files.
+        Assert.True(library.UnfinishedUploads(CancellationToken.None).Single(upload => upload.Id == id).Arriving);
+        Assert.Equal(id, (await library.BeginUploadAsync("", 0, merge: false, files, CancellationToken.None)).Id);
+        await Task.Delay(TimeSpan.FromMilliseconds(700));
+        Assert.False(library.UnfinishedUploads(CancellationToken.None).Single(upload => upload.Id == id).Arriving);
+    }
+
+    [Fact]
+    public async Task A_file_nothing_more_arrives_for_is_given_up_on_so_it_can_be_sent_again()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        using var library = new LibraryService(root, new MetadataIndex()) { StalledAfter = TimeSpan.FromMilliseconds(200) };
+        library.Initialize();
+        var id = await library.BeginUploadAsync("", 0, CancellationToken.None);
+
+        // Some of it, then nothing at all: a connection gone without either end hearing.
+        var refused = await Assert.ThrowsAsync<LibraryException>(() =>
+            library.ReceiveAsync(id, "film.mov", new GoesQuiet(1024 * 1024), 2 * 1024 * 1024, null, CancellationToken.None));
+
+        Assert.Equal("timeout", refused.Code);
+        Assert.Contains("film.mov", refused.Message);
+        // What arrived of it is gone, and so is its turn: it's sent again as if for the first time.
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(Uploads(root), id, ".parts")));
+        Assert.Empty(library.UnfinishedUploads(CancellationToken.None));
+        Assert.Equal(10, await library.ReceiveAsync(id, "film.mov", new MemoryStream(new byte[10]), 10, null, CancellationToken.None));
+    }
+
+    /// <summary>A file of which <paramref name="sends"/> bytes arrive, and then nothing more until it's given up on.</summary>
+    private sealed class GoesQuiet(long sends) : Stream
+    {
+        private long _sent;
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_sent >= sends) await Task.Delay(Timeout.Infinite, cancellationToken);
+            var count = (int)Math.Min(buffer.Length, sends - _sent);
+            _sent += count;
+            return count;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => _sent; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     [Fact]

@@ -18,7 +18,7 @@ import { api, SignedOutError } from "./api";
 import type { LibraryState, Session, StorageReport, User } from "./api";
 import AddFiles from "./AddFiles";
 import ImportStatus, { useImportJob } from "./ImportStatus";
-import UploadStatus, { useUpload } from "./Uploads";
+import UploadStatus, { UnfinishedStatus, useUpload } from "./Uploads";
 import HostDropbox from "./HostDropbox";
 import HostStorage from "./HostStorage";
 import HostPower from "./HostPower";
@@ -472,6 +472,15 @@ export default function App() {
               onChanged={() => setRevision((value) => value + 1)}
               status={
                 <>
+                  {/* Uploads a page went away from before they were in, for the same files added again to pick up. */}
+                  {uploads.unfinished.map((upload) => (
+                    <UnfinishedStatus
+                      key={upload.id}
+                      upload={upload}
+                      onPlace={() => uploads.place(upload)}
+                      onThrowAway={() => uploads.throwAway(upload.id)}
+                    />
+                  ))}
                   {/* Each upload from this device, in the order they go: on its way, waiting its turn, or how it went. */}
                   {uploads.uploads.map((upload) => (
                     <UploadStatus

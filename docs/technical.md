@@ -67,10 +67,10 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   rename, and one already in use there — by a file or a folder — is refused rather than changed.
   It is refused inside a folder an import is still writing to.
 - Sending files and folders from the browser, from whichever computer or phone somebody is using,
-  into the folder they have open (`POST /api/uploads` with `{ destination, bytes }`, then
-  `PUT /api/uploads/{id}?path=&modified=` once per file with the file as the body, then
+  into the folder they have open (`POST /api/uploads` with `{ destination, bytes, merge, files }`, answered
+  with `{ id, arrived }`, then `PUT /api/uploads/{id}?path=&modified=` once per file with the file as the body, then
   `POST /api/uploads/{id}/finish` with `{ destination, merge }`; `DELETE /api/uploads/{id}` throws one
-  away). Before that begins, `POST /api/uploads/compare` with `{ destination, files: [{ path, bytes, modified }] }`
+  away; `GET /api/uploads` lists the ones never finished). Before that begins, `POST /api/uploads/compare` with `{ destination, files: [{ path, bytes, modified }] }`
   says which of those files are already there: `same` (equal size, and modified times within 2 seconds,
   since a Windows-formatted drive keeps time only that finely; a file described without a time is
   never `same`), `changed`, or `newer` (changed in
@@ -85,7 +85,20 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   only ever matched under that account's `.homebase/uploads/`, and the path inside it goes through
   the same path policy as browsing, so hidden names and anything reaching outside it are refused.
   Files are gathered there out of sight and moved into place together at the end, so a stopped
-  upload adds nothing and leaves nothing; one nobody finishes is cleared away after a day. Starting
+  upload adds nothing and leaves nothing; one nobody finishes is cleared away after a day. Until
+  then it can be picked up: each upload keeps where it's going and `merge` in a hidden
+  `.upload.json` beside what's arrived, and `GET /api/uploads` lists the account's unfinished ones
+  that have anything in them — `{ id, destination, merge, names, files, bytes, lastArrived, keptUntil,
+  arriving }`, `destination` being null for one begun before uploads kept it, and `arriving` true while a
+  file of it is arriving now and for a few seconds after one arrived, so the pause before the next
+  file isn't read as the upload having stopped. Beginning with `files` (`{ path, bytes, modified }`, as for a comparison)
+  picks up the latest unfinished upload whose every arrived file is among them, the same size and
+  modified within 2 seconds, wherever it was going, unless a file of it is being received at that
+  moment. The few seconds after a file, which still show as `arriving`, don't make adding the same
+  files wait. `arrived`
+  names those files, which needn't be sent again, the room check counts only the rest, and the upload
+  then goes where, and finishes how, this beginning says. Without `files`, or with nothing that
+  matches, a new upload begins and `arrived` is empty. Starting
   checks the drive has room for all of it, and each file checks again and counts its bytes as they
   arrive, so one sent without a length still stops short of the room held back; every megabyte it
   asks the drive again, so files arriving side by side can't eat into that room between them
@@ -96,7 +109,9 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   is written to a hidden file of its own and moved into place once whole, so a retry and an attempt
   still lingering on a dropped connection never write over each other, and finishing an upload never
   picks up a file half-written. At most eight files arrive at once per account, and an upload still
-  arriving is marked as such every megabyte, so one file that takes more than a day isn't cleared away. Once files start
+  arriving is marked as such every megabyte, so one file that takes more than a day isn't cleared away.
+  A file nothing more of arrives for 45 seconds is given up on with a 408, which frees its turn, since
+  a connection can go without either end hearing of it. Once files start
   moving into place, all of them are moved, even if the browser has gone. Without `merge`, nothing
   is overwritten: a name already taken arrives as `name 2`, a folder included. With `merge`, a
   folder joins the one already there and a file takes the place of the file there; a folder
@@ -106,8 +121,18 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   the list in My files, where a folder's row — or a folder above, in the path — takes them into
   that folder; a drop anywhere else is refused rather than letting the browser open the file in
   place of Uncloud. The
-  page sends three files at a time with progress, retries one whose connection drops, skips one Uncloud refuses by name, and
-  gives up on the whole upload when the drive runs out of room or the session ends. If Uncloud doesn't
+  page sends three files at a time with progress, retries one whose connection drops — or that
+  Uncloud answers with a 408, or that nothing of has moved for a minute, which the page aborts — skips
+  one Uncloud refuses by name, and gives up on the whole upload when the drive runs out of room or the
+  session ends. When the connection is still gone after three tries, it keeps what arrived rather
+  than throwing it away, and an upload picked up from an earlier try is kept whatever ends it — a
+  refusal while sending, or while putting them in place — except **Stop**, since what that try left
+  was never this one's to throw away. A page that opens lists the unfinished uploads not its own: while one is
+  still arriving it asks again every 15 seconds for a little over a minute, long enough for its own last
+  files from before a refresh to be noticed gone — including one Uncloud gives up on after 45 seconds,
+  and the few seconds after that it still counts as arriving — and each stopped one is offered to be put in place
+  as it is (where it was going, finished with its `merge`) or thrown away. Adding the same files
+  again picks it up, sending only the rest. If Uncloud doesn't
   answer the request to put them in place, the page says they may already be there and reads My files
   again, rather than inviting them to be added twice. More can be chosen or dropped while one is on
   its way: each waits in line on the page and goes once those ahead of it are in, one at a time, so

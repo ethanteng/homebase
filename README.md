@@ -282,6 +282,12 @@ On **My files**, click **Add files** and choose where they are:
   other ways in, the page is what's sending them. **Stop** ends it early, and then nothing from it
   is added. You can keep adding while some are still on their way: each waits its turn above your
   files and goes once the ones before it are in, and **Remove** takes one away before it starts.
+  A file that stops moving for a minute is sent again.
+
+  If the page is closed or refreshed partway, or the connection drops for good, what arrived is kept
+  for a day, and **My files** says so the next time you open it. Add the same files again and only
+  the rest is sent. **Add what arrived** puts what's there in place as it is, without the rest, and
+  **Throw away** deletes it.
 
   If some of it is already there — a folder you added before, say, with new things in it since —
   Uncloud says so before sending anything: how many files are new, how many have changed, and how

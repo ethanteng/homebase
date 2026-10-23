@@ -112,6 +112,24 @@ export interface UploadComparison {
   folders: string[];
 }
 
+/// An upload a page began and never finished, and what of it arrived.
+export interface UnfinishedUpload {
+  id: string;
+  /// Where it was going, or null for one begun before Uncloud kept that.
+  destination: string | null;
+  /// Whether it was to bring what's there up to date, which is how it's put in place.
+  merge: boolean;
+  /// What's at the top of it: the folder that was being added, usually.
+  names: string[];
+  files: number;
+  bytes: number;
+  lastArrived: string;
+  /// When Uncloud lets go of it, if nothing more arrives.
+  keptUntil: string;
+  /// A file of it is arriving now, or one just did, so a page still sending it isn't offered this.
+  arriving: boolean;
+}
+
 export interface StorageReport {
   // The volume is shared by everyone on this host; the usage is the signed-in account's own.
   // With an allotment set, free and total are Uncloud's share of the volume rather than all of it.

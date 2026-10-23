@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Homebase.Core;
@@ -10,7 +12,8 @@ namespace Homebase.Core;
 /// An upload arrives a file per request, so one that is stopped, or whose browser goes away, would
 /// otherwise leave half a folder behind. Each is gathered instead in a folder of its own under the
 /// account's <c>.homebase</c> — out of sight, never copied or synced, and on the same drive — and
-/// moved into My files whole once the last file is in, the way a copy is.
+/// moved into My files whole once the last file is in, the way a copy is. One whose page went away
+/// partway is kept for a while, so that adding the same files again sends only what hadn't arrived.
 /// </summary>
 public sealed partial class LibraryService
 {
@@ -31,26 +34,202 @@ public sealed partial class LibraryService
 
     private readonly SemaphoreSlim _receiving = new(ReceivingAtOnce, ReceivingAtOnce);
 
+    /// <summary>How many files are arriving now for each upload, by its id.</summary>
+    private readonly ConcurrentDictionary<string, int> _arriving = new();
+
+    /// <summary>
+    /// How long a file can go with nothing more of it arriving before it's given up on. A connection
+    /// can go without either end hearing of it, and the file would otherwise wait for the rest of
+    /// itself for ever, holding one of the account's turns. Shorter than the page waits before trying
+    /// a file again, so the turn is back by then.
+    /// </summary>
+    public TimeSpan StalledAfter { get; init; } = TimeSpan.FromSeconds(45);
+
+    /// <summary>
+    /// How long an upload still counts as arriving after a file has, while nothing else is arriving
+    /// yet. The next file isn't asked for until this one has been answered, so there's always a gap —
+    /// a round trip, and on a slow tunnel that can be a few seconds. Without this, a page that asked
+    /// in that gap would be told the upload had stopped, and could throw away one that's still going.
+    /// Adding the same files again doesn't wait out this gap: only a file actually arriving blocks that.
+    /// </summary>
+    public TimeSpan StillArrivingFor { get; init; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// When an upload with nothing in flight stops counting as arriving, by its id, in
+    /// <see cref="Environment.TickCount64"/>.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, long> _quietUntil = new();
+
+    /// <summary>Where an upload is going, kept in it so it can still be put there once the page that began it has gone.</summary>
+    private sealed record Intent(string? Destination, bool Merge);
+
+    /// <summary>The name of the file in an upload saying where it's going: hidden, so it's never sent or placed.</summary>
+    private const string IntentFile = ".upload.json";
+
+    /// <summary>Starts an upload of files nothing is known of beforehand, which is never one picked up again.</summary>
+    /// <returns>The id every file in this upload is sent under.</returns>
+    public async Task<string> BeginUploadAsync(string? destination, long bytes, CancellationToken cancellationToken) =>
+        (await BeginUploadAsync(destination, bytes, merge: false, files: null, cancellationToken)).Id;
+
     /// <summary>
     /// Starts an upload into <paramref name="destination"/>, refusing up front one the drive has no
     /// room for or that would land where an import is writing, rather than after it has been sent.
+    /// When the same files were being added before and didn't all arrive, that upload is picked up
+    /// instead, with which of them are there already, so that only the rest is sent.
     /// </summary>
     /// <param name="bytes">What the browser says it is about to send, all of it together.</param>
-    /// <returns>The id every file in this upload is sent under.</returns>
-    public async Task<string> BeginUploadAsync(string? destination, long bytes, CancellationToken cancellationToken)
+    /// <param name="merge">Whether it's to be finished by bringing what's there up to date, kept for after the page has gone.</param>
+    /// <param name="files">What the browser is about to send, which is how an upload of the same files is found.</param>
+    public async Task<BegunUpload> BeginUploadAsync(
+        string? destination, long bytes, bool merge, IReadOnlyList<UploadFile>? files, CancellationToken cancellationToken)
     {
         await _edits.WaitAsync(cancellationToken);
         try
         {
-            AwayFromImport([], Folder(destination), "added");
-            NeedRoomFor(Math.Max(bytes, 0), "add less at once");
+            var folder = Folder(destination);
+            AwayFromImport([], folder, "added");
             var uploads = UploadsFolder();
             PurgeUploads(uploads);
-            var id = Guid.NewGuid().ToString("N");
-            Directory.CreateDirectory(Path.Combine(uploads, id));
-            return id;
+            var resumed = files is null ? null : Resumable(uploads, files);
+            // What arrived before is on the drive already; only the rest needs room.
+            NeedRoomFor(Math.Max(bytes - (resumed?.Bytes ?? 0), 0), "add less at once");
+            var id = resumed?.Id ?? Guid.NewGuid().ToString("N");
+            var upload = Path.Combine(uploads, id);
+            Directory.CreateDirectory(upload);
+            // Picked up again, it goes where it's being added now and is finished the way chosen now.
+            var intent = Path.Combine(upload, IntentFile);
+            PathPolicy.RejectLink(intent);
+            File.WriteAllText(intent, JsonSerializer.Serialize(new Intent(Relative(folder), merge), RecordFormat));
+            return new BegunUpload(id, resumed?.Arrived ?? []);
         }
         finally { _edits.Release(); }
+    }
+
+    /// <summary>
+    /// An upload nobody finished — its page closed partway, or its connection gave out — every file of
+    /// which is among <paramref name="files"/>, the same size and last changed at the same time: the
+    /// same files being added again, of which only the rest need be sent. Where it was going before
+    /// doesn't matter; the same files are the same files. One with a file arriving now is a page still
+    /// sending it, and is left to that page. One that only just finished a file is not: the page that
+    /// was sending it may have given up, and adding the same files again shouldn't have to wait.
+    /// </summary>
+    private (string Id, List<string> Arrived, long Bytes)? Resumable(string uploads, IReadOnlyList<UploadFile> files)
+    {
+        // Compared as the same characters however they were composed: a Mac's names often aren't
+        // composed the way the browser's are.
+        var sending = new Dictionary<string, UploadFile>(StringComparer.Ordinal);
+        foreach (var file in files)
+            if (file.Path is { Length: > 0 } path) sending.TryAdd(path.Normalize(NormalizationForm.FormC), file);
+        if (sending.Count == 0) return null;
+        // The latest first: the one most likely to be what's being added again.
+        var candidates = new DirectoryInfo(uploads).EnumerateDirectories()
+            .Where(upload => UploadId().IsMatch(upload.Name) && upload.LinkTarget is null && !Arriving(upload.Name))
+            .OrderByDescending(upload => upload.LastWriteTimeUtc)
+            .ToArray();
+        foreach (var upload in candidates)
+        {
+            List<string>? arrived = [];
+            long bytes = 0;
+            try
+            {
+                foreach (var (path, there) in ArrivedIn(upload.FullName))
+                {
+                    if (!sending.TryGetValue(path.Normalize(NormalizationForm.FormC), out var file)
+                        || file.Bytes != there.Length || When(file.Modified) is not { } changed
+                        || (there.LastWriteTimeUtc - changed.UtcDateTime).Duration() > SameTime)
+                    {
+                        // Something in it isn't being sent now, so finishing it would add that too.
+                        arrived = null;
+                        break;
+                    }
+                    arrived.Add(file.Path!);
+                    bytes += there.Length;
+                }
+            }
+            // Finished or thrown away while it was looked at.
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { continue; }
+            if (arrived is { Count: > 0 }) return (upload.Name, arrived, bytes);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The uploads begun and never finished, with what of each arrived, for as long as they're kept:
+    /// a page closed partway, or a connection that gave out. One with nothing in it isn't listed,
+    /// having nothing to keep. One with a file arriving now, or that just finished one, is still being
+    /// sent — by another page, perhaps — and says so, so it isn't offered to be thrown away in the
+    /// gap before the next file.
+    /// </summary>
+    public IReadOnlyList<UnfinishedUpload> UnfinishedUploads(CancellationToken cancellationToken)
+    {
+        var cutoff = DateTime.UtcNow - KeepAbandonedUploadsFor;
+        var unfinished = new List<UnfinishedUpload>();
+        foreach (var upload in new DirectoryInfo(UploadsFolder()).EnumerateDirectories())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            // Past its time it's as good as gone: the next upload begun clears it away.
+            if (!UploadId().IsMatch(upload.Name) || upload.LinkTarget is not null || upload.LastWriteTimeUtc < cutoff) continue;
+            try
+            {
+                var files = 0;
+                long bytes = 0;
+                foreach (var (_, file) in ArrivedIn(upload.FullName))
+                {
+                    files++;
+                    bytes += file.Length;
+                }
+                if (files == 0) continue;
+                var names = Gathered(upload.FullName).Select(entry => entry.Name).ToArray();
+                Intent? intent = null;
+                try { intent = JsonSerializer.Deserialize<Intent>(File.ReadAllText(Path.Combine(upload.FullName, IntentFile)), RecordFormat); }
+                // Begun before uploads said where they were going, it can still be picked up, but not put anywhere by itself.
+                catch (Exception error) when (error is FileNotFoundException or JsonException) { }
+                var lastArrived = new DateTimeOffset(upload.LastWriteTimeUtc, TimeSpan.Zero);
+                unfinished.Add(new UnfinishedUpload(upload.Name, intent?.Destination, intent?.Merge ?? false, names, files, bytes,
+                    lastArrived, lastArrived + KeepAbandonedUploadsFor, ShownArriving(upload.Name)));
+            }
+            // Finished or thrown away while it was looked at.
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        }
+        return unfinished.OrderByDescending(upload => upload.LastArrived).ToArray();
+    }
+
+    /// <summary>Every file that has arrived whole in an upload, by its path in it: not the parts still arriving, which are hidden.</summary>
+    private static IEnumerable<(string Path, FileInfo File)> ArrivedIn(string upload)
+    {
+        var folders = new Stack<(DirectoryInfo Folder, string Above)>([(new DirectoryInfo(upload), "")]);
+        while (folders.TryPop(out var next))
+            foreach (var entry in next.Folder.EnumerateFileSystemInfos("*", Children))
+            {
+                if (Unseen(entry)) continue;
+                var path = next.Above.Length == 0 ? entry.Name : $"{next.Above}/{entry.Name}";
+                if (entry is DirectoryInfo folder) folders.Push((folder, path));
+                else yield return (path, (FileInfo)entry);
+            }
+    }
+
+    private bool Arriving(string id) => _arriving.TryGetValue(id, out var count) && count > 0;
+
+    /// <summary>
+    /// Whether a page should be told this upload is still being sent: a file is arriving now, or one
+    /// just did and the next hasn't started, which is only the round trip away.
+    /// </summary>
+    private bool ShownArriving(string id) => Arriving(id) || RecentlyQuiet(id);
+
+    /// <summary>The gap after a file has arrived, during which <see cref="ShownArriving"/> stays true.</summary>
+    private void NoteQuiet(string id)
+    {
+        var grace = StillArrivingFor;
+        if (grace <= TimeSpan.Zero) return;
+        _quietUntil[id] = Environment.TickCount64 + (long)grace.TotalMilliseconds;
+    }
+
+    private bool RecentlyQuiet(string id)
+    {
+        if (!_quietUntil.TryGetValue(id, out var until)) return false;
+        if (Environment.TickCount64 < until) return true;
+        _quietUntil.TryRemove(new(id, until));
+        return false;
     }
 
     /// <summary>
@@ -90,6 +269,8 @@ public sealed partial class LibraryService
         // same free space and, between them, take the room held back.
         if (!_receiving.Wait(0))
             throw new LibraryException("Too many files are arriving at once. Wait for some to finish, then try again.", "busy");
+        // Counted, so one still arriving is never picked up by another page, nor said to have stopped.
+        _arriving.AddOrUpdate(id!, 1, (_, count) => count + 1);
         try
         {
             // A retry: what arrived of this file before is replaced, so it goes first and its room with it.
@@ -112,14 +293,24 @@ public sealed partial class LibraryService
             Directory.CreateDirectory(parts);
             var arriving = Path.Combine(parts, Guid.NewGuid().ToString("N"));
             long written = 0;
+            using var quiet = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             try
             {
                 await using (var file = new FileStream(arriving, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
                 {
                     var buffer = new byte[81920];
                     long sinceAsked = 0;
-                    for (int read; (read = await content.ReadAsync(buffer, cancellationToken)) > 0;)
+                    for (;;)
                     {
+                        quiet.CancelAfter(StalledAfter);
+                        int read;
+                        try { read = await content.ReadAsync(buffer, quiet.Token); }
+                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                        {
+                            throw new LibraryException(
+                                $"Nothing more of “{Path.GetFileName(target)}” arrived for a while. Try adding it again.", "timeout");
+                        }
+                        if (read == 0) break;
                         written += read;
                         sinceAsked += read;
                         var full = written > room;
@@ -157,8 +348,19 @@ public sealed partial class LibraryService
             Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow);
             return written;
         }
-        finally { _receiving.Release(); }
+        finally
+        {
+            // The last file to finish opens the gap before the next. Still say it's arriving, so a
+            // page that asks in that gap doesn't offer to throw a live upload away.
+            if (_arriving.AddOrUpdate(id!, 0, (_, count) => count - 1) == 0 && _arriving.TryRemove(new(id!, 0)))
+                NoteQuiet(id!);
+            _receiving.Release();
+        }
     }
+
+    /// <summary>When the browser says a file was last changed, unless it's a time it can't have meant.</summary>
+    private static DateTimeOffset? When(long? modified) =>
+        modified is > 0 and < 253402300800000 ? DateTimeOffset.FromUnixTimeMilliseconds(modified.Value) : null;
 
     /// <summary>How far apart two times a file was last changed can be and still be the same time: a
     /// drive formatted for Windows keeps them only to two seconds.</summary>
@@ -186,8 +388,7 @@ public sealed partial class LibraryService
             try { there = new FileInfo(PathPolicy.Resolve(folder, path)); }
             catch (Exception error) when (error is LibraryException or IOException) { continue; }
             if (!there.Exists) continue;
-            DateTimeOffset? sent = file.Modified is > 0 and < 253402300800000
-                ? DateTimeOffset.FromUnixTimeMilliseconds(file.Modified.Value) : null;
+            var sent = When(file.Modified);
             // Without a time there's no telling it's the same, nor which is newer; sending it replaces
             // the one there, which the bin keeps.
             if (sent is null) changed.Add(path);
@@ -238,6 +439,7 @@ public sealed partial class LibraryService
                 }
             // A recursive delete removes a link it meets rather than following it.
             Directory.Delete(upload, recursive: true);
+            if (id is not null) _quietUntil.TryRemove(id, out _);
             return new FinishedUpload(placed, replaced);
         }
         finally { _edits.Release(); }
@@ -313,6 +515,7 @@ public sealed partial class LibraryService
             var upload = Path.Combine(UploadsFolder(), id);
             PathPolicy.RejectLink(upload);
             if (Directory.Exists(upload)) Directory.Delete(upload, recursive: true);
+            _quietUntil.TryRemove(id, out _);
         }
         finally { _edits.Release(); }
     }

@@ -69,6 +69,8 @@ beforeEach(() => {
     if (path.startsWith("/storage")) return Promise.resolve(json(STORAGE));
     // Each account is told about its own import and nobody else's, as the server does.
     if (path.startsWith("/imports/job")) return Promise.resolve(json({ job: signedIn === "ada" ? ADAS_IMPORT : null }));
+    // No uploads left unfinished by an earlier page.
+    if (path === "/uploads") return Promise.resolve(json([]));
     if (path.startsWith("/files")) return Promise.resolve(json({ path: "", entries: [], skippedCount: 0, indexedAt: "" }));
     return Promise.resolve(json({}));
   });
