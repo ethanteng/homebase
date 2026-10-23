@@ -499,9 +499,13 @@ export function useUpload(active: boolean, onUploaded: () => void) {
       }
       // Whatever went wrong this time, what an earlier try left was never this one's to throw away.
       if (fatal !== null && resumed > 0) {
+        // "Nothing was added" would deny the files this try picked up.
         update(key, {
           stage: "failed",
-          error: `${fatal} What had arrived is kept for a day, so adding the same files again sends only the rest.`,
+          error:
+            fatal === signedOut
+              ? "You were signed out, so the rest wasn’t added. What had arrived is kept for a day. Sign in, then add the same files again and only the rest is sent."
+              : `${fatal.replace("so nothing was added", "so not all of it was added")} What had arrived is kept for a day, so adding the same files again sends only the rest.`,
         });
         return;
       }

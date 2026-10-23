@@ -1014,6 +1014,22 @@ describe("when the connection or the page goes away partway", () => {
     expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u1", body: null });
   });
 
+  it("keeps what an earlier try left when the session ends while the rest is on its way", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path === "/uploads" && method === "POST" ? json({ id: "u7", arrived: ["Holiday/sea.jpg"] }) : accept(path, method, body);
+    FakeRequest.respond = (request) => request.finish(401, { detail: "Sign in to Uncloud to continue." });
+    render(<Harness chosen={pickedFrom([file("Holiday/sea.jpg", "sea!"), file("Holiday/day 1/map.pdf", "a map")])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "You were signed out, so the rest wasn’t added. What had arrived is kept for a day",
+    );
+    expect(screen.getByRole("status")).not.toHaveTextContent("nothing was added");
+    expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+  });
+
   it("keeps what an earlier try left when Uncloud refuses something this time", async () => {
     const accept = accepting();
     answer = (path, method, body) =>
