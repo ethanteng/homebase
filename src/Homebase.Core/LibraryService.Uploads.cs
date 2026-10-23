@@ -213,12 +213,17 @@ public sealed partial class LibraryService
     private bool Arriving(string id) => _arriving.TryGetValue(id, out var count) && count > 0;
 
     /// <summary>
-    /// Whether a page should be told this upload is still being sent: a file is arriving now, or one
-    /// just did and the next hasn't started, which is only the round trip away.
+    /// Whether a page should be told this upload is still being sent: a file is arriving now, or the
+    /// last request for one just ended and the next hasn't started. That gap is
+    /// <see cref="StillArrivingFor"/> — a minute, longer than the half-minute a page waits between
+    /// tries — so a page still trying isn't offered to be thrown away.
     /// </summary>
     private bool ShownArriving(string id) => Arriving(id) || RecentlyQuiet(id);
 
-    /// <summary>The gap after a file has arrived, during which <see cref="ShownArriving"/> stays true.</summary>
+    /// <summary>
+    /// The gap after the last in-flight request ends, whether the file arrived or the attempt failed,
+    /// during which <see cref="ShownArriving"/> stays true.
+    /// </summary>
     private void NoteQuiet(string id)
     {
         var grace = StillArrivingFor;
