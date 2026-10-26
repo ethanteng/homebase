@@ -220,14 +220,16 @@ export default function ImportStatus({ job, onStop, onDismiss, onOpen }: Props) 
           ? `Stopped adding ${job.label}. What had already arrived (${formatSize(job.bytes)}) is in your files.`
           : `Stopped adding ${job.label}.`
         : more
-          ? `Added ${files(count)} from ${job.label} (${formatSize(job.result!.bytes)}). That’s as many as one go brings — add ${job.label} again for the rest.`
+          ? // Not "that's as many as one go brings": some of the batch may not have arrived, and
+            // the count added is then smaller than the limit it stopped at.
+            `Added ${files(count)} from ${job.label} (${formatSize(job.result!.bytes)}). There’s more there than one go brings — add ${job.label} again for the rest.`
           : count === 0
             ? `You already have everything in ${job.label}.`
             : `Added ${files(count)} from ${job.label} (${formatSize(job.result!.bytes)}).`;
 
   return (
     <section
-      className={`import-progress import-outcome${job.stage === "Failed" ? " failed" : ""}`}
+      className={`import-progress import-outcome${job.stage === "Failed" ? " failed" : more ? " more" : ""}`}
       role="status"
     >
       <div className="import-progress-head">

@@ -64,10 +64,20 @@ describe("an import stopped at the most one brings", () => {
   });
 
   it("asks for the rest when it finishes", () => {
-    show(finished(true));
+    const { container } = show(finished(true));
 
     expect(screen.getByText(/Added 20,000 files from Dropbox/)).toBeTruthy();
     expect(screen.getByText(/add Dropbox again for the rest/)).toBeTruthy();
+    expect(container.querySelector(".import-outcome.more")).not.toBeNull();
+  });
+
+  it("doesn't pass off what arrived as the limit when some of the batch didn't", () => {
+    const job = finished(true);
+    show({ ...job, result: { ...job.result!, importedCount: 19950 } });
+
+    expect(screen.getByText(/Added 19,950 files from Dropbox/)).toBeTruthy();
+    expect(screen.getByText(/There’s more there than one go brings/)).toBeTruthy();
+    expect(screen.queryByText(/as many as one go brings/)).toBeNull();
   });
 
   it("doesn't ask for more once everything has come", () => {
