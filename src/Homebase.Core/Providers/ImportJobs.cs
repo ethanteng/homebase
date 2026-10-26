@@ -28,6 +28,8 @@ public sealed record ImportJob(
     int CompletedFiles,
     long Bytes,
     string? CurrentFile,
+    /// <summary>The total is only as many as one import brings, not everything that was chosen.</summary>
+    bool More,
     ImportResult? Result,
     string? Error,
     DateTimeOffset StartedAt,
@@ -66,7 +68,7 @@ public sealed class ImportJobs(ImportService imports, ILogger<ImportJobs> logger
                     "Uncloud is already bringing files home. Let that finish, or stop it first.", "busy");
             cancellation = new CancellationTokenSource();
             job = new ImportJob(Guid.NewGuid().ToString("N"), sourceId, remotePaths, Name(label, remotePaths),
-                ImportStage.Measuring, 0, 0, 0, null, null, null, DateTimeOffset.UtcNow, null);
+                ImportStage.Measuring, 0, 0, 0, null, false, null, null, DateTimeOffset.UtcNow, null);
             _cancellation = cancellation;
             _job = job;
         }
@@ -94,7 +96,8 @@ public sealed class ImportJobs(ImportService imports, ILogger<ImportJobs> logger
             TotalFiles = update.TotalFiles,
             CompletedFiles = update.CompletedFiles,
             Bytes = update.Bytes,
-            CurrentFile = update.CurrentFile
+            CurrentFile = update.CurrentFile,
+            More = update.More
         }));
         try
         {

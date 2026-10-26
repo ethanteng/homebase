@@ -26,11 +26,16 @@ public sealed record SkippedItem(string RemotePath, string Reason, bool Expected
 /// Files passed over because they were already here. Counted rather than listed: adding a large
 /// folder again would otherwise answer with a line for every file it brought last time.
 /// </param>
+/// <param name="More">
+/// The walk stopped at the most one import brings, so there is more where these came from that
+/// wasn't visited. Adding the same again carries on from there.
+/// </param>
 public sealed record ImportResult(
     IReadOnlyList<ImportedItem> Imported,
     IReadOnlyList<SkippedItem> Skipped,
     long Bytes,
-    int AlreadyHere = 0)
+    int AlreadyHere = 0,
+    bool More = false)
 {
     public int ImportedCount => Imported.Count;
     public int SkippedCount => Skipped.Count;
@@ -48,5 +53,9 @@ public sealed record ImportEstimate(
     long? FreeBytes,
     bool Fits);
 
-/// <summary>How far an import has got. Bytes are what has arrived, not what was asked for.</summary>
-public sealed record ImportProgress(int TotalFiles, int CompletedFiles, long Bytes, string? CurrentFile);
+/// <summary>
+/// How far an import has got. Bytes are what has arrived, not what was asked for. When
+/// <paramref name="More"/> is set the total is only the first of it — as many as one import
+/// brings — and not everything in the folder.
+/// </summary>
+public sealed record ImportProgress(int TotalFiles, int CompletedFiles, long Bytes, string? CurrentFile, bool More = false);

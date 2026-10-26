@@ -31,11 +31,13 @@ const ADAS_IMPORT = {
   completedFiles: 1,
   bytes: 375,
   currentFile: null,
+  more: false,
   result: {
     imported: [{ localPath: "Documents/From UncloudHost.rtf", remotePath: "/From UncloudHost.rtf", size: 375 }],
     skipped: [],
     bytes: 375,
     alreadyHere: 0,
+    more: false,
     importedCount: 1,
     skippedCount: 0,
   },
