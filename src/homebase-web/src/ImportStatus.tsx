@@ -131,6 +131,19 @@ function arrivedIn(job: ImportJob): string | null {
   return common.join("/");
 }
 
+function files(count: number) {
+  return `${count.toLocaleString()} file${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * How far it has got. One import brings only so many files, so when it stopped there the total is
+ * the first of them, and saying "of 20,000" alone would read as all there is.
+ */
+function progressText(job: ImportJob) {
+  const of = job.more ? "of the first" : "of";
+  return `${job.completedFiles.toLocaleString()} ${of} ${files(job.totalFiles)}`;
+}
+
 interface Props {
   job: ImportJob;
   onStop: () => void;
@@ -174,11 +187,7 @@ export default function ImportStatus({ job, onStop, onDismiss, onOpen }: Props) 
           aria-valuemin={0}
           aria-valuemax={job.totalFiles || undefined}
           aria-valuenow={job.totalFiles ? job.completedFiles : undefined}
-          aria-valuetext={
-            job.totalFiles
-              ? `${job.completedFiles} of ${job.totalFiles} files`
-              : "Counting the files"
-          }
+          aria-valuetext={job.totalFiles ? progressText(job) : "Counting the files"}
         >
           <div
             className={`progress-fill${job.totalFiles ? "" : " counting"}`}
@@ -192,7 +201,7 @@ export default function ImportStatus({ job, onStop, onDismiss, onOpen }: Props) 
         <span className="muted">
           {job.totalFiles === 0
             ? "Counting the files first."
-            : `${job.completedFiles} of ${job.totalFiles} file${job.totalFiles === 1 ? "" : "s"} · ${formatSize(job.bytes)}`}
+            : `${progressText(job)} · ${formatSize(job.bytes)}`}
           {" · "}You can close this page. It keeps going.
         </span>
       </section>
@@ -201,6 +210,7 @@ export default function ImportStatus({ job, onStop, onDismiss, onOpen }: Props) 
   const problems = (job.result?.skipped ?? []).filter((skip) => !skip.expected);
   const folder = arrivedIn(job);
   const count = job.result?.importedCount ?? 0;
+  const more = job.stage === "Done" && job.result?.more === true;
 
   const message =
     job.stage === "Failed"
@@ -209,18 +219,22 @@ export default function ImportStatus({ job, onStop, onDismiss, onOpen }: Props) 
         ? job.bytes > 0
           ? `Stopped adding ${job.label}. What had already arrived (${formatSize(job.bytes)}) is in your files.`
           : `Stopped adding ${job.label}.`
-        : count === 0
-          ? `You already have everything in ${job.label}.`
-          : `Added ${count} file${count === 1 ? "" : "s"} from ${job.label} (${formatSize(job.result!.bytes)}).`;
+        : more
+          ? // Not "that's as many as one go brings": some of the batch may not have arrived, and
+            // the count added is then smaller than the limit it stopped at.
+            `Added ${files(count)} from ${job.label} (${formatSize(job.result!.bytes)}). There’s more there than one go brings — add ${job.label} again for the rest.`
+          : count === 0
+            ? `You already have everything in ${job.label}.`
+            : `Added ${files(count)} from ${job.label} (${formatSize(job.result!.bytes)}).`;
 
   return (
     <section
-      className={`import-progress import-outcome${job.stage === "Failed" ? " failed" : ""}`}
+      className={`import-progress import-outcome${job.stage === "Failed" ? " failed" : more ? " more" : ""}`}
       role="status"
     >
       <div className="import-progress-head">
         <strong>
-          {job.stage === "Failed" || problems.length > 0 ? (
+          {job.stage === "Failed" || problems.length > 0 || more ? (
             <TriangleAlert size={16} />
           ) : (
             <CircleCheck size={16} />

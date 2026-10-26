@@ -704,7 +704,10 @@ failing the rest; anything wider, like an expired Dropbox connection, fails the 
 for one. The top of a Dropbox account can be added whole — Dropbox won't describe its own root, so
 Uncloud doesn't ask. Files already here are counted (`alreadyHere` in the result) rather than carried
 through the import, and don't count towards the 20,000 files one import collects at most, so adding
-the same thing again after reaching the limit carries on from where the last one stopped.
+the same thing again after reaching the limit carries on from where the last one stopped. An import
+that stops at the limit says so (`more` on the job and its result): its progress counts "of the
+first 20,000" rather than passing the limit off as the size of the folder, and when it finishes it
+asks for the same thing to be added again for the rest.
 
 An import runs on its own rather than inside the request that started it, so **My files** shows how
 far it has got — how many of how many files, and how much has arrived — and **Stop** ends it.

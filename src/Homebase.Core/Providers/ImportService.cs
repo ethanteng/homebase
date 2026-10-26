@@ -77,12 +77,12 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             // brought home cannot change while this holds the gate.
             var alreadyHome = log.LocalPaths(root);
             var done = 0;
-            progress?.Report(new ImportProgress(collected.Count, done, bytes, null));
+            progress?.Report(new ImportProgress(collected.Count, done, bytes, null, walked.More));
 
             foreach (var file in collected)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                progress?.Report(new ImportProgress(collected.Count, done, bytes, file.DisplayPath));
+                progress?.Report(new ImportProgress(collected.Count, done, bytes, file.DisplayPath, walked.More));
                 try
                 {
                     var item = await ImportOneAsync(source, root, alreadyHome, file, cancellationToken);
@@ -102,8 +102,8 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
                 }
                 done++;
             }
-            progress?.Report(new ImportProgress(collected.Count, done, bytes, null));
-            return new ImportResult(imported, skipped, bytes, walked.HomeFiles);
+            progress?.Report(new ImportProgress(collected.Count, done, bytes, null, walked.More));
+            return new ImportResult(imported, skipped, bytes, walked.HomeFiles, walked.More);
         }
         finally
         {
@@ -240,8 +240,11 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         return entries;
     }
 
-    /// <summary>What a walk found: the files to go through, and how much was already here.</summary>
-    private sealed record Collected(IReadOnlyList<SourceEntry> Files, int HomeFiles, long HomeBytes);
+    /// <summary>
+    /// What a walk found: the files to go through, how much was already here, and whether it
+    /// stopped at the cap with more left unvisited.
+    /// </summary>
+    private sealed record Collected(IReadOnlyList<SourceEntry> Files, int HomeFiles, long HomeBytes, bool More);
 
     /// <summary>Flattens files and folders into the ordinary files worth importing.</summary>
     private async Task<Collected> CollectAsync(
@@ -251,10 +254,12 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         var files = new List<SourceEntry>();
         var homeFiles = 0;
         long homeBytes = 0;
-        Collected Done() => new(files, homeFiles, homeBytes);
+        var more = false;
+        Collected Done() => new(files, homeFiles, homeBytes, more);
         // Takes one file in, or says to stop here. A file already here is counted rather than kept,
         // and doesn't count towards the cap, which is what lets adding the same again carry on past
-        // it. Stopping quietly at the cap would read as a complete import, so what was left is said.
+        // it. Stopping quietly at the cap would read as a complete import — and the cap as the size
+        // of the folder — so stopping there is flagged for the progress and the result to say.
         bool StopAt(SourceEntry file)
         {
             if (alreadyHome(file))
@@ -270,8 +275,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             }
             logger.LogWarning("{Provider} import has more than {MaxEntries} new files, so it stopped at {RemotePath}",
                 source.ProviderId, MaxEntries, file.DisplayPath);
-            skipped.Add(new SkippedItem(file.DisplayPath,
-                $"Uncloud brings at most {MaxEntries:N0} new files at a time, so the rest wasn’t visited. Add the same again to bring the rest."));
+            more = true;
             return true;
         }
 

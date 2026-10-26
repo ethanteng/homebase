@@ -443,6 +443,8 @@ export interface ImportResult {
   bytes: number;
   // Passed over because they were already here: counted rather than listed.
   alreadyHere: number;
+  // Stopped at the most one import brings, with more left where these came from.
+  more: boolean;
   importedCount: number;
   skippedCount: number;
 }
@@ -461,6 +463,8 @@ export interface ImportJob {
   completedFiles: number;
   bytes: number;
   currentFile: string | null;
+  // The total is only the first of it, as many as one import brings, not everything chosen.
+  more: boolean;
   result: ImportResult | null;
   error: string | null;
   startedAt: string;

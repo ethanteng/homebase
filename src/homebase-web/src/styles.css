@@ -1946,6 +1946,10 @@ tbody tr.selected {
   color: var(--ok);
   flex-shrink: 0;
 }
+/* Stopped at the most one import brings: not a failure, but not everything either. */
+.import-outcome.more .import-progress-head strong svg {
+  color: var(--warn);
+}
 .import-outcome.failed {
   border-color: var(--danger-line);
   background: var(--danger-bg);

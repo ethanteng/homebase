@@ -418,7 +418,35 @@ public sealed class ImportTests : IDisposable
 
         Assert.Equal(2, result.ImportedCount);
         // The point of the finding: a truncated import must not read as a complete one.
-        Assert.Contains(result.Skipped, skip => skip.Reason.Contains("wasn’t visited"));
+        Assert.True(result.More);
+        // Nor as files that couldn't be added: nothing was wrong with the ones not reached yet.
+        Assert.Empty(result.Skipped);
+    }
+
+    [Fact]
+    public async Task An_import_stopped_at_the_file_limit_says_its_total_is_only_the_first_of_it()
+    {
+        // Counted as "2 of 2" alone, the limit reads as the size of the folder.
+        _dropbox.AddFolder("/notes");
+        for (var index = 0; index < 5; index++)
+            _dropbox.AddFile($"/notes/file{index}.txt", "rev1", $"File {index}.");
+        var imports = new ImportService(_library, new ImportLog(), NullLogger<ImportService>.Instance)
+            { MaxEntries = 2 };
+        var jobs = new ImportJobs(imports, NullLogger<ImportJobs>.Instance);
+
+        jobs.Start(_dropbox, DropboxApi.ProviderName, "/notes", "notes");
+        var first = await Settled(jobs);
+        jobs.Start(_dropbox, DropboxApi.ProviderName, "/notes", "notes");
+        await Settled(jobs);
+        jobs.Start(_dropbox, DropboxApi.ProviderName, "/notes", "notes");
+        var last = await Settled(jobs);
+
+        Assert.Equal(2, first.TotalFiles);
+        Assert.True(first.More);
+        Assert.True(first.Result!.More);
+        Assert.Equal(1, last.TotalFiles);
+        Assert.False(last.More);
+        Assert.False(last.Result!.More);
     }
 
     [Fact]
@@ -441,7 +469,7 @@ public sealed class ImportTests : IDisposable
         // grow past the limit it was meant to keep.
         Assert.Equal([0, 2, 4], [first.AlreadyHere, second.AlreadyHere, third.AlreadyHere]);
         Assert.DoesNotContain(third.Skipped, skip => skip.Expected);
-        Assert.DoesNotContain(third.Skipped, skip => skip.Reason.Contains("wasn’t visited"));
+        Assert.Equal([true, true, false], [first.More, second.More, third.More]);
         Assert.Equal(5, imports.Imported().Count);
     }
 
@@ -490,8 +518,9 @@ public sealed class ImportTests : IDisposable
         var second = await imports.ImportAsync(_dropbox, ["/notes.txt", "/art"], null, CancellationToken.None);
 
         Assert.Equal(2, first.ImportedCount);
-        Assert.Contains(first.Skipped, skip => skip.Reason.Contains("wasn’t visited"));
+        Assert.True(first.More);
         Assert.Equal(1, second.ImportedCount);
+        Assert.False(second.More);
     }
 
     [Fact]
