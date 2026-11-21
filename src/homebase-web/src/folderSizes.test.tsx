@@ -85,6 +85,70 @@ describe("folder sizes", () => {
   });
 });
 
+describe("the strip above My files", () => {
+  it("counts everything inside its folders, and says it's still counting until they're measured", async () => {
+    const finish: Record<string, (response: Response) => void> = {};
+    answer = (path) => {
+      if (path.startsWith("/files/size")) {
+        const folder = new URLSearchParams(path.split("?")[1]).get("path")!;
+        if (folder === "Stuck") return json({ detail: "No." }, 409);
+        return new Promise<Response>((resolve) => {
+          finish[folder] = resolve;
+        });
+      }
+      return listingOf([entry("Docs", true, null), entry("Photos", true, null), entry("Stuck", true, null)]);
+    };
+    const summary = renderBrowser();
+
+    await waitFor(() => expect(summary()).toHaveTextContent("3 folders"));
+    // Nothing is measured yet, so there's no total to show, and no 0 passed off as one.
+    expect(summary()).toHaveTextContent("Counting files…");
+    expect(summary()).toHaveTextContent("Measuring…");
+    await waitFor(() => expect(summary()).toHaveTextContent("1 folder couldn’t be measured"));
+
+    await waitFor(() => expect(finish.Docs).toBeDefined());
+    await act(async () => finish.Docs(json({ bytes: 2048, files: 3 })));
+    await waitFor(() => expect(summary()).toHaveTextContent("3 files so far"));
+    expect(summary()).toHaveTextContent("2 KB in files so far");
+
+    await waitFor(() => expect(finish.Photos).toBeDefined());
+    await act(async () => finish.Photos(json({ bytes: 5 * 1024 * 1024, files: 1200 })));
+    await waitFor(() => expect(summary()).toHaveTextContent("1,203 files"));
+    expect(summary()).toHaveTextContent("5 MB in files");
+    expect(summary()).not.toHaveTextContent("so far");
+  });
+
+  it("counts the files sitting in a folder with no folders in it", async () => {
+    answer = () => listingOf([entry("a.txt", false, 10), entry("b.txt", false, 30)]);
+    const summary = renderBrowser();
+
+    await waitFor(() => expect(summary()).toHaveTextContent("0 folders"));
+    expect(summary()).toHaveTextContent("2 files");
+    expect(summary()).toHaveTextContent("40 B in files");
+    expect(summary()).not.toHaveTextContent("so far");
+  });
+});
+
+function listingOf(entries: ReturnType<typeof entry>[]) {
+  return json({ path: "", entries, skippedCount: 0, indexedAt: "" });
+}
+
+/** My files at its top, and a way to read the strip above the list. */
+function renderBrowser() {
+  const { container } = render(
+    <FileBrowser
+      rootPath="/u"
+      path=""
+      revision={0}
+      navigate={() => {}}
+      onAdd={() => {}}
+      onChanged={() => {}}
+      onDropFiles={async () => {}}
+    />,
+  );
+  return () => container.querySelector(".library-summary") as HTMLElement;
+}
+
 describe("everything in a folder", () => {
   it("shows what the whole of Dropbox holds, and adds all of it at once", async () => {
     const posted: unknown[] = [];

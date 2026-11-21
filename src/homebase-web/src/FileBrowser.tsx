@@ -183,9 +183,22 @@ export default function FileBrowser({
     });
   const folderCount =
     listing?.entries.filter((entry) => entry.isDirectory).length ?? 0;
-  const fileCount = (listing?.entries.length ?? 0) - folderCount;
-  const bytes =
-    listing?.entries.reduce((sum, entry) => sum + (entry.size ?? 0), 0) ?? 0;
+  // Everything under this folder, not only what sits in it: a folder counts once its size has
+  // been measured, so the totals run upwards as sizes arrive, and say so until they're done.
+  const total = { files: 0, bytes: 0, measuring: 0, unmeasured: 0 };
+  for (const entry of listing?.entries ?? []) {
+    const size = entry.isDirectory
+      ? folderSizes[entry.path]
+      : { bytes: entry.size ?? 0, files: 1 };
+    if (size === undefined) total.measuring++;
+    else if (size === null) total.unmeasured++;
+    else {
+      total.files += size.files;
+      total.bytes += size.bytes;
+    }
+  }
+  const counting = total.measuring > 0 && total.files === 0;
+  const soFar = total.measuring > 0 ? " so far" : "";
   const SortArrow = descending ? ArrowDown : ArrowUp;
   // Only what is on screen is acted on: a tick the filter has hidden isn't something anybody can
   // see they are about to delete.
@@ -364,9 +377,24 @@ export default function FileBrowser({
             : `${folderCount} ${folderCount === 1 ? "folder" : "folders"}`}
         </span>
         <span>
-          {loading ? "—" : `${fileCount} ${fileCount === 1 ? "file" : "files"}`}
+          {loading
+            ? "—"
+            : counting
+              ? "Counting files…"
+              : `${total.files.toLocaleString()} ${total.files === 1 ? "file" : "files"}${soFar}`}
         </span>
-        <span>{loading ? "—" : `${formatSize(bytes)} in files`}</span>
+        <span>
+          {loading
+            ? "—"
+            : counting
+              ? "Measuring…"
+              : `${formatSize(total.bytes)} in files${soFar}`}
+        </span>
+        {!loading && total.unmeasured > 0 && (
+          <span className="summary-unmeasured">
+            {`${total.unmeasured} ${total.unmeasured === 1 ? "folder" : "folders"} couldn’t be measured`}
+          </span>
+        )}
         <span className="summary-local">
           <i className="status-dot" />
           Stored at home
