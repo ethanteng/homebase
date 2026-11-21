@@ -3,25 +3,27 @@ import type { FormEvent } from "react";
 import { Check, Copy, LoaderCircle, RefreshCw, Trash2, UserPlus, X } from "lucide-react";
 import { api, formatSize } from "./api";
 import type { ManagedUser, User } from "./api";
+import { WORDS } from "./words";
 
 interface Props {
   me: User;
 }
 
-// Short, ordinary words: easy to read out to somebody and type in, and long enough to be hard to
-// guess. Picked with the browser's own random numbers.
-const WORDS = [
-  "maple", "river", "candle", "harbor", "meadow", "pepper", "violet", "lantern", "orchard",
-  "pebble", "willow", "copper", "garden", "thunder", "biscuit", "canyon", "marble", "sparrow",
-  "button", "comet", "velvet", "acorn", "island", "summit", "cobalt", "tulip", "falcon", "basket",
-  "honey", "cedar", "pillow", "ripple", "saddle", "timber", "walnut", "zephyr",
-];
+// A whole number from 0 up to (not including) `limit`, from the browser's own random numbers.
+// Draws that would favour the low numbers are thrown away and drawn again, so every one is as
+// likely as the next.
+function randomBelow(limit: number) {
+  const ceiling = Math.floor(0x1_0000_0000 / limit) * limit;
+  const draw = new Uint32Array(1);
+  do crypto.getRandomValues(draw);
+  while (draw[0] >= ceiling);
+  return draw[0] % limit;
+}
 
+/** Four everyday words and a number, like "maple-river-candle-harbor-427": about 50 bits. */
 export function suggestPassword() {
-  const pick = new Uint32Array(4);
-  crypto.getRandomValues(pick);
-  const words = Array.from(pick.slice(0, 3), (n) => WORDS[n % WORDS.length]);
-  return `${words.join("-")}-${10 + (pick[3] % 90)}`;
+  const words = Array.from({ length: 4 }, () => WORDS[randomBelow(WORDS.length)]);
+  return `${words.join("-")}-${100 + randomBelow(900)}`;
 }
 
 /** Who has an account on this host. Only an admin ever sees this. */

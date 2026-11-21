@@ -164,8 +164,9 @@ export default function App() {
   });
   const [dialog, setDialog] = useState<Dialog>(() => (arriving ? "add" : null));
   // Sent from the Uncloud menu on the host Mac, which opens Settings rather than leaving somebody
-  // to find it. Taken off the address, like the others, so a reload doesn't reopen it.
-  const [askedForSettings] = useState(() => {
+  // to find it — after signing in, if they have to. Taken off the address, like the others, so a
+  // reload doesn't reopen it.
+  const [askedForSettings, setAskedForSettings] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     if (!params.has("settings")) return false;
     params.delete("settings");
@@ -314,6 +315,12 @@ export default function App() {
   useEffect(() => {
     if ((view === "settings" || view === "users") && me && !me.isAdmin) setView("files");
   }, [view, me]);
+
+  // Spent once somebody is signed in, whether they arrived signed in or signed in to get there, so
+  // signing out and back in later lands on their files as usual.
+  useEffect(() => {
+    if (me) setAskedForSettings(false);
+  }, [me]);
 
   useEffect(() => {
     if (dropboxFocus && (view === "settings" || view === "account"))
