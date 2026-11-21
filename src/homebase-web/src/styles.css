@@ -1271,7 +1271,8 @@ tbody tr.selected {
     gap: 10px;
   }
   .library-summary > span:nth-child(2),
-  .library-summary > span:nth-child(3) {
+  .library-summary > span:nth-child(3),
+  .library-summary > .summary-unmeasured {
     padding-left: 10px;
   }
   .library-summary > span {
