@@ -118,6 +118,19 @@ describe("the strip above My files", () => {
     expect(summary()).not.toHaveTextContent("so far");
   });
 
+  it("shows no total, not a 0, when none of its folders could be measured", async () => {
+    answer = (path) =>
+      path.startsWith("/files/size")
+        ? json({ detail: "No." }, 409)
+        : listingOf([entry("Docs", true, null), entry("Photos", true, null)]);
+    const summary = renderBrowser();
+
+    await waitFor(() => expect(summary()).toHaveTextContent("2 folders couldn’t be measured"));
+    expect(summary()).not.toHaveTextContent("0 files");
+    expect(summary()).not.toHaveTextContent("0 B");
+    expect(summary()).not.toHaveTextContent("Counting files…");
+  });
+
   it("counts the files sitting in a folder with no folders in it", async () => {
     answer = () => listingOf([entry("a.txt", false, 10), entry("b.txt", false, 30)]);
     const summary = renderBrowser();

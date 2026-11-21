@@ -198,6 +198,9 @@ export default function FileBrowser({
     }
   }
   const counting = total.measuring > 0 && total.files === 0;
+  // Every folder failed and nothing sits loose beside them: a 0 would read as an empty folder,
+  // when it's only that nothing could be counted.
+  const uncounted = !counting && total.unmeasured > 0 && total.files === 0;
   const soFar = total.measuring > 0 ? " so far" : "";
   const SortArrow = descending ? ArrowDown : ArrowUp;
   // Only what is on screen is acted on: a tick the filter has hidden isn't something anybody can
@@ -377,14 +380,14 @@ export default function FileBrowser({
             : `${folderCount} ${folderCount === 1 ? "folder" : "folders"}`}
         </span>
         <span>
-          {loading
+          {loading || uncounted
             ? "—"
             : counting
               ? "Counting files…"
               : `${total.files.toLocaleString()} ${total.files === 1 ? "file" : "files"}${soFar}`}
         </span>
         <span>
-          {loading
+          {loading || uncounted
             ? "—"
             : counting
               ? "Measuring…"
