@@ -53,13 +53,13 @@ describe("a synced folder short of room", () => {
 
     const line = await screen.findByText(/2 files are waiting for room on this Uncloud/);
     expect(line).toHaveClass("error-message");
-    expect(screen.queryByText(/up to date/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/up to date/i)).not.toBeInTheDocument();
   });
 
   it("is up to date as ever when nothing is waiting", async () => {
     folders = [folder(0)];
     render(<SyncPanel me={ME} onSignOut={() => {}} />);
 
-    expect(await screen.findByText(/up to date · 12 files/)).toHaveClass("muted");
+    expect(await screen.findByText(/Up to date · 12 files/)).toHaveClass("muted");
   });
 });

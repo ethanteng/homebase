@@ -113,6 +113,13 @@ a {
   color: inherit;
   text-decoration: none;
 }
+/* A link in a sentence has to look like one; links dressed as buttons keep their own look. */
+.field-help a:not([class]),
+.library-note a:not([class]) {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 button:focus-visible,
 a:focus-visible,
 input:focus-visible {
@@ -2541,6 +2548,17 @@ tbody tr.selected {
   margin-bottom: 14px;
   color: var(--text);
 }
+/* Says it opens, and turns to say it's open. */
+.advanced-section > summary::-webkit-details-marker {
+  display: none;
+}
+.advanced-section > summary svg {
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.advanced-section[open] > summary svg {
+  transform: rotate(90deg);
+}
 
 /* A card that asks for something back rather than just saying something: the code from a sign-in
    Dropbox had nowhere to return. The box wants the room, so it takes the card's full width. */
@@ -3334,9 +3352,51 @@ dialog.side-sheet::backdrop {
   align-items: flex-start;
   gap: 14px;
 }
-.steps li > span:last-child {
+.step-body {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+/* The other way to do a step, said as one phrase under it and lined up with its words. */
+.step-alternative {
+  margin-top: 8px;
+}
+.pairing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.pairing .pairing-code {
+  flex-wrap: wrap;
+}
+.pairing .field-help {
+  margin: 0;
+}
+
+/* Choosing a folder to sync, under the folders that already do. */
+.import-section-head .section-lead {
+  margin: 4px 0 0;
+}
+.sync-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0;
+}
+.sync-choice label {
+  font-size: 15px;
+  font-weight: 600;
+}
+.sync-choice .muted {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.sync-choice .sync-form {
+  margin-bottom: 0;
 }
 .step-number {
   display: grid;

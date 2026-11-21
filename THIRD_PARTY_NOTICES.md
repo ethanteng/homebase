@@ -70,7 +70,9 @@ available exact-version license and notice texts. MIT/ISC/BSD attribution and
 Apache license/NOTICE requirements continue to apply to distributed code.
 The interface's typeface, **Atkinson Hyperlegible Next** (via @fontsource/atkinson-hyperlegible-next
 5.3.0), is bundled with the interface under the **SIL Open Font License 1.1**; its license is
-reproduced in THIRD_PARTY_LICENSES.txt.
+reproduced in THIRD_PARTY_LICENSES.txt. Its Latin files are a Modified Version, with the zero
+mirrored so its slash runs the usual way, distributed under the same license
+(src/homebase-web/src/fonts).
 **lightningcss 1.33.0** and its optional binaries use MPL-2.0, but are development
 build tools in this lockfile; review if the tools themselves are distributed.
 
