@@ -573,7 +573,7 @@ export default function AddFiles({
   // Where the dialog is, from the top, as something to click back along.
   const root =
     where.at === "computer" || (where.at === "place" && place?.mine)
-      ? { name: "Host computer", to: { at: "computer" } as Where }
+      ? { name: "Uncloud computer", to: { at: "computer" } as Where }
       : where.at === "device"
         ? { name: "This device", to: where }
         : where.at === "shared" || where.at === "place"
@@ -612,7 +612,7 @@ export default function AddFiles({
     </div>
   );
 
-  // Host computer, from the top: the folders on it, whether used before or not, all alike.
+  // Uncloud computer, from the top: the folders on it, whether used before or not, all alike.
   if (where.at === "computer") {
     const rows = [
       ...mine.map((candidate) => ({ key: candidate.id, place: candidate, suggestion: null })),
