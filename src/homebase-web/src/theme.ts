@@ -14,9 +14,13 @@ export function savedTheme(): Theme {
   }
 }
 
+/** Matches --bg in styles.css, for the browser chrome around the page. */
+const themeColor: Record<Theme, string> = { light: "#ffffff", dark: "#16181c" };
+
 /** Every colour is a token that data-theme on <html> switches, so this is the whole change. */
 export function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeColor[theme]);
 }
 
 /** The current theme, and a way to flip it that this browser remembers. */
