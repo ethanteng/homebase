@@ -86,7 +86,7 @@ describe("the bin", () => {
     render(<Bin open={vi.fn()} onChanged={vi.fn()} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("The drive isn’t answering.");
-    expect(screen.queryByText("The bin is empty")).toBeNull();
+    expect(screen.queryByText("Trash is empty")).toBeNull();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
     await click(screen.getByRole("button", { name: "Try again" }));
 
@@ -97,10 +97,10 @@ describe("the bin", () => {
   it("puts a thing back and offers to go to it", async () => {
     const { open, onChanged } = await show();
 
-    await click(screen.getByRole("button", { name: "Put back notes.txt" }));
+    await click(screen.getByRole("button", { name: "Restore notes.txt" }));
 
     expect(sent).toEqual([{ path: "/bin/restore", body: { ids: ["a".repeat(32)] } }]);
-    await screen.findByText("Put “notes.txt” back in Documents.");
+    await screen.findByText("Restored “notes.txt” to Documents.");
     expect(screen.queryByText("notes.txt")).toBeNull();
     expect(onChanged).toHaveBeenCalled();
     await click(screen.getByRole("button", { name: "Open Documents" }));
@@ -111,9 +111,9 @@ describe("the bin", () => {
     restoredTo = "Documents/notes 2.txt";
     await show();
 
-    await click(screen.getByRole("button", { name: "Put back notes.txt" }));
+    await click(screen.getByRole("button", { name: "Restore notes.txt" }));
 
-    await screen.findByText(/It’s called “notes 2.txt”, because “notes.txt” was taken there/);
+    await screen.findByText(/Renamed to “notes 2.txt” because “notes.txt” already exists there/);
   });
 
   it("deletes for good only once somebody has said yes", async () => {
@@ -121,19 +121,19 @@ describe("the bin", () => {
     await show();
 
     await click(screen.getByRole("button", { name: "Delete forever notes.txt" }));
-    await click(screen.getByRole("button", { name: /empty bin/i }));
+    await click(screen.getByRole("button", { name: /empty trash/i }));
     expect(sent).toEqual([]);
 
     confirm.mockReturnValue(true);
     await click(screen.getByRole("button", { name: "Delete forever notes.txt" }));
-    await screen.findByText("Deleted “notes.txt” for good.");
-    await click(screen.getByRole("button", { name: /empty bin/i }));
-    await screen.findByText("The bin is empty");
+    await screen.findByText("Deleted “notes.txt” forever.");
+    await click(screen.getByRole("button", { name: /empty trash/i }));
+    await screen.findByText("Trash is empty");
 
     expect(sent).toEqual([
       { path: "/bin/delete", body: { ids: ["a".repeat(32)] } },
       { path: "/bin/empty", body: null },
     ]);
-    expect(screen.getByRole("button", { name: /empty bin/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /empty trash/i })).toBeDisabled();
   });
 });

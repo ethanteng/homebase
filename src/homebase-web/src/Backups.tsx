@@ -121,14 +121,8 @@ export default function Backups({ onChanged, open }: Props) {
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">BACKED UP EVERY NIGHT</span>
-          <h1>
-            Backups<span className="heading-dot">.</span>
-          </h1>
-          <p>
-            Your files as they were in a backup. Put anything back where it was: whatever’s there now
-            stays, and what comes back sits beside it.
-          </p>
+          <h1>Backups</h1>
+          <p>Restore anything as it was. Nothing you have now is replaced.</p>
         </div>
         <div className="heading-actions">
           {backups.length > 0 && (
@@ -218,13 +212,13 @@ export default function Backups({ onChanged, open }: Props) {
             <div className="empty-state">
               <History size={36} />
               <h2>Backups aren’t set up</h2>
-              <p>Whoever looks after this Uncloud can set them up in Settings, under Backing up offsite.</p>
+              <p>An admin can turn them on in Settings, under Offsite backup.</p>
             </div>
           ) : backups.length === 0 ? (
             <div className="empty-state">
               <History size={36} />
               <h2>No backups yet</h2>
-              <p>The first one is made soon after backups are set up, then one every night.</p>
+              <p>The first one runs soon after backups are turned on, then every night.</p>
             </div>
           ) : folderError ? (
             <div className="empty-state" role="alert">

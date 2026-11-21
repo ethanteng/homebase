@@ -34,7 +34,7 @@ export default function DropboxAppSteps({ redirectUri, scopes, idPrefix }: Props
           Create an app on dropbox.com
           <ExternalLink size={13} />
         </a>{" "}
-        — choose <strong>Scoped access</strong> and <strong>Full Dropbox</strong>.
+        with <strong>Scoped access</strong> and <strong>Full Dropbox</strong>.
       </li>
       <li>
         On its <strong>Permissions</strong> tab, tick{" "}
@@ -44,12 +44,10 @@ export default function DropboxAppSteps({ redirectUri, scopes, idPrefix }: Props
             <code>{scope}</code>
           </span>
         ))}
-        , then <strong>Submit</strong>. These are read-only: Uncloud cannot change
-        anything in anybody’s Dropbox.
+        , then <strong>Submit</strong>. These only let Uncloud read.
       </li>
       <li>
-        On its <strong>Settings</strong> tab, add this exact{" "}
-        <strong>Redirect URI</strong>:
+        On its <strong>Settings</strong> tab, add this <strong>Redirect URI</strong>:
         <span className="copy-row">
           <code>{redirectUri}</code>
           <button
@@ -64,7 +62,7 @@ export default function DropboxAppSteps({ redirectUri, scopes, idPrefix }: Props
         </span>
       </li>
       <li>
-        Copy that app’s <strong>App key</strong> into the box below.
+        Paste its <strong>App key</strong> below.
       </li>
     </ol>
   );
@@ -73,9 +71,8 @@ export default function DropboxAppSteps({ redirectUri, scopes, idPrefix }: Props
 export function AppKeyReassurance() {
   return (
     <>
-      <ShieldCheck size={14} /> An app key isn’t a password. It only lets Uncloud ask Dropbox for
-      permission: each person still signs in to their own Dropbox, and Uncloud can only read it,
-      never change it.
+      <ShieldCheck size={14} /> An app key isn’t a password. Everyone still signs in to their own
+      Dropbox, and Uncloud can only read it.
     </>
   );
 }

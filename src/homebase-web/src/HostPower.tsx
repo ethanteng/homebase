@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { CircleCheck, Power, TriangleAlert } from "lucide-react";
 import { api } from "./api";
 import type { HostPower as Report } from "./api";
+import { SettingsGroup, StatusLine } from "./Settings";
 
 /**
  * What could stop this host staying on for everybody: going to sleep, a laptop's lid, its battery,
@@ -26,28 +26,22 @@ export default function HostPower() {
   if (!report?.checked) return null;
 
   return (
-    <section className="import-section host-power">
-      <div className="import-section-head">
-        <h3>
-          <Power size={16} />
-          Keeping this host on
-        </h3>
-      </div>
+    <SettingsGroup title="This Mac" note="Files are only available while it’s on.">
       {report.findings.length === 0 ? (
-        <p className="power-clear">
-          <CircleCheck size={14} />
-          <span>Nothing Uncloud can see should stop this Mac staying on for everyone.</span>
-        </p>
+        <StatusLine tone="ok">Nothing should stop it staying on.</StatusLine>
       ) : (
-        <ul className="power-findings">
+        <ul className="status-list">
           {report.findings.map((finding) => (
             <li key={`${finding.code} ${finding.title}`}>
-              <TriangleAlert size={14} />
-              <span>{finding.message}</span>
+              {/* FileVault is worth knowing about, not fixing: it's what keeps the files safe. */}
+              <StatusLine tone={finding.code === "filevault" ? "info" : "warn"}>
+                {finding.title}
+                <small>{finding.message}</small>
+              </StatusLine>
             </li>
           ))}
         </ul>
       )}
-    </section>
+    </SettingsGroup>
   );
 }

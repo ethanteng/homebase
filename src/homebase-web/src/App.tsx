@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
-  ArrowUpRight,
   Files,
+  HardDrive,
+  History,
   Laptop,
   LoaderCircle,
   LogOut,
-  HardDrive,
-  House,
+  Moon,
+  Plus,
   Settings2,
+  Sun,
   Trash2,
-  History,
   UserRound,
   Users,
   X,
@@ -28,13 +30,16 @@ import FileBrowser from "./FileBrowser";
 import Bin from "./Bin";
 import Backups from "./Backups";
 import SyncPanel from "./SyncPanel";
-import HostSetup from "./HostSetup";
+import HostSetup, { LocationSetting, RemoteAccessSetting } from "./HostSetup";
+import { SettingsGroup } from "./Settings";
 import SignIn from "./SignIn";
 import UsersPanel from "./UsersPanel";
 import AccountPanel from "./AccountPanel";
+import { useTheme } from "./theme";
+import { versionLabel } from "./version";
 
-type View = "files" | "bin" | "backups" | "sync" | "users";
-type Dialog = "add" | "host" | "account" | null;
+type View = "files" | "bin" | "backups" | "sync" | "users" | "settings" | "account";
+type Dialog = "add" | null;
 
 function readPath() {
   try {
@@ -44,9 +49,104 @@ function readPath() {
   }
 }
 
+/** The logo with the version under it, and the theme switch: on every screen, signed in or not. */
+function Header({ children }: { children?: ReactNode }) {
+  const { theme, toggle } = useTheme();
+  const label = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+  return (
+    <header className="app-header">
+      <a href="#" className="brand" aria-label="Uncloud home">
+        <img className="brand-mark" src="/uncloud.png" width="36" height="36" alt="" />
+        <span className="brand-text">
+          <span className="brand-name">uncloud</span>
+          {versionLabel && <span className="brand-version">{versionLabel}</span>}
+        </span>
+      </a>
+      <div className="header-actions">
+        {children}
+        <button className="round-button" onClick={toggle} aria-label={label} title={label}>
+          {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
+        </button>
+      </div>
+    </header>
+  );
+}
+
+/** Whoever is signed in, behind their initial: their account, and the way out. */
+function AccountMenu({
+  me,
+  onAccount,
+  onSignOut,
+}: {
+  me: User;
+  onAccount: () => void;
+  onSignOut: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: Event) => {
+      if (!wrap.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+  const name = me.displayName || me.username;
+  return (
+    <div className="account-menu-wrap" ref={wrap}>
+      <button
+        className="avatar-button"
+        aria-label={`Account: ${name}`}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((value) => !value)}
+      >
+        {name.slice(0, 1).toUpperCase()}
+      </button>
+      {open && (
+        <div className="account-menu" role="menu">
+          <div className="account-menu-who">
+            <strong>{name}</strong>
+            <span>@{me.username}</span>
+          </div>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onAccount();
+            }}
+          >
+            <UserRound size={18} />
+            My account
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onSignOut();
+            }}
+          >
+            <LogOut size={18} />
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
-  const [library, setLibrary] = useState<LibraryState | null>(null);
+  // Undefined until the host has said; null when it has no folder yet.
+  const [library, setLibrary] = useState<LibraryState | null | undefined>(undefined);
   // Whether this Uncloud has backups to look in, so My files offers them only where it does.
   const [backupsAvailable, setBackupsAvailable] = useState(false);
   const [storage, setStorage] = useState<StorageReport | null>(null);
@@ -62,12 +162,13 @@ export default function App() {
       window.history.replaceState(null, "", window.location.pathname + window.location.hash);
     return outcome;
   });
-  const [dialog, setDialog] = useState<Dialog>(() => {
-    if (arriving) return "add";
-    // Sent from the Uncloud menu on the host Mac, which opens Settings rather than leaving
-    // somebody to find it. Taken off the address, like the others, so a reload doesn't reopen it.
+  const [dialog, setDialog] = useState<Dialog>(() => (arriving ? "add" : null));
+  // Sent from the Uncloud menu on the host Mac, which opens Settings rather than leaving somebody
+  // to find it — after signing in, if they have to. Taken off the address, like the others, so a
+  // reload doesn't reopen it.
+  const [askedForSettings, setAskedForSettings] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    if (!params.has("settings")) return null;
+    if (!params.has("settings")) return false;
     params.delete("settings");
     const rest = params.toString();
     window.history.replaceState(
@@ -75,11 +176,11 @@ export default function App() {
       "",
       window.location.pathname + (rest ? `?${rest}` : "") + window.location.hash,
     );
-    return "host";
+    return true;
   });
   // Arriving from the QR code the Uncloud app shows on a computer it's setting up: that computer
-  // has asked to be added, and this person approves it on My computers — after signing in, if
-  // they have to. Taken off the address too, so a reload later doesn't ask all over again.
+  // has asked to be added, and this person approves it on Computers — after signing in, if they
+  // have to. Taken off the address too, so a reload later doesn't ask all over again.
   const [approving, setApproving] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("pair");
@@ -96,7 +197,9 @@ export default function App() {
   });
   // Somebody sent to set up Dropbox should land on that, not have to find it.
   const [dropboxFocus, setDropboxFocus] = useState(false);
-  const [view, setView] = useState<View>(() => (approving ? "sync" : "files"));
+  const [view, setView] = useState<View>(() =>
+    approving ? "sync" : askedForSettings ? "settings" : "files",
+  );
   // Held in state rather than a ref alone: the dialog is only rendered once there is a session to
   // show, so an "open" decided before that — arriving back from Dropbox, say — would otherwise be
   // made against an element that does not exist yet, and nothing would reopen it when it appeared.
@@ -113,7 +216,7 @@ export default function App() {
     setSession((current) =>
       current ? { ...current, user: null } : { setupNeeded: false, hostConfigured: false, user: null },
     );
-    setLibrary(null);
+    setLibrary(undefined);
     setStorage(null);
     // A computer asking to be added was asking whoever opened its code. Left unanswered, it isn't
     // put to whoever signs in next on this browser, who would be adding somebody else's computer
@@ -128,11 +231,7 @@ export default function App() {
       .then(setSession)
       .catch((failure: unknown) => {
         if (!controller.signal.aborted)
-          setError(
-            failure instanceof Error
-              ? failure.message
-              : "Couldn’t reach this Uncloud.",
-          );
+          setError(failure instanceof Error ? failure.message : "Couldn’t reach Uncloud.");
       });
     return () => controller.abort();
   }, []);
@@ -211,20 +310,25 @@ export default function App() {
     } else dialogElement?.close();
   }, [dialog, dialogElement]);
 
-  // Settings are for whoever looks after this Uncloud. Anybody else sent to them gets nothing to
-  // close instead of an empty dialog.
+  // Settings and People are for whoever looks after this Uncloud. Anybody else sent to them gets
+  // their files instead of an empty page.
   useEffect(() => {
-    if (dialog === "host" && me && !me.isAdmin) setDialog(null);
-  }, [dialog, me]);
+    if ((view === "settings" || view === "users") && me && !me.isAdmin) setView("files");
+  }, [view, me]);
+
+  // Spent once somebody is signed in, whether they arrived signed in or signed in to get there, so
+  // signing out and back in later lands on their files as usual.
+  useEffect(() => {
+    if (me) setAskedForSettings(false);
+  }, [me]);
 
   useEffect(() => {
-    if (dialog && dropboxFocus)
+    if (dropboxFocus && (view === "settings" || view === "account"))
       document.getElementById("dropbox-setup")?.scrollIntoView({ block: "start" });
-  }, [dialog, dropboxFocus]);
+  }, [view, dropboxFocus]);
 
   function closeDialog() {
     setDialog(null);
-    setDropboxFocus(false);
     // Spent on the dialog it opened. Kept any longer, opening Add files again later would land on
     // Dropbox and repeat how that sign-in went, as though another had just finished.
     setArriving(null);
@@ -236,10 +340,19 @@ export default function App() {
     window.scrollTo({ top: 0 });
   }
 
+  function show(next: View) {
+    setView(next);
+    setDropboxFocus(false);
+    if (next === "files") navigate("");
+    else window.scrollTo({ top: 0 });
+  }
+
   function onSignedIn(user: User) {
     setSession({ setupNeeded: false, hostConfigured: true, user });
     setError("");
-    setView(approving ? "sync" : "files");
+    // The Mac menu opens /?settings before this browser is signed in. Keep that request, the way a
+    // computer asking to be added is kept, instead of leaving an admin on My files.
+    setView(approving ? "sync" : askedForSettings && user.isAdmin ? "settings" : "files");
     navigate("");
   }
 
@@ -255,17 +368,15 @@ export default function App() {
   if (error)
     return (
       <div className="app-shell">
+        <Header />
         <main>
           <div className="main-content">
             <div className="empty-state connection-error" role="alert">
               <HardDrive size={35} />
-              <h1>Let’s reconnect</h1>
+              <h1>Can’t reach Uncloud</h1>
               <p>{error}</p>
-              <p className="muted">Make sure this Uncloud is still running.</p>
-              <button
-                className="button primary"
-                onClick={() => window.location.reload()}
-              >
+              <p className="muted">Check that the Uncloud computer is on.</p>
+              <button className="button primary" onClick={() => window.location.reload()}>
                 Try again
               </button>
             </div>
@@ -277,6 +388,7 @@ export default function App() {
   if (!session)
     return (
       <div className="app-shell">
+        <Header />
         <main>
           <div className="main-content">
             <div className="file-loading" role="status">
@@ -291,6 +403,7 @@ export default function App() {
   if (!me)
     return (
       <div className="app-shell">
+        <Header />
         <main>
           <div className="main-content">
             <SignIn session={session} onSignedIn={onSignedIn} />
@@ -299,280 +412,237 @@ export default function App() {
       </div>
     );
 
+  if (library === undefined)
+    return (
+      <div className="app-shell">
+        <Header />
+        <main>
+          <div className="main-content">
+            <div className="file-loading" role="status">
+              <LoaderCircle className="spin" size={24} />
+              Opening Uncloud…
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+
   const hasFolder = library?.rootPath != null;
+
+  // Setting up: one thing to do, so nothing else on screen.
+  if (!hasFolder && me.isAdmin && view !== "account")
+    return (
+      <div className="app-shell">
+        <Header>
+          <AccountMenu me={me} onAccount={() => show("account")} onSignOut={() => void signOut()} />
+        </Header>
+        <main>
+          <div className="main-content">
+            <HostSetup onSaved={() => setRevision((value) => value + 1)} />
+          </div>
+        </main>
+      </div>
+    );
+
+  const navItem = (target: View, icon: ReactNode, label: string, disabled = false) => (
+    <button
+      className={`nav-item${view === target ? " active" : ""}`}
+      aria-current={view === target ? "page" : undefined}
+      onClick={() => show(target)}
+      disabled={disabled}
+    >
+      {icon}
+      {label}
+    </button>
+  );
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <a href="#" className="brand" aria-label="Uncloud home">
-          <img
-            className="brand-mark"
-            src="/uncloud.png"
-            width="34"
-            height="34"
-            alt=""
-          />
-          uncloud<span className="version">v0</span>
-        </a>
-        <div className="sidebar-section">
-          <span className="nav-label">YOUR UNCLOUD</span>
+      <Header>
+        {hasFolder && (
           <button
-            className={`nav-item${view === "files" ? " active" : ""}`}
+            className="button primary header-add"
+            aria-label="Add files"
             onClick={() => {
-              setView("files");
-              navigate("");
+              // Files from this device go into the folder open in My files.
+              if (view !== "files") setView("files");
+              setDialog("add");
             }}
           >
-            <Files size={19} />
-            My files<span className="nav-shortcut">⌂</span>
+            <Plus size={18} />
+            <span className="header-add-label">Add files</span>
           </button>
-          <button
-            className={`nav-item${view === "bin" ? " active" : ""}`}
-            onClick={() => setView("bin")}
-            disabled={!hasFolder}
-          >
-            <Trash2 size={18} />
-            Bin
-          </button>
-          {backupsAvailable && (
-            <button
-              className={`nav-item${view === "backups" ? " active" : ""}`}
-              onClick={() => setView("backups")}
-              disabled={!hasFolder}
-            >
-              <History size={18} />
-              Backups
-            </button>
-          )}
-          <button
-            className={`nav-item${view === "sync" ? " active" : ""}`}
-            onClick={() => setView("sync")}
-            disabled={!hasFolder}
-          >
-            <Laptop size={18} />
-            My computers
-          </button>
+        )}
+        <AccountMenu me={me} onAccount={() => show("account")} onSignOut={() => void signOut()} />
+      </Header>
+      <div className="app-body">
+        <aside className="sidebar">
+          <nav className="sidebar-section" aria-label="Main">
+            {navItem("files", <Files size={20} />, "My files")}
+            {navItem("sync", <Laptop size={20} />, "Computers", !hasFolder)}
+            {backupsAvailable && navItem("backups", <History size={20} />, "Backups", !hasFolder)}
+            {navItem("bin", <Trash2 size={20} />, "Trash", !hasFolder)}
+          </nav>
           {me.isAdmin && (
-            <>
-              <button
-                className={`nav-item${view === "users" ? " active" : ""}`}
-                onClick={() => setView("users")}
-              >
-                <Users size={18} />
-                People
-              </button>
-              <button className="nav-item" onClick={() => setDialog("host")}>
-                <Settings2 size={18} />
-                Settings
-              </button>
-            </>
+            <nav className="sidebar-section" aria-label="Manage">
+              <span className="nav-label">Manage</span>
+              {navItem("users", <Users size={20} />, "People")}
+              {navItem("settings", <Settings2 size={20} />, "Settings")}
+            </nav>
           )}
-          <button className="nav-item" onClick={() => setDialog("account")}>
-            <UserRound size={18} />
-            My account
-          </button>
-        </div>
-        <div className="sidebar-bottom">
-          {hasFolder ? (
-            <StorageCard storage={storage} isAdmin={me.isAdmin} />
-          ) : (
-            <div className="drive-card">
-              <div className="drive-icon">
-                <HardDrive size={20} />
-                <span className="status-dot" />
-              </div>
-              <strong>Nearly there</strong>
-              <p>
-                {me.isAdmin
-                  ? "Choose where everyone’s files will live."
-                  : "The host hasn’t chosen a folder yet."}
-              </p>
-              <button onClick={() => setDialog("account")}>
-                My account
-                <ArrowUpRight size={14} />
-              </button>
+          {hasFolder && (
+            <div className="sidebar-pill">
+              <StoragePill storage={storage} />
             </div>
           )}
-          <div className="local-status">
-            <span className="status-dot" />
-            <span>@{me.username}</span>
-            <button
-              className="icon-button"
-              onClick={() => void signOut()}
-              aria-label="Sign out"
-              title="Sign out"
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
-        </div>
-      </aside>
-      <main>
-        <header className="topbar">
-          <div>
-            <House size={15} />
-            <span>Uncloud</span>
-            <span className="slash">/</span>
-            <strong>
-              {view === "bin"
-                ? "Bin"
-                : view === "backups"
-                  ? "Backups"
-                  : view === "sync"
-                  ? "My computers"
-                  : view === "users"
-                    ? "People"
-                    : "My files"}
-            </strong>
-          </div>
-          <span className="topbar-status">
-            {hasFolder && <StoragePill storage={storage} />}
-          </span>
-        </header>
-        <div className="main-content">
-          {view === "users" && me.isAdmin ? (
-            <UsersPanel me={me} />
-          ) : hasFolder && view === "sync" ? (
-            <SyncPanel
-              me={me}
-              // "Not you?": the wrong account is signed in to add a computer, so the computer's
-              // question waits for the right one.
-              onSignOut={() => void signOut(true)}
-              approving={approving}
-              onApprovalClosed={() => setApproving(null)}
-            />
-          ) : hasFolder && view === "backups" ? (
-            <Backups
-              // What comes back takes room the storage meter should show.
-              onChanged={() => setRevision((value) => value + 1)}
-              open={(folder) => {
-                setView("files");
-                navigate(folder);
-              }}
-            />
-          ) : hasFolder && view === "bin" ? (
-            <Bin
-              // Letting go of something frees room the storage meter should show.
-              onChanged={() => setRevision((value) => value + 1)}
-              open={(folder) => {
-                setView("files");
-                navigate(folder);
-              }}
-            />
-          ) : hasFolder ? (
-            <FileBrowser
-              rootPath={library!.rootPath!}
-              path={path}
-              revision={revision}
-              navigate={navigate}
-              onAdd={() => setDialog("add")}
-              // Dropped onto the list: into the folder it shows, or the folder dropped on.
-              onDropFiles={(folder, picked) => uploads.start(folder, picked)}
-              // The storage meter, too: copying fills the drive and deleting frees it.
-              onChanged={() => setRevision((value) => value + 1)}
-              status={
-                <>
-                  {/* Uploads a page went away from before they were in, for the same files added again to pick up. */}
-                  {uploads.unfinished.map((upload) => (
-                    <UnfinishedStatus
-                      key={upload.id}
-                      upload={upload}
-                      onPlace={() => uploads.place(upload)}
-                      onThrowAway={() => uploads.throwAway(upload.id)}
-                    />
-                  ))}
-                  {/* Each upload from this device, in the order they go: on its way, waiting its turn, or how it went. */}
-                  {uploads.uploads.map((upload) => (
-                    <UploadStatus
-                      key={upload.key}
-                      upload={upload}
-                      onStop={() => uploads.stop(upload.key)}
-                      onDismiss={() => uploads.dismiss(upload.key)}
-                      onOpen={navigate}
-                      onDecide={(merge) => uploads.decide(upload.key, merge)}
-                    />
-                  ))}
-                  {imports.job && (
-                    <ImportStatus
-                      job={imports.job}
-                      onStop={() => void imports.stop()}
-                      onDismiss={imports.dismiss}
-                      onOpen={navigate}
-                    />
-                  )}
-                </>
-              }
-            />
-          ) : me.isAdmin ? (
-            <>
-              <div className="page-heading welcome-heading">
-                <div>
-                  <span className="eyebrow">WELCOME TO UNCLOUD</span>
-                  <h1>
-                    Everyone’s files, at home
-                    <span className="heading-dot">.</span>
-                  </h1>
-                  <p>
-                    A quieter place for your household’s digital life. Let’s
-                    make it yours.
-                  </p>
+          <div className="sidebar-bottom">
+            {hasFolder ? (
+              <StorageCard storage={storage} isAdmin={me.isAdmin} />
+            ) : (
+              <div className="drive-card">
+                <div className="drive-icon">
+                  <HardDrive size={20} />
+                  <span className="status-dot" />
                 </div>
-                <span className="welcome-icon">
-                  <HardDrive size={24} strokeWidth={1.4} />
-                </span>
+                <strong>Almost ready</strong>
+                <p>
+                  {me.isAdmin
+                    ? "Choose where files are stored."
+                    : "Waiting for an admin to finish setup."}
+                </p>
               </div>
-              <HostSetup
-                onSaved={() => setRevision((value) => value + 1)}
+            )}
+          </div>
+        </aside>
+        <main>
+          <div className="main-content">
+            {view === "account" ? (
+              <>
+                <div className="page-heading">
+                  <h1>My account</h1>
+                </div>
+                <AccountPanel me={me} dropboxExpanded={dropboxFocus} />
+              </>
+            ) : view === "settings" && me.isAdmin ? (
+              <>
+                <div className="page-heading">
+                  <h1>Settings</h1>
+                </div>
+                <div className="settings-page">
+                  <SettingsGroup title="Storage">
+                    <LocationSetting onSaved={() => setRevision((value) => value + 1)} />
+                    {/* The storage meter shows the limit, so it is read again once one is saved. A
+                        new location can be a different drive, so the row starts again for it. */}
+                    {hasFolder && (
+                      <HostStorage
+                        key={library!.rootPath!}
+                        onSaved={() => setRevision((value) => value + 1)}
+                      />
+                    )}
+                  </SettingsGroup>
+                  <SettingsGroup title="Access">
+                    <RemoteAccessSetting />
+                    <HostDropbox expanded={dropboxFocus} />
+                  </SettingsGroup>
+                  <HostPower />
+                  {/* Backups set up from here appear in My files without a reload. */}
+                  <HostBackup onChanged={() => setRevision((value) => value + 1)} />
+                </div>
+              </>
+            ) : view === "users" && me.isAdmin ? (
+              <UsersPanel me={me} />
+            ) : hasFolder && view === "sync" ? (
+              <SyncPanel
+                me={me}
+                // "Not you?": the wrong account is signed in to add a computer, so the computer's
+                // question waits for the right one.
+                onSignOut={() => void signOut(true)}
+                approving={approving}
+                onApprovalClosed={() => setApproving(null)}
               />
-              <div className="welcome-footer">
-                <span>Ordinary files. Your own storage.</span>
-                <span>A small beginning. A place to grow.</span>
+            ) : hasFolder && view === "backups" ? (
+              <Backups
+                // What comes back takes room the storage meter should show.
+                onChanged={() => setRevision((value) => value + 1)}
+                open={(folder) => {
+                  setView("files");
+                  navigate(folder);
+                }}
+              />
+            ) : hasFolder && view === "bin" ? (
+              <Bin
+                // Letting go of something frees room the storage meter should show.
+                onChanged={() => setRevision((value) => value + 1)}
+                open={(folder) => {
+                  setView("files");
+                  navigate(folder);
+                }}
+              />
+            ) : hasFolder ? (
+              <FileBrowser
+                rootPath={library!.rootPath!}
+                path={path}
+                revision={revision}
+                navigate={navigate}
+                onAdd={() => setDialog("add")}
+                // Dropped onto the list: into the folder it shows, or the folder dropped on.
+                onDropFiles={(folder, picked) => uploads.start(folder, picked)}
+                // The storage meter, too: copying fills the drive and deleting frees it.
+                onChanged={() => setRevision((value) => value + 1)}
+                status={
+                  <>
+                    {/* Uploads a page went away from before they were in, for the same files added again to pick up. */}
+                    {uploads.unfinished.map((upload) => (
+                      <UnfinishedStatus
+                        key={upload.id}
+                        upload={upload}
+                        onPlace={() => uploads.place(upload)}
+                        onThrowAway={() => uploads.throwAway(upload.id)}
+                      />
+                    ))}
+                    {/* Each upload from this device, in the order they go: on its way, waiting its turn, or how it went. */}
+                    {uploads.uploads.map((upload) => (
+                      <UploadStatus
+                        key={upload.key}
+                        upload={upload}
+                        onStop={() => uploads.stop(upload.key)}
+                        onDismiss={() => uploads.dismiss(upload.key)}
+                        onOpen={navigate}
+                        onDecide={(merge) => uploads.decide(upload.key, merge)}
+                      />
+                    ))}
+                    {imports.job && (
+                      <ImportStatus
+                        job={imports.job}
+                        onStop={() => void imports.stop()}
+                        onDismiss={imports.dismiss}
+                        onOpen={navigate}
+                      />
+                    )}
+                  </>
+                }
+              />
+            ) : (
+              <div className="empty-state" role="status">
+                <HardDrive size={35} />
+                <h1>Almost ready</h1>
+                <p>An admin still needs to choose where files are stored.</p>
+                <p className="muted">Your files will be here once they do.</p>
               </div>
-            </>
-          ) : (
-            <div className="empty-state" role="status">
-              <HardDrive size={35} />
-              <h1>Almost ready</h1>
-              <p>
-                Whoever looks after this Uncloud hasn’t chosen a folder for
-                everyone’s files yet.
-              </p>
-              <p className="muted">
-                Once they have, yours will be waiting here.
-              </p>
-            </div>
-          )}
-        </div>
-      </main>
+            )}
+          </div>
+        </main>
+      </div>
       <dialog
         ref={setDialogElement}
-        className={`settings-dialog${dialog === "add" ? " add-dialog" : ""}`}
+        className="settings-dialog add-dialog"
         onCancel={closeDialog}
         onClose={closeDialog}
-        aria-labelledby="settings-title"
+        aria-labelledby="dialog-title"
       >
         <div className="dialog-header">
-          <div>
-            <span className="eyebrow">
-              {dialog === "account"
-                ? "YOUR ACCOUNT"
-                : dialog === "add"
-                  ? "MY FILES"
-                  : "THIS UNCLOUD"}
-            </span>
-            <h2 id="settings-title">
-              {dialog === "account"
-                ? "Your account"
-                : dialog === "add"
-                  ? "Add files"
-                  : "Settings"}
-            </h2>
-          </div>
-          <button
-            className="icon-button"
-            aria-label="Close"
-            onClick={closeDialog}
-          >
+          <h2 id="dialog-title">Add files</h2>
+          <button className="icon-button" aria-label="Close" onClick={closeDialog}>
             <X size={20} />
           </button>
         </div>
@@ -593,36 +663,14 @@ export default function App() {
               await uploads.start(path, picked);
               closeDialog();
             }}
-            // Whoever looks after this Uncloud sets Dropbox up once for everybody; anyone else
-            // can set up their own, which needs nothing from anybody.
+            // An admin sets Dropbox up once for everybody; anyone else can set up their own,
+            // which needs nothing from anybody.
             onSetUpDropbox={() => {
+              closeDialog();
+              setView(me.isAdmin ? "settings" : "account");
               setDropboxFocus(true);
-              setDialog(me.isAdmin ? "host" : "account");
             }}
           />
-        )}
-        {dialog === "account" && (
-          <AccountPanel me={me} dropboxExpanded={dropboxFocus} />
-        )}
-        {dialog === "host" && me.isAdmin && (
-          <>
-            <HostSetup
-              compact
-              onSaved={() => setRevision((value) => value + 1)}
-            />
-            {/* The storage meter shows the allotment, so it is read again once one is saved. A
-                new host folder can be a different drive, so the card starts again for it. */}
-            {hasFolder && (
-              <HostStorage
-                key={library!.rootPath!}
-                onSaved={() => setRevision((value) => value + 1)}
-              />
-            )}
-            <HostPower />
-            {/* Backups set up from here appear in My files without a reload. */}
-            <HostBackup onChanged={() => setRevision((value) => value + 1)} />
-            <HostDropbox expanded={dropboxFocus} />
-          </>
         )}
       </dialog>
     </div>

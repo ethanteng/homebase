@@ -61,7 +61,7 @@ function serve(method: string, path: string, body: string | undefined) {
       return json(
         {
           detail:
-            "That computer is already added to another account on this Uncloud. To add it to this account instead, sign in as the account that has it, open My computers and click Remove next to it, then try again.",
+            "That computer is already added to another account on this Uncloud. To add it to this account instead, sign in as the account that has it, open Computers and click Remove next to it, then try again.",
         },
         409,
       );
@@ -149,8 +149,8 @@ describe("arriving from a computer's QR code", () => {
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: /Add Ada’s/ })).toBeNull());
     expect(sent.some((call) => call.method === "POST")).toBe(false);
-    // Still on My computers, where adding one is explained.
-    expect(screen.getByRole("heading", { name: /My computers/ })).toBeTruthy();
+    // Still on Computers, where adding one is explained.
+    expect(screen.getByRole("heading", { name: "Computers" })).toBeTruthy();
   });
 
   it("says so when the code has run out, and offers nothing to approve", async () => {
@@ -169,8 +169,9 @@ describe("arriving from a computer's QR code", () => {
     expect(await screen.findByRole("heading", { name: /Add Ada’s MacBook Air to/ })).toBeTruthy();
 
     // Whoever opened the code signs out the usual way without answering, and somebody else signs in.
+    fireEvent.click(screen.getByRole("button", { name: /^Account:/ }));
     await act(async () => {
-      screen.getByTitle("Sign out").click();
+      screen.getByRole("menuitem", { name: "Sign out" }).click();
     });
     await signInAs("bo");
 
@@ -215,7 +216,7 @@ describe("arriving from a computer's QR code", () => {
 
     const refusal = await screen.findByRole("alert");
     expect(refusal.textContent).toMatch(/already added to another account/);
-    expect(refusal.textContent).toMatch(/open My computers and click Remove/);
+    expect(refusal.textContent).toMatch(/open Computers and click Remove/);
     // Still asking, so it can be tried again once it's been removed there.
     expect(screen.getByRole("button", { name: "Add this computer" })).toBeTruthy();
   });
@@ -224,7 +225,7 @@ describe("arriving from a computer's QR code", () => {
     signedIn = USER;
     await arriveAt("");
 
-    expect(screen.queryByRole("heading", { name: /My computers/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Computers" })).toBeNull();
     expect(sent.some((call) => call.path.startsWith("/sync/pairing-requests"))).toBe(false);
   });
 });
@@ -233,7 +234,7 @@ describe("getting a pairing code", () => {
   it("says whose files the computer will join", async () => {
     signedIn = USER;
     await arriveAt("");
-    fireEvent.click(screen.getByRole("button", { name: /My computers/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Computers" }));
 
     fireEvent.click(await screen.findByRole("button", { name: /Get a pairing code/ }));
 

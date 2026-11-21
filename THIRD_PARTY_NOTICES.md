@@ -64,10 +64,13 @@ a release-specific notice review, beyond package-level metadata.
 
 ## Web interface and landing assets
 
-THIRD_PARTY_INVENTORY.json records all 152 npm lockfile package entries, including
+THIRD_PARTY_INVENTORY.json records all 153 npm lockfile package entries, including
 optional platforms and development dependencies. THIRD_PARTY_LICENSES.txt preserves
 available exact-version license and notice texts. MIT/ISC/BSD attribution and
 Apache license/NOTICE requirements continue to apply to distributed code.
+The interface's typeface, **Atkinson Hyperlegible Next** (via @fontsource/atkinson-hyperlegible-next
+5.3.0), is bundled with the interface under the **SIL Open Font License 1.1**; its license is
+reproduced in THIRD_PARTY_LICENSES.txt.
 **lightningcss 1.33.0** and its optional binaries use MPL-2.0, but are development
 build tools in this lockfile; review if the tools themselves are distributed.
 

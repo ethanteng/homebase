@@ -387,7 +387,7 @@ export default function AddFiles({
       });
       setNotice(
         next
-          ? `Everyone on this Uncloud can now add files from ${target.name} to their own space.`
+          ? `Everyone can now add files from ${target.name}.`
           : `${target.name} is private again. Only you can add files from it.`,
       );
       await load();
@@ -453,7 +453,7 @@ export default function AddFiles({
   const disconnect = (target: ImportAccount) =>
     run("disconnect", async () => {
       await api(`/providers/${encodeURIComponent(target.id)}/disconnect`, { method: "POST" });
-      setNotice(`Uncloud is signed out of ${target.name}. Files you already added stay in your files.`);
+      setNotice(`Signed out of ${target.name}. Files you already added stay.`);
       await load();
     });
 
@@ -472,7 +472,7 @@ export default function AddFiles({
   const disabled = importing || busy !== "";
   const waitNote = importing && (
     <p className="library-note add-wait" role="status">
-      Some files are still being added. You can look around, and add more once they’re in.
+      Some files are still being added. You can add more once they’re in.
     </p>
   );
   const level = spaceLevel(storage);
@@ -480,13 +480,8 @@ export default function AddFiles({
     <p className={`add-room level-${level}`}>
       <HardDrive size={14} />
       <span>
-        <strong>{formatSize(storage.freeBytes)} free</strong> on this Uncloud
-        {level === "critical"
-          ? " — almost full, so only small things will fit."
-          : level === "low"
-            ? " — running low."
-            : "."}{" "}
-        Uncloud checks that what you choose fits before it copies anything.
+        <strong>{formatSize(storage.freeBytes)} free</strong>
+        {level === "critical" ? " · almost full" : level === "low" ? " · running low" : ""}
       </span>
     </p>
   );
@@ -525,8 +520,8 @@ export default function AddFiles({
           {hostOffered(sources) && (
             <SourceCard
               icon={<Laptop size={22} strokeWidth={1.5} />}
-              name="Host computer"
-              detail="Folders and drives on the computer Uncloud runs on"
+              name="Uncloud computer"
+              detail="Folders and drives on the Uncloud computer"
               onClick={() => go({ at: "computer" })}
             />
           )}
@@ -535,8 +530,8 @@ export default function AddFiles({
             name="This device"
             detail={
               uploading
-                ? "Still sending some; more will follow them"
-                : "Files and folders on the computer or phone you’re using"
+                ? "Still uploading; more will follow"
+                : "Files and folders on this computer or phone"
             }
             onClick={() => go({ at: "device" })}
           />
@@ -578,7 +573,7 @@ export default function AddFiles({
   // Where the dialog is, from the top, as something to click back along.
   const root =
     where.at === "computer" || (where.at === "place" && place?.mine)
-      ? { name: "Host computer", to: { at: "computer" } as Where }
+      ? { name: "Uncloud computer", to: { at: "computer" } as Where }
       : where.at === "device"
         ? { name: "This device", to: where }
         : where.at === "shared" || where.at === "place"
@@ -617,7 +612,7 @@ export default function AddFiles({
     </div>
   );
 
-  // Host computer, from the top: the folders on it, whether used before or not, all alike.
+  // Uncloud computer, from the top: the folders on it, whether used before or not, all alike.
   if (where.at === "computer") {
     const rows = [
       ...mine.map((candidate) => ({ key: candidate.id, place: candidate, suggestion: null })),
@@ -726,7 +721,7 @@ export default function AddFiles({
         {messages}
         {uploading && (
           <p className="library-note add-wait" role="status">
-            Some files from this device are still on their way. Anything you add now follows them.
+            Some files are still uploading. Anything you add now goes after them.
           </p>
         )}
         <DeviceDrop
@@ -735,9 +730,8 @@ export default function AddFiles({
           onPicked={(picking) => void upload(picking)}
         />
         <p className="field-help add-promise">
-          <Lock size={13} /> They go into <strong>{destination}</strong>, the folder you have open in
-          My files, where only you can see them. If some of it is there already, Uncloud asks before
-          replacing anything.
+          <Lock size={14} /> They go into <strong>{destination}</strong>, the folder open in My files.
+          You’ll be asked before anything is replaced.
         </p>
       </div>
     );
@@ -794,8 +788,8 @@ export default function AddFiles({
             <h2>Paste the code from {account.name}</h2>
             <p className="field-help">
               {pasting.opened
-                ? `${account.name} is open in another tab. Sign in there, and it will show you a code — copy it and paste it here to finish.`
-                : `Open ${account.name} below and sign in. It will show you a code — copy it and paste it here to finish.`}
+                ? `${account.name} is open in another tab. Sign in there, then paste the code it shows here.`
+                : `Open ${account.name} below and sign in, then paste the code it shows here.`}
             </p>
             {/* Always offered, not only when the tab was stopped: a tab closed by mistake would
                 otherwise leave somebody holding a form with nothing to fill it from. */}
@@ -858,8 +852,8 @@ export default function AddFiles({
             <h2>{account.name} needs setting up first</h2>
             <p className="field-help">
               {isAdmin
-                ? `It’s a one-time step on ${account.name}’s website, and takes about five minutes. After that, everyone here can connect their own ${account.name} with one click.`
-                : `Whoever looks after this Uncloud can set it up once for everybody. Or you can set it up yourself — it takes about five minutes on ${account.name}’s website.`}
+                ? `A one-time setup on ${account.name}’s website, about five minutes. Then everyone can connect their own ${account.name}.`
+                : `An admin can set it up for everyone, or you can set it up yourself in about five minutes.`}
             </p>
             <button className="button primary" onClick={onSetUpDropbox}>
               {isAdmin ? `Set up ${account.name}` : "Set it up myself"}

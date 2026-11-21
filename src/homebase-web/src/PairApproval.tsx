@@ -115,9 +115,8 @@ export default function PairApproval({
             disabled={state === "adding"}
           />
           <p className="field-help">
-            It will keep all of your files in an Uncloud folder there, and
-            anything you add, change or delete on either side changes on the
-            other. Only add a computer you’re setting up yourself right now.
+            It will keep your files in sync in an Uncloud folder there. Only add a computer you’re
+            setting up right now.
           </p>
           {error && (
             <p className="error-message" role="alert">
@@ -149,8 +148,7 @@ export default function PairApproval({
             {ask.name} is added to {me.displayName}’s files
           </h2>
           <p className="field-help">
-            It’s setting itself up now, and your files will start arriving in
-            its Uncloud folder in a moment. There’s nothing else to do here.
+            Your files will start arriving in its Uncloud folder in a moment.
           </p>
           <button className="button" onClick={onClose}>
             Done

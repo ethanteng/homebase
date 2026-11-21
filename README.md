@@ -44,7 +44,7 @@ plugged into it.
 - Browse your folders, see how big each one is, look at file details, and download files, from any
   browser.
 - Make folders, and copy, move, rename and delete files and folders in the browser, or drag them
-  onto a folder to move them, and get deleted ones back from the **Bin** for 30 days.
+  onto a folder to move them, and get deleted ones back from the **Trash** for 30 days.
 - Add files and folders from the computer or phone you're using, by choosing them in **Add files** or
   dropping them onto **My files**. Add a folder again and only what's new or changed in it is sent.
 - Add files from Dropbox, or from folders and drives on the host, all from the same **Add files**
@@ -99,8 +99,8 @@ files: `sudo tail /Library/Logs/Uncloud/server.log`.
 This part is for whoever looks after Uncloud. With the Mac app, setup takes five minutes or less.
 Manual setup on Linux or from Terminal takes longer.
 
-On a Mac, [get the app](#get-the-app), drag it into **Applications**, open it, and choose **Make
-this Mac the Uncloud host**. Choose where everyone's files are kept: on this Mac, or on a drive.
+On a Mac, [get the app](#get-the-app), drag it into **Applications**, open it, and choose **Store
+everyone's files here**, then **Set Up**. Choose where everyone's files are kept: on this Mac, or on a drive.
 macOS asks for an administrator's password, once. That's what keeps everyone's files private on
 the host: Uncloud runs in an account of its own, which nobody signs in to, and everyone's files
 belong to that account (see [Who can see what](#keeping-your-files-safe)). It also means Uncloud
@@ -147,22 +147,22 @@ for that.
 
 On the host, open **http://127.0.0.1:5210** in a browser.
 
-Uncloud asks **Who are you?** Choose a username and a password of at least 10 characters. This
-first account looks after Uncloud: it can add people and change settings. This step only works on
+Uncloud asks you to **Create your account**. Choose a username and a password of at least 10
+characters. This first account is the admin: it can add people and change settings. This step only works on
 the host itself, so nobody on the internet can claim your Uncloud before you do.
 
 ### 4. Choose where everyone's files will live
 
-Choose a folder, either a new empty one or one on an external drive, and click **Use this folder**.
+Choose a folder, either a new empty one or one on an external drive, and click **Continue**.
 Everyone's files will go inside it, each person in their own space, and everyone shares that
 drive's free space. Pick a drive with plenty of room.
 
-If the drive is this computer's own and you don't want Uncloud filling it, open **Settings** and,
-under **How much of the drive Uncloud may use**, give it a set amount (say, 500 GB) or a share of
-the free space (say, 50%). A share counts what Uncloud already holds as well as what's free, so it
+If the drive is this computer's own and you don't want Uncloud filling it, open **Settings**, click
+**Change** next to **Storage limit**, and give it a set amount (say, 500 GB) or a share of the
+drive (say, 50%). A share counts what Uncloud already holds as well as what's free, so it
 doesn't shrink as everyone's files grow. Once it's used up, nobody can add more until you give
 Uncloud more room or files are deleted; nothing is ever deleted to fit. Files a laptop syncs stop
-at it too: they wait on the laptop, and **My computers** says how many are waiting for room.
+at it too: they wait on the laptop, and **Computers** says how many are waiting for room.
 
 With the Mac app, you chose this when you set the host up. To keep everyone's files somewhere else
 later, click the **U** in the menu bar and choose **Use Another Folder…**. Pick a drive, or a folder
@@ -177,23 +177,22 @@ Uncloud never moves or changes files that are already there.
 
 ### 5. Add everyone else
 
-Open **People** and click **Add someone**. Give them a username and a first password. Uncloud
-can't send e-mail, so tell them the password yourself and ask them to change it.
+Open **People** and click **Add person**. Enter their name; the username fills itself in, and
+Uncloud suggests a first password you can read out. Uncloud can't send e-mail, so tell them the
+password yourself and ask them to change it.
 
-Tick **Let them look after this Uncloud too** only for another adult who should be able to manage
-accounts.
+Choose **Admin** only for another adult who should be able to add people and change settings.
 
 ### 6. Let everyone in
 
-Open **Settings**. Under **Reaching this host from anywhere**, click **Reach this host from
-anywhere**, then **Allow this host**. You'll be taken to Tailscale, a free service Uncloud uses for
+Open **Settings** and turn on **Access from anywhere**, then click **Approve in Tailscale**. You'll be taken to Tailscale, a free service Uncloud uses for
 its secure connection. Sign in or make an account.
 
 (With the app, **Reach From Anywhere…** under the **U** in the menu bar opens this panel.)
 
 Tailscale then asks one more thing, also once: that you let this tailnet be reached from the
-public internet. Uncloud puts that in front of you too — the same panel shows **Open it to the
-internet**. Click it, say yes at Tailscale, and come back.
+public internet. Uncloud puts that in front of you too — the same row shows **Open in Tailscale**.
+Click it, say yes at Tailscale, and come back.
 
 After a minute Uncloud shows your address, something like `https://uncloud.tail1234.ts.net`. Send
 that to everyone. It works at home and away, on any device.
@@ -265,9 +264,9 @@ name that's already taken, or making a folder with one, is refused instead.
 A folder that syncs with one of your computers can't be moved, renamed or deleted until you stop
 syncing it.
 
-Deleted files and folders go to the **Bin**, where they wait for 30 days before they're gone for
-good. **Put back** returns one to where it was, even if the folder it was in has gone since. Until
-then it still takes up room, so **Delete forever** or **Empty bin** when you need the space back.
+Deleted files and folders go to the **Trash**, where they wait for 30 days before they're gone for
+good. **Restore** returns one to where it was, even if the folder it was in has gone since. Until
+then it still takes up room, so **Delete forever** or **Empty Trash** when you need the space back.
 A file you delete that syncs with your laptop is deleted there too, and comes back there when you
 put it back.
 
@@ -299,12 +298,12 @@ On **My files**, click **Add files** and choose where they are:
   If some of it is already there — a folder you added before, say, with new things in it since —
   Uncloud says so before sending anything: how many files are new, how many have changed, and how
   many are the same. **Add** sends only the new and changed ones into the folder that's there. A
-  changed file takes the place of the old copy, which goes to the **Bin**, and a file changed in
+  changed file takes the place of the old copy, which goes to the **Trash**, and a file changed in
   Uncloud more recently than the copy you're adding is left alone. Nothing already there is deleted
   because it's missing from what you add. **Keep both** adds all of it again beside what's there
   instead, as "name 2". Files count as the same when their size and the time they were last
   changed match.
-- **Host computer** (for whoever looks after Uncloud): the folders and drives on the host, such as
+- **Uncloud computer** (for whoever looks after Uncloud): the folders and drives on the host, such as
   Documents, Pictures, an old backup drive, or the folder your Dropbox or Google Drive app keeps.
   Open one to look inside, or add the whole thing. **Choose another folder…** finds anything else.
   It's only offered when you're using Uncloud from another device: on the host itself, its files
@@ -322,7 +321,7 @@ On **My files**, click **Add files** and choose where they are:
 like. Files you already added stay where they are; only Uncloud's way back into Dropbox goes.
 
 Google Drive and Evernote are coming. Until then, the folder the Google Drive app keeps on the host
-works under **This device** when you're at the host, or **Host computer** from anywhere else.
+works under **This device** when you're at the host, or **Uncloud computer** from anywhere else.
 
 Click **Add** next to a file or folder to bring just that. To bring more at once, the row above the
 list shows how big everything in the folder you're looking at is — all of Dropbox, at its top — and
@@ -347,11 +346,10 @@ Uncloud.
 
 **On a Mac, with the Uncloud app:**
 
-1. [Get the app](#get-the-app) on your laptop, open it, and choose **Connect this computer to an
-   Uncloud**.
+1. [Get the app](#get-the-app) on your laptop, open it, and choose **Connect to your Uncloud**.
 2. At home, the app finds your Uncloud by itself and shows a QR code. Scan it with your phone's
    camera, sign in to Uncloud if it asks, and tap **Add this computer**. (No phone to hand? Click
-   **Approve in This Mac's Browser** instead.)
+   **Approve in Browser** instead.)
 
 That's all. Your Uncloud files appear in a folder called **Uncloud** in your home folder, and stay
 in step both ways. The Uncloud icon in the menu bar shows whether you're up to date, and pauses or
@@ -360,12 +358,14 @@ disconnects the laptop.
 Away from home, the app asks for the address you open Uncloud at, then shows the code the same
 way. Either way, the host needs [Reach From Anywhere](#6-let-everyone-in) turned on, because that's
 how other computers reach it. You can also pair with a code instead: in Uncloud in your laptop's
-browser, open **My computers**, click **Get a pairing code**, then **open in the Uncloud app**.
+browser, open **Computers**, click **Add a computer** and **Get a pairing code**, then **Open it in
+the Uncloud app**.
 
 **On Windows or Linux, or without the app:**
 
 1. Download and install [Syncthing](https://syncthing.net/downloads/) on your laptop, and open it.
-2. In Uncloud, open **My computers** and copy this Uncloud's ID.
+2. In Uncloud, open **Computers**, click **Add a computer**, open **Windows or Linux? Use Syncthing
+   instead**, and copy this Uncloud's ID.
 3. In Syncthing, click **Add Remote Device** and paste it.
 4. In Syncthing, click **Actions → Show ID** and copy your laptop's ID.
 5. Back in Uncloud, paste it and click **Add computer**.
@@ -373,7 +373,7 @@ browser, open **My computers**, click **Get a pairing code**, then **open in the
    and click **Sync folder**. Accept the folder when Syncthing on your laptop offers it.
 
 Or go the other way: share a folder from Syncthing on your laptop, and click **Keep it here** when
-it appears in Uncloud under **Offered by your computers**.
+it appears in Uncloud under **Folders your computers offered**.
 
 From then on, changes on either side reach the other, whether you're at home or away.
 
@@ -471,7 +471,7 @@ own under **My account** — a sign-in through your own app comes straight back 
 **The external drive was unplugged.** Plug it back in and refresh. If it comes back under a new
 name, choose the folder again under **Settings**.
 
-**My computers says Syncthing isn't running.** The app has Syncthing built in. Run from Terminal,
+**Computers says syncing is off.** The app has Syncthing built in. Run from Terminal,
 Uncloud downloads its own copy when it starts; if the host was offline then, restart Uncloud once
 it's back online.
 

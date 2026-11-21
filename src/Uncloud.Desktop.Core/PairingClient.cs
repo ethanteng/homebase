@@ -35,7 +35,7 @@ public sealed class PairingClient(HttpClient client)
         {
             // Nothing here can have run out yet: this is an Uncloud from before computers asked.
             throw new PairingException(
-                "This Uncloud can’t show a code to scan until the app on the host is updated. Use a pairing code from My computers instead.");
+                "This Uncloud can’t show a code to scan until the app on the host is updated. Use a pairing code from Computers instead.");
         }
     }
 

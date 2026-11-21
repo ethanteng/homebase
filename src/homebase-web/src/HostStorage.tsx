@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Check, HardDrive, LoaderCircle } from "lucide-react";
+import { Check, LoaderCircle } from "lucide-react";
 import { api, formatSize } from "./api";
 import type { HostStorage as Storage } from "./api";
+import { SettingRow } from "./Settings";
 
 type Choice = "all" | "share" | "amount";
 type Unit = "GB" | "TB";
@@ -53,6 +54,7 @@ export default function HostStorage({ onSaved }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [editing, setEditing] = useState(false);
 
   function show(next: Storage) {
     setStorage(next);
@@ -118,11 +120,12 @@ export default function HostStorage({ onSaved }: Props) {
       show(result);
       setNotice(
         !result.allotment
-          ? "Saved. Everyone’s files can fill the drive again."
+          ? "Saved. No limit."
           : result.capped && result.totalBytes != null
-            ? `Saved. Everyone here now shares ${formatSize(result.totalBytes)}.`
-            : "Saved. The drive has less than that free, so it’s still the drive that sets the limit.",
+            ? `Saved. The limit is ${formatSize(result.totalBytes)}.`
+            : "Saved. The drive has less free than that, so the drive is the limit.",
       );
+      setEditing(false);
       onSaved();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Couldn’t save that.");
@@ -131,129 +134,143 @@ export default function HostStorage({ onSaved }: Props) {
     }
   }
 
+  const summary = !current
+    ? "No limit"
+    : current.unit === "Percent"
+      ? `${current.amount}% of the drive`
+      : `Up to ${formatSize(current.amount)}`;
+
   return (
-    <section className="import-section host-storage">
-      <div className="import-section-head">
-        <h3>
-          <HardDrive size={16} />
-          How much of the drive Uncloud may use
-        </h3>
-      </div>
+    <SettingRow
+      label="Storage limit"
+      value={
+        <>
+          {summary}
+          <small className="setting-sub">
+            {formatSize(held)} used
+            {storage.driveFreeBytes != null && ` · ${formatSize(storage.driveFreeBytes)} free on the drive`}
+          </small>
+        </>
+      }
+      action={
+        <button
+          type="button"
+          className="button secondary"
+          aria-expanded={editing}
+          onClick={() => {
+            setEditing((open) => !open);
+            setNotice("");
+            setError("");
+          }}
+        >
+          {editing ? "Cancel" : "Change"}
+        </button>
+      }
+    >
       {notice && (
         <p className="library-note" role="status">
           {notice}
         </p>
       )}
-      <p className="field-help">
-        {storage.driveFreeBytes != null
-          ? `The drive has ${formatSize(storage.driveFreeBytes)} free, and everyone’s files here take up ${formatSize(held)}.`
-          : `Everyone’s files here take up ${formatSize(held)}. Uncloud can’t tell how much room the drive has left.`}
-      </p>
-      <fieldset className="allotment-choices" disabled={busy}>
-        <legend className="sr-only">How much of the drive Uncloud may use</legend>
-        <label className="allotment-choice">
-          <input
-            type="radio"
-            name="allotment"
-            checked={choice === "all"}
-            onChange={() => setChoice("all")}
-          />
-          All of it
-        </label>
-        <label className="allotment-choice">
-          <input
-            type="radio"
-            name="allotment"
-            checked={choice === "share"}
-            onChange={() => setChoice("share")}
-          />
-          A share
-          <input
-            className="path-input"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            max={100}
-            step={1}
-            value={percent}
-            aria-label="Percent of the room Uncloud could have"
-            onFocus={() => setChoice("share")}
-            onChange={(event) => setPercent(event.target.value)}
-          />
-          %
-        </label>
-        <label className="allotment-choice">
-          <input
-            type="radio"
-            name="allotment"
-            checked={choice === "amount"}
-            onChange={() => setChoice("amount")}
-          />
-          A set amount
-          <input
-            className="path-input"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="any"
-            value={amount}
-            placeholder="200"
-            aria-label="Amount"
-            onFocus={() => setChoice("amount")}
-            onChange={(event) => setAmount(event.target.value)}
-          />
-          <select
-            className="path-input"
-            value={unit}
-            aria-label="Unit"
-            onFocus={() => setChoice("amount")}
-            onChange={(event) => setUnit(event.target.value as Unit)}
+      {editing && (
+        <>
+          <fieldset className="allotment-choices" disabled={busy}>
+            <legend className="sr-only">Storage limit</legend>
+            <label className="allotment-choice">
+              <input
+                type="radio"
+                name="allotment"
+                checked={choice === "all"}
+                onChange={() => setChoice("all")}
+              />
+              No limit
+            </label>
+            <label className="allotment-choice">
+              <input
+                type="radio"
+                name="allotment"
+                checked={choice === "share"}
+                onChange={() => setChoice("share")}
+              />
+              Up to
+              <input
+                className="path-input"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={100}
+                step={1}
+                value={percent}
+                aria-label="Percent of the drive"
+                onFocus={() => setChoice("share")}
+                onChange={(event) => setPercent(event.target.value)}
+              />
+              % of the drive
+            </label>
+            <label className="allotment-choice">
+              <input
+                type="radio"
+                name="allotment"
+                checked={choice === "amount"}
+                onChange={() => setChoice("amount")}
+              />
+              Up to
+              <input
+                className="path-input"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="any"
+                value={amount}
+                placeholder="200"
+                aria-label="Amount"
+                onFocus={() => setChoice("amount")}
+                onChange={(event) => setAmount(event.target.value)}
+              />
+              <select
+                className="path-input"
+                value={unit}
+                aria-label="Unit"
+                onFocus={() => setChoice("amount")}
+                onChange={(event) => setUnit(event.target.value as Unit)}
+              >
+                <option value="GB">GB</option>
+                <option value="TB">TB</option>
+              </select>
+            </label>
+          </fieldset>
+          <p className="field-help" role="status">
+            {choice === "all"
+              ? "Uncloud can use all the free space on the drive."
+              : !request
+                ? choice === "share"
+                  ? "Enter a whole number from 1 to 100."
+                  : "Enter an amount."
+                : limit == null || possible == null
+                  ? null
+                  : limit >= possible
+                    ? "That’s more than the drive can give, so there’s no real limit."
+                    : limit <= held
+                      ? `That’s less than the ${formatSize(held)} already stored. Nothing is deleted, but nobody can add more.`
+                      : `Room for ${formatSize(limit - held)} more, ${formatSize(limit)} in all.`}
+          </p>
+          <p className="field-help">When it’s full, computers wait to sync until there’s room.</p>
+          {error && (
+            <p className="error-message" role="alert">
+              {error}
+            </p>
+          )}
+          <button
+            type="button"
+            className="button primary"
+            onClick={() => void save()}
+            disabled={busy || !request || unchanged}
           >
-            <option value="GB">GB</option>
-            <option value="TB">TB</option>
-          </select>
-        </label>
-      </fieldset>
-      <p className="field-help" role="status">
-        {choice === "all"
-          ? "Everyone shares whatever the drive has free."
-          : !request
-            ? choice === "share"
-              ? "A share is a whole number from 1 to 100."
-              : "Enter how much Uncloud may use."
-            : limit == null || possible == null
-              ? null
-              : limit >= possible
-                ? "The drive has less than that free, so Uncloud can still fill it."
-                : limit <= held
-                  ? `That’s less than the ${formatSize(held)} everyone’s files already take. Nothing is deleted, but nobody can add more until there’s room under it.`
-                  : `Uncloud can hold up to ${formatSize(limit)}: room for ${formatSize(limit - held)} more. The rest of the drive is left for this computer.`}
-        {choice === "share" && request && possible != null && (
-          <>
-            {" "}
-            A share is of what’s free plus what everyone’s files already take ({formatSize(possible)}),
-            so it doesn’t shrink as they grow.
-          </>
-        )}
-      </p>
-      <p className="field-help">
-        Files people’s computers sync stop here too: once it’s full, they wait on the computer
-        until there’s room.
-      </p>
-      {error && (
-        <p className="error-message" role="alert">
-          {error}
-        </p>
+            {busy ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}
+            Save
+          </button>
+        </>
       )}
-      <button
-        type="button"
-        className="button primary"
-        onClick={() => void save()}
-        disabled={busy || !request || unchanged}
-      >
-        {busy ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}
-        Save
-      </button>
-    </section>
+    </SettingRow>
   );
 }

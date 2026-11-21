@@ -96,7 +96,7 @@ describe("backing up offsite", () => {
       invite: "K7QM-3XPD-9TWA-HF2R",
     });
     expect(screen.getByLabelText("Your backup’s password").textContent).toBe(SHOWN_ONCE);
-    expect(screen.getByText(/only time Uncloud shows it/)).toBeTruthy();
+    expect(screen.getByText(/only time it’s shown/)).toBeTruthy();
     const done = screen.getByRole("button", { name: "Done" }) as HTMLButtonElement;
     expect(done.disabled).toBe(true);
 
@@ -167,7 +167,7 @@ describe("backing up offsite", () => {
       fireEvent.click(screen.getAllByRole("button", { name: "Copy" })[0]);
     });
     expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
-    expect(screen.getByText(/didn’t let Uncloud copy it/)).toBeTruthy();
+    expect(screen.getByText(/Copying was blocked/)).toBeTruthy();
     expect(window.getSelection()?.toString()).toBe(SHOWN_ONCE);
 
     const written: string[] = [];
@@ -294,14 +294,14 @@ describe("backing up offsite", () => {
       snapshot: "bbbbbbbb22222222",
       confirm: true,
     });
-    expect(screen.getByRole("status").textContent).toMatch(/of 2 GB back so far/);
+    expect(screen.getByRole("status").textContent).toMatch(/of 2 GB restored/);
     expect((screen.getByRole("button", { name: "Resume backing up" }) as HTMLButtonElement).disabled).toBe(true);
 
     rebuild = { ...rebuild, stage: "restarting", bytesRestored: rebuild.bytes };
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(screen.getByRole("status").textContent).toMatch(/starting again as the Uncloud in the backup/);
+    expect(screen.getByRole("status").textContent).toMatch(/Uncloud is restarting; then sign in with your old account/);
     expect(startOver).not.toHaveBeenCalled();
 
     // Started again as the host in the backup, which doesn't know this session.
@@ -324,14 +324,14 @@ describe("backing up offsite", () => {
       "GET /api/host/backup/rebuild": () => (answering ? json(rebuild) : json({ detail: "Gone." }, 502)),
     });
     await show();
-    expect(screen.getByRole("status").textContent).toMatch(/1 GB of 2 GB back so far/);
+    expect(screen.getByRole("status").textContent).toMatch(/1 GB of 2 GB restored/);
 
     // Out of reach while it's restoring: the rebuild goes on all the same, and nobody is told to quit.
     answering = false;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(94_000);
     });
-    expect(screen.getByRole("status").textContent).toMatch(/1 GB of 2 GB back so far/);
+    expect(screen.getByRole("status").textContent).toMatch(/1 GB of 2 GB restored/);
 
     // Then about to start again, and quiet a minute and a half on.
     rebuild = { ...rebuild, stage: "restarting" };
@@ -339,7 +339,7 @@ describe("backing up offsite", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(screen.getByRole("status").textContent).toMatch(/starting again/);
+    expect(screen.getByRole("status").textContent).toMatch(/Uncloud is restarting/);
     answering = false;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(94_000);
@@ -371,7 +371,7 @@ describe("backing up offsite", () => {
     });
     await show();
 
-    expect(screen.getByText(/Rebuilt .* from the backup of .*paired again/)).toBeTruthy();
+    expect(screen.getByText(/Rebuilt .* from the backup of .*connected again/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Rebuild from the backup" })).toBeNull();
   });
 
@@ -396,12 +396,12 @@ describe("backing up offsite", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Rebuild from the backup" }));
     });
-    expect(screen.getByRole("status").textContent).toMatch(/of 2 GB back so far/);
+    expect(screen.getByRole("status").textContent).toMatch(/of 2 GB restored/);
 
     await act(async () => {
       release(json(notRebuilt));
     });
-    expect(screen.getByRole("status").textContent).toMatch(/of 2 GB back so far/);
+    expect(screen.getByRole("status").textContent).toMatch(/of 2 GB restored/);
     expect((screen.getByRole("button", { name: "Resume backing up" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -482,7 +482,7 @@ describe("backing up offsite", () => {
     });
     await show();
 
-    expect(screen.getByRole("status").textContent).toMatch(/Setting up this household’s storage: making somewhere to keep the backup/);
+    expect(screen.getByRole("status").textContent).toMatch(/Getting backup storage ready: making somewhere to keep the backup/);
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
 
     account = ready;
@@ -500,7 +500,7 @@ describe("backing up offsite", () => {
     });
     await show();
 
-    expect(screen.getByText(/having trouble setting up this household’s storage \(giving it storage\)/)).toBeTruthy();
+    expect(screen.getByText(/having trouble getting ready \(giving it storage\)/)).toBeTruthy();
   });
 
   it("says how the last backup went, and starts one when asked", async () => {
@@ -583,7 +583,7 @@ describe("backing up offsite", () => {
     });
     await show();
 
-    expect(screen.getByText(/Verified .*: restored all 364 of everyone’s files \(544\.5 MB\) from the backup of .*, and every one came back exactly as it is here\. So did this Uncloud’s own key/)).toBeTruthy();
+    expect(screen.getByText(/Verified .*: restored all 364 of everyone’s files \(544\.5 MB\) from the backup of .*, and every one matched\. This Uncloud’s key matched too/)).toBeTruthy();
     expect(screen.getByText(/2 backups kept, the oldest from/)).toBeTruthy();
   });
 
@@ -596,7 +596,7 @@ describe("backing up offsite", () => {
     });
     await show();
 
-    expect(screen.getByText(/restored 2,000 of everyone’s 50,000 files .*, at random from the backup .*every one still here as it was came back exactly as it is here \(3 have changed here since and 1 has gone\)/)).toBeTruthy();
+    expect(screen.getByText(/restored 2,000 of everyone’s 50,000 files .*, at random from the backup .*every one still here matched \(3 have changed here since and 1 has gone\)/)).toBeTruthy();
   });
 
   it("says when files came back wrong, without saying which", async () => {
@@ -624,7 +624,7 @@ describe("backing up offsite", () => {
     });
 
     expect(asked.some((request) => request.route === "POST /api/host/backup/check")).toBe(true);
-    expect(screen.getByText(/Verifying the backup: restoring the newest one to a temporary folder.*Nothing here is changed\./)).toBeTruthy();
+    expect(screen.getByText(/Verifying: restoring the latest backup to a temporary folder.*Nothing here changes\./)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Verify the backup" }) as HTMLButtonElement).disabled).toBe(true);
   });
 

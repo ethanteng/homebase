@@ -349,8 +349,8 @@ public sealed class DesktopTests : IDisposable
         await using (var controller = new DesktopController(_paths, _temporary, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, anonymous))
         {
             var stillListed = await controller.DisconnectAsync(CancellationToken.None);
-            Assert.Contains("may still list this computer in My computers for Uncloud Host", stillListed);
-            Assert.Contains("sign in to Uncloud as Uncloud Host, open My computers and click Remove", stillListed);
+            Assert.Contains("may still list this computer in Computers for Uncloud Host", stillListed);
+            Assert.Contains("sign in to Uncloud as Uncloud Host, open Computers and click Remove", stillListed);
             // Disconnected all the same.
             Assert.False(DesktopSettings.Load(_paths).IsPaired);
         }
@@ -360,7 +360,7 @@ public sealed class DesktopTests : IDisposable
         new DesktopSettings { Mode = DesktopMode.Computer, Address = "https://home.example", HostDeviceId = FakeSyncthing.Self }.Save(_paths);
         await using (var older = new DesktopController(_paths, _temporary, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance,
             new HttpClient(new SameAnswer(HttpStatusCode.NotFound, "This endpoint doesn’t exist."))))
-            Assert.Contains("sign in to Uncloud as that account, open My computers and click Remove",
+            Assert.Contains("sign in to Uncloud as that account, open Computers and click Remove",
                 await older.DisconnectAsync(CancellationToken.None));
 
         // And with no Syncthing key to sign with at all.

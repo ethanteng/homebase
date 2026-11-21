@@ -31,7 +31,7 @@ function Bar({ storage, className = "" }: { storage: StorageReport; className?: 
     <div
       className={`storage-bar ${className}`}
       role="meter"
-      aria-label="Space used on this Uncloud’s drive"
+      aria-label="Space used"
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={used}
@@ -54,40 +54,32 @@ export function StorageCard({ storage, isAdmin }: CardProps) {
   const level = spaceLevel(storage);
   return (
     <div className={`storage-card level-${level}`}>
-      <span className="storage-title">
-        <HardDrive size={15} />
-        Space on this Uncloud
-      </span>
       {storage?.freeBytes != null ? (
         <>
-          <strong className="storage-free">
-            {formatSize(storage.freeBytes)} <span>free</span>
-          </strong>
+          <strong className="storage-free">{formatSize(storage.freeBytes)} free</strong>
           <Bar storage={storage} />
           <span className="storage-legend">
             <span>
-              <i className="swatch mine" /> Yours: {formatSize(storage.usedBytes)}
+              <i className="swatch mine" /> You use {formatSize(storage.usedBytes)}
             </span>
-            {storage.totalBytes != null && <span>of {formatSize(storage.totalBytes)} in all</span>}
+            {storage.totalBytes != null && <span>{formatSize(storage.totalBytes)} total</span>}
           </span>
           {level !== "ok" && (
             <p className="storage-warning">
-              <TriangleAlert size={13} />
+              <TriangleAlert size={14} />
               {level === "critical" ? "Almost full. " : "Running low. "}
               {!isAdmin
-                ? "Let whoever looks after this Uncloud know."
+                ? "Let an admin know."
                 : storage.capped
-                  ? "Give Uncloud more of the drive in Settings, or clear some files out, before anyone adds more."
-                  : "Free up space on the Uncloud computer’s drive before anyone adds more."}
+                  ? "Raise the storage limit in Settings, or delete some files."
+                  : "Free up space on the Uncloud computer."}
             </p>
           )}
         </>
       ) : (
         <p className="storage-warning">
-          <TriangleAlert size={13} />
-          {storage
-            ? "Uncloud can’t tell how much room is left on its drive."
-            : "Checking how much room is left…"}
+          <TriangleAlert size={14} />
+          {storage ? "Can’t tell how much space is left." : "Checking space…"}
         </p>
       )}
     </div>
@@ -101,7 +93,7 @@ export function StoragePill({ storage }: { storage: StorageReport | null }) {
   return (
     <span
       className={`storage-pill level-${level}`}
-      title={`${formatSize(storage.freeBytes)} free${storage.totalBytes != null ? ` of ${formatSize(storage.totalBytes)}` : ""} ${storage.capped ? "set aside for this Uncloud" : "on this Uncloud’s drive"} · ${formatSize(storage.usedBytes)} is yours`}
+      title={`${formatSize(storage.freeBytes)} free${storage.totalBytes != null ? ` of ${formatSize(storage.totalBytes)}` : ""} · you use ${formatSize(storage.usedBytes)}`}
     >
       {level === "ok" ? <HardDrive size={14} /> : <TriangleAlert size={14} />}
       <strong>{formatSize(storage.freeBytes)}</strong> free

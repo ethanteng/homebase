@@ -3,10 +3,12 @@ import {
   Check,
   Copy,
   FolderSync,
+  History,
   Inbox,
   KeyRound,
   Laptop,
   LoaderCircle,
+  Plus,
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize } from "./api";
@@ -61,6 +63,7 @@ export default function SyncPanel({
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState(false);
   const [pairing, setPairing] = useState<PairingCode | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -197,16 +200,21 @@ export default function SyncPanel({
       )}
       <div className="page-heading">
         <div>
-          <span className="eyebrow">YOUR OWN COMPUTERS</span>
-          <h1>
-            My computers<span className="heading-dot">.</span>
-          </h1>
-          <p>
-            Keep your files in a folder on your own computer as well. Add,
-            change or delete something there and the same happens here, and
-            the other way round, even if you were offline when you did it.
-          </p>
+          <h1>Computers</h1>
+          <p>These keep a folder in sync with your files here.</p>
         </div>
+        {status && (
+          <div className="heading-actions">
+            <button
+              className="button primary"
+              aria-expanded={adding}
+              onClick={() => setAdding((open) => !open)}
+            >
+              <Plus size={17} />
+              Add a computer
+            </button>
+          </div>
+        )}
       </div>
 
       {notice && (
@@ -222,151 +230,141 @@ export default function SyncPanel({
 
       {status && !status.available && (
         <div className="notice-card">
-          <h2>Syncthing isn’t running on this Uncloud</h2>
+          <h2>Syncing is off</h2>
           <p className="field-help">
-            {status.detail ?? "Uncloud couldn’t start Syncthing."} Uncloud uses
-            Syncthing to talk to your computers, and normally brings its own.
-            Whoever looks after this Uncloud needs to sort that out and restart
-            it. Nothing below is syncing until then.
+            {status.detail ?? "Uncloud couldn’t start syncing."} An admin needs to restart Uncloud.
           </p>
         </div>
       )}
 
       {status && (
         <>
-          {status.hostDeviceId && (
-            <section className="import-section">
-              <h2>This Uncloud</h2>
-              <div className="device-id">
-                <code>{status.hostDeviceId}</code>
+          {(adding || status.devices.length === 0) && (
+            <section className="import-section add-computer" aria-labelledby="add-computer-title">
+              <h2 id="add-computer-title">Add a computer</h2>
+              <ol className="steps">
+                <li>
+                  <span className="step-number" aria-hidden="true">1</span>
+                  <span>
+                    <strong>Open the Uncloud app on the computer</strong>
+                    <span className="muted">Choose Connect to an Uncloud. At home, it finds this one.</span>
+                  </span>
+                </li>
+                <li>
+                  <span className="step-number" aria-hidden="true">2</span>
+                  <span>
+                    <strong>Scan the code it shows with your phone</strong>
+                    <span className="muted">Then tap Add this computer.</span>
+                  </span>
+                </li>
+              </ol>
+              <div className="sync-form">
+                <span className="muted">No phone handy?</span>
                 <button
-                  className="button"
-                  onClick={copyId}
-                  aria-label="Copy this Uncloud’s ID"
+                  className="button secondary"
+                  onClick={() => void getCode()}
+                  disabled={busy === "code" || !status.available}
                 >
-                  {copied ? <Check size={15} /> : <Copy size={15} />}
-                  {copied ? "Copied" : "Copy"}
+                  <KeyRound size={15} />
+                  {pairing ? "Get a new pairing code" : "Get a pairing code"}
                 </button>
+                {pairing && (
+                  <span className="pairing-code">
+                    <code>{pairing.code}</code>
+                    <span className="muted">
+                      works once, until{" "}
+                      {new Date(pairing.expiresAt).toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </span>
+                )}
               </div>
-              <p className="field-help">
-                Install{" "}
-                <a href="https://syncthing.net/downloads/" target="_blank" rel="noreferrer">
-                  Syncthing
-                </a>{" "}
-                on your computer, add this ID there as a remote device, then
-                paste that computer’s own ID below.
-              </p>
+              {pairing && (
+                <>
+                  {/* A code is made for whoever is signed in, and adds the computer to their files. */}
+                  <p className="field-help">
+                    This code adds a computer to {me.displayName}’s files.{" "}
+                    <a href={pairingLink(pairing.code)}>Open it in the Uncloud app</a>, or enter{" "}
+                    <code>{window.location.origin}</code> and the code there.
+                  </p>
+                  <SignedInAs me={me} onSignOut={onSignOut} />
+                </>
+              )}
+              {pairing && ["127.0.0.1", "localhost", "[::1]"].includes(window.location.hostname) && (
+                <p className="field-help warning-text">
+                  This address only works on the Uncloud computer itself. Open Uncloud from the
+                  computer you’re adding instead.
+                </p>
+              )}
+              <details className="advanced-section">
+                <summary>Windows or Linux? Use Syncthing instead</summary>
+                {status.hostDeviceId && (
+                  <>
+                    <p className="field-help">
+                      Install{" "}
+                      <a href="https://syncthing.net/downloads/" target="_blank" rel="noreferrer">
+                        Syncthing
+                      </a>{" "}
+                      on the computer and add this Uncloud as a remote device:
+                    </p>
+                    <div className="device-id">
+                      <code>{status.hostDeviceId}</code>
+                      <button
+                        className="button secondary"
+                        onClick={copyId}
+                        aria-label="Copy this Uncloud’s ID"
+                      >
+                        {copied ? <Check size={15} /> : <Copy size={15} />}
+                        {copied ? "Copied" : "Copy"}
+                      </button>
+                    </div>
+                    <p className="field-help">Then paste that computer’s ID here:</p>
+                  </>
+                )}
+                <div className="sync-form">
+                  <input
+                    className="path-input"
+                    value={deviceId}
+                    onChange={(event) => setDeviceId(event.target.value)}
+                    placeholder="Computer ID from Syncthing"
+                    aria-label="Your computer’s ID"
+                    spellCheck={false}
+                  />
+                  <input
+                    className="path-input"
+                    value={deviceName}
+                    onChange={(event) => setDeviceName(event.target.value)}
+                    placeholder="Name (optional)"
+                    aria-label="A name for your computer"
+                  />
+                  <button
+                    className="button primary"
+                    onClick={() => void pair()}
+                    disabled={busy === "pair" || deviceId.trim().length === 0 || !status.available}
+                  >
+                    <Laptop size={15} />
+                    {busy === "pair" ? "Adding…" : "Add computer"}
+                  </button>
+                </div>
+              </details>
             </section>
           )}
 
-          <section className="import-section">
-            <h2>Your computers</h2>
-            <p className="field-help">
-              To add a Mac, get the Uncloud app on it and choose{" "}
-              <strong>Connect this computer to an Uncloud</strong>. At home it
-              finds this Uncloud by itself and shows a code: scan it with your
-              phone’s camera, then tap <strong>Add this computer</strong>.
-            </p>
-            <p className="field-help">
-              Or, on the computer you’re adding, get a pairing code here and
-              open it in the app.
-            </p>
-            <div className="sync-form">
-              <button
-                className="button"
-                onClick={() => void getCode()}
-                disabled={busy === "code" || !status.available}
-              >
-                <KeyRound size={15} />
-                {pairing ? "New pairing code" : "Get a pairing code"}
-              </button>
-              {pairing && (
-                <span className="pairing-code">
-                  <code>{pairing.code}</code>
-                  <span className="muted">
-                    works once, until{" "}
-                    {new Date(pairing.expiresAt).toLocaleTimeString([], {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </span>
-              )}
-            </div>
-            {pairing && (
-              <>
-                {/* A code is made for whoever is signed in, and adds the computer to their files. */}
-                <p className="field-help">
-                  This code adds a computer to {me.displayName}’s files. On the
-                  computer you want to add, with the Uncloud app installed:{" "}
-                  <a href={pairingLink(pairing.code)}>open in the Uncloud app</a>,
-                  or enter the address <code>{window.location.origin}</code> and
-                  the code above.
-                </p>
-                <SignedInAs me={me} onSignOut={onSignOut} />
-              </>
-            )}
-            {pairing && ["127.0.0.1", "localhost", "[::1]"].includes(window.location.hostname) && (
-              <p className="field-help warning-text">
-                This page is open on the host itself, at an address only the host
-                can use. Open Uncloud from the other computer to get its code, or
-                turn on Reach From Anywhere in the Uncloud app on the host.
-              </p>
-            )}
-            <p className="field-help">
-              The Uncloud app keeps your whole folder in step, with nothing else to
-              set up. Without it — on Windows or Linux — install Syncthing on your
-              computer and add it by its ID:
-            </p>
-            <div className="sync-form">
-              <input
-                className="path-input"
-                value={deviceId}
-                onChange={(event) => setDeviceId(event.target.value)}
-                placeholder="Your computer’s ID, from Syncthing there"
-                aria-label="Your computer’s ID"
-                spellCheck={false}
-              />
-              <input
-                className="path-input"
-                value={deviceName}
-                onChange={(event) => setDeviceName(event.target.value)}
-                placeholder="What to call it (optional)"
-                aria-label="A name for your computer"
-              />
-              <button
-                className="button primary"
-                onClick={() => void pair()}
-                disabled={
-                  busy === "pair" ||
-                  deviceId.trim().length === 0 ||
-                  !status.available
-                }
-              >
-                <Laptop size={15} />
-                {busy === "pair" ? "Adding…" : "Add computer"}
-              </button>
-            </div>
-            {status.devices.length > 0 && (
+          {status.devices.length > 0 && (
+            <section className="import-section" aria-label="Your computers">
               <ul className="import-list">
                 {status.devices.map((device) => (
                   <li key={device.deviceId}>
-                    <Laptop size={19} strokeWidth={1.6} />
+                    <Laptop size={22} strokeWidth={1.6} />
                     <div>
                       <strong>{device.name}</strong>
-                      <span className="muted">
-                        {device.deviceId.slice(0, 7)}… ·{" "}
-                        {device.connected
-                          ? "connected"
-                          : "not connected right now"}
-                      </span>
+                      <span className="muted">{device.connected ? "Connected" : "Not connected right now"}</span>
                     </div>
-                    <span
-                      className={`sync-dot${device.connected ? " on" : ""}`}
-                      aria-hidden="true"
-                    />
+                    <span className={`sync-dot${device.connected ? " on" : ""}`} aria-hidden="true" />
                     <button
-                      className="button"
+                      className="button secondary"
                       onClick={() => void unpair(device.deviceId, device.name)}
                       disabled={busy === device.deviceId || !status.available}
                     >
@@ -375,16 +373,13 @@ export default function SyncPanel({
                   </li>
                 ))}
               </ul>
-            )}
-          </section>
+            </section>
+          )}
 
           {status.offers.length > 0 && (
             <section className="import-section">
-              <h2>Offered by your computers</h2>
-              <p className="field-help">
-                Folders your computers want to keep here too. Nothing arrives
-                until you accept one.
-              </p>
+              <h2>Folders your computers offered</h2>
+              <p className="field-help">Nothing arrives until you keep one.</p>
               <ul className="import-list">
                 {status.offers.map((offer) => (
                   <li key={`${offer.folderId}-${offer.deviceId}`}>
@@ -411,7 +406,7 @@ export default function SyncPanel({
                       onClick={() => void accept(offer.folderId, offer.label)}
                       disabled={busy === offer.folderId}
                     >
-                      {busy === offer.folderId ? "Accepting…" : "Keep it here"}
+                      {busy === offer.folderId ? "Keeping…" : "Keep it here"}
                     </button>
                   </li>
                 ))}
@@ -420,35 +415,7 @@ export default function SyncPanel({
           )}
 
           <section className="import-section">
-            <h2>Synced folders</h2>
-            <div className="sync-form">
-              <input
-                className="path-input"
-                value={folderPath}
-                onChange={(event) => setFolderPath(event.target.value)}
-                placeholder="A folder such as Documents — or leave empty for all of your files"
-                aria-label="Folder to sync"
-                spellCheck={false}
-              />
-              <button
-                className="button primary"
-                onClick={() => void share()}
-                disabled={
-                  busy === "share" ||
-                  status.devices.length === 0 ||
-                  !status.available
-                }
-              >
-                <FolderSync size={15} />
-                {busy === "share" ? "Offering…" : "Sync folder"}
-              </button>
-            </div>
-            <p className="field-help">
-              A file deleted or replaced on one of your computers is deleted or
-              replaced here too. Uncloud keeps the old copy for 30 days, in a
-              hidden <code>.stversions</code> folder beside it, so a mistake on
-              a laptop can be undone. That isn’t a backup of this Uncloud.
-            </p>
+            <h2>What stays in sync</h2>
             {status.folders.length === 0 ? (
               <p className="field-help">Nothing is syncing yet.</p>
             ) : (
@@ -464,7 +431,7 @@ export default function SyncPanel({
                       </span>
                     </div>
                     <button
-                      className="button"
+                      className="button secondary"
                       onClick={() => void stop(folder)}
                       disabled={busy === folder.id || !status.available}
                     >
@@ -474,6 +441,31 @@ export default function SyncPanel({
                 ))}
               </ul>
             )}
+            <div className="sync-form">
+              <input
+                className="path-input"
+                value={folderPath}
+                onChange={(event) => setFolderPath(event.target.value)}
+                placeholder="Folder, like Documents (blank for all files)"
+                aria-label="Folder to sync"
+                spellCheck={false}
+              />
+              <button
+                className="button primary"
+                onClick={() => void share()}
+                disabled={busy === "share" || status.devices.length === 0 || !status.available}
+              >
+                <FolderSync size={15} />
+                {busy === "share" ? "Adding…" : "Sync folder"}
+              </button>
+            </div>
+            <p className="field-help sync-undo">
+              <History size={16} />
+              <span>
+                Deleted or changed something on a computer by mistake? The old version is kept for 30
+                days in the hidden <code>.stversions</code> folder.
+              </span>
+            </p>
           </section>
         </>
       )}

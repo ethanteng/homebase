@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import App from "./App";
 
 /**
@@ -85,8 +85,9 @@ describe("somebody else signing in on the same browser", () => {
     render(<App />);
     expect(await screen.findByText(/Added 1 file from From UncloudHost\.rtf/)).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: /^Account:/ }));
     await act(async () => {
-      screen.getByRole("button", { name: "Sign out" }).click();
+      screen.getByRole("menuitem", { name: "Sign out" }).click();
     });
     fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "ethan" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct horse battery" } });
@@ -95,7 +96,8 @@ describe("somebody else signing in on the same browser", () => {
     });
 
     await screen.findByText("Nothing here yet");
-    await waitFor(() => expect(screen.getByText("@ethan")).toBeInTheDocument());
+    fireEvent.click(await screen.findByRole("button", { name: /^Account:/ }));
+    expect(screen.getByText("@ethan")).toBeInTheDocument();
     expect(screen.queryByText(/From UncloudHost\.rtf/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Show them/ })).not.toBeInTheDocument();
   });

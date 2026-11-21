@@ -1014,9 +1014,9 @@ export default function UploadStatus({ upload, onStop, onDismiss, onOpen, onDeci
           : // Named, since several can be in sight at once.
           `Added ${upload.label} from this device: ${files(arrived)}, ${formatSize(upload.arrivedBytes)}.` +
           (upload.replaced === 1
-            ? " One took the place of an older copy, which is in the bin."
+            ? " 1 older copy was replaced and moved to Trash."
             : upload.replaced > 1
-              ? ` ${upload.replaced} took the place of older copies, which are in the bin.`
+              ? ` ${upload.replaced} older copies were replaced and moved to Trash.`
               : "") +
           (upload.unchanged > 0
             ? ` ${upload.unchanged} ${upload.unchanged === 1 ? "was" : "were"} already there, so ${upload.unchanged === 1 ? "it wasn’t" : "they weren’t"} sent again.`
@@ -1174,7 +1174,7 @@ function Decision({ upload, review, onDecide, onDismiss }: DecisionProps) {
     ...review.fresh.map((path) => ({ path, note: "New" })),
     ...review.changed.map((path) => ({
       path,
-      note: "Changed. This copy takes the place of the one there, which goes to the bin.",
+      note: "Changed. Replaces the copy there, which moves to Trash.",
     })),
     ...review.newer.map((path) => ({
       path,
@@ -1214,7 +1214,7 @@ function Decision({ upload, review, onDecide, onDismiss }: DecisionProps) {
           `${files(review.same)} ${review.same === 1 ? "is" : "are"} the same in both and won’t be sent again. `}
         {review.newer.length > 0 &&
           `${files(review.newer.length)} ${review.newer.length === 1 ? "was" : "were"} changed in Uncloud since, so ${review.newer.length === 1 ? "it’s" : "they’re"} left as ${review.newer.length === 1 ? "it is" : "they are"}. `}
-        {review.changed.length > 0 && "A changed file takes the place of the one there, which goes to the bin."}
+        {review.changed.length > 0 && "Changed files replace the copies there, which move to Trash."}
       </span>
       <div className="card-actions">
         {differ > 0 && (

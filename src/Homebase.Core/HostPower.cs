@@ -76,40 +76,38 @@ public static class HostPower
     /// </param>
     public static IReadOnlyList<PowerFinding> Findings(PowerState state, bool keptAwake, bool ownAccount)
     {
-        const string Menu = " On the host, choose Keep This Mac Awake under the U in the menu bar.";
+        const string Menu = "On the Uncloud Mac, choose Keep This Mac Awake in the U menu.";
         var findings = new List<PowerFinding>();
         if (!keptAwake && !state.SleepDisabled && state.SleepMinutes is int minutes && minutes > 0)
         {
             var after = minutes == 1 ? "a minute" : $"{minutes} minutes";
             findings.Add(new PowerFinding("sleeps", $"Goes to sleep after {after}",
-                $"This Mac goes to sleep after {after} with nobody at it, and then nobody can reach their files."
-                + (ownAccount ? Menu : " Turn that off in System Settings."),
+                ownAccount ? Menu : "Turn off sleep in System Settings.",
                 ownAccount));
         }
         if (state.OnBattery)
             findings.Add(new PowerFinding("on_battery", "Running on its battery",
-                "This Mac is running on its battery, and when that runs out it shuts down. Plug it in.", false));
+                "Plug it in, or it shuts down when the battery runs out.", false));
         if (state.HasBattery && !state.SleepDisabled)
             findings.Add(new PowerFinding("laptop", "Sleeps when its lid is closed",
-                "This Mac is a laptop: closing its lid puts it to sleep whatever Uncloud does, and then nobody can reach their files. Keep its lid open while it’s the host.",
+                "Keep the lid open while it’s the Uncloud computer.",
                 false));
         foreach (var scheduled in state.Scheduled)
         {
             var said = Scheduled(scheduled);
             findings.Add(new PowerFinding("scheduled", $"Set to {said}",
-                $"This Mac is set to {said}, and nobody can reach their files until it’s back. An administrator can stop that in Terminal with: sudo pmset repeat cancel",
+                "Files are unavailable while it’s off. To stop this, run in Terminal: sudo pmset repeat cancel",
                 false));
         }
         if (state.CanAutoRestart && state.AutoRestart == false)
             findings.Add(new PowerFinding("no_autorestart", "Stays off after a power cut",
-                "After a power cut this Mac stays off until somebody turns it on."
-                + (ownAccount
-                    ? " On the host, choose Keep This Mac Awake under the U in the menu bar, which also has it start up again by itself."
-                    : " Turn on starting up automatically after a power failure in System Settings."),
+                ownAccount
+                    ? Menu + " It also turns the Mac back on after a power cut."
+                    : "Turn on “Start up automatically after a power failure” in System Settings.",
                 ownAccount));
         if (state.FileVault == true)
             findings.Add(new PowerFinding("filevault", "After a restart, somebody must sign in",
-                "FileVault is on, so after this Mac restarts — after a power cut, say — Uncloud can’t start until somebody signs in at it once. Leave FileVault on all the same: it’s what keeps everyone’s files safe if the Mac is stolen.",
+                "Uncloud starts once someone signs in to the Mac. Keep FileVault on: it protects everyone’s files if the Mac is stolen.",
                 false));
         return findings;
     }

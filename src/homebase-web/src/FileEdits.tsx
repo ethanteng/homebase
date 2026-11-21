@@ -40,7 +40,7 @@ export function describe(entries: LibraryEntry[]) {
  */
 export function summarize(edit: Edit, destination: string, items: EditedEntry[]) {
   if (edit.action === "delete")
-    return `Moved ${describe(edit.entries)} to the bin.`;
+    return `Moved ${describe(edit.entries)} to Trash.`;
   const done = `${edit.action === "copy" ? "Copied" : "Moved"} ${describe(edit.entries)} to ${nameOf(destination)}.`;
   const renamed = items.filter((item) => nameOf(item.from) !== nameOf(item.to));
   if (renamed.length === 0) return done;
@@ -194,7 +194,6 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
         <>
           <div className="dialog-header">
             <div>
-              <span className="eyebrow">MY FILES</span>
               <h2 id="edit-title">
                 {edit.action === "delete"
                   ? `Delete ${describe(edit.entries)}?`
@@ -219,16 +218,16 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
               <p>
                 {one
                   ? edit.entries[0].isDirectory
-                    ? `“${edit.entries[0].name}” and everything in it will go to the bin.`
-                    : `“${edit.entries[0].name}” will go to the bin.`
+                    ? `“${edit.entries[0].name}” and everything in it will move to Trash.`
+                    : `“${edit.entries[0].name}” will move to Trash.`
                   : folderCount > 0
-                    ? `These ${edit.entries.length} items, and everything in the folders among them, will go to the bin.`
-                    : `These ${edit.entries.length} files will go to the bin.`}{" "}
-                You can put {one ? "it" : "them"} back from there for 30 days.
+                    ? `These ${edit.entries.length} items, including everything in the folders, will move to Trash.`
+                    : `These ${edit.entries.length} files will move to Trash.`}{" "}
+                You can restore {one ? "it" : "them"} for 30 days.
               </p>
               <p className="field-help">
-                Anything that syncs with your computers is deleted there too,
-                and comes back there if you put it back.
+                Also removed from your synced computers. Restoring puts {one ? "it" : "them"} back
+                there too.
               </p>
             </div>
           ) : naming ? (

@@ -227,7 +227,7 @@ describe("adding files from this device", () => {
 
     // The host's own folders stay with whoever looks after it; this device is everybody's.
     expect(await screen.findByText("This device")).toBeInTheDocument();
-    expect(screen.queryByText("Host computer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Uncloud computer")).not.toBeInTheDocument();
     await click(screen.getByText("This device"));
     expect(screen.getByText("Trips", { selector: "strong" })).toBeInTheDocument();
 
@@ -279,7 +279,7 @@ describe("adding files from this device", () => {
       const here = render(dialog());
       expect(await screen.findByText("Where are your files?")).toBeInTheDocument();
       expect(screen.getByText("This device")).toBeInTheDocument();
-      expect(screen.queryByText("Host computer")).not.toBeInTheDocument();
+      expect(screen.queryByText("Uncloud computer")).not.toBeInTheDocument();
       here.unmount();
     } finally {
       window.localStorage.removeItem("uncloud.add-files.source");
@@ -288,7 +288,7 @@ describe("adding files from this device", () => {
     // From anywhere else the host is somewhere different, so it is offered as well.
     answer = () => sources(false);
     render(dialog());
-    expect(await screen.findByText("Host computer")).toBeInTheDocument();
+    expect(await screen.findByText("Uncloud computer")).toBeInTheDocument();
     expect(screen.getByText("This device")).toBeInTheDocument();
   });
 
@@ -706,7 +706,7 @@ describe("adding a folder that's already there", () => {
     expect(decision).toHaveTextContent("2 files to add: 1 new and 1 changed.");
     expect(decision).toHaveTextContent("1 file is the same in both and won’t be sent again.");
     expect(decision).toHaveTextContent("1 file was changed in Uncloud since, so it’s left as it is.");
-    expect(decision).toHaveTextContent("A changed file takes the place of the one there, which goes to the bin.");
+    expect(decision).toHaveTextContent("Changed files replace the copies there, which move to Trash.");
     // Nothing is begun, let alone sent, until somebody says what to do.
     expect(asked.map((request) => request.path)).toEqual(["/uploads/compare"]);
     expect(FakeRequest.sent).toHaveLength(0);
@@ -734,7 +734,7 @@ describe("adding a folder that's already there", () => {
       body: { destination: "Trips", merge: true },
     });
     expect(screen.getByRole("status")).toHaveTextContent(
-      "One took the place of an older copy, which is in the bin. 2 were already there, so they weren’t sent again.",
+      "1 older copy was replaced and moved to Trash. 2 were already there, so they weren’t sent again.",
     );
     await click(screen.getByRole("button", { name: /Show them/ }));
     expect(opened).toHaveBeenCalledWith("Trips/Holiday");

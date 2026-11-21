@@ -526,10 +526,10 @@ public sealed class DesktopController(
     /// person can see.
     /// </summary>
     private string StillListedOnHost => Settings.AccountName is { Length: > 0 } account
-        ? $"Uncloud couldn’t be told, so it may still list this computer in My computers for {account}. "
-          + $"Before connecting it to a different account, sign in to Uncloud as {account}, open My computers and click Remove next to it."
-        : "Uncloud couldn’t be told, so it may still list this computer in My computers for the account it was added to. "
-          + "Before connecting it to a different account, sign in to Uncloud as that account, open My computers and click Remove next to it.";
+        ? $"Uncloud couldn’t be told, so it may still list this computer in Computers for {account}. "
+          + $"Before connecting it to a different account, sign in to Uncloud as {account}, open Computers and click Remove next to it."
+        : "Uncloud couldn’t be told, so it may still list this computer in Computers for the account it was added to. "
+          + "Before connecting it to a different account, sign in to Uncloud as that account, open Computers and click Remove next to it.";
 
     private async Task StartServerAsync(CancellationToken cancellationToken)
     {

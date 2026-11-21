@@ -22,6 +22,11 @@ esac
 
 version="$(git describe --tags --always 2>/dev/null || echo 0)"
 short_version="0.$(git rev-list --count HEAD 2>/dev/null || echo 0)"
+# Shown under the logo on the web page and in the app's own windows, the same in both: the web
+# build (vite.config.ts) and the app's project file read these.
+UNCLOUD_VERSION="$short_version"
+UNCLOUD_BUILD="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+export UNCLOUD_VERSION UNCLOUD_BUILD
 app="artifacts/app-$runtime/Uncloud.app"
 rm -rf -- "artifacts/app-$runtime"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
