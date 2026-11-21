@@ -67,7 +67,7 @@ export default function Bin({ onChanged, open }: Props) {
         if (controller.signal.aborted) return;
         setListing(null);
         setLoadError(
-          failure instanceof Error ? failure.message : "Couldn’t open the bin.",
+          failure instanceof Error ? failure.message : "Couldn’t open Trash.",
         );
       })
       .finally(() => {
