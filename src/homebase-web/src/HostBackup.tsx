@@ -91,7 +91,7 @@ function kitText(kit: ShownKit) {
     "",
     "Keep this somewhere safe, away from the computer Uncloud runs on.",
     "If that computer is lost, set Uncloud up on another, then in Settings,",
-    "under Backing up offsite, choose “Use a recovery kit” and type both in.",
+    "under Offsite backup, choose “Use a recovery kit” and type both in.",
     "Making a new kit replaces this one, and this one stops working.",
     "",
   ].join("\n");
