@@ -343,7 +343,9 @@ export default function App() {
   function onSignedIn(user: User) {
     setSession({ setupNeeded: false, hostConfigured: true, user });
     setError("");
-    setView(approving ? "sync" : "files");
+    // The Mac menu opens /?settings before this browser is signed in. Keep that request, the way a
+    // computer asking to be added is kept, instead of leaving an admin on My files.
+    setView(approving ? "sync" : askedForSettings && user.isAdmin ? "settings" : "files");
     navigate("");
   }
 
