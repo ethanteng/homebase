@@ -64,8 +64,8 @@
   --danger-bg: #2b171c;
   --danger-line: #6b2e38;
   --danger-text: #ff9c94;
-  --shadow: var(--shadow);
-  --shadow-strong: var(--shadow-strong);
+  --shadow: rgba(0, 0, 0, 0.45);
+  --shadow-strong: rgba(0, 0, 0, 0.65);
   --overlay: rgba(0, 0, 0, 0.6);
 }
 * {
