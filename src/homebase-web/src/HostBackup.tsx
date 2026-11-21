@@ -13,6 +13,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize, SignedOutError } from "./api";
+import { SettingsGroup } from "./Settings";
 import type {
   BackupAccount,
   BackupCheck,
@@ -396,15 +397,6 @@ export default function HostBackup({ onChanged }: Props = {}) {
     }
   }
 
-  const heading = (
-    <div className="import-section-head">
-      <h3>
-        <CloudUpload size={16} />
-        Backing up offsite
-      </h3>
-    </div>
-  );
-
   if (kit) {
     const copyButton = (what: "password" | "recovery", text: string) => (
       <button type="button" className="button secondary" onClick={() => void copy(what, text)}>
@@ -413,13 +405,11 @@ export default function HostBackup({ onChanged }: Props = {}) {
       </button>
     );
     return (
-      <section className="import-section host-backup">
-        {heading}
+      <SettingsGroup title="Offsite backup">
+        <div className="backup-body">
         <p className="field-help">
-          <strong>This is your recovery kit.</strong> Everything is encrypted with the password on this
-          computer before it leaves, so nobody else can read your backup: not iDrive, not Uncloud. It
-          also means nobody can open the backup without the kit if this computer is lost or broken.
-          With it, another computer running Uncloud can take this one’s place and get everything back.
+          <strong>Save your recovery kit.</strong> Your backup is encrypted on this computer, so nobody
+          else can read it. If this computer is lost, the kit is the only way to get everything back.
         </p>
         <span className="backup-kit-label">Backup password</span>
         <div className="pairing-code backup-password">
@@ -440,13 +430,13 @@ export default function HostBackup({ onChanged }: Props = {}) {
           </>
         ) : (
           <p className="field-help">
-            The recovery token couldn’t be made just now. Once storage is set up, make a recovery kit
-            from here: it has this password in it too.
+            The recovery token couldn’t be made just now. Make a recovery kit here once storage is
+            ready.
           </p>
         )}
         {copied?.how === "select" && (
           <p className="field-help" role="status">
-            This browser didn’t let Uncloud copy it. It’s selected: copy it with ⌘C or Ctrl+C.
+            Copying was blocked, so it’s selected instead. Press ⌘C or Ctrl+C.
           </p>
         )}
         <button type="button" className="button secondary" onClick={() => download(kit)}>
@@ -454,8 +444,7 @@ export default function HostBackup({ onChanged }: Props = {}) {
           Download the kit
         </button>
         <p className="field-help warning-text">
-          Keep it somewhere safe away from this computer, like a password manager, or printed and put
-          away. This is the only time Uncloud shows it.
+          Keep it somewhere safe, away from this computer. This is the only time it’s shown.
         </p>
         <label className="backup-kept">
           <input type="checkbox" checked={kept} onChange={(event) => setKept(event.target.checked)} />
@@ -465,17 +454,17 @@ export default function HostBackup({ onChanged }: Props = {}) {
           <Check size={16} />
           Done
         </button>
-      </section>
+        </div>
+      </SettingsGroup>
     );
   }
 
   if (!account.joined && !status.configured && recovering) {
     return (
-      <section className="import-section host-backup">
-        {heading}
+      <SettingsGroup title="Offsite backup">
+        <div className="backup-body">
         <p className="field-help">
-          Taking the place of an Uncloud that’s been lost? Type in its household’s recovery kit. This
-          Uncloud then opens that backup, and the lost one’s key stops working.
+          Replacing a lost Uncloud? Enter its recovery kit. The lost one stops working.
         </p>
         <label htmlFor="backup-recovery">Recovery token</label>
         <input
@@ -500,7 +489,7 @@ export default function HostBackup({ onChanged }: Props = {}) {
         />
         {busy && (
           <p className="field-help" role="status">
-            Opening the household’s backup…
+            Opening the backup…
           </p>
         )}
         {error && (
@@ -527,20 +516,21 @@ export default function HostBackup({ onChanged }: Props = {}) {
               setError("");
             }}
           >
-            Join with an invite instead
+            Use an invite code instead
           </button>
         </div>
-      </section>
+        </div>
+      </SettingsGroup>
     );
   }
 
   if (!account.joined && !status.configured) {
     return (
-      <section className="import-section host-backup">
-        {heading}
+      <SettingsGroup title="Offsite backup">
+        <div className="backup-body">
         <p className="field-help">
-          Uncloud Backup keeps an encrypted copy of everyone’s files here, and of this Uncloud
-          itself, offsite every night. It’s in a trial for now, so joining takes an invite code.
+          Keeps an encrypted copy of everyone’s files offsite, every night. During the trial, joining
+          needs an invite code.
         </p>
         <label htmlFor="backup-invite">Invite code</label>
         <input
@@ -555,7 +545,7 @@ export default function HostBackup({ onChanged }: Props = {}) {
         />
         {busy && (
           <p className="field-help" role="status">
-            Joining Uncloud Backup…
+            Joining…
           </p>
         )}
         {error && (
@@ -586,30 +576,31 @@ export default function HostBackup({ onChanged }: Props = {}) {
             Use a recovery kit
           </button>
         </p>
-      </section>
+        </div>
+      </SettingsGroup>
     );
   }
 
   return (
-    <section className="import-section host-backup">
-      {heading}
+    <SettingsGroup title="Offsite backup">
+      <div className="backup-body">
       {account.joined && account.storage !== "ready" ? (
         account.storage === "failing" ? (
           <p className="backup-line">
             <TriangleAlert size={14} className="backup-warn" />
             <span>
-              Uncloud Backup is having trouble setting up this household’s storage
+              Backup storage is having trouble getting ready
               {account.step && STEPS[account.step] ? ` (${STEPS[account.step]})` : ""}. It keeps
-              trying, and there’s nothing to do here.
+              trying; there’s nothing you need to do.
             </span>
           </p>
         ) : (
           <p className="backup-line" role="status">
             <LoaderCircle size={14} className="spin" />
             <span>
-              Setting up this household’s storage
-              {account.step && STEPS[account.step] ? `: ${STEPS[account.step]}` : ""}. It usually
-              takes under a minute.
+              Getting backup storage ready
+              {account.step && STEPS[account.step] ? `: ${STEPS[account.step]}` : ""}. Usually under a
+              minute.
             </span>
           </p>
         )
@@ -620,9 +611,8 @@ export default function HostBackup({ onChanged }: Props = {}) {
             <p className="backup-line">
               <Pause size={14} className="backup-warn" />
               <span>
-                This Uncloud has opened its household’s backup and isn’t adding to it yet. Rebuild it from
-                the backup to bring back everyone’s accounts and files as they were. Or get back only what
-                you need from Backups, then resume backing up.
+                This Uncloud opened an existing backup and isn’t adding to it yet. Rebuild everything
+                from it, or restore what you need from Backups and then resume.
               </span>
             </p>
           )}
@@ -631,8 +621,7 @@ export default function HostBackup({ onChanged }: Props = {}) {
             {keptBackups?.length === 1 && `1 backup kept, from ${when.format(new Date(keptBackups[0].time))}. `}
             {keptBackups && keptBackups.length > 1 &&
               `${keptBackups.length} backups kept, the oldest from ${when.format(new Date(keptBackups[0].time))}. `}
-            Every night, and soon after this computer is back if it missed one. Encrypted here before it
-            leaves.
+            Backs up every night, encrypted before it leaves.
           </p>
           {check && <LastCheck check={check} />}
           {account.joined &&
@@ -645,7 +634,7 @@ export default function HostBackup({ onChanged }: Props = {}) {
               <p className="backup-line">
                 <TriangleAlert size={14} className="backup-warn" />
                 <span>
-                  No recovery kit yet. Without one, nobody can get this backup back if this computer is
+                  No recovery kit yet. Without one, the backup can’t be recovered if this computer is
                   lost.
                 </span>
               </p>
@@ -707,7 +696,8 @@ export default function HostBackup({ onChanged }: Props = {}) {
           </div>
         </>
       )}
-    </section>
+      </div>
+    </SettingsGroup>
   );
 }
 
@@ -721,13 +711,13 @@ function Rebuilding({ rebuild, slow }: { rebuild: BackupRebuild; slow: boolean }
     const text =
       rebuild.stage === "restarting"
         ? slow
-          ? "Everything from the backup is ready, and Uncloud hasn’t started again by itself. Quit Uncloud and open it again: it finishes the rebuild as it starts."
-          : "Everything from the backup is ready. Uncloud is starting again as the Uncloud in the backup: sign in with your account from before once it has."
+          ? "Everything is ready, but Uncloud didn’t restart. Quit Uncloud and open it again to finish."
+          : "Everything is ready. Uncloud is restarting; then sign in with your old account."
         : rebuild.stage === "preparing"
-          ? `Rebuilding this Uncloud${from}: everything is back, and the accounts are being got ready.`
+          ? `Rebuilding${from}: getting the accounts ready.`
           : rebuild.bytes !== null
-            ? `Rebuilding this Uncloud${from}: ${formatSize(rebuild.bytesRestored ?? 0)} of ${formatSize(rebuild.bytes)} back so far. This can take a while; leave this computer on.`
-            : `Rebuilding this Uncloud${from}: reading what’s in it.`;
+            ? `Rebuilding${from}: ${formatSize(rebuild.bytesRestored ?? 0)} of ${formatSize(rebuild.bytes)} restored. This can take a while, so leave this computer on.`
+            : `Rebuilding${from}: reading the backup.`;
     return (
       <p className="backup-line" role="status">
         {slow ? <TriangleAlert size={14} className="backup-warn" /> : <LoaderCircle size={14} className="spin" />}
@@ -748,7 +738,7 @@ function Rebuilding({ rebuild, slow }: { rebuild: BackupRebuild; slow: boolean }
         <ArchiveRestore size={14} />
         <span>
           Rebuilt {when.format(new Date(rebuild.rebuiltAt))} from the backup of {when.format(new Date(rebuild.rebuiltFrom))}.
-          Computers that synced with the lost Uncloud need to be paired again.
+          Computers that synced with the old Uncloud need to be connected again.
         </span>
       </p>
     );
@@ -768,8 +758,8 @@ function LastCheck({ check }: { check: BackupCheck }) {
       <p className="backup-line" role="status">
         <LoaderCircle size={14} className="spin" />
         <span>
-          Verifying the backup: restoring the newest one to a temporary folder, comparing it with
-          what’s here, then deleting it. Nothing here is changed.
+          Verifying: restoring the latest backup to a temporary folder and comparing it. Nothing here
+          changes.
         </span>
       </p>
     );
@@ -801,9 +791,9 @@ function LastCheck({ check }: { check: BackupCheck }) {
         <ShieldCheck size={14} className="backup-ok" />
         <span>
           Verified {finished}: restored {what}
-          {from}, and {since.length ? "every one still here as it was" : "every one"} came back exactly
-          as it is here{since.length ? ` (${since.join(" and ")})` : ""}.
-          {check.hostKeyMatched ? " So did this Uncloud’s own key, which a rebuilt host needs." : ""}
+          {from}, and {since.length ? "every one still here" : "every one"} matched
+          {since.length ? ` (${since.join(" and ")})` : ""}.
+          {check.hostKeyMatched ? " This Uncloud’s key matched too." : ""}
         </span>
       </p>
     );
@@ -832,8 +822,8 @@ function LastBackup({ status }: { status: BackupStatus }) {
       <p className="backup-line" role="status">
         <LoaderCircle size={14} className="spin" />
         <span>
-          Backing up now. A first backup can take hours; if it’s stopped, the next one carries on
-          from where it got to.
+          Backing up now. The first one can take hours, and picks up where it left off if
+          interrupted.
         </span>
       </p>
     );
@@ -841,7 +831,7 @@ function LastBackup({ status }: { status: BackupStatus }) {
   if (!status.lastOutcome) {
     return (
       <p className="backup-line">
-        <span>Not backed up yet. The first backup starts on its own within a few minutes.</span>
+        <span>Not backed up yet. The first backup starts within a few minutes.</span>
       </p>
     );
   }

@@ -84,7 +84,7 @@ export default function AccountPanel({ me, dropboxExpanded = false }: Props) {
       setCurrent("");
       setNext("");
       setNotice(
-        "Password changed. Every other browser signed in as you has been signed out.",
+        "Password changed. You’ve been signed out everywhere else.",
       );
     } catch (failure) {
       setError(
@@ -193,8 +193,7 @@ export default function AccountPanel({ me, dropboxExpanded = false }: Props) {
         aria-describedby="new-password-help"
       />
       <p id="new-password-help" className="field-help">
-        At least 10 characters. Changing it signs you out everywhere except
-        here.
+        At least 10 characters. You’ll be signed out everywhere else.
       </p>
       {error && (
         <p className="error-message" role="alert">
@@ -221,12 +220,12 @@ export default function AccountPanel({ me, dropboxExpanded = false }: Props) {
           </div>
           <p className="field-help">
             {dropbox.source === "Own"
-              ? "You connect Dropbox through a setup of your own. Nobody else here can see or change it."
+              ? "You use your own Dropbox app. Only you can see or change it."
               : relayIsNoUseHere
-                ? "Dropbox can only be connected from the computer Uncloud runs on, the way things are set up now. To connect it from here, set it up yourself below — it takes about five minutes on Dropbox’s website, and needs nobody else."
+                ? "Right now Dropbox only connects from the Uncloud computer. To connect from here, set up your own Dropbox app below (about five minutes)."
                 : dropbox.source === "None"
-                  ? "To connect your Dropbox, it needs setting up once on Dropbox’s website. Nobody has done that on this Uncloud yet, so you can do it yourself — it takes about five minutes."
-                  : "Dropbox is ready to connect from Add files. There’s nothing you need to do here."}
+                  ? "Dropbox isn’t set up yet. You can set it up yourself in about five minutes."
+                  : "Ready. Connect your Dropbox from Add files."}
           </p>
 
           {settleForOwn ? (
@@ -239,8 +238,8 @@ export default function AccountPanel({ me, dropboxExpanded = false }: Props) {
               <summary>Use my own Dropbox setup instead</summary>
               <p className="field-help">
                 {dropbox.source === "Relay"
-                  ? "Worth doing if you’d rather your Dropbox sign-in didn’t go through an app somebody else registered, or to connect Dropbox from a computer other than the one Uncloud runs on."
-                  : "Worth doing if you’d rather not depend on whoever looks after this Uncloud keeping their setup working."}
+                  ? "Use this to sign in through your own Dropbox app, or to connect from any device."
+                  : "Use this if you’d rather not depend on the shared setup."}
               </p>
               {form}
             </details>

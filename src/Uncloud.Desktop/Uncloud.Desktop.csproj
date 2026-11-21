@@ -7,6 +7,13 @@
     <!-- A menu-bar app: no Dock icon and no window until one is asked for (LSUIElement, in Info.plist). -->
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
   </PropertyGroup>
+  <!-- The version the app shows, set by scripts/package-macos-app.sh, which also stamps it into the
+       web interface so both say the same. Read from the environment here, so it changes only this
+       assembly and not the libraries it shares with the server. -->
+  <PropertyGroup Condition="'$(UNCLOUD_VERSION)' != ''">
+    <InformationalVersion>$(UNCLOUD_VERSION) ($(UNCLOUD_BUILD))</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
   </ItemGroup>

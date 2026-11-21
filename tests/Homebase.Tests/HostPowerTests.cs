@@ -124,7 +124,7 @@ public sealed class HostPowerTests : IDisposable
         Assert.True(findings[1].InMenu);
         // Nothing Uncloud should do anything about: FileVault is what keeps the files safe.
         Assert.False(findings[2].InMenu);
-        Assert.Contains("Leave FileVault on", findings[2].Message);
+        Assert.Contains("Keep FileVault on", findings[2].Message);
     }
 
     [Fact]

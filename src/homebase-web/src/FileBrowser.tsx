@@ -14,6 +14,7 @@ import {
   FolderInput,
   FolderOpen,
   FolderPlus,
+  Lock,
   Pencil,
   Plus,
   RefreshCw,
@@ -337,13 +338,14 @@ export default function FileBrowser({
   return (
     <>
       <div className="page-heading">
-        <div>
-          <span className="eyebrow">{path ? "MY FILES" : "ONLY YOU CAN SEE THESE"}</span>
-          <h1>
-            {path ? path.split("/").at(-1) : "My files"}
-            <span className="heading-dot">.</span>
-          </h1>
-          <p>Kept at home, not in the cloud. Nobody else here can open them.</p>
+        <div className="page-title">
+          <h1>{path ? path.split("/").at(-1) : "My files"}</h1>
+          {!path && (
+            <span className="private-chip">
+              <Lock size={15} />
+              Private
+            </span>
+          )}
         </div>
         <div className="heading-actions">
           <button
@@ -364,10 +366,6 @@ export default function FileBrowser({
           >
             <FolderPlus size={16} />
             <span>New folder</span>
-          </button>
-          <button className="button primary" onClick={onAdd}>
-            <Plus size={16} />
-            Add files
           </button>
         </div>
       </div>
@@ -398,10 +396,6 @@ export default function FileBrowser({
             {`${total.unmeasured} ${total.unmeasured === 1 ? "folder" : "folders"} couldn’t be measured`}
           </span>
         )}
-        <span className="summary-local">
-          <i className="status-dot" />
-          Stored at home
-        </span>
       </div>
       <div className="browser-layout">
         <section
@@ -619,7 +613,7 @@ export default function FileBrowser({
                 <p>
                   {query
                     ? "Try a different name, or clear the filter."
-                    : "Bring in the files you keep elsewhere — in Dropbox, on a drive, in a folder. Only you will be able to see them."}
+                    : "Add files from this device, Dropbox or a drive. Only you can see them."}
                 </p>
               )}
               {query ? (
@@ -858,18 +852,8 @@ export default function FileBrowser({
                 Delete
               </button>
             </div>
-            <p className="field-help">
-              An ordinary file, kept at home. Only you can see it.
-            </p>
           </aside>
         )}
-      </div>
-      <div className="library-note">
-        <ShieldMark />
-        <p>
-          Your files stay yours. They’re kept on this Uncloud at home, not
-          with a cloud company.
-        </p>
       </div>
       <EditDialog
         edit={edit}
@@ -883,28 +867,5 @@ export default function FileBrowser({
         }}
       />
     </>
-  );
-}
-
-function ShieldMark() {
-  return (
-    <svg
-      width="20"
-      height="22"
-      viewBox="0 0 20 22"
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M10 2 3 5v6c0 4 7 8 7 8s7-4 7-8V5l-7-3Z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-      />
-      <path
-        d="m6.5 10 2.5 2.5 4.5-4.5"
-        stroke="currentColor"
-        strokeWidth="1.4"
-      />
-    </svg>
   );
 }

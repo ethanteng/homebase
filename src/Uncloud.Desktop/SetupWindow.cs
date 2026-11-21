@@ -1,3 +1,4 @@
+using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -38,7 +39,7 @@ public sealed class SetupWindow : Window
     private static readonly TimeSpan Poll = TimeSpan.FromSeconds(2);
 
     private readonly DesktopController _controller;
-    private readonly StackPanel _body = new() { Spacing = 14, Margin = new Thickness(28) };
+    private readonly StackPanel _body = new() { Spacing = 16, Margin = new Thickness(28) };
     private readonly TextBlock _problem = new() { Foreground = Brushes.IndianRed, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     // Whatever the window is doing in the background — looking for Uncloud, or waiting for somebody
     // to approve — stopped when it moves on to something else or is closed.
@@ -48,7 +49,8 @@ public sealed class SetupWindow : Window
     {
         _controller = controller;
         Title = "Uncloud";
-        Width = 460;
+        Width = 520;
+        FontSize = 15;
         SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -72,9 +74,24 @@ public sealed class SetupWindow : Window
         _work = null;
         _body.Children.Clear();
         _problem.IsVisible = false;
-        _body.Children.Add(new TextBlock { Text = heading, FontSize = 22, FontWeight = FontWeight.SemiBold });
-        _body.Children.Add(new TextBlock { Text = explanation, TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
+        _body.Children.Add(new TextBlock { Text = heading, FontSize = 24, FontWeight = FontWeight.Bold, TextWrapping = TextWrapping.Wrap });
+        if (explanation.Length > 0)
+            _body.Children.Add(new TextBlock { Text = explanation, TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
     }
+
+    /// <summary>
+    /// "Version 0.492 (a553cc1)", as packaging stamped it in, so it matches what the web page shows.
+    /// Nothing in a build that wasn't packaged, which only has the SDK's placeholder.
+    /// </summary>
+    internal static string? VersionLabel =>
+        typeof(SetupWindow).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            is { Length: > 0 } version && !version.StartsWith("1.0.0", StringComparison.Ordinal)
+            ? $"Version {version}"
+            : null;
+
+    /// <summary>A line that is only worth a glance: smaller, quieter, never the point of the window.</summary>
+    private static TextBlock Quiet(string text) =>
+        new() { Text = text, TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 14 };
 
     private CancellationToken Begin()
     {
@@ -84,11 +101,13 @@ public sealed class SetupWindow : Window
 
     private void ShowChoice()
     {
-        Reset("Set up Uncloud", "Is this the computer everybody’s files live on, or one of your own computers?");
-        _body.Children.Add(Choice("Connect this computer to an Uncloud",
-            "Your files appear in an Uncloud folder here, and stay in step both ways.", ShowFind));
-        _body.Children.Add(Choice("Make this Mac the Uncloud host",
-            "Everyone’s files live here. Keep it on and awake while people use it.", () => ShowHost()));
+        Reset("Welcome to Uncloud", "How will you use this Mac?");
+        _body.Children.Add(Choice("Store everyone’s files here",
+            "For the Mac that stays home and on", () => ShowHost()));
+        _body.Children.Add(Choice("Connect to your Uncloud",
+            "Keep a folder on this Mac in sync", ShowFind));
+        if (VersionLabel is { } version)
+            _body.Children.Add(new TextBlock { Text = version, Opacity = 0.6, FontSize = 14, HorizontalAlignment = HorizontalAlignment.Center });
     }
 
     private static Button Choice(string title, string detail, Action choose)
@@ -96,7 +115,7 @@ public sealed class SetupWindow : Window
         var button = new Button
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Padding = new Thickness(16, 12),
+            Padding = new Thickness(16, 14),
             Content = new StackPanel
             {
                 Spacing = 4,
@@ -114,7 +133,7 @@ public sealed class SetupWindow : Window
     /// <summary>Looks for the household's Uncloud on this network, so nobody has to know its address.</summary>
     private async void ShowFind()
     {
-        Reset("Connect this computer", "Looking for Uncloud on this network…");
+        Reset("Connect to Uncloud", "Looking for your Uncloud…");
         var stop = Begin();
         _body.Children.Add(new ProgressBar { IsIndeterminate = true });
         _body.Children.Add(Links(("Enter its address instead", () => ShowAddress(null)), ("Use a pairing code", () => ShowCode(null))));
@@ -139,28 +158,28 @@ public sealed class SetupWindow : Window
 
     private void ShowPick(IReadOnlyList<FoundHost> hosts)
     {
-        Reset("Connect this computer", "There’s more than one Uncloud on this network. Which is yours?");
+        Reset("Connect to Uncloud", "Found more than one Uncloud. Which is yours?");
         foreach (var host in hosts)
         {
             var address = Reachable(host)!;
             _body.Children.Add(Choice(host.Name, address.Host, () => ShowScan(address, host.Name)));
         }
-        _body.Children.Add(Links(("Use a pairing code instead", () => ShowCode(null))));
+        _body.Children.Add(Links(("Use a code instead", () => ShowCode(null))));
     }
 
     /// <param name="unreachable">An Uncloud that was found but can't be reached from other computers yet.</param>
     private void ShowAddress(FoundHost? unreachable)
     {
-        Reset("Connect this computer", unreachable is { } host
-            ? $"Found Uncloud on {host.Name}, but other computers can’t reach it yet. On {host.Name}, open the Uncloud menu and tick Reach From Anywhere, then look again."
-            : "Couldn’t find Uncloud on this network. On your home Wi-Fi, look again — or enter the address you open Uncloud at.");
+        Reset("Connect to Uncloud", unreachable is { } host
+            ? $"Found it on {host.Name}, but it can’t be reached yet. On {host.Name}, turn on Reach From Anywhere in the Uncloud menu, then look again."
+            : "Couldn’t find your Uncloud. Check you’re on your home Wi-Fi, or enter its address.");
 
         var address = new TextBox { Watermark = "Address, such as https://home.example.ts.net", Text = _controller.Settings.Address };
         var next = new Button { Content = "Next", Background = Accent, Foreground = Brushes.White };
         next.Click += (_, _) =>
         {
             var text = address.Text?.Trim() ?? "";
-            // The link from My computers, pasted whole, works here too.
+            // The link from Computers, pasted whole, works here too.
             if (text.StartsWith(PairingLink.Scheme + "://", StringComparison.OrdinalIgnoreCase))
             {
                 ShowCode(text);
@@ -181,7 +200,7 @@ public sealed class SetupWindow : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             Children = { again, next }
         });
-        _body.Children.Add(Links(("Use a pairing code instead", () => ShowCode(null))));
+        _body.Children.Add(Links(("Use a code instead", () => ShowCode(null))));
     }
 
     /// <summary>
@@ -190,19 +209,19 @@ public sealed class SetupWindow : Window
     /// </summary>
     private async void ShowScan(Uri address, string? hostName)
     {
-        Reset("Connect this computer", hostName is null ? $"Uncloud at {address.Host}." : $"Found Uncloud on {hostName}.");
+        Reset("Connect to Uncloud", hostName is null ? $"Uncloud at {address.Host}" : $"Found it on {hostName}");
         var stop = Begin();
         var code = new Image { Width = 220, Height = 220, HorizontalAlignment = HorizontalAlignment.Center };
         RenderOptions.SetBitmapInterpolationMode(code, BitmapInterpolationMode.None);
         var instructions = new TextBlock { Text = "Getting a code…", TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center };
-        var browser = new Button { Content = "Approve in This Mac’s Browser", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Center };
+        var browser = new Button { Content = "Approve in Browser", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Center };
         PairingRequest? request = null;
         browser.Click += (_, _) => { if (request is not null) App.Open(request.ApproveUrl.ToString()); };
         _body.Children.Add(code);
         _body.Children.Add(instructions);
         _body.Children.Add(browser);
         _body.Children.Add(_problem);
-        _body.Children.Add(Links(("Use a pairing code instead", () => ShowCode(null))));
+        _body.Children.Add(Links(("Use a code instead", () => ShowCode(null))));
 
         var name = DesktopController.ComputerName();
         try
@@ -211,7 +230,7 @@ public sealed class SetupWindow : Window
             {
                 request = await _controller.RequestPairingAsync(address, name, stop);
                 code.Source = QrCode(request.ApproveUrl);
-                instructions.Text = $"Scan this with your phone’s camera, check it names your account, then tap Add this computer. It’s called {name}. Sign in to Uncloud first if your phone asks.";
+                instructions.Text = $"Scan with your phone, check it shows your name, then tap Add this computer. This Mac is called {name}.";
                 browser.IsEnabled = true;
                 _problem.IsVisible = false;
 
@@ -261,8 +280,8 @@ public sealed class SetupWindow : Window
 
     private void ShowCode(string? link)
     {
-        Reset("Connect with a pairing code",
-            "In Uncloud, open My computers and choose Get a pairing code. Click the link it shows, or copy the address and code here.");
+        Reset("Connect with a code",
+            "In Uncloud, open Computers and choose Get a pairing code. Open the link it shows, or enter the address and code here.");
 
         var address = new TextBox { Watermark = "Address, such as https://home.example.ts.net" };
         var code = new TextBox { Watermark = "Pairing code, such as AB12C-DE34F" };
@@ -306,13 +325,13 @@ public sealed class SetupWindow : Window
         _body.Children.Add(Labelled("This computer’s name", name));
         _body.Children.Add(_problem);
         _body.Children.Add(connect);
-        _body.Children.Add(Links(("Scan a code with your phone instead", ShowFind)));
+        _body.Children.Add(Links(("Scan with your phone instead", ShowFind)));
     }
 
     private void ShowPaired(string account)
     {
         Reset("You’re connected",
-            $"Files for {account} are arriving in {_controller.Paths.Files}. Anything you add, change or delete there reaches Uncloud, and the other way round. Uncloud keeps anything deleted for 30 days.");
+            $"{account}’s files are arriving in {_controller.Paths.Files}. Changes sync both ways, and anything deleted is kept for 30 days.");
         var open = new Button { Content = "Open Uncloud Folder", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
         open.Click += (_, _) => { App.Open(_controller.Paths.Files); Close(); };
         _body.Children.Add(open);
@@ -322,37 +341,38 @@ public sealed class SetupWindow : Window
     {
         if (!_controller.CanSetUpPrivately)
         {
-            Reset("Make this Mac the host",
-                "Uncloud will run here from the menu bar, with everything it needs built in. Next, your browser opens to make the first account and choose where everyone’s files are kept.");
+            Reset("Set up this Mac",
+                "Everyone’s files will be stored here. Next, your browser opens to create your account.");
         }
         else if (_controller.HasKeptHost)
         {
-            Reset("Turn Uncloud on again",
-                "Uncloud kept everyone’s files and accounts on this Mac when it was turned off, still private to its own account. Starting it again picks them all up where they were. macOS asks for an administrator’s password.");
+            Reset("Turn Uncloud back on",
+                "Everyone’s files and accounts are still here, and pick up where they left off.");
         }
         else
         {
-            Reset("Make this Mac the host",
-                "Uncloud runs here in the background from now on, from the moment the Mac starts, in an account of its own that nobody signs in to. Everyone’s files belong to that account, so nobody using this Mac can look through them, in Finder or in Terminal. macOS asks for an administrator’s password once, to set it up.");
+            Reset("Set up this Mac", "Everyone’s files will be stored here.");
             if (_controller.AsksWhereFilesGo)
             {
-                var where = new TextBlock
+                _body.Children.Add(new TextBlock
                 {
-                    Text = root is null ? "Everyone’s files will be kept on this Mac." : $"Everyone’s files will be kept in {root}.",
+                    Text = root is null ? "Stored on this Mac" : $"Stored in {root}",
+                    FontWeight = FontWeight.SemiBold,
                     TextWrapping = TextWrapping.Wrap
-                };
-                _body.Children.Add(where);
+                });
                 _body.Children.Add(root is null
-                    ? Links(("Keep them on a drive or another folder instead", async () =>
+                    ? Links(("Use an external drive or another folder", async () =>
                     {
                         if (await ChooseFolderAsync() is { } chosen) ShowHost(chosen);
                     }))
-                    : Links(("Keep them on this Mac instead", () => ShowHost())));
+                    : Links(("Use this Mac instead", () => ShowHost())));
             }
+            // Why it runs in an account of its own, as the one thing it means for the people here.
+            _body.Children.Add(Quiet("Files stay private, even from others who use this Mac."));
         }
         var awake = _controller.CanSetUpPrivately ? AwakeChoice() : null;
-        var start = new Button { Content = "Start Uncloud Here", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
-        start.Click += async (_, _) => await AdministerAsync("Make this Mac the host", start, "Starting…",
+        var start = new Button { Content = "Set Up", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
+        start.Click += async (_, _) => await AdministerAsync("Set up this Mac", start, "Setting up…",
             (inTerminal, stop) => _controller.BecomeHostAsync(root, stop, inTerminal, Chosen(awake)),
             again: () => ShowHost(root),
             done: () =>
@@ -363,7 +383,7 @@ public sealed class SetupWindow : Window
             });
         if (awake is not null) _body.Children.Add(awake);
         _body.Children.Add(_problem);
-        _body.Children.Add(start);
+        _body.Children.Add(_controller.CanSetUpPrivately ? Footer("Needs your Mac password", start) : start);
         if (_controller.CannotSetUpPrivately is { } why)
         {
             Problem(why);
@@ -378,12 +398,8 @@ public sealed class SetupWindow : Window
     private void ShowKeepPrivate()
     {
         Reset("Keep everyone’s files private",
-            "Uncloud on this Mac runs as you, so anyone signed in here can open everybody’s files in Finder or Terminal. It can run in an account of its own instead, which nobody signs in to. Then nobody using this Mac can look through them, and Uncloud starts with the Mac, before anyone signs in.");
-        _body.Children.Add(new TextBlock
-        {
-            Text = "Accounts, files and synced computers all carry on as they are. If everyone’s files are in your home folder, they move out of it, to a folder only Uncloud can open. macOS asks for an administrator’s password.",
-            TextWrapping = TextWrapping.Wrap
-        });
+            "Right now, anyone signed in to this Mac can open everyone’s files. Uncloud can keep them in a separate account instead, and start when the Mac does.");
+        _body.Children.Add(Quiet("Accounts, files and synced computers carry on as they are. Files in your home folder move to a folder only Uncloud can open."));
         var awake = _controller.OffersToKeepAwake ? AwakeChoice() : null;
         var later = new Button { Content = "Not Now" };
         later.Click += (_, _) => Close();
@@ -395,13 +411,13 @@ public sealed class SetupWindow : Window
             {
                 OpenAtLogin();
                 Reset("Everyone’s files are private",
-                    "They belong to Uncloud’s own account now. Nobody signed in to this Mac can look through them, and Uncloud starts with the Mac.");
+                    "Nobody signed in to this Mac can open them now, and Uncloud starts with the Mac.");
                 Done();
             },
             later);
         if (awake is not null) _body.Children.Add(awake);
         _body.Children.Add(_problem);
-        _body.Children.Add(Buttons(later, go));
+        _body.Children.Add(Footer("Needs your Mac password", later, go));
         if (_controller.CannotSetUpPrivately is { } why)
         {
             Problem(why);
@@ -415,20 +431,20 @@ public sealed class SetupWindow : Window
     /// </summary>
     private void ShowAnotherFolder()
     {
-        Reset("Keep everyone’s files somewhere else",
-            "Choose a drive, or a folder outside your home folder. Uncloud opens it to its own account, and then you choose it in Settings. If it already has things in it, Uncloud makes a folder called Uncloud inside, so nothing there changes hands. macOS asks for an administrator’s password.");
-        var choose = new Button { Content = "Choose Folder…", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
+        Reset("Store files somewhere else",
+            "Choose a drive, or a folder outside your home folder. If it already has things in it, Uncloud makes its own folder inside.");
+        var choose = new Button { Content = "Choose Folder…", Background = Accent, Foreground = Brushes.White };
         choose.Click += async (_, _) =>
         {
             if (await ChooseFolderAsync() is not { } chosen) return;
             string? folder = null;
-            await AdministerAsync("Keep everyone’s files somewhere else", choose, "Opening it to Uncloud…",
+            await AdministerAsync("Store files somewhere else", choose, "Getting it ready…",
                 async (inTerminal, stop) => folder = await _controller.PrepareFolderAsync(chosen, stop, inTerminal),
                 again: ShowAnotherFolder,
                 done: () =>
                 {
                     Reset("Now choose it in Settings",
-                        "In Uncloud’s Settings, enter this folder as where everyone’s files are kept. The files already in Uncloud stay where they are until you move them.");
+                        "In Settings, set this folder as the storage location. Files already stored stay where they are until you move them.");
                     _body.Children.Add(new TextBox { Text = folder, IsReadOnly = true });
                     var settings = new Button { Content = "Open Settings", Background = Accent, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right };
                     settings.Click += (_, _) =>
@@ -440,7 +456,7 @@ public sealed class SetupWindow : Window
                 });
         };
         _body.Children.Add(_problem);
-        _body.Children.Add(choose);
+        _body.Children.Add(Footer("Needs your Mac password", choose));
     }
 
     /// <summary>
@@ -449,15 +465,19 @@ public sealed class SetupWindow : Window
     /// </summary>
     private void ShowUpdate()
     {
-        Reset("Finish updating Uncloud",
-            "This app has been updated. Uncloud itself runs from a copy only an administrator can change, so nobody can swap in something that reads everyone’s files. Updating that copy asks for an administrator’s password. Nobody is signed out, and it takes a moment.");
+        Reset("Finish updating", VersionLabel is { } version ? $"{version} is ready." : "");
+        _body.Children.Add(new TextBlock
+        {
+            Text = "Enter your Mac password to finish. It takes a few seconds, and nobody gets signed out.",
+            TextWrapping = TextWrapping.Wrap
+        });
         // Asked here, ticked, of a host that was set up before Uncloud could keep it awake: the
         // password is being asked for anyway.
         var awake = _controller.OffersToKeepAwake ? AwakeChoice() : null;
         var later = new Button { Content = "Not Now" };
         later.Click += (_, _) => Close();
         var go = new Button { Content = "Update", Background = Accent, Foreground = Brushes.White };
-        go.Click += async (_, _) => await AdministerAsync("Finish updating Uncloud", go, "Updating…",
+        go.Click += async (_, _) => await AdministerAsync("Finish updating", go, "Updating…",
             (inTerminal, stop) => _controller.KeepPrivateAsync(null, stop, inTerminal, Chosen(awake)),
             again: ShowUpdate, done: Close, later);
         if (awake is not null) _body.Children.Add(awake);
@@ -477,12 +497,13 @@ public sealed class SetupWindow : Window
             Spacing = 2,
             Children =
             {
-                new TextBlock { Text = "Keep this Mac awake, so everyone can reach their files", TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = "Keep this Mac awake", FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap },
                 new TextBlock
                 {
-                    Text = $"It won’t go to sleep while it’s the host{Besides()} The screen still turns off as usual.",
+                    Text = $"So files are always available. The screen still turns off.{Besides()}",
                     TextWrapping = TextWrapping.Wrap,
-                    Opacity = 0.75
+                    Opacity = 0.75,
+                    FontSize = 14
                 }
             }
         }
@@ -495,9 +516,9 @@ public sealed class SetupWindow : Window
     private string Besides() =>
         _controller.Power switch
         {
-            { HasBattery: true, SleepDisabled: false } => ", but closing its lid still puts it to sleep, so keep it open.",
-            { CanAutoRestart: true } => ", and starts up again by itself after a power cut.",
-            _ => "."
+            { HasBattery: true, SleepDisabled: false } => " Keep the lid open.",
+            { CanAutoRestart: true } => " It also turns back on after a power cut.",
+            _ => ""
         };
 
     /// <summary>What was chosen, or null where nothing was asked, which leaves things as they are.</summary>
@@ -507,10 +528,10 @@ public sealed class SetupWindow : Window
     private void ShowKeepAwake()
     {
         var awake = _controller.KeepsAwake;
-        var heading = awake ? "Let this Mac sleep again?" : "Keep this Mac awake";
+        var heading = awake ? "Let this Mac sleep again?" : "Keep this Mac awake?";
         Reset(heading, awake
-            ? "It goes back to sleeping as it’s set to in System Settings, and to what it did after a power cut before. While it’s asleep, nobody can reach their files and other computers stop syncing. macOS asks for an administrator’s password."
-            : $"A Mac that’s asleep can’t hand anybody their files, and macOS puts one to sleep after a few minutes with nobody at it. Uncloud can keep this one from going to sleep while it’s the host{Besides()} The screen still turns off as usual, and turning Uncloud off puts everything back. macOS asks for an administrator’s password.");
+            ? "While it sleeps, nobody can reach their files and computers stop syncing."
+            : $"So everyone can reach their files. The screen still turns off.{Besides()}");
         var later = new Button { Content = awake ? "Cancel" : "Not Now" };
         later.Click += (_, _) => Close();
         var go = awake
@@ -520,19 +541,19 @@ public sealed class SetupWindow : Window
             (inTerminal, stop) => _controller.KeepAwakeAsync(!awake, stop, inTerminal),
             again: ShowKeepAwake, done: Close, later);
         _body.Children.Add(_problem);
-        _body.Children.Add(Buttons(later, go));
+        _body.Children.Add(Footer("Needs your Mac password", later, go));
     }
 
     private void ShowTurnOff()
     {
         Reset("Turn off Uncloud on this Mac?",
-            "Nobody can reach Uncloud until it’s on again, and other computers stop syncing. Everyone’s files and accounts stay here, still private to Uncloud’s own account, and making this Mac the host again picks them up. macOS asks for an administrator’s password.");
+            "Nobody can reach their files until it’s back on, and computers stop syncing. Everything stays here, ready for when you turn it on again.");
         var off = new Button { Content = "Turn Off", HorizontalAlignment = HorizontalAlignment.Right };
         off.Click += async (_, _) => await AdministerAsync("Turn off Uncloud on this Mac?", off, "Turning off…",
             (inTerminal, stop) => _controller.TurnOffAsync(stop, inTerminal),
             again: ShowTurnOff, done: Close);
         _body.Children.Add(_problem);
-        _body.Children.Add(off);
+        _body.Children.Add(Footer("Needs your Mac password", off));
     }
 
     /// <summary>
@@ -627,7 +648,7 @@ public sealed class SetupWindow : Window
     {
         var chosen = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Where should everyone’s files be kept?",
+            Title = "Where should files be stored?",
             AllowMultiple = false
         });
         return chosen.FirstOrDefault()?.TryGetLocalPath();
@@ -657,12 +678,22 @@ public sealed class SetupWindow : Window
         return row;
     }
 
+    /// <summary>The buttons, with a quiet note beside them: what pressing the main one will ask for.</summary>
+    private static DockPanel Footer(string note, params Button[] buttons)
+    {
+        var row = new DockPanel { LastChildFill = true };
+        var actions = Buttons(buttons);
+        DockPanel.SetDock(actions, Dock.Right);
+        row.Children.Add(actions);
+        row.Children.Add(new TextBlock { Text = note, Opacity = 0.65, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
+        return row;
+    }
+
     private void ShowDisconnect()
     {
         var account = _controller.Settings.AccountName is { Length: > 0 } name ? name : "the account it was added to";
         Reset("Disconnect this computer?",
-            $"It stops syncing with Uncloud, and Uncloud takes it off My computers for {account}, so it can be connected to a different account. "
-            + $"Everything already in {_controller.Paths.Files} stays here, and nothing is deleted from Uncloud.");
+            $"It stops syncing and is removed from Computers for {account}. Files in {_controller.Paths.Files} stay here, and nothing is deleted from Uncloud.");
         var address = _controller.Settings.Address;
         var disconnect = new Button { Content = "Disconnect", HorizontalAlignment = HorizontalAlignment.Right };
         disconnect.Click += async (_, _) =>
@@ -697,7 +728,7 @@ public sealed class SetupWindow : Window
     private static StackPanel Labelled(string label, Control field) => new()
     {
         Spacing = 4,
-        Children = { new TextBlock { Text = label, FontSize = 12, Opacity = 0.7 }, field }
+        Children = { new TextBlock { Text = label, FontWeight = FontWeight.SemiBold }, field }
     };
 
     /// <summary>The other ways to go from here, quietly, under whatever the window is doing.</summary>

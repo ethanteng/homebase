@@ -354,14 +354,14 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
         {
             if (folder.Equals(item.Relative, StringComparison.OrdinalIgnoreCase))
                 throw new LibraryException(
-                    $"“{item.Name}” syncs with your computers, so it can’t be {verb} here. Stop syncing it in My computers first.",
+                    $"“{item.Name}” syncs with your computers, so it can’t be {verb} here. Stop syncing it in Computers first.",
                     "conflict");
             if (folder.StartsWith(item.Relative + "/", StringComparison.OrdinalIgnoreCase))
             {
                 var inside = folder[(folder.LastIndexOf('/') + 1)..];
                 throw new LibraryException(
                     $"“{item.Name}” holds “{inside}”, which syncs with your computers, so it can’t be {verb} here. "
-                    + $"Stop syncing “{inside}” in My computers first.", "conflict");
+                    + $"Stop syncing “{inside}” in Computers first.", "conflict");
             }
         }
     }

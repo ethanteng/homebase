@@ -412,7 +412,7 @@ public sealed class FileEditTests : IDisposable
         {
             var moving = await EditAsync(client, "move", [path], "Elsewhere");
             Assert.Equal(HttpStatusCode.Conflict, moving.StatusCode);
-            Assert.Contains("My computers", (await moving.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString());
+            Assert.Contains("Computers", (await moving.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString());
             Assert.Equal(HttpStatusCode.Conflict, (await EditAsync(client, "delete", [path])).StatusCode);
             Assert.Equal(HttpStatusCode.Conflict, (await RenameAsync(client, path, "Renamed")).StatusCode);
         }

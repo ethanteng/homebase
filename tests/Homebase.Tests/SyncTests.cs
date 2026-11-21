@@ -86,7 +86,7 @@ public sealed class SyncTests : IDisposable
         var refused = await Assert.ThrowsAsync<LibraryException>(
             () => _sync.PairAsync(_bo.Id, Laptop, "Bo’s laptop", CancellationToken.None));
         Assert.Equal("conflict", refused.Code);
-        Assert.Contains("sign in as the account that has it, open My computers and click Remove next to it, then try again",
+        Assert.Contains("sign in as the account that has it, open Computers and click Remove next to it, then try again",
             refused.Message);
 
         // Done as it says: the account that has it removes it, and then it can be added.
@@ -466,7 +466,7 @@ public sealed class SyncTests : IDisposable
         var refused = await Assert.ThrowsAsync<LibraryException>(
             () => codes.RedeemAsync(issued.Code, Desktop, null, null, null, CancellationToken.None));
         Assert.Equal("conflict", refused.Code);
-        Assert.Contains("open My computers and click Remove", refused.Message);
+        Assert.Contains("open Computers and click Remove", refused.Message);
         Assert.DoesNotContain("ada", refused.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(_ada.Id, _ownership.FindDevice(Desktop)!.UserId);
 
@@ -594,7 +594,7 @@ public sealed class SyncTests : IDisposable
         var refused = await Assert.ThrowsAsync<LibraryException>(
             () => requests.ApproveAsync(ticket.Id, _bo.Id, _ => _boRoot, CancellationToken.None));
         Assert.Equal("conflict", refused.Code);
-        Assert.Contains("open My computers and click Remove", refused.Message);
+        Assert.Contains("open Computers and click Remove", refused.Message);
         Assert.DoesNotContain("ada", refused.Message, StringComparison.OrdinalIgnoreCase);
 
         Assert.Equal(_ada.Id, _ownership.FindDevice(Desktop)!.UserId);

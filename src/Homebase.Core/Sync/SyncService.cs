@@ -35,13 +35,13 @@ public sealed partial class SyncService(
 
     /// <summary>
     /// A computer another account already has, refused with the way to move it rather than leaving
-    /// the person stuck: whoever has it lets it go from My computers. Not saying whose: which
+    /// the person stuck: whoever has it lets it go from Computers. Not saying whose: which
     /// computers other people have is theirs to know.
     /// </summary>
     /// <param name="justNow">Whether it was added there moments ago, while this person was being asked.</param>
     public static LibraryException HeldByAnotherAccount(bool justNow = false) => new(
         $"That computer {(justNow ? "has just been" : "is already")} added to another account on this Uncloud. "
-        + "To add it to this account instead, sign in as the account that has it, open My computers and click Remove "
+        + "To add it to this account instead, sign in as the account that has it, open Computers and click Remove "
         + "next to it, then try again.", "conflict");
 
     public async Task<SyncStatus> StatusAsync(string userId, CancellationToken cancellationToken)

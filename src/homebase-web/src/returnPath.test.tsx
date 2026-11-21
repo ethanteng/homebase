@@ -83,7 +83,7 @@ async function arriveAt(search: string) {
 
 // The app's own dialog, not the one My files keeps for copying, moving and deleting.
 const dialog = () =>
-  document.querySelector<HTMLDialogElement>('dialog[aria-labelledby="settings-title"]');
+  document.querySelector<HTMLDialogElement>('dialog[aria-labelledby="dialog-title"]');
 
 beforeEach(() => {
   connected = false;

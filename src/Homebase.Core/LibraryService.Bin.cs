@@ -168,12 +168,12 @@ public sealed partial class LibraryService
     /// <summary>What a request names in the bin. An id is only ever matched, never used as a path.</summary>
     private static IReadOnlyList<(string Id, Deleted Record, string Item)> Chosen(string bin, IReadOnlyList<string>? ids)
     {
-        if (ids is null || ids.Count == 0) throw new LibraryException("Choose at least one thing in the bin.");
+        if (ids is null || ids.Count == 0) throw new LibraryException("Choose at least one thing in Trash.");
         var records = Records(bin).ToDictionary(entry => entry.Id, entry => entry.Record);
         return ids.Distinct().Select(id =>
             BinId().IsMatch(id) && records.TryGetValue(id, out var record) && Held(bin, id, record) is { } item
                 ? (id, record, item)
-                : throw new LibraryException("That’s no longer in the bin. Refresh and try again.", "not_found"))
+                : throw new LibraryException("That’s no longer in Trash. Refresh and try again.", "not_found"))
             .ToArray();
     }
 

@@ -227,7 +227,7 @@ You don't need to install or start Syncthing. `./scripts/run.sh` and `./scripts/
 put a copy beside Uncloud — a pinned release whose checksum is checked, see
 [Your own computers](#your-own-computers) — and Uncloud runs it with its own configuration under
 the preference directory and stops it on the way out. If that download fails, everything except
-**My computers** still works. `scripts/fetch-restic.sh`, which the same scripts call, puts
+**Computers** still works. `scripts/fetch-restic.sh`, which the same scripts call, puts
 [restic](https://restic.net) there too, pinned and checksum-checked the same way and with its
 BSD-2-Clause licence. It's carried for the backup feature that's on its way; nothing runs it yet.
 Syncthing, restic and the tunnel are Go programs with other people's modules compiled in, and the
@@ -345,7 +345,7 @@ The app sets this up once, through macOS's password prompt, with
   The last line deletes everybody's files and accounts unless they were on a drive; copy them out
   first (as root) if they're wanted.
 
-`_uncloud` can't read anybody's folders, so **Host computer** under **Add files** reaches them
+`_uncloud` can't read anybody's folders, so **Uncloud computer** under **Add files** reaches them
 through the menu-bar app, running as the person signed in: it answers on
 `/Library/Application Support/Uncloud/Bridge/host-folders.sock`, in a folder owned by that person
 with group `_uncloud` and mode `0750`, so only the two can open it. The server asks it for
@@ -380,7 +380,7 @@ WantedBy=multi-user.target
 ```
 
 `/opt/uncloud` is a `dotnet publish` of `src/Homebase.Server` (as `scripts/publish-macos.sh` does
-for macOS, with `-r linux-x64`). **Host computer** then only offers folders the `uncloud` user can
+for macOS, with `-r linux-x64`). **Uncloud computer** then only offers folders the `uncloud` user can
 read.
 
 ### When it stops, or gets stuck
@@ -604,7 +604,7 @@ works for every service at once. If a desktop app already syncs a folder onto th
 Dropbox, Google Drive, OneDrive, iCloud Drive — add from that folder. An old external drive or a
 `Documents` folder works exactly the same way.
 
-**Host computer** lists the folders Uncloud finds (`Desktop`, `Documents`, `Downloads`, `Pictures`,
+**Uncloud computer** lists the folders Uncloud finds (`Desktop`, `Documents`, `Downloads`, `Pictures`,
 `~/Dropbox`, `~/Google Drive`, `~/Library/CloudStorage/*`, and drives under `/Volumes`, leaving out
 an app's installer left open — a drive holding nothing but an `.app` and a shortcut to
 Applications) alongside any already used, all alike: open one and browse it, or add the whole
@@ -612,7 +612,7 @@ thing. **Choose another folder…** opens the folder chooser on the host, with a
 for anyone not sitting at the host. Files from a folder called *Documents* land in a `Documents/`
 folder at the top of My files; a second folder with the same name is numbered rather than refused.
 
-A browser on the host itself isn't offered **Host computer** at all: the files in front of it are
+A browser on the host itself isn't offered **Uncloud computer** at all: the files in front of it are
 already **This device**, and two cards for one machine read as two different places. "On the host"
 is the test Dropbox's one-click sign-in uses (`atTheComputer` on `/api/imports/sources`): a
 loopback connection that didn't arrive under the tunnel's name or through a proxy somebody else
@@ -723,8 +723,8 @@ would bring before downloading anything, and refuses outright when the files wou
 the drive out of room halfway through a folder is worse than not starting. Some room is always left
 over, so the local index still has somewhere to write.
 
-An administrator can hold Uncloud to part of the drive under **Settings → How much of the drive
-Uncloud may use**: a set number of bytes, or a percentage of the room Uncloud could have, which is the
+An administrator can hold Uncloud to part of the drive under **Settings → Storage limit**: a
+set number of bytes, or a percentage of the room Uncloud could have, which is the
 drive's free space plus what Uncloud already holds under `users/`. Counting Uncloud's own files in
 keeps a share the same size as they grow, and shrinks it only when something else on the computer
 takes space. It is stored as `storage_allotment` in `homebase.db` and set through the
@@ -752,7 +752,7 @@ after files are moved in from the top of the host's folder, and checked every te
 (walking `users/` first if the last walk is stale, so a check acts on what it finds),
 changing a folder only when it is out by more than 256 MB, because a configuration change restarts
 the folder. Without an allotment, folders are put back to Syncthing's 1%. Files held back show in
-**My computers** as waiting for room, counted from Syncthing's `insufficient space in folder` errors.
+**Computers** as waiting for room, counted from Syncthing's `insufficient space in folder` errors.
 
 Dropbox sign-in uses the authorization-code flow with PKCE, so there is no client secret — an app
 key is not one, which is why it is safe to set from a settings screen. The refresh token is sealed
@@ -774,7 +774,7 @@ copied, never moved: the originals stay exactly where they were.
 
 Each person can keep their files in a folder on their own laptop or desktop as well. Add, change or
 delete a file there and the same happens on the host, and the other way round; a computer that was
-offline catches up when it reconnects. Open **My computers** in the sidebar.
+offline catches up when it reconnects. Open **Computers** in the sidebar.
 
 The sync protocol is [Syncthing](https://syncthing.net)'s, not Uncloud's: device identity,
 discovery, NAT traversal, encryption and conflict handling are all its work. The host runs one
@@ -792,14 +792,14 @@ to the script. `Homebase__Syncthing__Path` still points at a different binary if
 With [the Uncloud app](#the-uncloud-app), people's own computers need nothing installed either;
 without it, each person installs Syncthing and pairs by device ID:
 
-1. On your computer, add the host's ID (shown in **My computers**) as a remote device.
-2. In **My computers**, paste your computer's ID and **Add computer**.
+1. On your computer, add the host's ID (shown in **Computers**) as a remote device.
+2. In **Computers**, paste your computer's ID and **Add computer**.
 3. Either **Sync folder** in Uncloud — a folder such as `Documents`, or leave it empty for all of
    your files — and accept the offer in Syncthing on your computer; or share a folder from your
    computer, and **Keep it here** when it appears under **Offered by your computers**.
 
 Instead of copying device IDs, a computer can pair itself with a code. **Get a pairing code** in
-**My computers** shows a ten-character code that works once, for ten minutes. A client on the
+**Computers** shows a ten-character code that works once, for ten minutes. A client on the
 computer sends it to `POST /api/sync/pair` as `{ "code", "deviceId", "name" }`, without a session
 and with the `X-Homebase-Request: 1` header, and gets back `{ "hostDeviceId", "accountName", "folders" }`. With `"syncEverything": true`, which
 the Uncloud app sends, the computer is also brought in on every folder the account already syncs,
@@ -835,7 +835,7 @@ Syncthing's `cert.pem`, and the signature is base64. The host works the device I
 certificate as Syncthing does (the SHA-256 of its DER, in base32 with Luhn check characters), checks
 that it's the computer the challenge was for, and checks the signature with the certificate's key:
 Ed25519 for a key Syncthing 2 made, ECDSA or RSA up to 4096 bits for an earlier one. Then it does
-what **Remove** in **My computers** would. The key never leaves the computer, and the host already
+what **Remove** in **Computers** would. The key never leaves the computer, and the host already
 trusts whoever holds it with everything the account syncs, so nothing new is handed out or kept,
 and computers paired before this are covered too. A challenge lasts two minutes and is good for one
 try. Challenges are handed out for any well-formed device ID, at most 32 waiting at once and 8 from
@@ -1004,7 +1004,7 @@ this Mac is:
   `~/Library/Application Support/Uncloud`) and pairs it. It looks for the host over Bonjour
   (macOS asks once whether Uncloud may look around the local network), asks to be added, and
   shows the QR code until somebody approves it; away from home it asks for the address first, and a
-  code from **My computers** still works. Either way it pairs with `syncEverything`, which adds
+  code from **Computers** still works. Either way it pairs with `syncEverything`, which adds
   every folder the account already syncs to this computer, or syncs the whole account folder if
   nothing syncs yet, and returns the folder ids, so the app sets them up under `~/Uncloud` directly
   and nothing waits to be accepted.

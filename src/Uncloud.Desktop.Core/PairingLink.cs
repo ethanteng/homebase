@@ -13,7 +13,7 @@ public sealed record PairingLink(Uri Address, string Code)
         if (!Uri.TryCreate(link.Trim(), UriKind.Absolute, out var uri)
             || !uri.Scheme.Equals(Scheme, StringComparison.OrdinalIgnoreCase)
             || !uri.Host.Equals("pair", StringComparison.OrdinalIgnoreCase))
-            throw new FormatException("That isn’t an Uncloud pairing link. Copy it again from My computers.");
+            throw new FormatException("That isn’t an Uncloud pairing link. Copy it again from Computers.");
         var query = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
             .Select(part => part.Split('=', 2))
             .ToDictionary(pair => Uri.UnescapeDataString(pair[0]),
@@ -26,7 +26,7 @@ public sealed record PairingLink(Uri Address, string Code)
     {
         var uri = ParseAddress(address);
         if (string.IsNullOrWhiteSpace(code))
-            throw new FormatException("Enter the pairing code from My computers.");
+            throw new FormatException("Enter the pairing code from Computers.");
         return new PairingLink(uri, code.Trim());
     }
 

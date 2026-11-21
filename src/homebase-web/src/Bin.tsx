@@ -37,7 +37,7 @@ function timeLeft(entry: BinEntry) {
   const days = Math.ceil(
     (new Date(entry.expiresAt).getTime() - Date.now()) / 86_400_000,
   );
-  return days <= 1 ? "Goes for good today" : `${days} days left`;
+  return days <= 1 ? "Deleted forever today" : `${days} days left`;
 }
 
 /**
@@ -105,10 +105,10 @@ export default function Bin({ onChanged, open }: Props) {
       const folder = folderOf(to);
       const renamed =
         nameOf(to) !== entry.name
-          ? ` It’s called “${nameOf(to)}”, because “${entry.name}” was taken there.`
+          ? ` Renamed to “${nameOf(to)}” because “${entry.name}” already exists there.`
           : "";
       return {
-        text: `Put “${entry.name}” back in ${nameOf(folder)}.${renamed}`,
+        text: `Restored “${entry.name}” to ${nameOf(folder)}.${renamed}`,
         folder,
       };
     });
@@ -117,7 +117,7 @@ export default function Bin({ onChanged, open }: Props) {
   function deleteForGood(entry: BinEntry) {
     if (
       !window.confirm(
-        `Delete “${entry.name}” for good? This can’t be undone.`,
+        `Delete “${entry.name}” forever? This can’t be undone.`,
       )
     )
       return;
@@ -126,7 +126,7 @@ export default function Bin({ onChanged, open }: Props) {
         method: "POST",
         body: JSON.stringify({ ids: [entry.id] }),
       });
-      return { text: `Deleted “${entry.name}” for good.` };
+      return { text: `Deleted “${entry.name}” forever.` };
     });
   }
 
@@ -134,14 +134,14 @@ export default function Bin({ onChanged, open }: Props) {
     const count = listing?.entries.length ?? 0;
     if (
       !window.confirm(
-        `Empty the bin? ${count === 1 ? "The 1 item" : `All ${count} items`} in it, ` +
-          `${formatSize(listing?.bytes ?? 0)}, will be deleted for good. This can’t be undone.`,
+        `Empty Trash? ${count === 1 ? "1 item" : `${count} items`} ` +
+          `(${formatSize(listing?.bytes ?? 0)}) will be deleted forever. This can’t be undone.`,
       )
     )
       return;
     void change(async () => {
       await api("/bin/empty", { method: "POST" });
-      return { text: "Emptied the bin." };
+      return { text: "Trash emptied." };
     });
   }
 
@@ -151,14 +151,8 @@ export default function Bin({ onChanged, open }: Props) {
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">KEPT FOR 30 DAYS</span>
-          <h1>
-            Bin<span className="heading-dot">.</span>
-          </h1>
-          <p>
-            What you delete waits here for 30 days, then goes for good. Put
-            it back, or delete it now to make room.
-          </p>
+          <h1>Trash</h1>
+          <p>Deleted items are kept for 30 days.</p>
         </div>
         <div className="heading-actions">
           <button
@@ -176,7 +170,7 @@ export default function Bin({ onChanged, open }: Props) {
             disabled={entries.length === 0 || busy}
           >
             <Trash2 size={16} />
-            Empty bin
+            Empty Trash
           </button>
         </div>
       </div>
@@ -188,7 +182,7 @@ export default function Bin({ onChanged, open }: Props) {
       <div className="browser-layout">
         <section
           className="file-panel"
-          aria-label="Bin"
+          aria-label="Trash"
           aria-busy={listing === null}
         >
           {notice && (
@@ -215,7 +209,7 @@ export default function Bin({ onChanged, open }: Props) {
           {loadError ? (
             <div className="empty-state" role="alert">
               <Trash2 size={36} />
-              <h2>Couldn’t open the bin</h2>
+              <h2>Couldn’t open Trash</h2>
               <p>{loadError}</p>
               <button
                 className="button secondary"
@@ -228,16 +222,13 @@ export default function Bin({ onChanged, open }: Props) {
           ) : listing === null ? (
             <div className="file-loading" role="status">
               <RefreshCw className="spin" size={23} />
-              <span>Opening the bin…</span>
+              <span>Opening Trash…</span>
             </div>
           ) : entries.length === 0 ? (
             <div className="empty-state">
               <Trash2 size={36} />
-              <h2>The bin is empty</h2>
-              <p>
-                When you delete something from My files, it waits here for 30
-                days in case you want it back.
-              </p>
+              <h2>Trash is empty</h2>
+              <p>Deleted items stay here for 30 days.</p>
             </div>
           ) : (
             <div className="table-scroll">
@@ -290,10 +281,10 @@ export default function Bin({ onChanged, open }: Props) {
                             className="row-action"
                             onClick={() => putBack(entry)}
                             disabled={busy}
-                            aria-label={`Put back ${entry.name}`}
+                            aria-label={`Restore ${entry.name}`}
                           >
                             <RotateCcw size={15} />
-                            Put back
+                            Restore
                           </button>
                           <button
                             className="row-action danger"
@@ -316,11 +307,10 @@ export default function Bin({ onChanged, open }: Props) {
             <span>
               {listing === null
                 ? loadError
-                  ? "Bin unavailable"
-                  : "Reading the bin"
+                  ? "Trash unavailable"
+                  : "Loading"
                 : `${entries.length} ${entries.length === 1 ? "item" : "items"} · ${formatSize(listing.bytes)}`}
             </span>
-            <span>Only you can see what’s in your bin.</span>
           </div>
         </section>
       </div>

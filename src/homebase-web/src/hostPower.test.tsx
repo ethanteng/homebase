@@ -49,11 +49,11 @@ describe("keeping this host on", () => {
     });
     await show();
 
-    expect(screen.getByRole("heading", { name: "Keeping this host on" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "This Mac" })).toBeTruthy();
     const items = screen.getAllByRole("listitem");
     expect(items.map((item) => item.textContent)).toEqual([
-      "This Mac goes to sleep after 10 minutes with nobody at it.",
-      "This Mac is a laptop: closing its lid puts it to sleep.",
+      "Goes to sleep after 10 minutesThis Mac goes to sleep after 10 minutes with nobody at it.",
+      "Sleeps when its lid is closedThis Mac is a laptop: closing its lid puts it to sleep.",
     ]);
   });
 
@@ -61,7 +61,7 @@ describe("keeping this host on", () => {
     answer({ checked: true, findings: [] });
     await show();
 
-    expect(screen.getByText(/Nothing Uncloud can see should stop this Mac/)).toBeTruthy();
+    expect(screen.getByText("Nothing should stop it staying on.")).toBeTruthy();
     expect(screen.queryAllByRole("listitem")).toHaveLength(0);
   });
 
