@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Check,
+  ChevronRight,
   Copy,
   FolderSync,
   History,
@@ -12,7 +13,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize } from "./api";
-import type { PairingCode, SyncFolder, SyncStatus, User } from "./api";
+import type { DirectoryListing, PairingCode, SyncFolder, SyncStatus, User } from "./api";
 import PairApproval, { SignedInAs } from "./PairApproval";
 
 function describe(folder: SyncFolder) {
@@ -24,13 +25,16 @@ function describe(folder: SyncFolder) {
     return `${waiting} file${waiting === 1 ? " is" : "s are"} waiting for room on this Uncloud`;
   const state =
     folder.state === "idle"
-      ? "up to date"
+      ? "Up to date"
       : folder.state === "syncing" || folder.state === "sync-preparing"
-        ? "syncing"
+        ? "Syncing"
         : folder.state === "scanning" || folder.state === "scan-waiting"
-          ? "checking for changes"
-          : (folder.state ?? "starting");
-  return `${state} · ${folder.files} file${folder.files === 1 ? "" : "s"} · ${formatSize(folder.bytes)}`;
+          ? "Checking for changes"
+          : folder.state
+            ? folder.state.charAt(0).toUpperCase() + folder.state.slice(1)
+            : "Starting";
+  const files = `${folder.files.toLocaleString()} file${folder.files === 1 ? "" : "s"}`;
+  return `${state} · ${files} · ${formatSize(folder.bytes)}`;
 }
 
 /// The address the app pairs with is the one this page was opened at: if a browser on that
@@ -64,6 +68,9 @@ export default function SyncPanel({
   const [copied, setCopied] = useState(false);
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [adding, setAdding] = useState(false);
+  // Choosing another folder to sync: the folders at the top of My files, read when asked for.
+  const [choosing, setChoosing] = useState(false);
+  const [choices, setChoices] = useState<string[] | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -139,11 +146,31 @@ export default function SyncPanel({
         body: JSON.stringify({ path: folderPath, deviceIds: null }),
       });
       setNotice(
-        `Offered ${folderPath.trim() || "all of your files"} to your computers. Accept it in Syncthing there, and choose where it should go.`,
+        `Syncing ${folderPath || "all of your files"} with your computers. On a computer that uses Syncthing, accept it there.`,
       );
       setFolderPath("");
+      setChoosing(false);
       await load();
     });
+
+  // A folder can't sync inside one that already does, or around one, so the choices are the
+  // folders not syncing yet, and all of your files only while nothing else syncs.
+  const syncedPaths = new Set(status?.folders.map((folder) => folder.path) ?? []);
+  const allOffered = (status?.folders.length ?? 0) === 0;
+  const available = (choices ?? []).filter((path) => !syncedPaths.has(path));
+
+  const chooseFolder = () => {
+    setChoosing(true);
+    setChoices(null);
+    setFolderPath("");
+    api<DirectoryListing>(`/files?${new URLSearchParams({ path: "" })}`)
+      .then((listing) => {
+        const folders = listing.entries.filter((entry) => entry.isDirectory).map((entry) => entry.path);
+        setChoices(folders);
+        if (!allOffered) setFolderPath(folders.find((path) => !syncedPaths.has(path)) ?? "");
+      })
+      .catch(() => setChoices([]));
+  };
 
   const stop = (folder: SyncFolder) =>
     run(folder.id, async () => {
@@ -245,61 +272,68 @@ export default function SyncPanel({
               <ol className="steps">
                 <li>
                   <span className="step-number" aria-hidden="true">1</span>
-                  <span>
+                  <div className="step-body">
                     <strong>Open the Uncloud app on the computer</strong>
                     <span className="muted">Choose Connect to an Uncloud. At home, it finds this one.</span>
-                  </span>
+                  </div>
                 </li>
                 <li>
                   <span className="step-number" aria-hidden="true">2</span>
-                  <span>
+                  <div className="step-body">
                     <strong>Scan the code it shows with your phone</strong>
                     <span className="muted">Then tap Add this computer.</span>
-                  </span>
+                    {!pairing ? (
+                      <button
+                        className="link-button step-alternative"
+                        onClick={() => void getCode()}
+                        disabled={busy === "code" || !status.available}
+                      >
+                        <KeyRound size={15} />
+                        {busy === "code" ? "Getting a code…" : "No phone? Get a pairing code instead"}
+                      </button>
+                    ) : (
+                      <div className="pairing">
+                        <span className="muted">No phone? Enter this code in the app instead:</span>
+                        <span className="pairing-code">
+                          <code>{pairing.code}</code>
+                          <span className="muted">
+                            Works once, until{" "}
+                            {new Date(pairing.expiresAt).toLocaleTimeString([], {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                          <button
+                            className="link-button"
+                            onClick={() => void getCode()}
+                            disabled={busy === "code" || !status.available}
+                          >
+                            Get a new code
+                          </button>
+                        </span>
+                        {/* A code is made for whoever is signed in, and adds the computer to their files. */}
+                        <p className="field-help">
+                          This code adds a computer to {me.displayName}’s files.{" "}
+                          <a href={pairingLink(pairing.code)}>Open it in the Uncloud app</a>, or enter{" "}
+                          <code>{window.location.origin}</code> and the code there.
+                        </p>
+                        <SignedInAs me={me} onSignOut={onSignOut} />
+                        {["127.0.0.1", "localhost", "[::1]"].includes(window.location.hostname) && (
+                          <p className="field-help warning-text">
+                            This address only works on the Uncloud computer itself. Open Uncloud from
+                            the computer you’re adding instead.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </li>
               </ol>
-              <div className="sync-form">
-                <span className="muted">No phone handy?</span>
-                <button
-                  className="button secondary"
-                  onClick={() => void getCode()}
-                  disabled={busy === "code" || !status.available}
-                >
-                  <KeyRound size={15} />
-                  {pairing ? "Get a new pairing code" : "Get a pairing code"}
-                </button>
-                {pairing && (
-                  <span className="pairing-code">
-                    <code>{pairing.code}</code>
-                    <span className="muted">
-                      works once, until{" "}
-                      {new Date(pairing.expiresAt).toLocaleTimeString([], {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </span>
-                )}
-              </div>
-              {pairing && (
-                <>
-                  {/* A code is made for whoever is signed in, and adds the computer to their files. */}
-                  <p className="field-help">
-                    This code adds a computer to {me.displayName}’s files.{" "}
-                    <a href={pairingLink(pairing.code)}>Open it in the Uncloud app</a>, or enter{" "}
-                    <code>{window.location.origin}</code> and the code there.
-                  </p>
-                  <SignedInAs me={me} onSignOut={onSignOut} />
-                </>
-              )}
-              {pairing && ["127.0.0.1", "localhost", "[::1]"].includes(window.location.hostname) && (
-                <p className="field-help warning-text">
-                  This address only works on the Uncloud computer itself. Open Uncloud from the
-                  computer you’re adding instead.
-                </p>
-              )}
               <details className="advanced-section">
-                <summary>Windows or Linux? Use Syncthing instead</summary>
+                <summary>
+                  <ChevronRight size={16} aria-hidden="true" />
+                  Windows or Linux? Use Syncthing instead
+                </summary>
                 {status.hostDeviceId && (
                   <>
                     <p className="field-help">
@@ -414,11 +448,29 @@ export default function SyncPanel({
             </section>
           )}
 
-          <section className="import-section">
-            <h2>What stays in sync</h2>
-            {status.folders.length === 0 ? (
-              <p className="field-help">Nothing is syncing yet.</p>
-            ) : (
+          <section className="import-section" aria-labelledby="in-sync-title">
+            <div className="import-section-head">
+              <div>
+                <h2 id="in-sync-title">What stays in sync</h2>
+                <p className="field-help section-lead">
+                  {status.devices.length === 0
+                    ? "Add a computer first, then choose what it keeps in sync."
+                    : status.folders.length === 0
+                      ? "Nothing is syncing yet."
+                      : status.devices.length === 1
+                        ? "Kept the same here and on your computer."
+                        : "Kept the same here and on all of your computers."}
+                </p>
+              </div>
+              {/* Nothing can be added beside all of your files: everything is already in it. */}
+              {status.available && status.devices.length > 0 && !syncedPaths.has("") && !choosing && (
+                <button className="button secondary" onClick={chooseFolder}>
+                  <Plus size={17} />
+                  {allOffered ? "Choose what to sync" : "Sync another folder"}
+                </button>
+              )}
+            </div>
+            {status.folders.length > 0 && (
               <ul className="import-list">
                 {status.folders.map((folder) => (
                   <li key={folder.id}>
@@ -441,31 +493,60 @@ export default function SyncPanel({
                 ))}
               </ul>
             )}
-            <div className="sync-form">
-              <input
-                className="path-input"
-                value={folderPath}
-                onChange={(event) => setFolderPath(event.target.value)}
-                placeholder="Folder, like Documents (blank for all files)"
-                aria-label="Folder to sync"
-                spellCheck={false}
-              />
-              <button
-                className="button primary"
-                onClick={() => void share()}
-                disabled={busy === "share" || status.devices.length === 0 || !status.available}
+            {choosing && (
+              <form
+                className="sync-choice"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void share();
+                }}
               >
-                <FolderSync size={15} />
-                {busy === "share" ? "Adding…" : "Sync folder"}
-              </button>
-            </div>
-            <p className="field-help sync-undo">
-              <History size={16} />
-              <span>
-                Deleted or changed something on a computer by mistake? The old version is kept for 30
-                days in the hidden <code>.stversions</code> folder.
-              </span>
-            </p>
+                <label htmlFor="sync-choice">Folder to sync</label>
+                {choices === null ? (
+                  <span className="muted">
+                    <LoaderCircle size={15} className="spin" /> Looking at your folders…
+                  </span>
+                ) : !allOffered && available.length === 0 ? (
+                  <span className="muted">Every folder is already syncing.</span>
+                ) : (
+                  <div className="sync-form">
+                    <select
+                      id="sync-choice"
+                      className="path-input"
+                      value={folderPath}
+                      onChange={(event) => setFolderPath(event.target.value)}
+                    >
+                      {allOffered && <option value="">All of your files</option>}
+                      {available.map((path) => (
+                        <option key={path} value={path}>
+                          {path}
+                        </option>
+                      ))}
+                    </select>
+                    <button className="button primary" disabled={busy === "share"}>
+                      <FolderSync size={15} />
+                      {busy === "share" ? "Starting…" : "Start syncing"}
+                    </button>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      onClick={() => setChoosing(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </form>
+            )}
+            {status.folders.length > 0 && (
+              <p className="field-help sync-undo">
+                <History size={16} />
+                <span>
+                  Deleted or changed something on a computer by mistake? The old version is kept for
+                  30 days in the hidden <code>.stversions</code> folder.
+                </span>
+              </p>
+            )}
           </section>
         </>
       )}

@@ -134,7 +134,7 @@ describe("backups in My files", () => {
 
     expect(asked.find((request) => request.route === "POST /api/backups/newest00/restore")?.body).toEqual({ paths: ["notes.txt"] });
     expect(screen.getByRole("status").textContent).toMatch(
-      /Put “notes\.txt” back in My files\. It’s called “notes 2\.txt”, because “notes\.txt” is still there\./,
+      /Restored “notes\.txt” to My files\. It’s called “notes 2\.txt”, because “notes\.txt” is still there\./,
     );
     expect(onChanged).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open My files" }));

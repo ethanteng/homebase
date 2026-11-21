@@ -32,7 +32,7 @@ const nameOf = (path: string) => path.split("/").at(-1) || "My files";
 /**
  * Your own files as they were in one of this Uncloud's nightly backups. Anything can be put back
  * where it was; nothing there now is overwritten, so what comes back beside a newer copy gets a
- * name of its own, as in the bin.
+ * name of its own, as in Trash.
  */
 export default function Backups({ onChanged, open }: Props) {
   const [list, setList] = useState<BackupList | null>(null);
@@ -105,7 +105,7 @@ export default function Backups({ onChanged, open }: Props) {
         nameOf(to) !== entry.name
           ? ` It’s called “${nameOf(to)}”, because “${entry.name}” is still there.`
           : "";
-      setNotice({ text: `Put “${entry.name}” back in ${nameOf(folderOf(to))}.${renamed}`, folder: folderOf(to) });
+      setNotice({ text: `Restored “${entry.name}” to ${nameOf(folderOf(to))}.${renamed}`, folder: folderOf(to) });
       onChanged();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Uncloud couldn’t restore that.");
@@ -122,7 +122,10 @@ export default function Backups({ onChanged, open }: Props) {
       <div className="page-heading">
         <div>
           <h1>Backups</h1>
-          <p>Restore anything as it was. Nothing you have now is replaced.</p>
+          <p>
+            Bring back files as they were on the date you pick. If you still have a newer version,
+            you keep both.
+          </p>
         </div>
         <div className="heading-actions">
           {backups.length > 0 && (
