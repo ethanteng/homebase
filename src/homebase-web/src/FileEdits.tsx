@@ -226,7 +226,8 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
                 You can restore {one ? "it" : "them"} for 30 days.
               </p>
               <p className="field-help">
-                It’s also removed from your synced computers.
+                Also removed from your synced computers. Restoring puts {one ? "it" : "them"} back
+                there too.
               </p>
             </div>
           ) : naming ? (

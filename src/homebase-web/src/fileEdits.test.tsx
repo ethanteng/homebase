@@ -110,6 +110,8 @@ describe("editing My files", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent("“Docs” and everything in it will move to Trash");
     expect(dialog).toHaveTextContent("You can restore it for 30 days");
+    // Synced computers lose it too, and get it back with it.
+    expect(dialog).toHaveTextContent("Restoring puts it back there too");
     expect(sent).toEqual([]);
     await click(within(dialog).getByRole("button", { name: "Delete" }));
 
