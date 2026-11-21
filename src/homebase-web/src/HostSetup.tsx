@@ -103,9 +103,33 @@ function useLocation(onSaved: () => void) {
 
 type Location = ReturnType<typeof useLocation>;
 
+/** Files left at the top of the folder from before accounts, and the way to take them. */
+function UnclaimedFiles({ location }: { location: Location }) {
+  const { unclaimed, busy, claim } = location;
+  if (unclaimed.length === 0) return null;
+  return (
+    <div className="notice-card">
+      <p>
+        {unclaimed.length === 1 ? "1 item here" : `${unclaimed.length} items here`} don’t belong to
+        anyone yet: <strong>{unclaimed.slice(0, 5).join(", ")}</strong>
+        {unclaimed.length > 5 ? ", and more" : ""}.
+      </p>
+      <button
+        type="button"
+        className="button secondary"
+        onClick={() => void claim()}
+        disabled={busy !== null}
+      >
+        {busy === "claiming" ? <LoaderCircle size={16} className="spin" /> : <PackageOpen size={16} />}
+        Move them into my files
+      </button>
+    </div>
+  );
+}
+
 /** The chooser, the path and whatever is loose in the folder: the same in both places. */
 function LocationFields({ location }: { location: Location }) {
-  const { host, path, setPath, unclaimed, busy, error, notice, pick, claim } = location;
+  const { host, path, setPath, busy, error, notice, pick } = location;
   return (
     <>
       {host?.canPickFolder && (
@@ -143,24 +167,7 @@ function LocationFields({ location }: { location: Location }) {
         </p>
       )}
       {notice && <p className="library-note">{notice}</p>}
-      {unclaimed.length > 0 && (
-        <div className="notice-card">
-          <p>
-            {unclaimed.length === 1 ? "1 item here" : `${unclaimed.length} items here`} don’t belong
-            to anyone yet: <strong>{unclaimed.slice(0, 5).join(", ")}</strong>
-            {unclaimed.length > 5 ? ", and more" : ""}.
-          </p>
-          <button
-            type="button"
-            className="button secondary"
-            onClick={() => void claim()}
-            disabled={busy !== null}
-          >
-            {busy === "claiming" ? <LoaderCircle size={16} className="spin" /> : <PackageOpen size={16} />}
-            Move them into my files
-          </button>
-        </div>
-      )}
+      <UnclaimedFiles location={location} />
     </>
   );
 }
@@ -236,7 +243,19 @@ export function LocationSetting({ onSaved }: Props) {
           </button>
         </form>
       ) : (
-        location.unclaimed.length > 0 && <LocationFields location={location} />
+        // Loose files can be taken without opening the path editor. That editor has no Save here,
+        // so showing it made a typed location look chosen when it wasn't.
+        (location.unclaimed.length > 0 || location.notice || location.error) && (
+          <>
+            {location.error && (
+              <p className="error-message" role="alert">
+                {location.error}
+              </p>
+            )}
+            {location.notice && <p className="library-note">{location.notice}</p>}
+            <UnclaimedFiles location={location} />
+          </>
+        )
       )}
     </SettingRow>
   );
