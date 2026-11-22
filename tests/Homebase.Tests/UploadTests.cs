@@ -1096,6 +1096,78 @@ public sealed class UploadTests : IDisposable
         Assert.Equal(whole, await File.ReadAllBytesAsync(Path.Combine(root, "film.mov")));
     }
 
+    /// <summary>
+    /// Writes <paramref name="total"/> bytes of <paramref name="value"/>, a buffer at a time, then waits.
+    /// The wait doesn't notice the request being cancelled, so the try keeps its turn until the test lets it go.
+    /// </summary>
+    private sealed class WriteThenHold(int total, byte value, Task hold) : Stream
+    {
+        private int _sent;
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_sent < total)
+            {
+                var count = Math.Min(buffer.Length, total - _sent);
+                buffer.Span[..count].Fill(value);
+                _sent += count;
+                return count;
+            }
+            await hold;
+            return 0;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task A_piece_try_that_has_already_given_way_doesnt_cut_the_file_back()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        using var library = new LibraryService(root, new MetadataIndex()) { StalledAfter = TimeSpan.FromMinutes(5) };
+        library.Initialize();
+        var id = await library.BeginUploadAsync("", 0, CancellationToken.None);
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        const int kept = 200_000;
+        const int size = kept + 1000;
+
+        // Most of the file, then it waits — still holding its turn, even once a newer try has asked it to stop.
+        var first = library.ReceivePieceAsync(id, "film.mov", new WriteThenHold(kept, 7, hold.Task), null, null,
+            0, size, CancellationToken.None);
+        await WaitUntil(() => library.PieceArrived(id, "film.mov", size, null) >= 81920);
+
+        // Two newer tries queue behind it. The first of those gets the turn only to find the other already
+        // waiting, so it has given way: it must stop before cutting the file back to its own start.
+        var overtaken = library.ReceivePieceAsync(id, "film.mov", new MemoryStream(new byte[50]), 50, null,
+            0, size, CancellationToken.None);
+        var rest = new byte[1000];
+        rest.AsSpan().Fill(8);
+        var carriedOn = library.ReceivePieceAsync(id, "film.mov", new MemoryStream(rest), rest.Length, null,
+            kept, size, CancellationToken.None);
+        // Long enough for both to be waiting their turn, and no longer: the first try is what lets them go.
+        await Task.Delay(500);
+        hold.SetResult();
+
+        Assert.Equal(kept, await first);
+        var stopped = await Assert.ThrowsAsync<LibraryException>(() => overtaken);
+        Assert.Equal("timeout", stopped.Code);
+        Assert.Equal(rest.Length, await carriedOn);
+        await library.FinishUploadAsync(id, "", merge: false, CancellationToken.None);
+        var saved = await File.ReadAllBytesAsync(Path.Combine(root, "film.mov"));
+        Assert.Equal(size, saved.Length);
+        Assert.All(saved[..kept], b => Assert.Equal(7, b));
+        Assert.All(saved[kept..], b => Assert.Equal(8, b));
+    }
+
     private static async Task WaitUntil(Func<bool> condition)
     {
         var until = DateTime.UtcNow.AddSeconds(20);

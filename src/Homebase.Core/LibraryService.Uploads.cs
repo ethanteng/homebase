@@ -341,6 +341,14 @@ public sealed partial class LibraryService
         {
             // An earlier try at this file whose connection went without this end hearing gives way.
             (turn, holder) = await TakeFileTurnAsync(piece, cancellationToken);
+            // Already given way — a newer try queued while this one waited for its turn. Stopping here,
+            // before the file is cut back to this try's offset: that cut would throw away bytes the newer
+            // try is about to carry on from, and this try then failing would leave a hole.
+            if (holder.IsCancellationRequested)
+            {
+                if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken);
+                throw new LibraryException($"A newer try at “{name}” is sending it, so this one stopped.", "timeout");
+            }
             // The last piece arrived before and only the answer was lost: the file is whole already.
             if (offset > 0 && !File.Exists(piece) && Whole(target, size, modified)) return 0;
             // Starting again from the beginning: whatever is there from before goes first, and its room with it.
