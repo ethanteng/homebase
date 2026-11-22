@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Check,
   ChevronRight,
+  CircleCheck,
   Copy,
   FolderSync,
   History,
@@ -13,8 +14,8 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize } from "./api";
-import type { DirectoryListing, PairingCode, SyncFolder, SyncStatus, User } from "./api";
-import PairApproval, { SignedInAs } from "./PairApproval";
+import type { DirectoryListing, PairingCode, SyncFolder, SyncReach, SyncStatus, User } from "./api";
+import { SignedInAs } from "./PairApproval";
 
 function describe(folder: SyncFolder) {
   if (folder.error) return folder.error;
@@ -43,21 +44,32 @@ function pairingLink(code: string) {
   return `uncloud://pair?address=${encodeURIComponent(window.location.origin)}&code=${encodeURIComponent(code)}`;
 }
 
-/// `approving` is a computer that asked to be added, when this page was opened from the QR code
-/// the Uncloud app shows on it. `onSignOut` is for whoever finds they are adding a computer to the
-/// wrong account's files, and keeps that computer's question for the account they sign in as next.
+/// The Mac app, as the README's Get the app gives it: always the latest build.
+const MAC_APP = {
+  appleSilicon: "https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.dmg",
+  intel: "https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-x64.dmg",
+};
+
+/// This page open on the Uncloud computer itself, at an address no other computer can use.
+const onHost = () => ["127.0.0.1", "localhost", "[::1]"].includes(window.location.hostname);
+
+/// A phone or tablet, where the Mac app isn't something to open.
+const onTouch = () => window.matchMedia?.("(pointer: coarse)").matches ?? false;
+
+/// `onOpenSettings` is for an admin, who can turn on Access from anywhere when other computers
+/// can't reach this Uncloud yet; anybody else is told who can.
 export default function SyncPanel({
   me,
   onSignOut,
-  approving = null,
-  onApprovalClosed,
+  onOpenSettings,
 }: {
   me: User;
   onSignOut: () => void;
-  approving?: string | null;
-  onApprovalClosed?: () => void;
+  onOpenSettings?: () => void;
 }) {
   const [status, setStatus] = useState<SyncStatus | null>(null);
+  // Whether other computers can reach this Uncloud, which adding one depends on.
+  const [reach, setReach] = useState<SyncReach | null>(null);
   const [deviceId, setDeviceId] = useState("");
   const [deviceName, setDeviceName] = useState("");
   const [folderPath, setFolderPath] = useState("");
@@ -75,6 +87,8 @@ export default function SyncPanel({
   const load = useCallback(async () => {
     try {
       setStatus(await api<SyncStatus>("/sync"));
+      // Turned on in Settings while this is open, it says so on the next look.
+      api<SyncReach>("/sync/reach").then(setReach, () => setReach(null));
     } catch (problem: unknown) {
       setError(
         problem instanceof Error ? problem.message : "Couldn’t reach Uncloud.",
@@ -124,6 +138,13 @@ export default function SyncPanel({
       );
     });
 
+  // On the computer being added, with the app: a code it never has to see, handed to the app.
+  const openApp = () =>
+    run("open", async () => {
+      const code = await api<PairingCode>("/sync/pairing-codes", { method: "POST" });
+      window.location.href = pairingLink(code.code);
+    });
+
   const unpair = (id: string, name: string) =>
     run(id, async () => {
       if (
@@ -146,7 +167,7 @@ export default function SyncPanel({
         body: JSON.stringify({ path: folderPath, deviceIds: null }),
       });
       setNotice(
-        `Syncing ${folderPath || "all of your files"} with your computers. On a computer that uses Syncthing, accept it there.`,
+        `Syncing ${folderPath || "all of your files"} with your computers. Macs with the Uncloud app pick it up by themselves; in Syncthing, accept it there.`,
       );
       setFolderPath("");
       setChoosing(false);
@@ -194,7 +215,7 @@ export default function SyncPanel({
         method: "POST",
         body: JSON.stringify({ folderId, path }),
       });
-      setNotice(`Keeping ${label} in ${path}.`);
+      setNotice(`Syncing ${label} in ${path}.`);
       await load();
     });
 
@@ -216,21 +237,13 @@ export default function SyncPanel({
 
   return (
     <>
-      {approving && (
-        <PairApproval
-          id={approving}
-          me={me}
-          onApproved={setStatus}
-          onClose={() => onApprovalClosed?.()}
-          onSignOut={onSignOut}
-        />
-      )}
       <div className="page-heading">
         <div>
           <h1>Computers</h1>
-          <p>These keep a folder in sync with your files here.</p>
+          <p>Computers with the Uncloud app keep a folder in sync with your files here.</p>
         </div>
-        {status && (
+        {/* With none yet, adding one is already the whole page. */}
+        {status && status.devices.length > 0 && (
           <div className="heading-actions">
             <button
               className="button primary"
@@ -269,31 +282,89 @@ export default function SyncPanel({
           {(adding || status.devices.length === 0) && (
             <section className="import-section add-computer" aria-labelledby="add-computer-title">
               <h2 id="add-computer-title">Add a computer</h2>
+              {reach &&
+                (reach.address ? (
+                  <p className="reach-note ok">
+                    <CircleCheck size={17} aria-hidden="true" />
+                    <span>
+                      Computers can reach this Uncloud at <strong>{new URL(reach.address).host}</strong>
+                    </span>
+                  </p>
+                ) : (
+                  <div className="reach-note warn" role="note">
+                    <TriangleAlert size={17} aria-hidden="true" />
+                    <div>
+                      <strong>Other computers can’t reach this Uncloud yet</strong>
+                      <span>
+                        Computers need Access from anywhere turned on, even at home.{" "}
+                        {onOpenSettings ? (
+                          <button className="link-button" onClick={onOpenSettings}>
+                            Turn it on in Settings
+                          </button>
+                        ) : (
+                          "Ask whoever looks after Uncloud to turn it on in Settings."
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               <ol className="steps">
                 <li>
                   <span className="step-number" aria-hidden="true">1</span>
                   <div className="step-body">
-                    <strong>Open the Uncloud app on the computer</strong>
-                    <span className="muted">Choose Connect to an Uncloud. At home, it finds this one.</span>
+                    <strong>Get the Uncloud app on the computer you’re adding</strong>
+                    <span className="muted">
+                      For Mac: <a href={MAC_APP.appleSilicon}>Apple silicon</a> ·{" "}
+                      <a href={MAC_APP.intel}>Intel</a>
+                    </span>
                   </div>
                 </li>
                 <li>
                   <span className="step-number" aria-hidden="true">2</span>
                   <div className="step-body">
-                    <strong>Scan the code it shows with your phone</strong>
-                    <span className="muted">Then tap Add this computer.</span>
+                    <strong>Open it and choose Connect to your Uncloud</strong>
+                    <span className="muted">It finds this Uncloud and asks you to sign in to add it.</span>
+                  </div>
+                </li>
+              </ol>
+              {!onHost() && !onTouch() && (
+                <div className="open-app">
+                  <button
+                    className="button secondary"
+                    onClick={() => void openApp()}
+                    disabled={busy === "open" || !status.available}
+                  >
+                    <Laptop size={16} />
+                    {busy === "open" ? "Opening…" : "Open in the Uncloud app"}
+                  </button>
+                  <span className="muted">On the computer you’re adding, with the app installed.</span>
+                </div>
+              )}
+              <details className="advanced-section">
+                <summary>
+                  <ChevronRight size={16} aria-hidden="true" />
+                  Other ways to connect
+                </summary>
+                <div className="other-ways">
+                  <div className="other-way">
+                    <h3>With a pairing code</h3>
                     {!pairing ? (
-                      <button
-                        className="link-button step-alternative"
-                        onClick={() => void getCode()}
-                        disabled={busy === "code" || !status.available}
-                      >
-                        <KeyRound size={15} />
-                        {busy === "code" ? "Getting a code…" : "No phone? Get a pairing code instead"}
-                      </button>
+                      <>
+                        <p className="field-help">
+                          For when the app can’t open a browser to sign in. Type the code in the
+                          app, under Other ways to connect.
+                        </p>
+                        <button
+                          className="button secondary"
+                          onClick={() => void getCode()}
+                          disabled={busy === "code" || !status.available}
+                        >
+                          <KeyRound size={15} />
+                          {busy === "code" ? "Getting a code…" : "Get a pairing code"}
+                        </button>
+                      </>
                     ) : (
                       <div className="pairing">
-                        <span className="muted">No phone? Enter this code in the app instead:</span>
                         <span className="pairing-code">
                           <code>{pairing.code}</code>
                           <span className="muted">
@@ -313,74 +384,71 @@ export default function SyncPanel({
                         </span>
                         {/* A code is made for whoever is signed in, and adds the computer to their files. */}
                         <p className="field-help">
-                          This code adds a computer to {me.displayName}’s files.{" "}
-                          <a href={pairingLink(pairing.code)}>Open it in the Uncloud app</a>, or enter{" "}
-                          <code>{window.location.origin}</code> and the code there.
+                          This code adds a computer to {me.displayName}’s files. In the app, choose
+                          Other ways to connect, then Type a pairing code, and enter{" "}
+                          <code>{reach?.address ?? window.location.origin}</code> and the code.
                         </p>
                         <SignedInAs me={me} onSignOut={onSignOut} />
-                        {["127.0.0.1", "localhost", "[::1]"].includes(window.location.hostname) && (
+                        {!reach?.address && onHost() && (
                           <p className="field-help warning-text">
-                            This address only works on the Uncloud computer itself. Open Uncloud from
-                            the computer you’re adding instead.
+                            This address only works on the Uncloud computer itself. Turn on Access
+                            from anywhere first.
                           </p>
                         )}
                       </div>
                     )}
                   </div>
-                </li>
-              </ol>
-              <details className="advanced-section">
-                <summary>
-                  <ChevronRight size={16} aria-hidden="true" />
-                  Windows or Linux? Use Syncthing instead
-                </summary>
-                {status.hostDeviceId && (
-                  <>
-                    <p className="field-help">
-                      Install{" "}
-                      <a href="https://syncthing.net/downloads/" target="_blank" rel="noreferrer">
-                        Syncthing
-                      </a>{" "}
-                      on the computer and add this Uncloud as a remote device:
-                    </p>
-                    <div className="device-id">
-                      <code>{status.hostDeviceId}</code>
+                  <div className="other-way">
+                    <h3>Windows or Linux, with Syncthing</h3>
+                    {status.hostDeviceId && (
+                      <>
+                        <p className="field-help">
+                          Install{" "}
+                          <a href="https://syncthing.net/downloads/" target="_blank" rel="noreferrer">
+                            Syncthing
+                          </a>{" "}
+                          on the computer and add this Uncloud as a remote device:
+                        </p>
+                        <div className="device-id">
+                          <code>{status.hostDeviceId}</code>
+                          <button
+                            className="button secondary"
+                            onClick={copyId}
+                            aria-label="Copy this Uncloud’s ID"
+                          >
+                            {copied ? <Check size={15} /> : <Copy size={15} />}
+                            {copied ? "Copied" : "Copy"}
+                          </button>
+                        </div>
+                        <p className="field-help">Then paste that computer’s ID here:</p>
+                      </>
+                    )}
+                    <div className="sync-form">
+                      <input
+                        className="path-input"
+                        value={deviceId}
+                        onChange={(event) => setDeviceId(event.target.value)}
+                        placeholder="Computer ID from Syncthing"
+                        aria-label="Your computer’s ID"
+                        spellCheck={false}
+                      />
+                      <input
+                        className="path-input"
+                        value={deviceName}
+                        onChange={(event) => setDeviceName(event.target.value)}
+                        placeholder="Name (optional)"
+                        aria-label="A name for your computer"
+                      />
                       <button
-                        className="button secondary"
-                        onClick={copyId}
-                        aria-label="Copy this Uncloud’s ID"
+                        className="button primary"
+                        onClick={() => void pair()}
+                        disabled={busy === "pair" || deviceId.trim().length === 0 || !status.available}
                       >
-                        {copied ? <Check size={15} /> : <Copy size={15} />}
-                        {copied ? "Copied" : "Copy"}
+                        <Laptop size={15} />
+                        {busy === "pair" ? "Adding…" : "Add computer"}
                       </button>
                     </div>
-                    <p className="field-help">Then paste that computer’s ID here:</p>
-                  </>
-                )}
-                <div className="sync-form">
-                  <input
-                    className="path-input"
-                    value={deviceId}
-                    onChange={(event) => setDeviceId(event.target.value)}
-                    placeholder="Computer ID from Syncthing"
-                    aria-label="Your computer’s ID"
-                    spellCheck={false}
-                  />
-                  <input
-                    className="path-input"
-                    value={deviceName}
-                    onChange={(event) => setDeviceName(event.target.value)}
-                    placeholder="Name (optional)"
-                    aria-label="A name for your computer"
-                  />
-                  <button
-                    className="button primary"
-                    onClick={() => void pair()}
-                    disabled={busy === "pair" || deviceId.trim().length === 0 || !status.available}
-                  >
-                    <Laptop size={15} />
-                    {busy === "pair" ? "Adding…" : "Add computer"}
-                  </button>
+                  </div>
                 </div>
               </details>
             </section>
@@ -403,44 +471,6 @@ export default function SyncPanel({
                       disabled={busy === device.deviceId || !status.available}
                     >
                       Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {status.offers.length > 0 && (
-            <section className="import-section">
-              <h2>Folders your computers offered</h2>
-              <p className="field-help">Nothing arrives until you keep one.</p>
-              <ul className="import-list">
-                {status.offers.map((offer) => (
-                  <li key={`${offer.folderId}-${offer.deviceId}`}>
-                    <Inbox size={19} strokeWidth={1.6} />
-                    <div>
-                      <strong>{offer.label}</strong>
-                      <span className="muted">from {offer.deviceName}</span>
-                    </div>
-                    <input
-                      className="path-input"
-                      value={offerPaths[offer.folderId] ?? ""}
-                      onChange={(event) =>
-                        setOfferPaths((paths) => ({
-                          ...paths,
-                          [offer.folderId]: event.target.value,
-                        }))
-                      }
-                      placeholder={offer.label}
-                      aria-label={`Where to keep ${offer.label}`}
-                      spellCheck={false}
-                    />
-                    <button
-                      className="button primary"
-                      onClick={() => void accept(offer.folderId, offer.label)}
-                      disabled={busy === offer.folderId}
-                    >
-                      {busy === offer.folderId ? "Keeping…" : "Keep it here"}
                     </button>
                   </li>
                 ))}
@@ -548,6 +578,49 @@ export default function SyncPanel({
               </p>
             )}
           </section>
+          {/* Folders somebody shared from Syncthing on a Windows or Linux computer. Never the
+              Uncloud app's: it only syncs what's chosen here, and the host leaves out a stopped
+              folder a computer goes on offering back. */}
+          {status.offers.length > 0 && (
+            <section className="import-section" aria-labelledby="shared-title">
+              <h2 id="shared-title">Shared from Syncthing</h2>
+              <p className="field-help">
+                A computer shared these folders in Syncthing. They don’t sync with your files here
+                until you choose where to keep them.
+              </p>
+              <ul className="import-list">
+                {status.offers.map((offer) => (
+                  <li key={`${offer.folderId}-${offer.deviceId}`}>
+                    <Inbox size={19} strokeWidth={1.6} />
+                    <div>
+                      <strong>{offer.label}</strong>
+                      <span className="muted">from {offer.deviceName}</span>
+                    </div>
+                    <input
+                      className="path-input"
+                      value={offerPaths[offer.folderId] ?? ""}
+                      onChange={(event) =>
+                        setOfferPaths((paths) => ({
+                          ...paths,
+                          [offer.folderId]: event.target.value,
+                        }))
+                      }
+                      placeholder={offer.label}
+                      aria-label={`Where to keep ${offer.label}`}
+                      spellCheck={false}
+                    />
+                    <button
+                      className="button primary"
+                      onClick={() => void accept(offer.folderId, offer.label)}
+                      disabled={busy === offer.folderId}
+                    >
+                      {busy === offer.folderId ? "Starting…" : "Start syncing"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </>
       )}
       {error && !status && (

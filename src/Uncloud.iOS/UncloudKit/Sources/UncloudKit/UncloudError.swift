@@ -37,7 +37,7 @@ extension UncloudError: LocalizedError {
                 + "Check the address."
         case .unreachable(let host, .other):
             "Uncloud can’t be reached at \(host). Check that the computer it runs on is on and awake, "
-                + "and that Reach From Anywhere is turned on."
+                + "and that Access from anywhere is turned on."
         }
     }
 }

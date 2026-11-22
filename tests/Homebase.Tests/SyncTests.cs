@@ -119,6 +119,21 @@ public sealed class SyncTests : IDisposable
     }
 
     [Fact]
+    public async Task A_folder_stopped_here_isnt_shown_as_offered_when_the_computer_still_has_it()
+    {
+        await _sync.PairAsync(_ada.Id, Laptop, "Ada’s laptop", CancellationToken.None);
+        var everything = await _sync.ShareAsync(_ada.Id, _adaRoot, "", null, CancellationToken.None);
+        await _sync.StopAsync(_ada.Id, everything.Id, CancellationToken.None);
+        // The laptop kept its copy, as stopping says it will, and goes on offering it back.
+        _syncthing.Offers.Add(new SyncthingOffer(everything.Id, "Uncloud", Laptop));
+        // A folder somebody made in Syncthing on their computer is still an offer.
+        _syncthing.Offers.Add(new SyncthingOffer("abcde-12345", "Photos", Laptop));
+
+        var status = await _sync.StatusAsync(_ada.Id, CancellationToken.None);
+        Assert.Equal("abcde-12345", Assert.Single(status.Offers).FolderId);
+    }
+
+    [Fact]
     public async Task The_whole_account_folder_syncs_both_ways_without_ever_carrying_the_index()
     {
         await _sync.PairAsync(_ada.Id, Laptop, null, CancellationToken.None);
@@ -544,7 +559,7 @@ public sealed class SyncTests : IDisposable
     {
         var requests = Requests();
         var ticket = requests.Open(Laptop.Replace("-", "").ToLowerInvariant(), " Ada’s laptop ", true, "10.0.0.5");
-        Assert.Equal("Ada’s laptop", requests.Describe(ticket.Id).Name);
+        Assert.Equal(("Ada’s laptop", PairingRequests.Waiting), (requests.Describe(ticket.Id, _ada.Id).Name, requests.Describe(ticket.Id, _ada.Id).State));
 
         // Nobody has said yes yet, so nothing has changed.
         Assert.False(requests.Answer(ticket.Id, ticket.Secret).Approved);
@@ -563,9 +578,69 @@ public sealed class SyncTests : IDisposable
         Assert.Equal(_adaRoot, _syncthing.Folders[folder.Id].Path);
         Assert.Equal([Laptop], _syncthing.Folders[folder.Id].DeviceIds);
 
-        // Handed over once, and then gone.
+        // Handed over once, and then gone for the computer.
         Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Answer(ticket.Id, ticket.Secret)).Code);
-        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Describe(ticket.Id)).Code);
+        // Whoever approved sees it was added if they open the link again; nobody else learns anything.
+        Assert.Equal(PairingRequests.Added, requests.Describe(ticket.Id, _ada.Id).State);
+        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Describe(ticket.Id, _bo.Id)).Code);
+        // Approving again, from that second look, is the same yes.
+        await requests.ApproveAsync(ticket.Id, _ada.Id, _ => _adaRoot, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Saying_no_tells_the_computer_once_and_the_code_cant_be_approved_after()
+    {
+        var requests = Requests();
+        var ticket = requests.Open(Laptop, "Laptop", true, "10.0.0.5");
+
+        requests.Decline(ticket.Id, _ada.Id);
+        // Twice is harmless: a second tap.
+        requests.Decline(ticket.Id, _ada.Id);
+        Assert.Equal(PairingRequests.Declined, requests.Describe(ticket.Id, _ada.Id).State);
+        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Describe(ticket.Id, _bo.Id)).Code);
+
+        // Nobody can turn it into a yes afterwards, the person who said no included.
+        Assert.Equal("not_found", (await Assert.ThrowsAsync<LibraryException>(
+            () => requests.ApproveAsync(ticket.Id, _bo.Id, _ => _boRoot, CancellationToken.None))).Code);
+        Assert.Equal("not_found", (await Assert.ThrowsAsync<LibraryException>(
+            () => requests.ApproveAsync(ticket.Id, _ada.Id, _ => _adaRoot, CancellationToken.None))).Code);
+        Assert.Null(_ownership.FindDevice(Laptop));
+
+        // The computer hears it once, and then the request is gone for it.
+        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Answer(ticket.Id, "guess")).Code);
+        var answer = requests.Answer(ticket.Id, ticket.Secret);
+        Assert.True(answer.Declined);
+        Assert.False(answer.Approved);
+        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Answer(ticket.Id, ticket.Secret)).Code);
+    }
+
+    [Fact]
+    public async Task A_computer_already_added_cant_be_said_no_to()
+    {
+        var requests = Requests();
+        var ticket = requests.Open(Laptop, "Laptop", false, null);
+        await requests.ApproveAsync(ticket.Id, _ada.Id, _ => _adaRoot, CancellationToken.None);
+
+        var refused = Assert.Throws<LibraryException>(() => requests.Decline(ticket.Id, _ada.Id));
+        Assert.Equal("conflict", refused.Code);
+        Assert.Contains("click Remove", refused.Message);
+        // Somebody else is told nothing about it.
+        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Decline(ticket.Id, _bo.Id)).Code);
+        Assert.True(requests.Answer(ticket.Id, ticket.Secret).Approved);
+    }
+
+    [Fact]
+    public async Task Requests_already_answered_dont_count_against_new_ones()
+    {
+        var requests = Requests();
+        for (var computer = 0; computer < PairingRequests.MostFromOneAddress; computer++)
+        {
+            var ticket = requests.Open(Computer(computer), null, false, "10.0.0.9");
+            await requests.ApproveAsync(ticket.Id, _ada.Id, _ => _adaRoot, CancellationToken.None);
+            requests.Answer(ticket.Id, ticket.Secret);
+        }
+        // A household setting up its computers one after another from the same address.
+        requests.Open(Computer(50), null, false, "10.0.0.9");
     }
 
     [Fact]
@@ -613,10 +688,10 @@ public sealed class SyncTests : IDisposable
         // Only the code on the computer's screen now can be approved.
         Assert.Equal("not_found", (await Assert.ThrowsAsync<LibraryException>(
             () => requests.ApproveAsync(first.Id, _bo.Id, _ => _boRoot, CancellationToken.None))).Code);
-        Assert.Equal("A computer", requests.Describe(second.Id).Name);
+        Assert.Equal("A computer", requests.Describe(second.Id, _bo.Id).Name);
 
         now += PairingRequests.Lifetime + TimeSpan.FromSeconds(1);
-        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Describe(second.Id)).Code);
+        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Describe(second.Id, _bo.Id)).Code);
         Assert.Equal("not_found", (await Assert.ThrowsAsync<LibraryException>(
             () => requests.ApproveAsync(second.Id, _bo.Id, _ => _boRoot, CancellationToken.None))).Code);
         Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Answer(second.Id, second.Secret)).Code);

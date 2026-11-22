@@ -1561,12 +1561,21 @@ app.MapPost("/api/sync/pair/requests", (OpenPairing request, HttpContext context
 app.MapPost("/api/sync/pair/requests/{id}/answer", (string id, CollectPairing request, PairingRequests requests) =>
     Results.Ok(requests.Answer(id, request.Secret)));
 app.MapGet("/api/sync/pairing-requests/{id}", (string id, CurrentUser user, PairingRequests requests) =>
-    Results.Ok(requests.Describe(id)));
+    Results.Ok(requests.Describe(id, user.Id)));
 app.MapPost("/api/sync/pairing-requests/{id}/approve", async (string id, CurrentUser user, PairingRequests requests, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>
 {
     await requests.ApproveAsync(id, user.Id, userId => workspaces.For(userId).Root, cancellationToken);
     return Results.Ok(await sync.StatusAsync(user.Id, cancellationToken));
 });
+// No to a computer that asked, so it stops waiting and says it wasn't added.
+app.MapPost("/api/sync/pairing-requests/{id}/decline", (string id, CurrentUser user, PairingRequests requests) =>
+{
+    requests.Decline(id, user.Id);
+    return Results.Ok(new { declined = true });
+});
+// Whether other computers can reach this Uncloud, for Computers to say before anybody starts: the
+// same address the app on a computer at home is told, or null while there is none.
+app.MapGet("/api/sync/reach", (CurrentUser user) => Results.Ok(new { address = Reachable() }));
 // The app on a computer letting it go from whichever account has it, as it disconnects, so it can
 // be added to another. It proves it's that computer by signing the challenge with its Syncthing key.
 app.MapPost("/api/sync/computers/release-challenge", (AskToRelease request, HttpContext context, ComputerReleases releases) =>

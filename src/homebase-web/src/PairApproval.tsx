@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Check, Laptop, LoaderCircle } from "lucide-react";
+import { Check, Laptop, LoaderCircle, X } from "lucide-react";
 import { api } from "./api";
-import type { PairingAsk, SyncStatus, User } from "./api";
+import type { PairingAsk, User } from "./api";
 
 function message(problem: unknown) {
   return problem instanceof Error ? problem.message : "That didn’t work.";
@@ -29,26 +29,27 @@ export function SignedInAs({
   );
 }
 
-/// A computer asking to be added, arrived at by scanning the QR code the Uncloud app shows on it.
-/// The code only ever leads here: nothing is added until the person it belongs to, signed in,
-/// says yes.
+type State = "loading" | "asking" | "adding" | "declining" | "added" | "declined" | "gone";
+
+/// A computer asking to be added: opened in that computer's own browser from the Uncloud app's
+/// "Sign in to connect", or on a phone that scanned its QR code. The page is only this question,
+/// so nothing else competes with it, and nothing is added until the person it belongs to,
+/// signed in, says yes. Saying no tells the computer, which stops waiting. Opened again after
+/// answering, it says what was answered rather than that it's gone.
 export default function PairApproval({
   id,
   me,
-  onApproved,
-  onClose,
+  onDone,
   onSignOut,
 }: {
   id: string;
   me: User;
-  onApproved: (status: SyncStatus) => void;
-  onClose: () => void;
+  /// Leaves the question for the rest of Uncloud.
+  onDone: () => void;
   onSignOut: () => void;
 }) {
   const [ask, setAsk] = useState<PairingAsk | null>(null);
-  const [state, setState] = useState<
-    "loading" | "asking" | "adding" | "added" | "gone"
-  >("loading");
+  const [state, setState] = useState<State>("loading");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -58,7 +59,7 @@ export default function PairApproval({
     })
       .then((found) => {
         setAsk(found);
-        setState("asking");
+        setState(found.state === "added" ? "added" : found.state === "declined" ? "declined" : "asking");
       })
       .catch((problem: unknown) => {
         if (controller.signal.aborted) return;
@@ -68,17 +69,14 @@ export default function PairApproval({
     return () => controller.abort();
   }, [id]);
 
-  async function approve() {
-    setState("adding");
+  async function answer(yes: boolean) {
+    setState(yes ? "adding" : "declining");
     setError("");
     try {
-      onApproved(
-        await api<SyncStatus>(
-          `/sync/pairing-requests/${encodeURIComponent(id)}/approve`,
-          { method: "POST" },
-        ),
-      );
-      setState("added");
+      await api(`/sync/pairing-requests/${encodeURIComponent(id)}/${yes ? "approve" : "decline"}`, {
+        method: "POST",
+      });
+      setState(yes ? "added" : "declined");
     } catch (problem: unknown) {
       // Left asking, so a moment without a connection can be tried again.
       setError(message(problem));
@@ -86,75 +84,104 @@ export default function PairApproval({
     }
   }
 
+  const busy = state === "adding" || state === "declining";
+  const name = ask?.name ?? "This computer";
+
   return (
-    <section className="notice-card pair-approval" aria-live="polite">
-      {state === "loading" && (
-        <p className="field-help pair-loading" role="status">
-          <LoaderCircle className="spin" size={16} />
-          Finding the computer that asked…
-        </p>
-      )}
-      {state === "gone" && (
-        <>
-          <h2>Couldn’t find that computer</h2>
-          <p className="field-help">{error}</p>
-          <button className="button" onClick={onClose}>
-            Close
-          </button>
-        </>
-      )}
-      {(state === "asking" || state === "adding") && ask && (
-        <>
-          <h2>
-            <Laptop size={20} strokeWidth={1.7} />
-            Add {ask.name} to {me.displayName}’s files?
-          </h2>
-          <SignedInAs
-            me={me}
-            onSignOut={onSignOut}
-            disabled={state === "adding"}
-          />
-          <p className="field-help">
-            It will keep your files in sync in an Uncloud folder there. Only add a computer you’re
-            setting up right now.
+    <div className="wizard pair-page">
+      <section className="wizard-card pair-approval" aria-live="polite">
+        {state === "loading" && (
+          <p className="field-help pair-loading" role="status">
+            <LoaderCircle className="spin" size={16} />
+            Finding the computer that asked…
           </p>
-          {error && (
-            <p className="error-message" role="alert">
-              {error}
+        )}
+
+        {state === "gone" && (
+          <>
+            <div className="wizard-title">
+              <h1>This request has ended</h1>
+              <p>{error}</p>
+            </div>
+            <div className="pair-actions">
+              <button className="button" onClick={onDone}>
+                Open Uncloud
+              </button>
+            </div>
+          </>
+        )}
+
+        {(state === "asking" || busy) && ask && (
+          <>
+            <span className="pair-icon" aria-hidden="true">
+              <Laptop size={30} strokeWidth={1.6} />
+            </span>
+            <div className="wizard-title">
+              <h1>
+                Add {ask.name} to {me.displayName}’s files?
+              </h1>
+              <SignedInAs me={me} onSignOut={onSignOut} disabled={busy} />
+            </div>
+            <p className="field-help">
+              It will keep your files in sync in an Uncloud folder there. Only add a computer
+              you’re setting up right now.
             </p>
-          )}
-          <div className="pair-actions">
-            <button
-              className="button primary"
-              onClick={() => void approve()}
-              disabled={state === "adding"}
-            >
-              {state === "adding" ? "Adding…" : "Add this computer"}
-            </button>
-            <button
-              className="button"
-              onClick={onClose}
-              disabled={state === "adding"}
-            >
-              Not now
-            </button>
-          </div>
-        </>
-      )}
-      {state === "added" && ask && (
-        <>
-          <h2>
-            <Check size={20} strokeWidth={1.9} />
-            {ask.name} is added to {me.displayName}’s files
-          </h2>
-          <p className="field-help">
-            Your files will start arriving in its Uncloud folder in a moment.
-          </p>
-          <button className="button" onClick={onClose}>
-            Done
-          </button>
-        </>
-      )}
-    </section>
+            {error && (
+              <p className="error-message" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="pair-actions">
+              <button
+                className="button primary"
+                onClick={() => void answer(true)}
+                disabled={busy}
+              >
+                {state === "adding" ? "Adding…" : "Add this computer"}
+              </button>
+              <button className="button" onClick={() => void answer(false)} disabled={busy}>
+                {state === "declining" ? "Saying no…" : "Don’t add"}
+              </button>
+            </div>
+          </>
+        )}
+
+        {state === "added" && (
+          <>
+            <span className="pair-icon done" aria-hidden="true">
+              <Check size={30} strokeWidth={2} />
+            </span>
+            <div className="wizard-title">
+              <h1>
+                {name} is added to {me.displayName}’s files
+              </h1>
+              <p>It starts syncing in a moment. You can close this tab.</p>
+            </div>
+            <div className="pair-actions">
+              <button className="button" onClick={onDone}>
+                Open Uncloud
+              </button>
+            </div>
+          </>
+        )}
+
+        {state === "declined" && (
+          <>
+            <span className="pair-icon" aria-hidden="true">
+              <X size={30} strokeWidth={1.8} />
+            </span>
+            <div className="wizard-title">
+              <h1>{name} wasn’t added</h1>
+              <p>It’s been told, and nothing changed. You can close this tab.</p>
+            </div>
+            <div className="pair-actions">
+              <button className="button" onClick={onDone}>
+                Open Uncloud
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+    </div>
   );
 }

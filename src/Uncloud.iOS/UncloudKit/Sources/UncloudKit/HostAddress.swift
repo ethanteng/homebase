@@ -63,7 +63,7 @@ public enum HostAddressError: Error, Equatable, LocalizedError {
         case .unreadable:
             "Enter the address you open Uncloud at, such as https://uncloud.example.ts.net."
         case .notSecure:
-            "This app reaches Uncloud over https://. Use the address Reach From Anywhere gave it, "
+            "This app reaches Uncloud over https://. Use the address Access from anywhere gave it, "
                 + "such as https://uncloud.example.ts.net."
         }
     }

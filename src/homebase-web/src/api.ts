@@ -532,10 +532,16 @@ export interface PairingCode {
   code: string;
   expiresAt: string;
 }
-/// A computer asking to be added, as the person approving it sees it.
+/// A computer asking to be added, as the person approving it sees it. Once they've answered, the
+/// same request says what they answered, for as long as it's kept.
 export interface PairingAsk {
   name: string;
   expiresAt: string;
+  state: "waiting" | "added" | "declined";
+}
+/// Where other computers reach this Uncloud, or null while nothing outside this computer can.
+export interface SyncReach {
+  address: string | null;
 }
 export interface SyncStatus {
   available: boolean;

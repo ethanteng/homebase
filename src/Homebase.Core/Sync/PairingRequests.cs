@@ -13,10 +13,16 @@ namespace Homebase.Core.Sync;
 public sealed record PairingTicket(string Id, string Secret, DateTimeOffset ExpiresAt);
 
 /// <summary>What the person approving is shown about the computer that asked.</summary>
-public sealed record PairingAsk(string Name, DateTimeOffset ExpiresAt);
+/// <param name="State">
+/// <see cref="PairingRequests.Waiting"/> until they answer, then <see cref="PairingRequests.Added"/>
+/// or <see cref="PairingRequests.Declined"/> — said only to whoever answered, so a second look at
+/// the same link shows what they decided instead of an error.
+/// </param>
+public sealed record PairingAsk(string Name, DateTimeOffset ExpiresAt, string State = PairingRequests.Waiting);
 
 /// <summary>Whether a computer's request has been approved yet, and if so, what it needs to sync.</summary>
-public sealed record PairingAnswer(bool Approved, PairingResult? Result);
+/// <param name="Declined">Somebody signed in said no: the computer stops asking and says so.</param>
+public sealed record PairingAnswer(bool Approved, PairingResult? Result, bool Declined = false);
 
 /// <summary>
 /// Pairing the other way round from <see cref="PairingCodes"/>: the computer asks first and shows
@@ -34,6 +40,10 @@ public sealed class PairingRequests(
     ISyncthingApi syncthing)
 {
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(10);
+
+    public const string Waiting = "waiting";
+    public const string Added = "added";
+    public const string Declined = "declined";
 
     /// <summary>
     /// Asking needs no session, so what can be waiting at once is bounded: across the host, and
@@ -71,10 +81,12 @@ public sealed class PairingRequests(
             foreach (var (id, waiting) in _requests.ToArray())
                 if (waiting.ExpiresAt <= now || waiting.DeviceId == device)
                     _requests.Remove(id);
-            if (address is not null && _requests.Values.Count(waiting => waiting.Address == address) >= MostFromOneAddress)
+            // One already answered and collected is only kept to say so; it isn't waiting.
+            var open = _requests.Values.Where(waiting => !waiting.Collected).ToList();
+            if (address is not null && open.Count(waiting => waiting.Address == address) >= MostFromOneAddress)
                 throw new LibraryException(
                     "Too many computers are waiting to be added from here. Wait a few minutes and try again.", "too_many_attempts");
-            if (_requests.Count >= MostWaiting)
+            if (open.Count >= MostWaiting)
                 throw new LibraryException(
                     "Too many computers are waiting to be added right now. Wait a few minutes and try again.", "busy");
 
@@ -85,13 +97,22 @@ public sealed class PairingRequests(
         }
     }
 
-    /// <summary>What a person about to approve is shown: the name the computer gave itself.</summary>
-    public PairingAsk Describe(string? id)
+    /// <summary>
+    /// What a person about to approve is shown: the name the computer gave itself. Once they have
+    /// answered, the same link says what they answered, for as long as the request is kept — a
+    /// second scan or a reload isn't an error. Anybody else is told it's gone, as before.
+    /// </summary>
+    public PairingAsk Describe(string? id, string userId)
     {
         lock (_requests)
-            return Waiting(id) is { Result: null } request
-                ? new PairingAsk(request.Name, request.ExpiresAt)
-                : throw Gone();
+        {
+            if (Find(id) is not { } request) throw Gone();
+            if (request.DeclinedBy is { } declinedBy)
+                return declinedBy == userId ? new PairingAsk(request.Name, request.ExpiresAt, Declined) : throw Gone();
+            if (request.Result is not null)
+                return request.ApprovedBy == userId ? new PairingAsk(request.Name, request.ExpiresAt, Added) : throw Gone();
+            return new PairingAsk(request.Name, request.ExpiresAt);
+        }
     }
 
     /// <summary>
@@ -105,7 +126,7 @@ public sealed class PairingRequests(
         try
         {
             Request request;
-            lock (_requests) request = Waiting(id) ?? throw Gone();
+            lock (_requests) request = Find(id) is { DeclinedBy: null } found ? found : throw Gone();
             if (request.Result is not null)
             {
                 if (request.ApprovedBy == userId) return;
@@ -137,25 +158,56 @@ public sealed class PairingRequests(
     }
 
     /// <summary>
+    /// Says no to a computer that asked, so it stops waiting and says it wasn't added. Final: the
+    /// same code can't be approved afterwards, by this person or anybody else. Saying no twice is
+    /// harmless; saying no to a computer already added is refused, since it's syncing by then.
+    /// </summary>
+    public void Decline(string? id, string userId)
+    {
+        lock (_requests)
+        {
+            if (Find(id) is not { } request) throw Gone();
+            if (request.DeclinedBy is { } declinedBy)
+            {
+                if (declinedBy == userId) return;
+                throw Gone();
+            }
+            if (request.Result is not null)
+                throw request.ApprovedBy == userId
+                    ? new LibraryException(
+                        "That computer is already added. To stop it syncing, open Computers and click Remove next to it.", "conflict")
+                    : Gone();
+            request.DeclinedBy = userId;
+        }
+    }
+
+    /// <summary>
     /// The computer asking whether it has been approved. An answer is handed over once, and then
-    /// the request is gone; a wrong secret is told the same as a request that never existed.
+    /// the computer is told the request is gone; a wrong secret is told the same as a request that
+    /// never existed. What was answered is kept until the request runs out, for the person who
+    /// answered to see again.
     /// </summary>
     public PairingAnswer Answer(string? id, string? secret)
     {
         lock (_requests)
         {
-            if (Waiting(id) is not { } request || !Matches(request.Secret, secret)) throw Gone();
+            if (Find(id) is not { Collected: false } request || !Matches(request.Secret, secret)) throw Gone();
+            if (request.DeclinedBy is not null)
+            {
+                request.Collected = true;
+                return new PairingAnswer(false, null, Declined: true);
+            }
             if (request.Result is null) return new PairingAnswer(false, null);
-            _requests.Remove(id!);
+            request.Collected = true;
             return new PairingAnswer(true, request.Result);
         }
     }
 
-    private Request? Waiting(string? id) =>
+    private Request? Find(string? id) =>
         id is not null && _requests.TryGetValue(id, out var request) && request.ExpiresAt > Now() ? request : null;
 
     private static LibraryException Gone() => new(
-        "This computer’s code has run out or was already used. Scan the code the Uncloud app is showing now.", "not_found");
+        "This request has run out or was already answered. Start again from the Uncloud app on the computer you’re adding.", "not_found");
 
     private static bool Matches(string expected, string? given) =>
         given is not null && CryptographicOperations.FixedTimeEquals(
@@ -173,5 +225,8 @@ public sealed class PairingRequests(
         public DateTimeOffset ExpiresAt { get; } = expiresAt;
         public string? ApprovedBy { get; set; }
         public PairingResult? Result { get; set; }
+        public string? DeclinedBy { get; set; }
+        /// <summary>The computer has its answer; the request is only kept to show it again.</summary>
+        public bool Collected { get; set; }
     }
 }

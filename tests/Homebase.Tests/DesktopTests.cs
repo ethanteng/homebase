@@ -109,6 +109,28 @@ public sealed class DesktopTests : IDisposable
     }
 
     [Fact]
+    public async Task A_computer_its_owner_says_no_to_stops_asking_and_the_owner_sees_what_they_answered()
+    {
+        using var app = new TestHost(Path.Combine(_temporary, "Config"), syncthing: _host);
+        using var owner = await app.SignUpAsync("ada");
+        await TestHost.SetHostRootAsync(owner, PathPolicy.NormalizeRoot(Directory.CreateDirectory(Path.Combine(_temporary, "Host")).FullName));
+        using var anonymous = app.CreateClient();
+        var client = new PairingClient(anonymous);
+        var address = PairingLink.ParseAddress(anonymous.BaseAddress!.ToString());
+        var request = await client.RequestAsync(address, Laptop, "Ada’s MacBook", CancellationToken.None);
+
+        (await owner.PostAsync($"/api/sync/pairing-requests/{request.Id}/decline", null)).EnsureSuccessStatusCode();
+
+        await Assert.ThrowsAsync<PairingDeclinedException>(() => client.AnswerAsync(request, CancellationToken.None));
+        // Told once; asking again means asking anew.
+        await Assert.ThrowsAsync<PairingExpiredException>(() => client.AnswerAsync(request, CancellationToken.None));
+        // Opening the link again says what was answered, rather than that it's gone.
+        var ask = await owner.GetFromJsonAsync<JsonElement>($"/api/sync/pairing-requests/{request.Id}");
+        Assert.Equal("declined", ask.GetProperty("state").GetString());
+        Assert.Empty(_host.Devices);
+    }
+
+    [Fact]
     public async Task An_Uncloud_from_before_computers_asked_is_told_apart_from_a_request_that_ran_out()
     {
         using var older = new HttpClient(new SameAnswer(HttpStatusCode.NotFound, "This endpoint doesn’t exist."));
