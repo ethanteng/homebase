@@ -141,6 +141,13 @@ const AT_ONCE = 3;
 export const GIVE_UP_AFTER = 10 * 60_000;
 /** The wait before trying a file again: soon at first, for a blip, then every half a minute. */
 const backOff = (attempt: number) => Math.min(1000 * 2 ** (attempt - 1), 30_000);
+/**
+ * How much of a large file goes in one request. A bigger file is sent a piece at a time, and Uncloud
+ * keeps each piece as it arrives, so a connection that drops partway costs only what was on its way
+ * rather than all of the file before it — which, for a file of hundreds of megabytes over a tunnel
+ * that drops now and then, is the difference between arriving and starting again for ever.
+ */
+export const PIECE = 32 * 1024 * 1024;
 /** How often a file on its way is looked at, to notice it has stopped moving. */
 const LOOK_EVERY = 1000;
 /**
@@ -176,17 +183,17 @@ function send(
   item: Picked,
   onProgress: (loaded: number) => void,
   requests: Set<XMLHttpRequest>,
+  piece?: { from: number; to: number },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     requests.add(request);
-    request.open(
-      "PUT",
-      `/api/uploads/${encodeURIComponent(id)}?${new URLSearchParams({
-        path: item.path,
-        modified: String(item.file.lastModified),
-      })}`,
-    );
+    const query = new URLSearchParams({ path: item.path, modified: String(item.file.lastModified) });
+    if (piece) {
+      query.set("offset", String(piece.from));
+      query.set("size", String(item.file.size));
+    }
+    request.open("PUT", `/api/uploads/${encodeURIComponent(id)}?${query}`);
     request.setRequestHeader("X-Homebase-Request", "1");
     request.setRequestHeader("Content-Type", "application/octet-stream");
     // Each piece of it sent puts off giving up. Once the last piece has gone, the answer gets the
@@ -227,8 +234,28 @@ function send(
       // Given up on for going quiet, it's tried again like any connection that dropped.
       reject(new Refused("", stalled ? 0 : -1));
     };
-    request.send(item.file);
+    request.send(piece ? item.file.slice(piece.from, piece.to) : item.file);
   });
+}
+
+/**
+ * How much of a file being sent in pieces Uncloud has, asked after a piece went unanswered: it may
+ * have kept most of that piece, or all of the file with only the answer lost. Nothing, if it can't
+ * say — and then the piece is sent again from its start, which is never wrong.
+ */
+async function arrivedOf(id: string, item: Picked): Promise<number | null> {
+  try {
+    const { bytes } = await api<{ bytes: number }>(
+      `/uploads/${encodeURIComponent(id)}/piece?${new URLSearchParams({
+        path: item.path,
+        size: String(item.file.size),
+        modified: String(item.file.lastModified),
+      })}`,
+    );
+    return Math.max(0, Math.min(bytes, item.file.size));
+  } catch {
+    return null;
+  }
 }
 
 /** A file about to be sent, as Uncloud is told of it beforehand. */
@@ -414,16 +441,22 @@ export function useUpload(active: boolean, onUploaded: () => void) {
       const bytes = items.reduce((sum, item) => sum + item.file.size, 0);
       let id: string;
       let already: Set<string>;
+      // Files sent in pieces of which the start arrived on an earlier try, and how much of each.
+      let partly: Map<string, number>;
       try {
         // Asked first, so a drive without room — or a folder that's gone — says so before anything
         // is sent. Named, so that if the same files were being added before and didn't all arrive,
         // Uncloud picks that up instead and says which are there already.
-        const begun = await api<{ id: string; arrived?: string[] }>("/uploads", {
-          method: "POST",
-          body: JSON.stringify({ destination: folder, bytes, merge, files: items.map(described) }),
-        });
+        const begun = await api<{ id: string; arrived?: string[]; partly?: { path: string; bytes: number }[] }>(
+          "/uploads",
+          {
+            method: "POST",
+            body: JSON.stringify({ destination: folder, bytes, merge, files: items.map(described) }),
+          },
+        );
         id = begun.id;
         already = new Set(begun.arrived ?? []);
+        partly = new Map((begun.partly ?? []).map((part) => [part.path, part.bytes]));
       } catch (problem: unknown) {
         update(key, {
           stage: "failed",
@@ -493,18 +526,47 @@ export function useUpload(active: boolean, onUploaded: () => void) {
       const sendRest = async () => {
         while (!job.stopped && fatal === null && next < rest.length) {
           const item = rest[next++];
+          const size = item.file.size;
+          // Too big to risk in one request, so it goes a piece at a time, carrying on from whatever of
+          // it arrived on an earlier try.
+          const inPieces = size > PIECE;
+          let at = inPieces ? Math.min(partly.get(item.path) ?? 0, size) : 0;
+          if (at > 0) job.loaded.set(item.path, at);
+          // A piece went unanswered: Uncloud is asked how much of it arrived before the next try.
+          let ask = false;
           // How long this file has waited to be tried again while Uncloud wasn't answering.
           let waited = 0;
           for (let attempt = 1; ; attempt++) {
             // Somebody pressed Stop, or another file found the upload can't go on, while this one waited.
             if (job.stopped || fatal !== null) return;
             try {
-              await send(id, item, (loaded) => job.loaded.set(item.path, loaded), job.requests);
+              if (ask) {
+                ask = false;
+                const there = await arrivedOf(id, item);
+                if (job.stopped || fatal !== null) return;
+                if (there !== null) {
+                  at = there;
+                  job.loaded.set(item.path, at);
+                }
+              }
+              if (!inPieces) await send(id, item, (loaded) => job.loaded.set(item.path, loaded), job.requests);
+              else
+                while (at < size) {
+                  const from = at;
+                  const to = Math.min(from + PIECE, size);
+                  await send(id, item, (loaded) => job.loaded.set(item.path, from + loaded), job.requests, { from, to });
+                  at = to;
+                  // Moving again, so whatever wait came before is behind it.
+                  waited = 0;
+                  attempt = 1;
+                }
               arrived++;
-              arrivedBytes += item.file.size;
+              arrivedBytes += size;
               break;
             } catch (error) {
-              job.loaded.delete(item.path);
+              // What arrived of a file sent in pieces is kept, so it stays counted.
+              if (at > 0) job.loaded.set(item.path, at);
+              else job.loaded.delete(item.path);
               if (job.stopped || fatal !== null) return;
               const refused = error instanceof Refused ? error : new Refused(String(error), 0);
               // A name Uncloud won't keep is this file's problem, not the upload's.
@@ -525,6 +587,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
                   waiting--;
                   waitingOnline--;
                   if (job.stopped || fatal !== null) return;
+                  ask = inPieces;
                   continue;
                 }
                 if (!(await readable(item.file))) {
@@ -542,6 +605,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
                   waiting++;
                   await pause(wait, quit.signal);
                   waiting--;
+                  ask = inPieces;
                   continue;
                 }
                 giveUp("Uncloud stopped answering, so nothing was added. Check you’re still connected, then try again.", true);

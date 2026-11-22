@@ -728,18 +728,32 @@ app.MapPost("/api/uploads/compare", (CompareUpload request, CurrentUser user, Us
 
 // One file of an upload, as the request body. The path says where it sits in the upload — its name,
 // or its place in a folder being sent — and only ever inside it.
-app.MapPut("/api/uploads/{id}", async (string id, string? path, long? modified, HttpContext context, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+// A file too big to send in one go comes a piece at a time instead: `offset` says where in it this
+// piece starts and `size` how big the whole file is, and it's put in place once the last piece is in.
+app.MapPut("/api/uploads/{id}", async (string id, string? path, long? modified, long? offset, long? size, HttpContext context, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
 {
     // A photo library's videos are far larger than the default limit on a request, and the drive's
     // free space is what decides whether one fits, which the upload checks for itself.
     if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
         limit.MaxRequestBodySize = null;
-    // A date the browser can't have meant is left out rather than refusing the file over it.
-    DateTimeOffset? changed = modified is > 0 and < 253402300800000 ? DateTimeOffset.FromUnixTimeMilliseconds(modified.Value) : null;
-    var bytes = await workspaces.For(user.Account).Library.ReceiveAsync(
-        id, path, context.Request.Body, context.Request.ContentLength, changed, cancellationToken);
+    var library = workspaces.For(user.Account).Library;
+    var changed = SentWhen(modified);
+    var bytes = offset is null && size is null
+        ? await library.ReceiveAsync(id, path, context.Request.Body, context.Request.ContentLength, changed, cancellationToken)
+        : offset is { } from && size is { } whole
+            ? await library.ReceivePieceAsync(id, path, context.Request.Body, context.Request.ContentLength, changed, from, whole, cancellationToken)
+            : throw new LibraryException("Say where this piece of the file starts, and how big the file is.");
     return Results.Ok(new { bytes });
 });
+
+// How much of a file being sent in pieces has arrived, asked after a piece went unanswered so that
+// the page carries on from there.
+app.MapGet("/api/uploads/{id}/piece", (string id, string? path, long size, long? modified, CurrentUser user, UserWorkspaces workspaces) =>
+    Results.Ok(new { bytes = workspaces.For(user.Account).Library.PieceArrived(id, path, size, SentWhen(modified)) }));
+
+// A date the browser can't have meant is left out rather than refusing the file over it.
+static DateTimeOffset? SentWhen(long? modified) =>
+    modified is > 0 and < 253402300800000 ? DateTimeOffset.FromUnixTimeMilliseconds(modified.Value) : null;
 
 app.MapPost("/api/uploads/{id}/finish", async (string id, FinishUpload request, CurrentUser user, UserWorkspaces workspaces, UsageService usage, CancellationToken cancellationToken) =>
 {

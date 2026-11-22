@@ -68,7 +68,7 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   It is refused inside a folder an import is still writing to.
 - Sending files and folders from the browser, from whichever computer or phone somebody is using,
   into the folder they have open (`POST /api/uploads` with `{ destination, bytes, merge, files }`, answered
-  with `{ id, arrived }`, then `PUT /api/uploads/{id}?path=&modified=` once per file with the file as the body, then
+  with `{ id, arrived, partly }`, then `PUT /api/uploads/{id}?path=&modified=` once per file with the file as the body, then
   `POST /api/uploads/{id}/finish` with `{ destination, merge }`; `DELETE /api/uploads/{id}` throws one
   away; `GET /api/uploads` lists the ones never finished). Before that begins, `POST /api/uploads/compare` with `{ destination, files: [{ path, bytes, modified }] }`
   says which of those files are already there: `same` (equal size, and modified times within 2 seconds,
@@ -129,7 +129,18 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   session ends. "Nothing has moved for a minute" is measured by the clock, which carries on while the
   computer sleeps, rather than by a timer, which doesn't: so a laptop whose lid was closed partway
   sends what was on its way again within a second of waking, rather than waiting on connections that
-  went to sleep with it. A file retried starts again from its beginning. While the browser says it's
+  went to sleep with it. A file of 32 MB or less retried starts again from its beginning. A bigger
+  one — an Evernote export, a long video — goes in 32 MB pieces (`PUT /api/uploads/{id}?path=&modified=&offset=&size=`,
+  `size` being the whole file's), written one after another to a hidden `.parts/<sha256 of path, size
+  and modified>.piece` and moved into place once the last byte is in. A piece is written from its
+  `offset`, cutting anything an earlier try at it left past there, and refused with a 409 if the file
+  has less than that; one still lingering on a dropped connection gives way at once to a newer try
+  at the same file rather than holding it for 45 seconds. After a piece goes unanswered the page
+  asks `GET /api/uploads/{id}/piece?path=&size=&modified=` how much has arrived (all of it, if the
+  file is whole and only the last answer was lost) and carries on from there, so a dropped connection
+  costs only what was on its way. Beginning the same files again also answers `partly: [{ path, bytes }]`
+  for files of which only the start arrived, so a page closed partway carries on too; a file changed
+  since has a different piece name and starts again. While the browser says it's
   offline, a file waits for the `online` event and isn't counted as Uncloud failing to answer; while
   it's online, tries come 1, 2, 4, 8 and 16 seconds apart and then every 30, and the progress says
   which it's waiting for. Only once those waits add up to 10 minutes is the connection given up on,

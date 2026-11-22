@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -102,7 +103,7 @@ public sealed partial class LibraryService
             var intent = Path.Combine(upload, IntentFile);
             PathPolicy.RejectLink(intent);
             File.WriteAllText(intent, JsonSerializer.Serialize(new Intent(Relative(folder), merge), RecordFormat));
-            return new BegunUpload(id, resumed?.Arrived ?? []);
+            return new BegunUpload(id, resumed?.Arrived ?? [], resumed?.Partly ?? []);
         }
         finally { _edits.Release(); }
     }
@@ -115,7 +116,8 @@ public sealed partial class LibraryService
     /// sending it, and is left to that page. One that only just finished a file is not: the page that
     /// was sending it may have given up, and adding the same files again shouldn't have to wait.
     /// </summary>
-    private (string Id, List<string> Arrived, long Bytes)? Resumable(string uploads, IReadOnlyList<UploadFile> files)
+    private (string Id, List<string> Arrived, List<PartArrived> Partly, long Bytes)? Resumable(
+        string uploads, IReadOnlyList<UploadFile> files)
     {
         // Compared as the same characters however they were composed: a Mac's names often aren't
         // composed the way the browser's are.
@@ -131,12 +133,15 @@ public sealed partial class LibraryService
         foreach (var upload in candidates)
         {
             List<string>? arrived = [];
+            List<PartArrived> partly = [];
             long bytes = 0;
             try
             {
+                var whole = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var (path, there) in ArrivedIn(upload.FullName))
                 {
-                    if (!sending.TryGetValue(path.Normalize(NormalizationForm.FormC), out var file)
+                    var same = path.Normalize(NormalizationForm.FormC);
+                    if (!sending.TryGetValue(same, out var file)
                         || file.Bytes != there.Length || When(file.Modified) is not { } changed
                         || (there.LastWriteTimeUtc - changed.UtcDateTime).Duration() > SameTime)
                     {
@@ -145,12 +150,29 @@ public sealed partial class LibraryService
                         break;
                     }
                     arrived.Add(file.Path!);
+                    whole.Add(same);
                     bytes += there.Length;
                 }
+                if (arrived is null) continue;
+                // Files sent in pieces of which only the start arrived: the same file carries on from there.
+                var parts = new DirectoryInfo(Path.Combine(upload.FullName, ".parts"));
+                var pieces = parts.Exists && parts.LinkTarget is null
+                    ? parts.EnumerateFiles("*.piece").Where(piece => piece.LinkTarget is null)
+                        .ToDictionary(piece => piece.Name, piece => piece.Length, StringComparer.Ordinal)
+                    : [];
+                if (pieces.Count > 0)
+                    foreach (var (same, file) in sending)
+                        if (!whole.Contains(same)
+                            && pieces.TryGetValue(PieceName(same, file.Bytes, When(file.Modified)?.ToUnixTimeMilliseconds()), out var some)
+                            && some > 0 && some < file.Bytes)
+                        {
+                            partly.Add(new PartArrived(file.Path!, some));
+                            bytes += some;
+                        }
             }
             // Finished or thrown away while it was looked at.
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { continue; }
-            if (arrived is { Count: > 0 }) return (upload.Name, arrived, bytes);
+            if (arrived.Count > 0 || partly.Count > 0) return (upload.Name, arrived, partly, bytes);
         }
         return null;
     }
@@ -253,6 +275,129 @@ public sealed partial class LibraryService
         // Not a turn of the edits: files arrive several at a time and an upload can take hours, and
         // nothing else reaches into the folder an upload is gathered in.
         var upload = Upload(id);
+        var target = FileIn(upload, path);
+        TakeReceivingTurn(id!);
+        try
+        {
+            // A retry: what arrived of this file before is replaced, so it goes first and its room with it.
+            if (File.Exists(target)) File.Delete(target);
+            if (length is { } expected) NeedRoomFor(expected, "add less at once");
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            // Written somewhere of its own and moved into place once whole, so nothing else ever sees
+            // it half-written: not a retry of it still arriving, which writes somewhere of its own too,
+            // nor finishing the upload, which leaves this hidden folder behind.
+            var arriving = Path.Combine(Parts(upload), Guid.NewGuid().ToString("N"));
+            try
+            {
+                long written;
+                await using (var file = new FileStream(arriving, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
+                    written = await TakeInAsync(content, file, upload, target, cancellationToken, cancellationToken);
+                if (length is { } promised && written != promised)
+                    throw new LibraryException(
+                        $"Only part of “{Path.GetFileName(target)}” arrived. Try adding it again.", "unavailable");
+                PutInPlace(arriving, target, modified);
+                // Somebody is still sending to it, so it isn't one to clear away.
+                Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow);
+                return written;
+            }
+            catch
+            {
+                // Half a file is worse than none: it would look like the whole thing once placed. Its
+                // folder is gone already if the upload was stopped or finished while it arrived.
+                try { File.Delete(arriving); }
+                catch (DirectoryNotFoundException) { }
+                throw;
+            }
+        }
+        finally { GiveBackReceivingTurn(id!); }
+    }
+
+    /// <summary>
+    /// Keeps one piece of a file too big to send in one go — a notebook exported from Evernote, a
+    /// long video — that is <paramref name="size"/> bytes in all, of which this request carries what
+    /// starts at <paramref name="offset"/>. Over a connection that drops now and then, a file sent
+    /// whole might never get there: each drop would start it again from nothing. Sent in pieces, a
+    /// drop costs only what was on its way, because what arrived before it is kept: the piece is
+    /// written after it, over anything of an earlier try at this same piece. The file is moved into
+    /// place once the last of it is in, and until then is out of sight in the upload's hidden
+    /// <c>.parts</c>, so finishing the upload never picks up half of one.
+    /// </summary>
+    /// <param name="length">How long the browser says this piece is, when it says.</param>
+    /// <returns>How many bytes of this piece arrived.</returns>
+    public async Task<long> ReceivePieceAsync(
+        string? id, string? path, Stream content, long? length, DateTimeOffset? modified, long offset, long size,
+        CancellationToken cancellationToken)
+    {
+        var upload = Upload(id);
+        var target = FileIn(upload, path);
+        var name = Path.GetFileName(target);
+        if (offset < 0 || offset > size || length is { } said && (said < 0 || offset + said > size))
+            throw new LibraryException($"That isn’t part of “{name}”.");
+        TakeReceivingTurn(id!);
+        var piece = Path.Combine(upload, ".parts", PieceName(path!, size, modified));
+        Turn? turn = null;
+        CancellationTokenSource? holder = null;
+        try
+        {
+            // An earlier try at this file whose connection went without this end hearing gives way.
+            (turn, holder) = await TakeFileTurnAsync(piece, cancellationToken);
+            // The last piece arrived before and only the answer was lost: the file is whole already.
+            if (offset > 0 && !File.Exists(piece) && Whole(target, size, modified)) return 0;
+            // Starting again from the beginning: whatever is there from before goes first, and its room with it.
+            if (offset == 0 && File.Exists(target)) File.Delete(target);
+            NeedRoomFor(size - offset, "add less at once");
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            Parts(upload);
+            long written;
+            await using (var file = new FileStream(piece, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
+            {
+                if (file.Length < offset)
+                    throw new LibraryException(
+                        $"Some of “{name}” that had arrived is missing. Add it again, and only what’s missing is sent.", "conflict");
+                // Anything past where this piece starts is from an earlier try at it, cut off partway.
+                file.SetLength(offset);
+                file.Seek(offset, SeekOrigin.Begin);
+                written = await TakeInAsync(content, file, upload, target, holder.Token, cancellationToken);
+            }
+            if (length is { } promised && written != promised)
+                // Tried again, from the start of this piece: what came before it is still here.
+                throw new LibraryException($"Only part of “{name}” arrived. It’s being sent again.", "timeout");
+            if (offset + written > size)
+            {
+                File.Delete(piece);
+                throw new LibraryException($"More of “{name}” arrived than it holds. Add it again.");
+            }
+            if (offset + written == size) PutInPlace(piece, target, modified);
+            Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow);
+            return written;
+        }
+        finally
+        {
+            if (turn is not null) GiveBackFileTurn(piece, turn, holder!);
+            GiveBackReceivingTurn(id!);
+        }
+    }
+
+    /// <summary>
+    /// How much of a file being sent in pieces is here: what a page asks after a piece went
+    /// unanswered, so it carries on from there rather than from the start of that piece. All of it,
+    /// when it's whole already and only the answer to its last piece was lost.
+    /// </summary>
+    public long PieceArrived(string? id, string? path, long size, DateTimeOffset? modified)
+    {
+        var upload = Upload(id);
+        var target = FileIn(upload, path);
+        var piece = new FileInfo(Path.Combine(upload, ".parts", PieceName(path!, size, modified)));
+        if (piece.Exists && piece.LinkTarget is null) return Math.Min(piece.Length, size);
+        return Whole(target, size, modified) ? size : 0;
+    }
+
+    /// <summary>
+    /// Where a file of an upload goes: <paramref name="path"/> inside it, refused by the same rules
+    /// as anywhere in My files, before it goes anywhere near the drive.
+    /// </summary>
+    private string FileIn(string upload, string? path)
+    {
         // Before the path goes anywhere near the drive, which would answer a name longer than it takes
         // with an error that reads as the drive having gone. Another device can allow one: a name in
         // Chinese, say, takes three bytes a character here.
@@ -270,99 +415,171 @@ public sealed partial class LibraryService
         // “Photo.jpg”, which a computer that doesn't can send side by side. The second is refused
         // rather than written over the first. The same name sent again is only ever a retry.
         if (TakenByAnother(target)) throw Indistinct(target);
+        return target;
+    }
 
+    /// <summary>
+    /// One of the account's turns at a file arriving, counted so that one still arriving is never
+    /// picked up by another page, nor said to have stopped.
+    /// </summary>
+    private void TakeReceivingTurn(string id)
+    {
         // A few at a time, which is all the page ever sends. Each file asks the drive how much room is
         // left only every so often, so without a limit enough small ones at once could all see the
         // same free space and, between them, take the room held back.
         if (!_receiving.Wait(0))
             throw new LibraryException("Too many files are arriving at once. Wait for some to finish, then try again.", "busy");
-        // Counted, so one still arriving is never picked up by another page, nor said to have stopped.
-        _arriving.AddOrUpdate(id!, 1, (_, count) => count + 1);
-        try
-        {
-            // A retry: what arrived of this file before is replaced, so it goes first and its room with it.
-            if (File.Exists(target)) File.Delete(target);
-            if (length is { } expected) NeedRoomFor(expected, "add less at once");
+        _arriving.AddOrUpdate(id, 1, (_, count) => count + 1);
+    }
 
-            // Counted as it arrives as well as checked up front: a request that doesn't say how long it
-            // is has no length to check. And the drive is asked again as it fills, because files arriving
-            // side by side — or an import, or a laptop syncing — each started from the same free space,
-            // and only the drive knows what they've taken between them. Nothing goes into the room held back.
-            var free = Space(root)?.FreeBytes;
-            var room = Storage.Room(free);
-            var keep = free - room;
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            // Written somewhere of its own and moved into place once whole, so nothing else ever sees
-            // it half-written: not a retry of it still arriving, which writes somewhere of its own too,
-            // nor finishing the upload, which leaves this hidden folder behind.
-            var parts = Path.Combine(upload, ".parts");
-            PathPolicy.RejectLink(parts);
-            Directory.CreateDirectory(parts);
-            var arriving = Path.Combine(parts, Guid.NewGuid().ToString("N"));
-            long written = 0;
-            using var quiet = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            try
-            {
-                await using (var file = new FileStream(arriving, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
-                {
-                    var buffer = new byte[81920];
-                    long sinceAsked = 0;
-                    for (;;)
-                    {
-                        quiet.CancelAfter(StalledAfter);
-                        int read;
-                        try { read = await content.ReadAsync(buffer, quiet.Token); }
-                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                        {
-                            throw new LibraryException(
-                                $"Nothing more of “{Path.GetFileName(target)}” arrived for a while. Try adding it again.", "timeout");
-                        }
-                        if (read == 0) break;
-                        written += read;
-                        sinceAsked += read;
-                        var full = written > room;
-                        if (sinceAsked >= AskDriveEvery)
-                        {
-                            sinceAsked = 0;
-                            full |= Space(root)?.FreeBytes - read < keep;
-                            // Still arriving, however long one file takes, so not one to clear away.
-                            Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow);
-                        }
-                        if (full)
-                            throw new LibraryException(
-                                $"There isn’t room on your Uncloud drive for “{Path.GetFileName(target)}”. "
-                                + "Make some room, or add less at once.", "unavailable");
-                        await file.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                    }
-                }
-                if (length is { } promised && written != promised)
-                    throw new LibraryException(
-                        $"Only part of “{Path.GetFileName(target)}” arrived. Try adding it again.", "unavailable");
-                if (modified is { } changed) File.SetLastWriteTimeUtc(arriving, changed.UtcDateTime);
-                // Asked again now it's whole: one differing only in capitals may have arrived meanwhile.
-                if (TakenByAnother(target)) throw Indistinct(target);
-                File.Move(arriving, target, overwrite: true);
-            }
-            catch
-            {
-                // Half a file is worse than none: it would look like the whole thing once placed. Its
-                // folder is gone already if the upload was stopped or finished while it arrived.
-                try { File.Delete(arriving); }
-                catch (DirectoryNotFoundException) { }
-                throw;
-            }
-            // Somebody is still sending to it, so it isn't one to clear away.
-            Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow);
-            return written;
-        }
-        finally
+    private void GiveBackReceivingTurn(string id)
+    {
+        // The last file to finish opens the gap before the next. Still say it's arriving, so a
+        // page that asks in that gap doesn't offer to throw a live upload away.
+        if (_arriving.AddOrUpdate(id, 0, (_, count) => count - 1) == 0 && _arriving.TryRemove(new(id, 0)))
+            NoteQuiet(id);
+        _receiving.Release();
+    }
+
+    /// <summary>The hidden folder in an upload where files are written until they're whole.</summary>
+    private static string Parts(string upload)
+    {
+        var parts = Path.Combine(upload, ".parts");
+        PathPolicy.RejectLink(parts);
+        Directory.CreateDirectory(parts);
+        return parts;
+    }
+
+    /// <summary>
+    /// What a file sent in pieces is called while it arrives: the same for every piece of the same
+    /// file — the same path, size and time last changed — and different for any other, so a file
+    /// changed since an earlier try starts again rather than carrying on from the old one.
+    /// </summary>
+    private static string PieceName(string path, long size, DateTimeOffset? modified) =>
+        PieceName(path, size, modified?.ToUnixTimeMilliseconds());
+
+    private static string PieceName(string path, long size, long? modified) =>
+        Convert.ToHexStringLower(SHA256.HashData(
+            Encoding.UTF8.GetBytes($"{path.Normalize(NormalizationForm.FormC)}\n{size}\n{modified}"))) + ".piece";
+
+    /// <summary>Whether <paramref name="target"/> is this file arrived whole: the same size and last changed at the same time.</summary>
+    private static bool Whole(string target, long size, DateTimeOffset? modified)
+    {
+        var there = new FileInfo(target);
+        return there.Exists && there.Length == size
+            && (modified is not { } changed || (there.LastWriteTimeUtc - changed.UtcDateTime).Duration() <= SameTime);
+    }
+
+    /// <summary>Moves a file that has arrived whole from where it was written to its place in the upload.</summary>
+    private static void PutInPlace(string arriving, string target, DateTimeOffset? modified)
+    {
+        if (modified is { } changed) File.SetLastWriteTimeUtc(arriving, changed.UtcDateTime);
+        // Asked again now it's whole: one differing only in capitals may have arrived meanwhile.
+        if (TakenByAnother(target)) throw Indistinct(target);
+        File.Move(arriving, target, overwrite: true);
+    }
+
+    /// <summary>
+    /// Writes what arrives of a file to <paramref name="file"/> until there's no more, never into the
+    /// room held back. Counted as it arrives as well as checked up front: a request that doesn't say
+    /// how long it is has no length to check. And the drive is asked again as it fills, because files
+    /// arriving side by side — or an import, or a laptop syncing — each started from the same free
+    /// space, and only the drive knows what they've taken between them.
+    /// </summary>
+    /// <param name="stop">Ends it early: the request going away, or a later try at the same file.</param>
+    /// <param name="cancellationToken">The request going away, which isn't a reason to say anything.</param>
+    /// <returns>How many bytes were written.</returns>
+    private async Task<long> TakeInAsync(
+        Stream content, FileStream file, string upload, string target, CancellationToken stop, CancellationToken cancellationToken)
+    {
+        var free = Space(root)?.FreeBytes;
+        var room = Storage.Room(free);
+        var keep = free - room;
+        long written = 0;
+        using var quiet = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        var buffer = new byte[81920];
+        long sinceAsked = 0;
+        for (;;)
         {
-            // The last file to finish opens the gap before the next. Still say it's arriving, so a
-            // page that asks in that gap doesn't offer to throw a live upload away.
-            if (_arriving.AddOrUpdate(id!, 0, (_, count) => count - 1) == 0 && _arriving.TryRemove(new(id!, 0)))
-                NoteQuiet(id!);
-            _receiving.Release();
+            quiet.CancelAfter(StalledAfter);
+            int read;
+            try { read = await content.ReadAsync(buffer, quiet.Token); }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new LibraryException(
+                    $"Nothing more of “{Path.GetFileName(target)}” arrived for a while. Try adding it again.", "timeout");
+            }
+            if (read == 0) return written;
+            written += read;
+            sinceAsked += read;
+            var full = written > room;
+            if (sinceAsked >= AskDriveEvery)
+            {
+                sinceAsked = 0;
+                full |= Space(root)?.FreeBytes - read < keep;
+                // Still arriving, however long one file takes, so not one to clear away.
+                Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow);
+            }
+            if (full)
+                throw new LibraryException(
+                    $"There isn’t room on your Uncloud drive for “{Path.GetFileName(target)}”. "
+                    + "Make some room, or add less at once.", "unavailable");
+            await file.WriteAsync(buffer.AsMemory(0, read), stop);
         }
+    }
+
+    /// <summary>Whoever is writing one file sent in pieces, and how many requests want to.</summary>
+    private sealed class Turn
+    {
+        public readonly SemaphoreSlim Gate = new(1, 1);
+        public CancellationTokenSource? Holder;
+        public int Wanting;
+    }
+
+    /// <summary>The files being sent in pieces that a request is writing or waiting to write, by where they're written.</summary>
+    private readonly Dictionary<string, Turn> _turns = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The one turn at writing <paramref name="piece"/>. A page sends one file one piece at a time,
+    /// so a request already writing it is an earlier try whose connection went without this end
+    /// hearing — the page gave up on it and sent the piece again. It gives way at once rather than
+    /// holding the file until it times out, and anything it wrote past where the new one starts is cut.
+    /// </summary>
+    private async Task<(Turn Turn, CancellationTokenSource Holder)> TakeFileTurnAsync(string piece, CancellationToken cancellationToken)
+    {
+        Turn turn;
+        lock (_turns)
+        {
+            if (!_turns.TryGetValue(piece, out turn!)) _turns[piece] = turn = new Turn();
+            turn.Wanting++;
+            turn.Holder?.Cancel();
+        }
+        try { await turn.Gate.WaitAsync(cancellationToken); }
+        catch
+        {
+            lock (_turns)
+                if (--turn.Wanting == 0) _turns.Remove(piece);
+            throw;
+        }
+        var holder = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lock (_turns)
+        {
+            turn.Holder = holder;
+            // Another try arrived between this one getting the turn and saying so: it's the newer.
+            if (turn.Wanting > 1) holder.Cancel();
+        }
+        return (turn, holder);
+    }
+
+    private void GiveBackFileTurn(string piece, Turn turn, CancellationTokenSource holder)
+    {
+        lock (_turns)
+        {
+            if (turn.Holder == holder) turn.Holder = null;
+            if (--turn.Wanting == 0) _turns.Remove(piece);
+        }
+        turn.Gate.Release();
+        holder.Dispose();
     }
 
     /// <summary>When the browser says a file was last changed, unless it's a time it can't have meant.</summary>

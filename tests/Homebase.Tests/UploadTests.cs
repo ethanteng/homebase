@@ -938,6 +938,145 @@ public sealed class UploadTests : IDisposable
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
+    /// <summary>Sends <paramref name="content"/> as the piece of a file <paramref name="size"/> bytes long that starts at <paramref name="offset"/>.</summary>
+    private static Task<HttpResponseMessage> SendPieceAsync(
+        HttpClient client, string id, string path, string content, long offset, long size, long? modified = null)
+    {
+        var query = $"path={Uri.EscapeDataString(path)}&offset={offset}&size={size}" + (modified is { } ms ? $"&modified={ms}" : "");
+        var body = new ByteArrayContent(Encoding.UTF8.GetBytes(content));
+        body.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        return client.PutAsync($"/api/uploads/{id}?{query}", body);
+    }
+
+    private static async Task<long> PieceArrivedAsync(HttpClient client, string id, string path, long size, long? modified = null) =>
+        (await client.GetFromJsonAsync<JsonElement>(
+            $"/api/uploads/{id}/piece?path={Uri.EscapeDataString(path)}&size={size}" + (modified is { } ms ? $"&modified={ms}" : "")))
+        .GetProperty("bytes").GetInt64();
+
+    [Fact]
+    public async Task A_file_sent_in_pieces_keeps_what_arrived_when_a_piece_is_cut_off()
+    {
+        var (app, admin, _, member, root) = await StartAsync();
+        using var __ = app;
+        using var ___ = admin;
+        using var ____ = member;
+        var then = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        var id = await BeginAsync(member);
+        const string notebook = "first piece|second piece|last";
+
+        (await SendPieceAsync(member, id, "Recipes.enex", "first piece|", 0, notebook.Length, then)).EnsureSuccessStatusCode();
+        Assert.Equal(12, await PieceArrivedAsync(member, id, "Recipes.enex", notebook.Length, then));
+        // Out of sight until it's whole: finishing now would never place half of it.
+        Assert.DoesNotContain(Directory.EnumerateFileSystemEntries(Path.Combine(Uploads(root), id)), entry => !Path.GetFileName(entry).StartsWith('.'));
+
+        // The second piece is cut off partway, as a dropped connection leaves it: what came before it is kept.
+        using var library = new LibraryService(root, new MetadataIndex());
+        library.Initialize();
+        await Assert.ThrowsAsync<LibraryException>(() => library.ReceivePieceAsync(
+            id, "Recipes.enex", new MemoryStream(Encoding.UTF8.GetBytes("second")), 13, DateTimeOffset.FromUnixTimeMilliseconds(then),
+            12, notebook.Length, CancellationToken.None));
+        Assert.Equal(18, await PieceArrivedAsync(member, id, "Recipes.enex", notebook.Length, then));
+        // Sent again from where that piece starts, it's written over what arrived of it, not after it.
+        (await SendPieceAsync(member, id, "Recipes.enex", "second piece|", 12, notebook.Length, then)).EnsureSuccessStatusCode();
+        // The last piece arrives, and the answer is lost: sending it again finds the file whole.
+        (await SendPieceAsync(member, id, "Recipes.enex", "last", 25, notebook.Length, then)).EnsureSuccessStatusCode();
+        (await SendPieceAsync(member, id, "Recipes.enex", "last", 25, notebook.Length, then)).EnsureSuccessStatusCode();
+        Assert.Equal(notebook.Length, await PieceArrivedAsync(member, id, "Recipes.enex", notebook.Length, then));
+
+        await FinishAsync(member, id);
+        Assert.Equal(notebook, await File.ReadAllTextAsync(Path.Combine(root, "Recipes.enex")));
+        Assert.Equal(then, new DateTimeOffset(File.GetLastWriteTimeUtc(Path.Combine(root, "Recipes.enex"))).ToUnixTimeMilliseconds());
+    }
+
+    [Fact]
+    public async Task A_piece_that_doesnt_follow_what_arrived_or_runs_past_the_end_is_refused()
+    {
+        var (app, admin, _, member, root) = await StartAsync();
+        using var __ = app;
+        using var ___ = admin;
+        using var ____ = member;
+        var id = await BeginAsync(member);
+
+        // Something is missing before it: sent from here, the file would have a hole in it.
+        Assert.Equal(HttpStatusCode.Conflict, (await SendPieceAsync(member, id, "film.mov", "later", 10, 20)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendPieceAsync(member, id, "film.mov", "too long", 15, 20)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await member.PutAsync($"/api/uploads/{id}?path=film.mov&offset=0", new ByteArrayContent([1]))).StatusCode);
+        Assert.Equal(0, await PieceArrivedAsync(member, id, "film.mov", 20));
+
+        await FinishAsync(member, id);
+        Assert.False(File.Exists(Path.Combine(root, "film.mov")));
+    }
+
+    [Fact]
+    public async Task Adding_the_same_file_again_carries_on_from_what_arrived_of_it()
+    {
+        var (app, admin, _, member, root) = await StartAsync();
+        using var __ = app;
+        using var ___ = admin;
+        using var ____ = member;
+        var then = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero);
+        const string notebook = "the first half, the second half";
+        object[] export = [Described("Notebook.enex", notebook, then)];
+        var first = await BeginSendingAsync(member, "", export);
+        (await SendPieceAsync(member, first.Id, "Notebook.enex", "the first half,", 0, notebook.Length, then.ToUnixTimeMilliseconds()))
+            .EnsureSuccessStatusCode();
+
+        // The page goes away. Added again, the same file picks the upload up, and says how far it got.
+        var response = await member.PostAsJsonAsync("/api/uploads", new { destination = "", bytes = notebook.Length, files = export });
+        response.EnsureSuccessStatusCode();
+        var again = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(first.Id, again.GetProperty("id").GetString());
+        Assert.Empty(again.GetProperty("arrived").EnumerateArray());
+        var part = Assert.Single(again.GetProperty("partly").EnumerateArray());
+        Assert.Equal("Notebook.enex", part.GetProperty("path").GetString());
+        Assert.Equal(15, part.GetProperty("bytes").GetInt64());
+
+        // A different version of the file — changed since — starts again rather than carrying on.
+        var changed = await member.PostAsJsonAsync("/api/uploads",
+            new { destination = "", bytes = notebook.Length, files = new[] { Described("Notebook.enex", notebook, then.AddDays(1)) } });
+        Assert.NotEqual(first.Id, (await changed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString());
+
+        (await SendPieceAsync(member, first.Id, "Notebook.enex", " the second half", 15, notebook.Length, then.ToUnixTimeMilliseconds()))
+            .EnsureSuccessStatusCode();
+        await FinishAsync(member, first.Id);
+        Assert.Equal(notebook, await File.ReadAllTextAsync(Path.Combine(root, "Notebook.enex")));
+    }
+
+    [Fact]
+    public async Task An_earlier_try_at_a_piece_still_waiting_on_its_connection_gives_way_to_the_next()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
+        // Long enough that the test would time out waiting for the earlier try to give up by itself.
+        using var library = new LibraryService(root, new MetadataIndex()) { StalledAfter = TimeSpan.FromMinutes(5) };
+        library.Initialize();
+        var id = await library.BeginUploadAsync("", 0, CancellationToken.None);
+
+        // Some of it, then nothing: the connection went without this end hearing. The page gave up on it.
+        var earlier = library.ReceivePieceAsync(id, "film.mov", new GoesQuiet(1024 * 1024), 4 * 1024 * 1024, null,
+            0, 4 * 1024 * 1024, CancellationToken.None);
+        await WaitUntil(() => library.PieceArrived(id, "film.mov", 4 * 1024 * 1024, null) > 0);
+
+        var whole = new byte[4 * 1024 * 1024];
+        whole.AsSpan().Fill(9);
+        var sent = library.ReceivePieceAsync(id, "film.mov", new MemoryStream(whole), whole.Length, null, 0, whole.Length, CancellationToken.None);
+        Assert.Same(sent, await Task.WhenAny(sent, Task.Delay(TimeSpan.FromSeconds(20))));
+        Assert.Equal(whole.Length, await sent);
+        await Assert.ThrowsAnyAsync<Exception>(() => earlier);
+
+        await library.FinishUploadAsync(id, "", merge: false, CancellationToken.None);
+        Assert.Equal(whole, await File.ReadAllBytesAsync(Path.Combine(root, "film.mov")));
+    }
+
+    private static async Task WaitUntil(Func<bool> condition)
+    {
+        var until = DateTime.UtcNow.AddSeconds(20);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > until) throw new TimeoutException();
+            await Task.Delay(20);
+        }
+    }
+
     [Fact]
     public async Task An_upload_nobody_finished_is_cleared_away_after_a_day()
     {

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import AddFiles from "./AddFiles";
 import FileBrowser from "./FileBrowser";
-import UploadStatus, { GIVE_UP_AFTER, pickedFrom, STALLED_AFTER, UnfinishedStatus, useUpload } from "./Uploads";
+import UploadStatus, { GIVE_UP_AFTER, PIECE, pickedFrom, STALLED_AFTER, UnfinishedStatus, useUpload } from "./Uploads";
 import type { Picked } from "./Uploads";
 import type { UploadComparison } from "./api";
 
@@ -1054,6 +1054,55 @@ describe("when the connection or the page goes away partway", () => {
     keptUntil: "2026-10-23T18:46:35Z",
     arriving: false,
     ...more,
+  });
+
+  it("sends a big file in pieces, carrying on from what Uncloud kept rather than starting again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const size = 3 * PIECE;
+      const export_ = file("Recipes.enex");
+      // Only its size is read before it's sent, so it needn't really be that big here.
+      Object.defineProperty(export_, "size", { value: size });
+      const accept = accepting();
+      answer = (path, method, body) => {
+        // Half an earlier page's try had arrived: it carries on from there.
+        if (path === "/uploads" && method === "POST") return json({ id: "u1", partly: [{ path: "Recipes.enex", bytes: 5000 }] });
+        // Asked after a piece went unanswered: most of that piece had arrived.
+        if (path.startsWith("/uploads/u1/piece?")) return json({ bytes: 6000 + PIECE });
+        return accept(path, method, body);
+      };
+      const query = (request: FakeRequest) => new URLSearchParams(request.url.split("?")[1]);
+      FakeRequest.respond = (request) =>
+        FakeRequest.sent.length === 2 ? request.onerror?.() : request.finish(200, { bytes: PIECE });
+      render(<Harness chosen={pickedFrom([export_])} />);
+
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent).toHaveLength(2));
+      await passes(5000);
+
+      await screen.findByText(/Added Recipes.enex from this device: 1 file,/);
+      expect(FakeRequest.sent.map((request) => Number(query(request).get("offset")))).toEqual([
+        5000,
+        5000 + PIECE,
+        6000 + PIECE,
+        6000 + 2 * PIECE,
+      ]);
+      expect(FakeRequest.sent.every((request) => query(request).get("size") === String(size))).toBe(true);
+      expect(asked.filter((request) => request.path.startsWith("/uploads/u1/piece?"))).toHaveLength(1);
+      expect(asked.some((request) => request.path.endsWith("/finish"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends a file no bigger than a piece whole, as it always was", async () => {
+    answer = accepting();
+    render(<Harness chosen={pickedFrom([file("small.enex")])} />);
+
+    await click(screen.getByText("Send"));
+    await screen.findByText(/Added small.enex from this device: 1 file,/);
+    expect(FakeRequest.sent).toHaveLength(1);
+    expect(FakeRequest.sent[0].url).not.toContain("offset=");
   });
 
   it("sends a file again when it stops moving, whether the page or Uncloud notices", async () => {
