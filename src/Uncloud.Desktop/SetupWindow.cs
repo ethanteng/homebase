@@ -323,7 +323,6 @@ public sealed class SetupWindow : Window
             }
         };
 
-        var cancel = new Button { Content = "Cancel" };
         var waitingActions = new StackPanel { Spacing = 10, IsVisible = false };
         var otherWays = Links(("Other ways to connect", () => ShowAddress(notFound: false)));
         // Declared ahead of Show, which hides it, so the link can call Show itself.
@@ -341,12 +340,17 @@ public sealed class SetupWindow : Window
             phoneWait.IsVisible = phone is true;
             waitingActions.IsVisible = phone is not null;
             waitingActions.Children.Clear();
+            // Back on the choice there is nothing to cancel. A fresh button each time the wait
+            // shows: Clear() drops the row, but a button left in that row still has a parent, and
+            // Avalonia refuses to put the same control into the next row.
+            if (phone is null) return;
             if (phone is false) waitingActions.Children.Add(Links(("Didn’t see a browser window? Open it again", OpenBrowser)));
             if (phone is true) waitingActions.Children.Add(Links(("Sign in on this Mac instead", () => { OpenBrowser(); Show(phone: false); })));
+            var cancel = new Button { Content = "Cancel" };
+            cancel.Click += (_, _) => Show(phone: null);
             waitingActions.Children.Add(Buttons(cancel));
         }
         signIn.Click += (_, _) => { OpenBrowser(); Show(phone: false); };
-        cancel.Click += (_, _) => Show(phone: null);
 
         _body.Children.Add(ready);
         _body.Children.Add(browserWait);
