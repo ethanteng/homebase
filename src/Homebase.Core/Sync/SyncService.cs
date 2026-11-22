@@ -234,6 +234,13 @@ public sealed partial class SyncService(
             if (ownership.FindFolder(folderId) is not null
                 || (await syncthing.FoldersAsync(cancellationToken)).Any(folder => folder.Id == folderId))
                 throw new LibraryException("That folder is already syncing.", "conflict");
+            // The same echo Status leaves off the list. Stopping a folder this Uncloud shared
+            // leaves the copy on the computer, which offers it back; taking that offer would only
+            // start the stopped folder again.
+            if (IsOwnFolderId(folderId))
+                throw new LibraryException(
+                    "That folder came from this Uncloud. To sync it again, choose it under What stays in sync.",
+                    "conflict");
 
             // The offered label comes from the other computer, so it gets this account's rules too.
             var path = NormalizePath(relativePath ?? offers[0].Label);

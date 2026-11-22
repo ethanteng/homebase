@@ -131,6 +131,11 @@ public sealed class SyncTests : IDisposable
 
         var status = await _sync.StatusAsync(_ada.Id, CancellationToken.None);
         Assert.Equal("abcde-12345", Assert.Single(status.Offers).FolderId);
+        // Hidden from the list, and refused if asked for anyway: it would only start again.
+        var refused = await Assert.ThrowsAsync<LibraryException>(
+            () => _sync.AcceptAsync(_ada.Id, _adaRoot, everything.Id, "Again", CancellationToken.None));
+        Assert.Equal("conflict", refused.Code);
+        Assert.False(_syncthing.Folders.ContainsKey(everything.Id));
     }
 
     [Fact]
