@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -8,17 +10,32 @@ namespace Homebase.Core.Providers;
 public sealed record EvernoteFile(int Resource, string Name, string Mime, long Size);
 
 /// <summary>
-/// One note as it will be kept: a page, and — when it has attachments — a folder of them beside it.
-/// Where in the export file it is, so it can be read again by itself.
+/// One note, as read from its export file and before it has a name in My files.
+/// <paramref name="Key"/> says which note it is from one export of the notebook to the next: Evernote's
+/// exports carry no id, so it is when the note was made and what it is called. <paramref name="Title"/>
+/// is the title made safe to be a file's name, which may still be shared with another note.
 /// </summary>
 public sealed record EvernoteNote(
     EvernoteExport.Span Span,
-    string Page,
-    string? Folder,
+    string Key,
+    string Title,
+    DateTimeOffset? Created,
     IReadOnlyList<EvernoteFile> Files,
-    long PageBytes,
+    long PageBase,
+    long PagePerCharacter,
     DateTimeOffset? Modified,
-    bool Problem);
+    bool Problem)
+{
+    /// <summary>
+    /// How big the note's page is. The page links to its attachments by their folder's name, which
+    /// isn't settled until the note is named, and that is the only part of it that depends on it.
+    /// </summary>
+    public long PageBytes(string? folder) =>
+        folder is null ? PageBase : PageBase + PagePerCharacter * Uri.EscapeDataString(folder).Length;
+}
+
+/// <summary>A note with the name it has, or will have, in My files: a page, and a folder of attachments when it has any.</summary>
+public sealed record NamedNote(EvernoteNote Note, string Page, string? Folder);
 
 /// <summary>What one export file holds, worked out once and kept until the file changes.</summary>
 /// <param name="Name">The folder its notes go into, named after the file.</param>
@@ -42,15 +59,28 @@ public sealed record EvernoteNotebook(
 /// nothing from Evernote. The export files themselves stay where they are, beside the notebooks
 /// made from them: they are the complete copy, and the thing another notes app can bring back in.
 ///
+/// A note is known by its key, which is the path the import log records it under; its name is only
+/// where it lands. A note that has arrived keeps the name it arrived with, and a note that hasn't is
+/// never given a name one that has arrived already has — so a newer export of the same notebook,
+/// with notes added or in another order, brings each new note under a name of its own and nothing
+/// twice. A note's name never depends on whether another note has arrived yet, so names don't
+/// change while a notebook is coming in.
+///
 /// Like every other place, it is only ever read. The paths it hands out are made up of names it
 /// chose itself, and a path is only ever looked up among them, never joined onto a folder on disk.
 /// </summary>
-public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
+public sealed partial class EvernoteSource(string libraryRoot, ImportLog log) : IImportSource
 {
     public const string ProviderName = "evernote";
 
     /// <summary>Where the export files are kept, and where the notebooks made from them go.</summary>
     public const string FolderName = "Evernote";
+
+    /// <summary>
+    /// The most a name is allowed, in bytes, before the date, number and ending it may still get.
+    /// Disks count a name's length in bytes, 255 of them, and a character can take four.
+    /// </summary>
+    private const int LongestName = 180;
 
     public string ProviderId => ProviderName;
     public string DestinationPrefix => FolderName;
@@ -58,6 +88,11 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
     // What each export file holds, by its path, its size and when it last changed. Shared between
     // everybody looking, so a notebook being measured and listed at once is read once.
     private readonly ConcurrentDictionary<string, Lazy<Task<EvernoteNotebook>>> _read = new(StringComparer.Ordinal);
+
+    // The names each notebook's notes were last given. Worked out afresh whenever the notebook is
+    // listed, which every import does before it opens anything, and kept for the opening: asking the
+    // log once per note would make a large notebook take as long as the square of its size.
+    private readonly ConcurrentDictionary<string, IReadOnlyList<NamedNote>> _named = new(StringComparer.Ordinal);
 
     /// <summary>The notebooks in the Evernote folder: one for each export file there.</summary>
     public async Task<IReadOnlyList<EvernoteNotebook>> NotebooksAsync(CancellationToken cancellationToken)
@@ -89,14 +124,16 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
         if (parts.Length == 1)
         {
             var entries = new List<SourceEntry>();
-            foreach (var note in notebook.Notes)
+            foreach (var named in Named(notebook, afresh: true))
             {
-                var page = $"/{notebook.Name}/{note.Page}";
-                entries.Add(new SourceEntry(page, note.Page, page, page, false, note.PageBytes, notebook.Rev, note.Modified));
-                if (note.Folder is { } folder)
+                var note = named.Note;
+                var page = $"/{notebook.Name}/{note.Key}.html";
+                entries.Add(new SourceEntry(page, named.Page, page, $"/{notebook.Name}/{named.Page}", false,
+                    note.PageBytes(named.Folder), notebook.Rev, note.Modified));
+                if (named.Folder is { } folder)
                 {
-                    var files = $"/{notebook.Name}/{folder}";
-                    entries.Add(new SourceEntry(files, folder, files, files, true, null, null, note.Modified));
+                    var files = $"/{notebook.Name}/{note.Key} files";
+                    entries.Add(new SourceEntry(files, folder, files, $"/{notebook.Name}/{folder}", true, null, null, note.Modified));
                 }
             }
             return entries
@@ -106,11 +143,13 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
         }
         if (parts.Length == 2)
         {
-            var note = notebook.Notes.FirstOrDefault(candidate => candidate.Folder == parts[1]) ?? throw Gone();
-            return note.Files.Select(file =>
+            var named = Named(notebook, afresh: false).FirstOrDefault(candidate =>
+                candidate.Folder is not null && $"{candidate.Note.Key} files" == parts[1]) ?? throw Gone();
+            return named.Note.Files.Select(file =>
             {
-                var at = $"/{notebook.Name}/{note.Folder}/{file.Name}";
-                return new SourceEntry(at, file.Name, at, at, false, file.Size, notebook.Rev, note.Modified);
+                var at = $"/{notebook.Name}/{named.Note.Key} files/{file.Name}";
+                return new SourceEntry(at, file.Name, at, $"/{notebook.Name}/{named.Folder}/{file.Name}", false,
+                    file.Size, notebook.Rev, named.Note.Modified);
             }).ToArray();
         }
         throw Gone();
@@ -124,11 +163,12 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
                        ?? throw Gone();
         if (parts.Length == 2)
         {
-            var note = notebook.Notes.FirstOrDefault(candidate => candidate.Page == parts[1]) ?? throw Gone();
-            var html = await Task.Run(() => Render(notebook, note, cancellationToken), cancellationToken);
+            var named = Named(notebook, afresh: false).FirstOrDefault(candidate => $"{candidate.Note.Key}.html" == parts[1])
+                        ?? throw Gone();
+            var html = await Task.Run(() => Render(notebook, named, cancellationToken), cancellationToken);
             return new MemoryStream(Encoding.UTF8.GetBytes(html), writable: false);
         }
-        var owner = notebook.Notes.FirstOrDefault(candidate => candidate.Folder == parts[1]) ?? throw Gone();
+        var owner = notebook.Notes.FirstOrDefault(candidate => $"{candidate.Key} files" == parts[1]) ?? throw Gone();
         var attachment = owner.Files.FirstOrDefault(file => file.Name == parts[2]) ?? throw Gone();
         var window = new FileWindow(notebook.File, owner.Span.Start, owner.Span.Length);
         try
@@ -160,7 +200,7 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         return files.Select(file =>
         {
-            var name = Unique(Clean(Path.GetFileNameWithoutExtension(file.Name), 60) is { Length: > 0 } cleaned ? cleaned : "Notebook", taken, "");
+            var name = Unique(Clean(Path.GetFileNameWithoutExtension(file.Name), 120) is { Length: > 0 } cleaned ? cleaned : "Notebook", taken, "");
             return (name, file);
         }).ToArray();
     }
@@ -190,7 +230,7 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
         }
     }
 
-    /// <summary>Goes through one export file for its notes and the names they'll have.</summary>
+    /// <summary>Goes through one export file for its notes.</summary>
     internal static EvernoteNotebook Read(string name, string path, string fileName, string rev, DateTime modified)
     {
         // Listed only when it wasn't a link; looked at again in case it has become one since.
@@ -211,28 +251,97 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
             read.Add(EvernoteExport.ReadNote(window, span.Unfinished, CancellationToken.None));
         }
 
-        var pages = PageNames(read);
+        var keys = Keys(read);
         var notes = new List<EvernoteNote>(read.Count);
         for (var index = 0; index < read.Count; index++)
         {
             var note = read[index];
-            var page = pages[index];
-            var folder = note.Resources.Count > 0 ? page[..^".html".Length] + " files" : null;
             var files = AttachmentNames(note.Resources)
                 .Select((file, resource) => new EvernoteFile(resource, file, note.Resources[resource].Mime, note.Resources[resource].Size))
                 .ToArray();
-            var html = EvernotePage.Render(note, name, fileName, Linked(folder, files));
-            notes.Add(new EvernoteNote(spans[index], page, folder, files, Encoding.UTF8.GetByteCount(html),
-                note.Updated ?? note.Created, note.Problem is not null));
+            long Size(string? folder) => Encoding.UTF8.GetByteCount(EvernotePage.Render(note, name, fileName, Linked(folder, files)));
+            // Rendered with folder names one and two characters long, which is enough to know the
+            // page's size whatever its folder ends up called.
+            var (pageBase, perCharacter) = (Size(null), 0L);
+            if (files.Length > 0)
+            {
+                var (one, two) = (Size("a"), Size("aa"));
+                (pageBase, perCharacter) = (2 * one - two, two - one);
+            }
+            notes.Add(new EvernoteNote(spans[index], keys[index],
+                Clean(note.Title, LongestName) is { Length: > 0 } title ? title : "Untitled note",
+                note.Created, files, pageBase, perCharacter, note.Updated ?? note.Created, note.Problem is not null));
         }
         return new EvernoteNotebook(name, path, fileName, true, notes, rev, modified);
     }
 
-    private static string Render(EvernoteNotebook notebook, EvernoteNote note, CancellationToken cancellationToken)
+    /// <summary>The names the notebook's notes have, or will have: from the log, afresh, or as last worked out.</summary>
+    private IReadOnlyList<NamedNote> Named(EvernoteNotebook notebook, bool afresh)
     {
+        var key = $"{notebook.File}\n{notebook.Rev}\n{notebook.Name}";
+        if (!afresh && _named.TryGetValue(key, out var kept)) return kept;
+        foreach (var stale in _named.Keys)
+            if (stale.StartsWith(notebook.File + "\n", StringComparison.Ordinal) && stale != key)
+                _named.TryRemove(stale, out _);
+        var named = Name(notebook, log.Arrived(libraryRoot, ProviderName));
+        _named[key] = named;
+        return named;
+    }
+
+    /// <summary>
+    /// Names every note in a notebook. One that has arrived — its page or any of its attachments —
+    /// keeps the name it arrived with. The rest are named for their title, never taking a name
+    /// something that arrived has, and those sharing a title with another note in the export are told
+    /// apart by the day each was made, then numbered. Names are compared ignoring case, as a Mac's
+    /// disk does.
+    /// </summary>
+    /// <param name="arrived">What has arrived from Evernote, by its path here, with where it landed.</param>
+    internal static IReadOnlyList<NamedNote> Name(EvernoteNotebook notebook, IReadOnlyDictionary<string, string> arrived)
+    {
+        var prefix = $"/{notebook.Name}/";
+        var kept = new Dictionary<string, string>(StringComparer.Ordinal);
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (remote, local) in arrived)
+        {
+            if (!remote.StartsWith(prefix, StringComparison.Ordinal)) continue;
+            var parts = remote[prefix.Length..].Split('/');
+            var landed = local.Split('/');
+            string? key = null, name = null;
+            if (parts.Length == 1 && parts[0].EndsWith(".html", StringComparison.Ordinal) && landed.Length >= 1
+                && landed[^1].EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+                (key, name) = (parts[0][..^".html".Length], landed[^1][..^".html".Length]);
+            else if (parts.Length == 2 && parts[0].EndsWith(" files", StringComparison.Ordinal) && landed.Length >= 2
+                     && landed[^2].EndsWith(" files", StringComparison.Ordinal))
+                (key, name) = (parts[0][..^" files".Length], landed[^2][..^" files".Length]);
+            if (key is null || name is null) continue;
+            kept.TryAdd(key, name);
+            taken.Add(name);
+        }
+
+        // Counted across the whole export, whether arrived or not, so a note's name doesn't change
+        // when another with the same title arrives before it.
+        var shared = notebook.Notes.GroupBy(note => note.Title, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1).Select(group => group.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return notebook.Notes.Select(note =>
+        {
+            if (!kept.TryGetValue(note.Key, out var name))
+            {
+                var wanted = shared.Contains(note.Title) || taken.Contains(note.Title)
+                    ? $"{note.Title} ({note.Created?.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "undated"})"
+                    : note.Title;
+                name = Unique(wanted, taken, "");
+            }
+            return new NamedNote(note, name + ".html", note.Files.Count > 0 ? name + " files" : null);
+        }).ToArray();
+    }
+
+    private static string Render(EvernoteNotebook notebook, NamedNote named, CancellationToken cancellationToken)
+    {
+        var note = named.Note;
         using var window = new FileWindow(notebook.File, note.Span.Start, note.Span.Length);
         var read = EvernoteExport.ReadNote(window, note.Span.Unfinished, cancellationToken);
-        return EvernotePage.Render(read, notebook.Name, notebook.FileName, Linked(note.Folder, note.Files));
+        return EvernotePage.Render(read, notebook.Name, notebook.FileName, Linked(named.Folder, note.Files));
     }
 
     private static IReadOnlyList<EvernotePage.Attachment> Linked(string? folder, IReadOnlyList<EvernoteFile> files) =>
@@ -242,23 +351,21 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
                 $"{Uri.EscapeDataString(folder)}/{Uri.EscapeDataString(file.Name)}", file.Name, file.Mime, file.Size)).ToArray();
 
     /// <summary>
-    /// A page name for every note, from its title. Two notes can have the same title, so those that
-    /// do are told apart by the day each was made, and failing that numbered in the order the export
-    /// has them. Names are compared ignoring case, as a Mac's disk does.
+    /// A key for every note: when it was made and a hash of its title, the same in every export of
+    /// the notebook. Two notes made the same second with the same title are numbered in file order.
     /// </summary>
-    internal static IReadOnlyList<string> PageNames(IReadOnlyList<EnexNote> notes)
+    internal static IReadOnlyList<string> Keys(IReadOnlyList<EnexNote> notes)
     {
-        var titles = notes.Select(note => Clean(note.Title, 100) is { Length: > 0 } title ? title : "Untitled note").ToArray();
-        var shared = titles.GroupBy(title => title, StringComparer.OrdinalIgnoreCase)
-            .Where(group => group.Count() > 1).Select(group => group.Key)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return titles.Select((title, index) =>
+        var taken = new HashSet<string>(StringComparer.Ordinal);
+        return notes.Select(note =>
         {
-            var named = shared.Contains(title)
-                ? $"{title} ({notes[index].Created?.UtcDateTime.ToString("yyyy-MM-dd") ?? "undated"})"
-                : title;
-            return Unique(named, taken, ".html") + ".html";
+            var made = note.Created?.UtcDateTime.ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture) ?? "undated";
+            var title = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(note.Title.Normalize(NormalizationForm.FormC))))[..12]
+                .ToLowerInvariant();
+            var key = $"{made}-{title}";
+            var candidate = key;
+            for (var number = 2; !taken.Add(candidate); number++) candidate = $"{key}-{number}";
+            return candidate;
         }).ToArray();
     }
 
@@ -268,15 +375,18 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         return resources.Select(resource =>
         {
-            var extension = Extension(resource.Mime);
-            var name = Clean(resource.FileName ?? "", 100);
-            if (name.Length == 0)
-                name = (resource.Mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ? "Picture"
+            var given = Clean(resource.FileName ?? "", int.MaxValue);
+            var ending = Path.GetExtension(given);
+            // Anything longer is a name with a dot in it, not an ending.
+            if (ending.Length < 2 || Encoding.UTF8.GetByteCount(ending) > 16) ending = "";
+            var stem = given[..^ending.Length];
+            if (ending.Length == 0) ending = Extension(resource.Mime);
+            stem = Clean(stem, LongestName - Encoding.UTF8.GetByteCount(ending));
+            if (stem.Length == 0)
+                stem = resource.Mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ? "Picture"
                     : resource.Mime.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) ? "Recording"
-                    : "Attachment") + extension;
-            else if (Path.GetExtension(name).Length == 0) name += extension;
-            var ending = Path.GetExtension(name);
-            return Unique(name[..^ending.Length], taken, ending) + ending;
+                    : "Attachment";
+            return Unique(stem, taken, ending) + ending;
         }).ToArray();
     }
 
@@ -290,8 +400,8 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
 
     /// <summary>
     /// A title or file name as a file can be called, on a Mac and on any computer the folder syncs to:
-    /// nothing a filesystem reads as a separator or refuses, no hidden-file dot at the start, and not
-    /// so long that the whole path stops fitting.
+    /// nothing a filesystem reads as a separator or refuses, no hidden-file dot at the start, and no
+    /// more than <paramref name="longest"/> bytes, which is how disks measure a name.
     /// </summary>
     internal static string Clean(string name, int longest)
     {
@@ -301,12 +411,16 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
                 ? ' '
                 : character);
         var cleaned = Spaces().Replace(replaced.ToString(), " ").Trim(' ', '.');
-        if (cleaned.Length > longest)
+        if (Encoding.UTF8.GetByteCount(cleaned) <= longest) return cleaned;
+        var kept = new StringBuilder();
+        var bytes = 0;
+        foreach (var rune in cleaned.EnumerateRunes())
         {
-            var cut = char.IsHighSurrogate(cleaned[longest - 1]) ? longest - 1 : longest;
-            cleaned = cleaned[..cut].TrimEnd(' ', '.');
+            if (bytes + rune.Utf8SequenceLength > longest) break;
+            kept.Append(rune.ToString());
+            bytes += rune.Utf8SequenceLength;
         }
-        return cleaned;
+        return kept.ToString().TrimEnd(' ', '.');
     }
 
     private static string Extension(string mime) => mime.ToLowerInvariant() switch
@@ -355,8 +469,7 @@ public sealed partial class EvernoteSource(string libraryRoot) : IImportSource
 
     private static string[] Parts(string path) => path.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
-    private static LibraryException Gone() =>
-        new("This is no longer in your Evernote files.", "not_found");
+    private static LibraryException Gone() => new("This is no longer in your Evernote files.", "not_found");
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Spaces();

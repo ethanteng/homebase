@@ -723,12 +723,20 @@ attachment is decoded as it is copied (`Base64Element`) rather than held in memo
 including every page's rendered size so the room check is exact, is worked out once and kept per
 file, by path, size and modification time. A file replaced by a newer export is read afresh.
 
-**Names.** A note's page is its title, made safe for a filename on macOS, Windows and Linux (no
-separators or `*?"<>|:`, no leading dot, 100 characters at most) and compared ignoring case. Notes that
-share a title are told apart by the day each was made, then numbered in file order. Attachments keep
-their own names where the export has one, gain an extension from their MIME type where they don't,
-and are numbered when two collide. Every path the source hands out is made of names it chose, and a
-request's path is only ever looked up among them, never joined onto a folder on disk.
+**Names.** Exports carry no note id, so a note's key is when it was made plus a hash of its title,
+and that key is the path the import log records it under; its name is only where it lands. A note
+that has arrived (its page or any attachment is in the log) keeps the name it arrived with. Any
+other note is named for its title, never takes a name the log already has, and, when another note
+in the export shares its title, adds the day it was made, then a number. A newer export with notes
+added or reordered therefore brings each new note under a name of its own and nothing twice, and a
+note's name doesn't depend on whether another has arrived yet, so names hold still during an import.
+A note renamed in Evernote has a new key, so it arrives again under its new name.
+Titles are made safe for macOS, Windows and Linux (no separators or `*?"<>|:`, no leading dot) and
+cut to 180 UTF-8 bytes, leaving room for a date, a number and an ending within a disk's 255.
+Attachments keep their own names where the export has one, cut the same way with their ending kept,
+gain an ending from their MIME type where they have none, and are numbered when two collide. A
+request's path is only ever looked up among the paths the source handed out, never joined onto a
+folder on disk.
 
 **Pages.** `EvernotePage` writes each note as a standalone HTML page that needs neither Evernote nor
 Uncloud: title, notebook, dates, tags and source URL at the top, then the note, then its Evernote

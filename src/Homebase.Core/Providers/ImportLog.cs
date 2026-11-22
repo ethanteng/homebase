@@ -22,6 +22,22 @@ public sealed class ImportLog
         return files;
     }
 
+    /// <summary>
+    /// Where each thing brought in from one place landed, by the path that place knows it by. A place
+    /// that names things itself uses this to keep calling them what they were called when they arrived.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Arrived(string root, string provider)
+    {
+        using var connection = MetadataIndex.Open(root);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT remote_path, local_path FROM imported_files WHERE provider = $provider";
+        command.Parameters.AddWithValue("$provider", provider);
+        using var reader = command.ExecuteReader();
+        var arrived = new Dictionary<string, string>(StringComparer.Ordinal);
+        while (reader.Read()) arrived[reader.GetString(0)] = reader.GetString(1);
+        return arrived;
+    }
+
     public bool Contains(string root, string provider, string remotePath)
     {
         using var connection = MetadataIndex.Open(root);

@@ -63,7 +63,9 @@ public static partial class EvernotePage
         var readable = note.Content.Length == 0 || TryContent(note.Content, byHash, attachments, shown, body);
         if (!readable)
         {
+            // Whatever was placed before the problem goes with the rest, so it's listed at the end instead.
             body.Clear();
+            shown.Clear();
             body.Append("<p class=\"problem\">This note’s formatting couldn’t be read, so only its text is shown.</p>")
                 .Append("<div class=\"plain\">").Append(Escape(PlainText(note.Content))).Append("</div>");
         }

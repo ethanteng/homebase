@@ -45,7 +45,7 @@ public sealed class UserWorkspace
         // One import at a time per account, rather than one for the whole host: somebody else
         // bringing a folder home is no reason to be told to wait.
         Jobs = new ImportJobs(Imports, loggers.CreateLogger<ImportJobs>());
-        Evernote = new EvernoteSource(root);
+        Evernote = new EvernoteSource(root, log);
     }
 
     /// <summary>
