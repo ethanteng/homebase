@@ -630,9 +630,14 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         // No answer at all, rather than a refusal: Uncloud may well have put them in place and
         // only the reply was lost. Saying nothing was added would have them added twice.
         const unanswered = problem instanceof TypeError;
+        // The folder is taken by an import that started after these files were sent — notes from
+        // an earlier export, usually. They're already on the host. Throwing them away would make
+        // somebody send a large file again just to wait out that import.
+        const heldBack =
+          problem instanceof Error && problem.message.includes("still bringing files into");
         // What an earlier try left isn't this one's to throw away when it never got into My files.
         // If the host did finish and only the reply was lost, the upload is already gone.
-        if (resumed === 0) await discard(id);
+        if (resumed === 0 && !heldBack) await discard(id);
         if (unanswered) onUploaded();
         const kept =
           " What had arrived is kept for a day, so adding the same files again sends only the rest.";
@@ -647,7 +652,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           error: unanswered
             ? "Uncloud didn’t answer while putting them in place, so they may already be in your files. Look there before adding them again." +
               (resumed > 0 ? " If they aren’t, what had arrived is kept for a day." : "")
-            : resumed > 0
+            : heldBack || resumed > 0
               ? refused + kept
               : problem instanceof SignedOutError
                 ? signedOut

@@ -491,6 +491,30 @@ describe("adding files from this device", () => {
     expect(uploaded).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps an Evernote export that arrives while notes are still being brought in", async () => {
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path === "/uploads/u1/finish"
+        ? json(
+            {
+              detail:
+                "Uncloud is still bringing files into “Evernote”, so nothing there can be added yet. Try again once that’s finished, or stop it.",
+            },
+            409,
+          )
+        : accept(path, method, body);
+    const next = vi.fn();
+    render(<Harness chosen={pickedFrom([file("Recipes.enex")])} folder="Evernote" then={next} />);
+
+    await click(screen.getByText("Send"));
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("still bringing files into");
+    expect(status).toHaveTextContent("kept for a day");
+    expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it("refuses up front, before sending anything, what Uncloud has no room for", async () => {
     const accept = accepting();
     answer = (path, method, body) =>
