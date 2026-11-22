@@ -1140,6 +1140,43 @@ describe("when the connection or the page goes away partway", () => {
     expect(asked.some((request) => request.method === "DELETE")).toBe(false);
   });
 
+  it("asks again when a piece starts past what arrived, rather than throwing the file away", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const size = 3 * PIECE;
+      const export_ = file("Recipes.enex");
+      Object.defineProperty(export_, "size", { value: size });
+      const accept = accepting();
+      answer = (path, method, body) =>
+        path.startsWith("/uploads/u1/piece?") ? json({ bytes: 5000 }) : accept(path, method, body);
+      const query = (request: FakeRequest) => new URLSearchParams(request.url.split("?")[1]);
+      FakeRequest.respond = (request) =>
+        FakeRequest.sent.length === 1
+          ? request.finish(409, {
+              detail: "Some of “Recipes.enex” that had arrived is missing. Add it again, and only what’s missing is sent.",
+            })
+          : request.finish(200, { bytes: PIECE });
+      render(<Harness chosen={pickedFrom([export_])} />);
+
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent).toHaveLength(1));
+      await passes(2000);
+
+      await screen.findByText(/Added Recipes.enex from this device: 1 file,/);
+      expect(FakeRequest.sent.map((request) => Number(query(request).get("offset")))).toEqual([
+        0,
+        5000,
+        5000 + PIECE,
+        5000 + 2 * PIECE,
+      ]);
+      expect(asked.some((request) => request.path.startsWith("/uploads/u1/piece?"))).toBe(true);
+      expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+      expect(asked.some((request) => request.path.endsWith("/finish"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("sends a file no bigger than a piece whole, as it always was", async () => {
     answer = accepting();
     render(<Harness chosen={pickedFrom([file("small.enex")])} />);

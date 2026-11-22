@@ -582,7 +582,11 @@ export function useUpload(active: boolean, onUploaded: () => void) {
                 break;
               }
               // No answer, or Uncloud saying the file stopped arriving: the connection, not the file.
-              if (refused.status === 0 || refused.status === 408 || refused.status >= 500) {
+              // A piece that starts past what has arrived is the same kind of miss — what this page
+              // thought had arrived is ahead of the file — so it asks again and carries on, rather than
+              // failing the upload and throwing away every piece kept so far.
+              const gap = inPieces && refused.status === 409 && refused.message.includes("that had arrived is missing");
+              if (refused.status === 0 || refused.status === 408 || refused.status >= 500 || gap) {
                 // Offline — just woken, say, and not yet reconnected — it waits to be back, which
                 // isn't Uncloud failing to answer and doesn't count towards giving up. Before asking
                 // whether the file can still be read: one that isn't on this device yet can't be

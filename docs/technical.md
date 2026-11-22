@@ -133,9 +133,11 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   one — an Evernote export, a long video — goes in 32 MB pieces (`PUT /api/uploads/{id}?path=&modified=&offset=&size=`,
   `size` being the whole file's), written one after another to a hidden `.parts/<sha256 of path, size
   and modified>.piece` and moved into place once the last byte is in. A piece is written from its
-  `offset`, cutting anything an earlier try at it left past there, and refused with a 409 if the file
-  has less than that; one still lingering on a dropped connection gives way at once to a newer try
-  at the same file rather than holding it for 45 seconds. After a piece goes unanswered the page
+  `offset`, cutting anything an earlier try at it left past there. If the file has less than that, the
+  answer is a 409 and the page asks how much arrived and carries on, as it does when a piece goes
+  unanswered. One still lingering on a dropped connection gives way at once to a newer try at the same
+  file rather than holding it for 45 seconds, and a try that has already given way stops before it cuts
+  the file back. After a piece goes unanswered the page
   asks `GET /api/uploads/{id}/piece?path=&size=&modified=` how much has arrived (all of it only once
   the file is in its place in the upload; a piece file that has every byte but was never moved there —
   the request stopped, or Uncloud restarted, in between — is said to be one byte short, so the page
