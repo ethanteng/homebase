@@ -1072,6 +1072,70 @@ public sealed class UploadTests : IDisposable
     }
 
     [Fact]
+    public async Task Adding_what_arrived_keeps_the_start_of_a_file_sent_in_pieces_for_adding_it_again()
+    {
+        var (app, admin, _, member, root) = await StartAsync();
+        using var __ = app;
+        using var ___ = admin;
+        using var ____ = member;
+        var then = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero);
+        var ms = then.ToUnixTimeMilliseconds();
+        const string notebook = "the first half, the second half";
+        object[] both = [Described("notes.txt", "notes", then), Described("Notebook.enex", notebook, then)];
+        var id = (await BeginSendingAsync(member, "", both)).Id;
+        (await SendAsync(member, id, "notes.txt", "notes", ms)).EnsureSuccessStatusCode();
+        (await SendPieceAsync(member, id, "Notebook.enex", "the first half,", 0, notebook.Length, ms)).EnsureSuccessStatusCode();
+
+        // Listed for another page with what of which file arrived, not just the whole files.
+        var listed = Assert.Single(await UnfinishedAsync(member));
+        Assert.Equal(["Notebook.enex", "notes.txt"], listed.GetProperty("names").EnumerateArray().Select(name => name.GetString()));
+        Assert.Equal(1, listed.GetProperty("files").GetInt32());
+        Assert.Equal(1, listed.GetProperty("partly").GetInt32());
+        Assert.Equal(15, listed.GetProperty("partlyBytes").GetInt64());
+
+        // "Add what arrived": the whole file goes in; the start of the other isn't thrown away with the rest.
+        Assert.Equal([("notes.txt", "notes.txt")], await FinishAsync(member, id));
+        Assert.False(File.Exists(Path.Combine(root, "Notebook.enex")));
+        var left = Assert.Single(await UnfinishedAsync(member));
+        Assert.Equal(id, left.GetProperty("id").GetString());
+        Assert.Equal(["Notebook.enex"], left.GetProperty("names").EnumerateArray().Select(name => name.GetString()));
+        Assert.Equal(0, left.GetProperty("files").GetInt32());
+        Assert.Equal(15, left.GetProperty("partlyBytes").GetInt64());
+
+        // Added again, it carries on from there, and once it's in, nothing of the upload is left.
+        var again = await member.PostAsJsonAsync("/api/uploads",
+            new { destination = "", bytes = notebook.Length, files = new[] { Described("Notebook.enex", notebook, then) } });
+        var begun = await again.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(id, begun.GetProperty("id").GetString());
+        Assert.Equal(15, Assert.Single(begun.GetProperty("partly").EnumerateArray()).GetProperty("bytes").GetInt64());
+        (await SendPieceAsync(member, id, "Notebook.enex", " the second half", 15, notebook.Length, ms)).EnsureSuccessStatusCode();
+        await FinishAsync(member, id);
+        Assert.Equal(notebook, await File.ReadAllTextAsync(Path.Combine(root, "Notebook.enex")));
+        Assert.Empty(await UnfinishedAsync(member));
+        Assert.False(Directory.Exists(Path.Combine(Uploads(root), id)));
+    }
+
+    [Fact]
+    public async Task A_file_changed_since_its_pieces_began_takes_the_place_of_what_arrived_of_it()
+    {
+        var (app, admin, _, member, root) = await StartAsync();
+        using var __ = app;
+        using var ___ = admin;
+        using var ____ = member;
+        var then = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        var id = await BeginAsync(member);
+        (await SendPieceAsync(member, id, "Notebook.enex", "an older export", 0, 40, then)).EnsureSuccessStatusCode();
+
+        // Exported again since, so a different size and time: it starts again, and the old start goes.
+        (await SendPieceAsync(member, id, "Notebook.enex", "newer", 0, 30, then + 86_400_000)).EnsureSuccessStatusCode();
+
+        var listed = Assert.Single(await UnfinishedAsync(member));
+        Assert.Equal(1, listed.GetProperty("partly").GetInt32());
+        Assert.Equal(5, listed.GetProperty("partlyBytes").GetInt64());
+        Assert.Equal(0, await PieceArrivedAsync(member, id, "Notebook.enex", 40, then));
+    }
+
+    [Fact]
     public async Task An_earlier_try_at_a_piece_still_waiting_on_its_connection_gives_way_to_the_next()
     {
         var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;
@@ -1097,10 +1161,12 @@ public sealed class UploadTests : IDisposable
     }
 
     /// <summary>
-    /// Writes <paramref name="total"/> bytes of <paramref name="value"/>, a buffer at a time, then waits.
-    /// The wait doesn't notice the request being cancelled, so the try keeps its turn until the test lets it go.
+    /// Writes <paramref name="total"/> bytes of <paramref name="value"/>, a buffer at a time, then says so
+    /// through <paramref name="holding"/> and waits. It's asked for more only once the last of it has
+    /// been written, so from then on nothing of it is still being written. The wait doesn't notice the
+    /// request being cancelled, so the try keeps its turn until the test lets it go.
     /// </summary>
-    private sealed class WriteThenHold(int total, byte value, Task hold) : Stream
+    private sealed class WriteThenHold(int total, byte value, Task hold, TaskCompletionSource holding) : Stream
     {
         private int _sent;
 
@@ -1113,6 +1179,7 @@ public sealed class UploadTests : IDisposable
                 _sent += count;
                 return count;
             }
+            holding.TrySetResult();
             await hold;
             return 0;
         }
@@ -1137,13 +1204,16 @@ public sealed class UploadTests : IDisposable
         library.Initialize();
         var id = await library.BeginUploadAsync("", 0, CancellationToken.None);
         var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         const int kept = 200_000;
         const int size = kept + 1000;
 
         // Most of the file, then it waits — still holding its turn, even once a newer try has asked it to stop.
-        var first = library.ReceivePieceAsync(id, "film.mov", new WriteThenHold(kept, 7, hold.Task), null, null,
+        var first = library.ReceivePieceAsync(id, "film.mov", new WriteThenHold(kept, 7, hold.Task, holding), null, null,
             0, size, CancellationToken.None);
-        await WaitUntil(() => library.PieceArrived(id, "film.mov", size, null) >= 81920);
+        // All of it written before the newer tries ask it to stop: asked while it's still writing, it
+        // stops there instead, which is a different story from this one.
+        await holding.Task.WaitAsync(TimeSpan.FromSeconds(20));
 
         // Two newer tries queue behind it. The first of those gets the turn only to find the other already
         // waiting, so it has given way: it must stop before cutting the file back to its own start.
@@ -1153,8 +1223,7 @@ public sealed class UploadTests : IDisposable
         rest.AsSpan().Fill(8);
         var carriedOn = library.ReceivePieceAsync(id, "film.mov", new MemoryStream(rest), rest.Length, null,
             kept, size, CancellationToken.None);
-        // Long enough for both to be waiting their turn, and no longer: the first try is what lets them go.
-        await Task.Delay(500);
+        // Both are waiting their turn already: each asks for it before its first await.
         hold.SetResult();
 
         Assert.Equal(kept, await first);

@@ -1196,6 +1196,15 @@ export function UnfinishedStatus({ upload, onPlace, onThrowAway }: UnfinishedPro
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const label = nameTogether(upload.names);
+  const partly = upload.partly ?? 0;
+  // Whole files, and the start of any sent in pieces, which only adding the same file again can finish.
+  const arrived = [
+    upload.files > 0 && `${files(upload.files)}, ${formatSize(upload.bytes)}`,
+    partly > 0 &&
+      `${upload.files > 0 ? "and part" : "Part"} of ${partly === 1 ? (upload.files > 0 ? "1 more file" : "1 file") : `${partly} ${upload.files > 0 ? "more files" : "files"}`}, ${formatSize(upload.partlyBytes ?? 0)}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
   const run = (action: () => Promise<void>) => {
     setBusy(true);
     setProblem(null);
@@ -1214,7 +1223,7 @@ export function UnfinishedStatus({ upload, onPlace, onThrowAway }: UnfinishedPro
         </strong>
       </div>
       <span className="muted">
-        {files(upload.files)}, {formatSize(upload.bytes)}, arrived
+        {arrived}, arrived
         {upload.destination !== null && ` for ${called(upload.destination)}`}, the last at{" "}
         {when.format(new Date(upload.lastArrived))}. If the page sending them is still open, on a computer
         that’s asleep, say, it carries on by itself once it can. If not, add the same files again and only
@@ -1226,13 +1235,18 @@ export function UnfinishedStatus({ upload, onPlace, onThrowAway }: UnfinishedPro
         </p>
       )}
       <div className="card-actions">
-        {/* Begun before Uncloud kept where an upload was going, it can only be picked up by adding it again. */}
-        {upload.destination !== null && (
+        {/* Begun before Uncloud kept where an upload was going, it can only be picked up by adding it again.
+            Nothing whole in it, there's nothing to put anywhere: part of a file is kept for adding it again. */}
+        {upload.destination !== null && upload.files > 0 && (
           <button
             className="button secondary"
             onClick={() => run(onPlace)}
             disabled={busy}
-            title={`Put what arrived in ${called(upload.destination)} now, without the rest`}
+            title={
+              partly > 0
+                ? `Put the files that arrived whole in ${called(upload.destination)} now. Part of a file stays here, so adding it again carries on.`
+                : `Put what arrived in ${called(upload.destination)} now, without the rest`
+            }
           >
             Add what arrived
           </button>

@@ -128,6 +128,9 @@ export interface UnfinishedUpload {
   keptUntil: string;
   /// A file of it is arriving now, or one just did, so a page still sending it isn't offered this.
   arriving: boolean;
+  /// Files sent in pieces of which only the start arrived, and how much of them: adding the same file again carries on.
+  partly?: number;
+  partlyBytes?: number;
 }
 
 export interface StorageReport {

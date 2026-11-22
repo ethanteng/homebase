@@ -89,7 +89,9 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   then it can be picked up: each upload keeps where it's going and `merge` in a hidden
   `.upload.json` beside what's arrived, and `GET /api/uploads` lists the account's unfinished ones
   that have anything in them — `{ id, destination, merge, names, files, bytes, lastArrived, keptUntil,
-  arriving }`, `destination` being null for one begun before uploads kept it, and `arriving` true while a
+  arriving, partly, partlyBytes }`, `partly` counting files sent in pieces of which only the start
+  arrived (named in `names` like the rest; their bytes are in `partlyBytes`, not `bytes`, and the page
+  offers "Add what arrived" only when something arrived whole), `destination` being null for one begun before uploads kept it, and `arriving` true while a
   file of it is arriving now and for a minute after one arrived, so neither the pause before the next
   file nor the half a minute a page waits between tries of a file Uncloud didn't answer is read as the
   upload having stopped. A page that's offline, or on a computer asleep, can't say it's still there,
@@ -145,7 +147,12 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   costs only what was on its way. When the connection is given up on, what arrived of a file sent in
   pieces is kept like a whole file, and whatever an earlier page left is never thrown away. Beginning the same files again also answers `partly: [{ path, bytes }]`
   for files of which only the start arrived, so a page closed partway carries on too; a file changed
-  since has a different piece name and starts again. While the browser says it's
+  since has a different piece name and starts again, and its first piece clears away what arrived of
+  the old one. Each piece file has its path written beside it, in `<same name>.path`, since its own
+  name says nothing about which file it is. Finishing an upload puts in place what arrived whole and
+  leaves the start of any file sent in pieces where it is, with the upload, so "Add what arrived"
+  never throws that away: adding the file again carries on from it, and the upload is listed as
+  unfinished, or cleared away after a day, until then. While the browser says it's
   offline, a file waits for the `online` event and isn't counted as Uncloud failing to answer; while
   it's online, tries come 1, 2, 4, 8 and 16 seconds apart and then every 30, and the progress says
   which it's waiting for. Only once those waits add up to 10 minutes is the connection given up on,

@@ -1597,6 +1597,28 @@ describe("when the connection or the page goes away partway", () => {
     expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u8", body: null });
   });
 
+  it("says what part of a big file arrived, and offers to add only what arrived whole", async () => {
+    unfinished = () => [
+      left("u9", ["Notebook.enex"], { files: 0, bytes: 0, partly: 1, partlyBytes: 440_401_920 }),
+      left("u8", ["Holiday", "film.mov"], { files: 3, bytes: 12_582_912, partly: 1, partlyBytes: 104_857_600 }),
+    ];
+    answer = accepting();
+    render(<Harness chosen={[]} />);
+
+    const notebook = (await screen.findByText("Adding Notebook.enex didn’t finish.")).closest("section")!;
+    expect(notebook).toHaveTextContent("Part of 1 file, 420 MB, arrived for Trips, the last at");
+    // Nothing in it is whole, so there's nothing to put anywhere: adding the file again carries on.
+    expect(within(notebook).queryByRole("button", { name: "Add what arrived" })).toBeNull();
+    expect(within(notebook).getByRole("button", { name: "Throw away" })).toBeInTheDocument();
+
+    const holiday = screen.getByText("Adding Holiday and film.mov didn’t finish.").closest("section")!;
+    expect(holiday).toHaveTextContent("3 files, 12 MB, and part of 1 more file, 100 MB, arrived for Trips");
+    expect(within(holiday).getByRole("button", { name: "Add what arrived" })).toHaveAttribute(
+      "title",
+      "Put the files that arrived whole in Trips now. Part of a file stays here, so adding it again carries on.",
+    );
+  });
+
   it("says why, and offers it still, when what arrived couldn't be put in place", async () => {
     unfinished = () => [left("u9", ["Holiday"])];
     const accept = accepting();

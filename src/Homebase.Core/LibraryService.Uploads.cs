@@ -202,15 +202,28 @@ public sealed partial class LibraryService
                     files++;
                     bytes += file.Length;
                 }
-                if (files == 0) continue;
-                var names = Gathered(upload.FullName).Select(entry => entry.Name).ToArray();
+                // Files sent in pieces of which only the start arrived: adding the same file again carries on.
+                var partly = 0;
+                long partlyBytes = 0;
+                var partlyNames = new List<string>();
+                foreach (var (piece, path) in PiecesIn(Path.Combine(upload.FullName, ".parts")))
+                {
+                    var some = new FileInfo(piece) is { Exists: true } there ? there.Length : 0;
+                    if (some == 0) continue;
+                    partly++;
+                    partlyBytes += some;
+                    partlyNames.Add(path.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? path);
+                }
+                if (files == 0 && partly == 0) continue;
+                var names = Gathered(upload.FullName).Select(entry => entry.Name)
+                    .Concat(partlyNames).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
                 Intent? intent = null;
                 try { intent = JsonSerializer.Deserialize<Intent>(File.ReadAllText(Path.Combine(upload.FullName, IntentFile)), RecordFormat); }
                 // Begun before uploads said where they were going, it can still be picked up, but not put anywhere by itself.
                 catch (Exception error) when (error is FileNotFoundException or JsonException) { }
                 var lastArrived = new DateTimeOffset(upload.LastWriteTimeUtc, TimeSpan.Zero);
                 unfinished.Add(new UnfinishedUpload(upload.Name, intent?.Destination, intent?.Merge ?? false, names, files, bytes,
-                    lastArrived, lastArrived + KeepAbandonedUploadsFor, ShownArriving(upload.Name)));
+                    lastArrived, lastArrived + KeepAbandonedUploadsFor, ShownArriving(upload.Name), partly, partlyBytes));
             }
             // Finished or thrown away while it was looked at.
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
@@ -355,7 +368,7 @@ public sealed partial class LibraryService
             if (offset == 0 && File.Exists(target)) File.Delete(target);
             NeedRoomFor(size - offset, "add less at once");
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            Parts(upload);
+            if (!File.Exists(piece)) BeginPiece(upload, piece, path!);
             long written;
             await using (var file = new FileStream(piece, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
             {
@@ -373,9 +386,14 @@ public sealed partial class LibraryService
             if (offset + written > size)
             {
                 File.Delete(piece);
+                File.Delete(Named(piece));
                 throw new LibraryException($"More of “{name}” arrived than it holds. Add it again.");
             }
-            if (offset + written == size) PutInPlace(piece, target, modified);
+            if (offset + written == size)
+            {
+                PutInPlace(piece, target, modified);
+                File.Delete(Named(piece));
+            }
             Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow);
             return written;
         }
@@ -455,6 +473,50 @@ public sealed partial class LibraryService
         if (_arriving.AddOrUpdate(id, 0, (_, count) => count - 1) == 0 && _arriving.TryRemove(new(id, 0)))
             NoteQuiet(id);
         _receiving.Release();
+    }
+
+    /// <summary>
+    /// Starts the file a file sent in pieces is written to, with its path written beside it: a piece's
+    /// own name says nothing about which file it is, and the page that went away needs to be told what
+    /// of which file arrived. Any other version of the same file in this upload — changed since an
+    /// earlier try, so with a name of its own — goes: this one takes its place.
+    /// </summary>
+    private static void BeginPiece(string upload, string piece, string path)
+    {
+        var parts = Parts(upload);
+        var same = path.Normalize(NormalizationForm.FormC);
+        foreach (var (other, otherPath) in PiecesIn(parts))
+            if (other != piece && otherPath.Normalize(NormalizationForm.FormC) == same)
+            {
+                File.Delete(other);
+                File.Delete(Named(other));
+            }
+        var named = Named(piece);
+        PathPolicy.RejectLink(named);
+        File.WriteAllText(named, path);
+    }
+
+    /// <summary>Where the path of the file a piece file is part of is written.</summary>
+    private static string Named(string piece) => Path.ChangeExtension(piece, ".path");
+
+    /// <summary>The files sent in pieces in an upload's <c>.parts</c> that haven't been put in place, each with its path in the upload.</summary>
+    private static IEnumerable<(string Piece, string Path)> PiecesIn(string parts)
+    {
+        if (!Directory.Exists(parts)) yield break;
+        foreach (var named in new DirectoryInfo(parts).EnumerateFiles("*.path"))
+        {
+            if (named.LinkTarget is not null) continue;
+            var piece = Path.ChangeExtension(named.FullName, ".piece");
+            string path;
+            try
+            {
+                if (!File.Exists(piece)) continue;
+                path = File.ReadAllText(named.FullName);
+            }
+            // Put in place or thrown away while it was looked at.
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { continue; }
+            yield return (piece, path);
+        }
     }
 
     /// <summary>The hidden folder in an upload where files are written until they're whole.</summary>
@@ -677,8 +739,12 @@ public sealed partial class LibraryService
                     var name = Place(entry.FullName, folder, entry.Name, entry is DirectoryInfo, copy: false);
                     placed.Add(new EditedEntry(entry.Name, Join(folder, name)));
                 }
+            // What arrived of a file sent in pieces can't be put in place without the rest, and isn't
+            // thrown away with what was: the upload stays with only that in it, so adding the file again
+            // carries on from there, and it's listed as unfinished until then, or for a day.
+            if (PiecesIn(Path.Combine(upload, ".parts")).Any()) Directory.SetLastWriteTimeUtc(upload, DateTime.UtcNow);
             // A recursive delete removes a link it meets rather than following it.
-            Directory.Delete(upload, recursive: true);
+            else Directory.Delete(upload, recursive: true);
             if (id is not null) _quietUntil.TryRemove(id, out _);
             return new FinishedUpload(placed, replaced);
         }

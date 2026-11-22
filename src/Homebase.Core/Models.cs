@@ -30,9 +30,12 @@ public sealed record PartArrived(string Path, long Bytes);
 /// <param name="Merge">Whether it was to bring what's there up to date, which is how it's to be finished.</param>
 /// <param name="Names">What's at the top of it: the folder being added, usually.</param>
 /// <param name="Arriving">Whether a file of it is arriving now, or one just did, so a page still sending it isn't told it has stopped.</param>
+/// <param name="Files">Files of it that arrived whole.</param>
+/// <param name="Partly">Files sent in pieces of which only the start arrived, which adding the same file again carries on from.</param>
+/// <param name="PartlyBytes">How much of those arrived, apart from <paramref name="Bytes"/>.</param>
 public sealed record UnfinishedUpload(
     string Id, string? Destination, bool Merge, IReadOnlyList<string> Names, int Files, long Bytes,
-    DateTimeOffset LastArrived, DateTimeOffset KeptUntil, bool Arriving);
+    DateTimeOffset LastArrived, DateTimeOffset KeptUntil, bool Arriving, int Partly, long PartlyBytes);
 /// <summary>Where an upload went once it was put in place.</summary>
 /// <param name="Items">Where each thing at the top of it went, and anything deeper a merge had to give a new name.</param>
 /// <param name="Replaced">Files already there that a merge put something in place of, which are in the bin.</param>
