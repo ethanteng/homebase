@@ -12,12 +12,14 @@ import {
   Settings2,
   Sun,
   Trash2,
+  TriangleAlert,
   UserRound,
   Users,
   X,
 } from "lucide-react";
-import { api, SignedOutError } from "./api";
-import type { LibraryState, Session, StorageReport, User } from "./api";
+import { api, EVERNOTE, EVERNOTE_FOLDER, SignedOutError } from "./api";
+import { bringNotesWhenFree, type FollowUp } from "./evernoteFollowUp";
+import type { ImportJob, LibraryState, Session, StorageReport, User } from "./api";
 import AddFiles from "./AddFiles";
 import ImportStatus, { useImportJob } from "./ImportStatus";
 import UploadStatus, { UnfinishedStatus, useUpload } from "./Uploads";
@@ -209,6 +211,62 @@ export default function App() {
   const onImported = useCallback(() => setRevision((value) => value + 1), []);
   const imports = useImportJob(me != null && library?.rootPath != null, onImported);
   const uploads = useUpload(me != null, onImported);
+  // Why notes from Evernote's export files didn't start coming in once the files had, when they didn't.
+  const [evernoteProblem, setEvernoteProblem] = useState<string | null>(null);
+  const startImport = imports.start;
+  // One import at a time. An export that lands while one is going is remembered, not failed:
+  // the one going may have looked before that file was in the folder.
+  const evernoteFollowUp = useRef<FollowUp>({ going: false, again: false });
+
+  /**
+   * Turns every Evernote export file that has been added into notebooks of notes. Asked for as soon
+   * as export files have finished arriving, so choosing them is the only step there is; any already
+   * brought in are passed over, so it's never more than what's new. One asked for while notes are
+   * already coming in waits, and runs when they finish, so a second notebook isn't left behind.
+   */
+  const bringEvernoteHome = useCallback(async () => {
+    const pause = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+    const running = async () => {
+      const { job } = await api<{ job: ImportJob | null }>("/imports/job");
+      return job?.running ? job : null;
+    };
+    try {
+      const message = await bringNotesWhenFree(
+        evernoteFollowUp,
+        async () => {
+          setEvernoteProblem(null);
+          const { job } = await api<{ job: ImportJob }>("/imports", {
+            method: "POST",
+            body: JSON.stringify({ source: EVERNOTE, remotePaths: ["/"], label: "Evernote" }),
+          });
+          startImport(job);
+          for (;;) {
+            await pause(700);
+            const latest = await running();
+            if (latest?.id !== job.id) return;
+          }
+        },
+        async () => {
+          for (;;) {
+            if (!(await running())) return;
+            await pause(700);
+          }
+        },
+      );
+      if (message)
+        setEvernoteProblem(
+          `Your Evernote files uploaded, but the notes weren’t added. ${message} To try again, ` +
+            "open Add files, then Evernote.",
+        );
+    } catch (problem: unknown) {
+      if (problem instanceof SignedOutError) return;
+      setEvernoteProblem(
+        `Your Evernote files uploaded, but the notes weren’t added. ${
+          problem instanceof Error ? problem.message : "Uncloud didn’t answer."
+        } To try again, open Add files, then Evernote.`,
+      );
+    }
+  }, [startImport]);
 
   // A session that ends while the app is open returns everyone to the sign-in screen rather
   // than to a page of errors nobody can act on.
@@ -596,7 +654,11 @@ export default function App() {
                       <UnfinishedStatus
                         key={upload.id}
                         upload={upload}
-                        onPlace={() => uploads.place(upload)}
+                        onPlace={async () => {
+                          await uploads.place(upload);
+                          // Put in place after an import had the folder: the notes still need bringing in.
+                          if (upload.destination === EVERNOTE_FOLDER) void bringEvernoteHome();
+                        }}
                         onThrowAway={() => uploads.throwAway(upload.id)}
                       />
                     ))}
@@ -611,6 +673,24 @@ export default function App() {
                         onDecide={(merge) => uploads.decide(upload.key, merge)}
                       />
                     ))}
+                    {evernoteProblem && (
+                      <section className="import-progress import-outcome failed" role="alert">
+                        <div className="import-progress-head">
+                          <strong>
+                            <TriangleAlert size={16} />
+                            {evernoteProblem}
+                          </strong>
+                          <button
+                            className="icon-button"
+                            onClick={() => setEvernoteProblem(null)}
+                            aria-label="Dismiss"
+                            title="Dismiss"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      </section>
+                    )}
                     {imports.job && (
                       <ImportStatus
                         job={imports.job}
@@ -661,6 +741,13 @@ export default function App() {
             }}
             onUpload={async (picked) => {
               await uploads.start(path, picked);
+              closeDialog();
+            }}
+            // Into the folder Evernote's export files are kept in, wherever My files is open, and
+            // their notes brought in as soon as they've arrived.
+            onUploadEvernote={async (picked) => {
+              const { path: folder } = await api<{ path: string }>("/imports/evernote/folder", { method: "POST" });
+              await uploads.start(folder, picked, () => void bringEvernoteHome());
               closeDialog();
             }}
             // An admin sets Dropbox up once for everybody; anyone else can set up their own,

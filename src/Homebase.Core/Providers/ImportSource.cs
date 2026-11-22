@@ -3,7 +3,8 @@ namespace Homebase.Core.Providers;
 /// <summary>
 /// One file or folder as the place it came from describes it. <paramref name="Path"/> is how that
 /// place addresses the entry and is the key an import is recorded under; <paramref name="Rev"/> is
-/// whatever the place uses to say "these contents changed".
+/// whatever the place uses to say "these contents changed". <paramref name="Detail"/> is anything
+/// the place has to say about it that a size doesn't — how many notes are in a notebook, say.
 /// </summary>
 public sealed record SourceEntry(
     string Id,
@@ -13,7 +14,8 @@ public sealed record SourceEntry(
     bool IsFolder,
     long? Size,
     string? Rev,
-    DateTimeOffset? Modified);
+    DateTimeOffset? Modified,
+    string? Detail = null);
 
 /// <summary>
 /// Somewhere files can be brought home from. The import engine knows only this much, so an online
