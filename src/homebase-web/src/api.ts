@@ -424,6 +424,9 @@ export interface MyDropboxApp {
 export const DROPBOX = "dropbox";
 /// Where notes from Evernote's export files are brought in from.
 export const EVERNOTE = "evernote";
+/// The folder those export files are kept in, and where the notebooks made from them land.
+/// The same name the server uses (`EvernoteSource.FolderName`).
+export const EVERNOTE_FOLDER = "Evernote";
 export interface ImportedFile {
   provider: string;
   remotePath: string;
