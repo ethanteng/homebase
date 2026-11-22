@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import AddFiles from "./AddFiles";
 import FileBrowser from "./FileBrowser";
-import UploadStatus, { GIVE_UP_AFTER, pickedFrom, STALLED_AFTER, UnfinishedStatus, useUpload } from "./Uploads";
+import UploadStatus, { GIVE_UP_AFTER, PIECE, pickedFrom, STALLED_AFTER, UnfinishedStatus, useUpload } from "./Uploads";
 import type { Picked } from "./Uploads";
 import type { UploadComparison } from "./api";
 
@@ -1056,6 +1056,137 @@ describe("when the connection or the page goes away partway", () => {
     ...more,
   });
 
+  it("sends a big file in pieces, carrying on from what Uncloud kept rather than starting again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const size = 3 * PIECE;
+      const export_ = file("Recipes.enex");
+      // Only its size is read before it's sent, so it needn't really be that big here.
+      Object.defineProperty(export_, "size", { value: size });
+      const accept = accepting();
+      answer = (path, method, body) => {
+        // Half an earlier page's try had arrived: it carries on from there.
+        if (path === "/uploads" && method === "POST") return json({ id: "u1", partly: [{ path: "Recipes.enex", bytes: 5000 }] });
+        // Asked after a piece went unanswered: most of that piece had arrived.
+        if (path.startsWith("/uploads/u1/piece?")) return json({ bytes: 6000 + PIECE });
+        return accept(path, method, body);
+      };
+      const query = (request: FakeRequest) => new URLSearchParams(request.url.split("?")[1]);
+      FakeRequest.respond = (request) =>
+        FakeRequest.sent.length === 2 ? request.onerror?.() : request.finish(200, { bytes: PIECE });
+      render(<Harness chosen={pickedFrom([export_])} />);
+
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent).toHaveLength(2));
+      await passes(5000);
+
+      await screen.findByText(/Added Recipes.enex from this device: 1 file,/);
+      expect(FakeRequest.sent.map((request) => Number(query(request).get("offset")))).toEqual([
+        5000,
+        5000 + PIECE,
+        6000 + PIECE,
+        6000 + 2 * PIECE,
+      ]);
+      expect(FakeRequest.sent.every((request) => query(request).get("size") === String(size))).toBe(true);
+      expect(asked.filter((request) => request.path.startsWith("/uploads/u1/piece?"))).toHaveLength(1);
+      expect(asked.some((request) => request.path.endsWith("/finish"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the pieces of a big file that arrived when Uncloud stops answering, so adding it again carries on", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const export_ = file("Recipes.enex");
+      Object.defineProperty(export_, "size", { value: 3 * PIECE });
+      const accept = accepting();
+      answer = (path, method, body) =>
+        // Not answering this either: what arrived is only what the page knows of.
+        path.startsWith("/uploads/u1/piece?") ? Promise.reject(new TypeError("Failed to fetch")) : accept(path, method, body);
+      // The first piece arrives, then nothing more does.
+      FakeRequest.respond = (request) =>
+        FakeRequest.sent.length === 1 ? request.finish(200, { bytes: PIECE }) : request.onerror?.();
+      render(<Harness chosen={pickedFrom([export_])} />);
+
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent.length).toBeGreaterThan(1));
+      await passes(GIVE_UP_AFTER + 60_000, 5000);
+
+      expect(await screen.findByRole("status")).toHaveTextContent(
+        "What arrived is kept for a day: check you’re still connected, then add the same files again and only the rest is sent.",
+      );
+      expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never throws away the start of a big file an earlier page sent, whatever ends this try", async () => {
+    const export_ = file("Recipes.enex");
+    Object.defineProperty(export_, "size", { value: 3 * PIECE });
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path === "/uploads" && method === "POST"
+        ? json({ id: "u1", partly: [{ path: "Recipes.enex", bytes: 5000 }] })
+        : accept(path, method, body);
+    // Signed out on another tab before the first piece of this try arrives.
+    FakeRequest.respond = (request) => request.finish(401, { detail: "Sign in again." });
+    render(<Harness chosen={pickedFrom([export_])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("What had arrived is kept for a day.");
+    expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+  });
+
+  it("asks again when a piece starts past what arrived, rather than throwing the file away", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const size = 3 * PIECE;
+      const export_ = file("Recipes.enex");
+      Object.defineProperty(export_, "size", { value: size });
+      const accept = accepting();
+      answer = (path, method, body) =>
+        path.startsWith("/uploads/u1/piece?") ? json({ bytes: 5000 }) : accept(path, method, body);
+      const query = (request: FakeRequest) => new URLSearchParams(request.url.split("?")[1]);
+      FakeRequest.respond = (request) =>
+        FakeRequest.sent.length === 1
+          ? request.finish(409, {
+              detail: "Some of “Recipes.enex” that had arrived is missing. Add it again, and only what’s missing is sent.",
+            })
+          : request.finish(200, { bytes: PIECE });
+      render(<Harness chosen={pickedFrom([export_])} />);
+
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent).toHaveLength(1));
+      await passes(2000);
+
+      await screen.findByText(/Added Recipes.enex from this device: 1 file,/);
+      expect(FakeRequest.sent.map((request) => Number(query(request).get("offset")))).toEqual([
+        0,
+        5000,
+        5000 + PIECE,
+        5000 + 2 * PIECE,
+      ]);
+      expect(asked.some((request) => request.path.startsWith("/uploads/u1/piece?"))).toBe(true);
+      expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+      expect(asked.some((request) => request.path.endsWith("/finish"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends a file no bigger than a piece whole, as it always was", async () => {
+    answer = accepting();
+    render(<Harness chosen={pickedFrom([file("small.enex")])} />);
+
+    await click(screen.getByText("Send"));
+    await screen.findByText(/Added small.enex from this device: 1 file,/);
+    expect(FakeRequest.sent).toHaveLength(1);
+    expect(FakeRequest.sent[0].url).not.toContain("offset=");
+  });
+
   it("sends a file again when it stops moving, whether the page or Uncloud notices", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
@@ -1464,6 +1595,28 @@ describe("when the connection or the page goes away partway", () => {
     await click(within(old).getByRole("button", { name: "Throw away" }));
     await waitFor(() => expect(screen.queryByText("Adding Old photos didn’t finish.")).not.toBeInTheDocument());
     expect(asked.at(-1)).toEqual({ method: "DELETE", path: "/uploads/u8", body: null });
+  });
+
+  it("says what part of a big file arrived, and offers to add only what arrived whole", async () => {
+    unfinished = () => [
+      left("u9", ["Notebook.enex"], { files: 0, bytes: 0, partly: 1, partlyBytes: 440_401_920 }),
+      left("u8", ["Holiday", "film.mov"], { files: 3, bytes: 12_582_912, partly: 1, partlyBytes: 104_857_600 }),
+    ];
+    answer = accepting();
+    render(<Harness chosen={[]} />);
+
+    const notebook = (await screen.findByText("Adding Notebook.enex didn’t finish.")).closest("section")!;
+    expect(notebook).toHaveTextContent("Part of 1 file, 420 MB, arrived for Trips, the last at");
+    // Nothing in it is whole, so there's nothing to put anywhere: adding the file again carries on.
+    expect(within(notebook).queryByRole("button", { name: "Add what arrived" })).toBeNull();
+    expect(within(notebook).getByRole("button", { name: "Throw away" })).toBeInTheDocument();
+
+    const holiday = screen.getByText("Adding Holiday and film.mov didn’t finish.").closest("section")!;
+    expect(holiday).toHaveTextContent("3 files, 12 MB, and part of 1 more file, 100 MB, arrived for Trips");
+    expect(within(holiday).getByRole("button", { name: "Add what arrived" })).toHaveAttribute(
+      "title",
+      "Put the files that arrived whole in Trips now. Part of a file stays here, so adding it again carries on.",
+    );
   });
 
   it("says why, and offers it still, when what arrived couldn't be put in place", async () => {

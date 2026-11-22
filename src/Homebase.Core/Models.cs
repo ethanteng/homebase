@@ -21,15 +21,21 @@ public sealed record UploadComparison(
 /// <summary>An upload begun, or one of the same files picked up again where it stopped.</summary>
 /// <param name="Id">What every file in it is sent under.</param>
 /// <param name="Arrived">Which of the files about to be sent are in it already, from before, and needn't be sent again.</param>
-public sealed record BegunUpload(string Id, IReadOnlyList<string> Arrived);
+/// <param name="Partly">Files sent in pieces of which only the start arrived before, and how much: only the rest of each need be sent.</param>
+public sealed record BegunUpload(string Id, IReadOnlyList<string> Arrived, IReadOnlyList<PartArrived> Partly);
+/// <summary>A file sent in pieces of which the first <paramref name="Bytes"/> have arrived.</summary>
+public sealed record PartArrived(string Path, long Bytes);
 /// <summary>An upload nobody finished, and what of it arrived, kept until <paramref name="KeptUntil"/>.</summary>
 /// <param name="Destination">Where it was going, or null for one begun before uploads said.</param>
 /// <param name="Merge">Whether it was to bring what's there up to date, which is how it's to be finished.</param>
 /// <param name="Names">What's at the top of it: the folder being added, usually.</param>
 /// <param name="Arriving">Whether a file of it is arriving now, or one just did, so a page still sending it isn't told it has stopped.</param>
+/// <param name="Files">Files of it that arrived whole.</param>
+/// <param name="Partly">Files sent in pieces of which only the start arrived, which adding the same file again carries on from.</param>
+/// <param name="PartlyBytes">How much of those arrived, apart from <paramref name="Bytes"/>.</param>
 public sealed record UnfinishedUpload(
     string Id, string? Destination, bool Merge, IReadOnlyList<string> Names, int Files, long Bytes,
-    DateTimeOffset LastArrived, DateTimeOffset KeptUntil, bool Arriving);
+    DateTimeOffset LastArrived, DateTimeOffset KeptUntil, bool Arriving, int Partly, long PartlyBytes);
 /// <summary>Where an upload went once it was put in place.</summary>
 /// <param name="Items">Where each thing at the top of it went, and anything deeper a merge had to give a new name.</param>
 /// <param name="Replaced">Files already there that a merge put something in place of, which are in the bin.</param>

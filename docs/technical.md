@@ -68,7 +68,7 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   It is refused inside a folder an import is still writing to.
 - Sending files and folders from the browser, from whichever computer or phone somebody is using,
   into the folder they have open (`POST /api/uploads` with `{ destination, bytes, merge, files }`, answered
-  with `{ id, arrived }`, then `PUT /api/uploads/{id}?path=&modified=` once per file with the file as the body, then
+  with `{ id, arrived, partly }`, then `PUT /api/uploads/{id}?path=&modified=` once per file with the file as the body, then
   `POST /api/uploads/{id}/finish` with `{ destination, merge }`; `DELETE /api/uploads/{id}` throws one
   away; `GET /api/uploads` lists the ones never finished). Before that begins, `POST /api/uploads/compare` with `{ destination, files: [{ path, bytes, modified }] }`
   says which of those files are already there: `same` (equal size, and modified times within 2 seconds,
@@ -89,7 +89,9 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   then it can be picked up: each upload keeps where it's going and `merge` in a hidden
   `.upload.json` beside what's arrived, and `GET /api/uploads` lists the account's unfinished ones
   that have anything in them — `{ id, destination, merge, names, files, bytes, lastArrived, keptUntil,
-  arriving }`, `destination` being null for one begun before uploads kept it, and `arriving` true while a
+  arriving, partly, partlyBytes }`, `partly` counting files sent in pieces of which only the start
+  arrived (named in `names` like the rest; their bytes are in `partlyBytes`, not `bytes`, and the page
+  offers "Add what arrived" only when something arrived whole), `destination` being null for one begun before uploads kept it, and `arriving` true while a
   file of it is arriving now and for a minute after one arrived, so neither the pause before the next
   file nor the half a minute a page waits between tries of a file Uncloud didn't answer is read as the
   upload having stopped. A page that's offline, or on a computer asleep, can't say it's still there,
@@ -129,7 +131,28 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   session ends. "Nothing has moved for a minute" is measured by the clock, which carries on while the
   computer sleeps, rather than by a timer, which doesn't: so a laptop whose lid was closed partway
   sends what was on its way again within a second of waking, rather than waiting on connections that
-  went to sleep with it. A file retried starts again from its beginning. While the browser says it's
+  went to sleep with it. A file of 32 MB or less retried starts again from its beginning. A bigger
+  one — an Evernote export, a long video — goes in 32 MB pieces (`PUT /api/uploads/{id}?path=&modified=&offset=&size=`,
+  `size` being the whole file's), written one after another to a hidden `.parts/<sha256 of path, size
+  and modified>.piece` and moved into place once the last byte is in. A piece is written from its
+  `offset`, cutting anything an earlier try at it left past there. If the file has less than that, the
+  answer is a 409 and the page asks how much arrived and carries on, as it does when a piece goes
+  unanswered. One still lingering on a dropped connection gives way at once to a newer try at the same
+  file rather than holding it for 45 seconds, and a try that has already given way stops before it cuts
+  the file back. After a piece goes unanswered the page
+  asks `GET /api/uploads/{id}/piece?path=&size=&modified=` how much has arrived (all of it only once
+  the file is in its place in the upload; a piece file that has every byte but was never moved there —
+  the request stopped, or Uncloud restarted, in between — is said to be one byte short, so the page
+  sends that byte again and it's moved into place) and carries on from there, so a dropped connection
+  costs only what was on its way. When the connection is given up on, what arrived of a file sent in
+  pieces is kept like a whole file, and whatever an earlier page left is never thrown away. Beginning the same files again also answers `partly: [{ path, bytes }]`
+  for files of which only the start arrived, so a page closed partway carries on too; a file changed
+  since has a different piece name and starts again, and its first piece clears away what arrived of
+  the old one. Each piece file has its path written beside it, in `<same name>.path`, since its own
+  name says nothing about which file it is. Finishing an upload puts in place what arrived whole and
+  leaves the start of any file sent in pieces where it is, with the upload, so "Add what arrived"
+  never throws that away: adding the file again carries on from it, and the upload is listed as
+  unfinished, or cleared away after a day, until then. While the browser says it's
   offline, a file waits for the `online` event and isn't counted as Uncloud failing to answer; while
   it's online, tries come 1, 2, 4, 8 and 16 seconds apart and then every 30, and the progress says
   which it's waiting for. Only once those waits add up to 10 minutes is the connection given up on,
