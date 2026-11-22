@@ -836,10 +836,12 @@ different photo in another part, so a row is matched only within its own part (a
 size are one row's alone, since the spreadsheet names files without their folders. Google keeps a
 photo's details in a JSON file beside it: `photoTakenTime.timestamp`, else `creationTime`, in Unix
 seconds as a string. Its name is the photo's plus `.json` (before late 2024) or
-`.supplemental-metadata.json`, cut to 51 characters in all; a `(1)` Takeout added before the photo's
-ending moves after it; `-edited` copies (and the same in other languages) and live photos' videos
-share the original's. `GoogleTakeout.Match` tries those names exactly, then the longest cut-short name
-that starts what the full one would be, then the one file whose `title` is the photo's name. A photo
+`.supplemental-metadata.json`, cut to 51 characters in all. A `(1)` that was already part of the
+photo's name stays in the details file's name; a `(1)` Takeout added to tell two photos apart moves
+to after the ending. `-edited` copies (and the same in other languages) and live photos' videos
+share the original's. `GoogleTakeout.Match` tries the name as written first, then the moved `(1)`,
+then the longest cut-short name that starts what the full one would be, then — only when the name
+has no `(1)` — the one file whose `title` is the photo's name. A photo
 with no date at all goes in the year folder Google filed it under, or `Undated`.
 
 **Each photo once.** A photo's key is its size and CRC-32, which is the same in every copy of it and

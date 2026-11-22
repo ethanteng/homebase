@@ -223,14 +223,27 @@ public sealed partial class GoogleTakeout : IExportLayout
     {
         if (sidecars.Count == 0) return null;
         var counter = Counter().Match(file);
-        // "IMG_1(1).jpg" has its details in "IMG_1.jpg(1).json", or "IMG_1.jpg.supplemental-metadata(1).json".
-        var (plain, number) = counter.Success
-            ? (counter.Groups["stem"].Value + counter.Groups["ending"].Value, counter.Groups["number"].Value)
-            : (file, "");
-        var original = Unedited(plain);
+        // A "(1)" that was already part of the photo's name stays put in the details file's name.
+        // Takeout moves a "(1)" only when it added one to tell two photos apart, so that reading
+        // is tried when the name as written has no details of its own. A title is only trusted
+        // for a name with no "(1)" in it: one that has one may be either kind, and a title would
+        // not say which.
+        if (Search(file, "", sidecars, allowTitle: !counter.Success) is { } asWritten) return asWritten;
+        if (!counter.Success) return null;
+        var plain = counter.Groups["stem"].Value + counter.Groups["ending"].Value;
+        return Search(plain, counter.Groups["number"].Value, sidecars, allowTitle: false);
+    }
+
+    /// <summary>
+    /// The details for one way of reading <paramref name="file"/>. <paramref name="number"/> is a
+    /// "(1)" Takeout moved to after the photo's ending, or empty when this reading has none.
+    /// </summary>
+    private static Details? Search(string file, string number, IReadOnlyDictionary<string, Details> sidecars, bool allowTitle)
+    {
+        var original = Unedited(file);
         var stem = Path.GetFileNameWithoutExtension(original);
-        var names = new List<string> { plain };
-        if (original != plain) names.Add(original);
+        var names = new List<string> { file };
+        if (original != file) names.Add(original);
         // A live photo's video, or a motion photo's, shares the photo's details.
         if (Path.GetExtension(original).ToLowerInvariant() is ".mp" or ".mp4" or ".mov")
         {
@@ -269,6 +282,7 @@ public sealed partial class GoogleTakeout : IExportLayout
         }
         if (best is not null) return best;
 
+        if (!allowTitle) return null;
         var titled = sidecars.Values.Where(details => details.Title is { } title
             && (title.Equals(original, StringComparison.OrdinalIgnoreCase)
                 || Path.GetFileNameWithoutExtension(title).Equals(stem, StringComparison.OrdinalIgnoreCase))).Take(2).ToArray();

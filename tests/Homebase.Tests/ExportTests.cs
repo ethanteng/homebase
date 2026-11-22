@@ -374,6 +374,30 @@ public sealed class ExportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_photo_whose_name_already_contains_a_number_keeps_its_own_details()
+    {
+        // "(1)" was part of the name in Google Photos, so Takeout did not move it. The other photo
+        // is a real pair Takeout numbered, and the two must not be given each other's dates.
+        var lake = new DateTimeOffset(2016, 8, 3, 18, 0, 0, TimeSpan.Zero);
+        const string year = "Takeout/Google Photos/Photos from 2016/";
+        Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-001.zip",
+            (year + "Holiday(1).jpg", Photo("the lake")),
+            (year + "Holiday(1).jpg.supplemental-metadata.json", Details("Holiday(1).jpg", lake)),
+            (year + "Holiday(1)-edited.jpg", Photo("the lake, brighter")),
+            (year + "Holiday.jpg", Photo("the dock")),
+            (year + "Holiday.jpg.supplemental-metadata.json", Details("Holiday.jpg", Christmas)),
+            (year + "Holiday(2).jpg", Photo("the dock again")),
+            (year + "Holiday.jpg.supplemental-metadata(2).json", Details("Holiday.jpg", Spring)));
+
+        await _imports.ImportAsync(Google(), "/", CancellationToken.None);
+
+        Assert.Equal(lake.UtcDateTime, File.GetLastWriteTimeUtc(Local("Google/Photos/2016/Holiday(1).jpg")));
+        Assert.Equal(lake.UtcDateTime, File.GetLastWriteTimeUtc(Local("Google/Photos/2016/Holiday(1)-edited.jpg")));
+        Assert.Equal(Christmas.UtcDateTime, File.GetLastWriteTimeUtc(Local("Google/Photos/2019/Holiday.jpg")));
+        Assert.Equal(Spring.UtcDateTime, File.GetLastWriteTimeUtc(Local("Google/Photos/2018/Holiday(2).jpg")));
+    }
+
+    [Fact]
     public async Task A_photo_taken_before_1970_keeps_its_year()
     {
         var then = new DateTimeOffset(1962, 5, 20, 15, 0, 0, TimeSpan.Zero);
