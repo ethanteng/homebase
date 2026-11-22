@@ -736,8 +736,8 @@ describe("bringing everything home from an iCloud or Google export", () => {
     const onStarted = vi.fn();
     renderAddFiles(onUploadExport, onStarted);
 
-    // Google Drive isn't "coming soon" any more: its Takeout zips are a place like any other.
-    expect(await screen.findByRole("button", { name: /Google.*Takeout/ })).toBeEnabled();
+    // Google Drive isn't "coming soon" any more: what Google lets people download is a place like any other.
+    expect(await screen.findByRole("button", { name: /Google Photos and Drive/ })).toBeEnabled();
     expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
     await click(screen.getByRole("button", { name: /iCloud/ }));
     expect(screen.getByRole("link", { name: "privacy.apple.com" })).toHaveAttribute("href", "https://privacy.apple.com");
@@ -787,9 +787,7 @@ describe("bringing everything home from an iCloud or Google export", () => {
       fireEvent.change(screen.getByTestId("choose-files"), { target: { files: [file("takeout.tgz")] } });
     });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Those aren’t zip files. Choose the ones you downloaded from Google, ending in .zip.",
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Choose the zip files you downloaded from Google.");
     expect(onUploadExport).not.toHaveBeenCalled();
   });
 });

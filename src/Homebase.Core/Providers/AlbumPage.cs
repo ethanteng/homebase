@@ -41,8 +41,8 @@ public static partial class AlbumPage
             .Append("<title>").Append(Escape(album)).Append("</title>\n<style>").Append(Css).Append("</style>\n</head>\n<body>\n")
             .Append("<main class=\"page\">\n<h1>").Append(Escape(album)).Append("</h1>\n<p class=\"about\">")
             .Append(shown.Count == 1 ? "1 photo or video" : $"{shown.Count:N0} photos and videos")
-            .Append(" in this album on ").Append(Escape(service))
-            .Append(". Each one is kept once, in the folder for the year it was taken; this page shows them together.</p>\n")
+            .Append(" from this ").Append(Escape(service))
+            .Append(" album. The files themselves are in the Photos folder, by year.</p>\n")
             .Append("<ul class=\"grid\">\n");
         foreach (var (path, name) in shown)
         {

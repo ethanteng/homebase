@@ -44,7 +44,7 @@ public static class ZipIndex
     private const uint Zip64End = 0x06064b50;
 
     public const string DamagedMessage =
-        "This file is damaged in the export. Download the part it’s in again, then add that part again.";
+        "This file is damaged. Download its zip file again, then add it again.";
 
     /// <summary>Whether a file starts the way a zip does.</summary>
     public static bool LooksLikeZip(Stream head)
@@ -198,9 +198,9 @@ public static class ZipIndex
     public static Stream Open(string path, ZipItem item)
     {
         if (item.Encrypted)
-            throw new LibraryException("This file is locked with a password inside the zip, so Uncloud can’t read it.", "unsupported");
+            throw new LibraryException("This file has a password, so Uncloud can’t open it.", "unsupported");
         if (item.Method is not (0 or 8))
-            throw new LibraryException("This file is packed in the zip in a way Uncloud can’t unpack yet.", "unsupported");
+            throw new LibraryException("Uncloud can’t open this file yet.", "unsupported");
         long start;
         PathPolicy.RejectLink(path);
         using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096,

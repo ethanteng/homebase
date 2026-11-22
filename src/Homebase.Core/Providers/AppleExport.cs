@@ -96,8 +96,8 @@ public sealed partial class AppleExport : IExportLayout
             if (!LooksLikeApple(zip))
             {
                 unrecognised[zip.FileName] = zip.Items.Any(item => item.Path.StartsWith("Takeout/", StringComparison.Ordinal))
-                    ? "This is from Google Takeout, not iCloud. Add it under Google instead."
-                    : "This isn’t one of the zips Apple sends.";
+                    ? "This is from Google. Add it under Google instead."
+                    : "This isn’t a zip file from Apple.";
                 continue;
             }
             foreach (var item in zip.Items)
@@ -134,7 +134,7 @@ public sealed partial class AppleExport : IExportLayout
                     if (deleted > 0) details[DeletedFolder] = ExportPhotos.Count(deleted);
                     photosSaid = count == 0 && rows > 0
                         // What Apple sends when Advanced Data Protection is on: the spreadsheets, and no photos.
-                        ? "No photos came in these zips. Apple leaves them out when Advanced Data Protection is on."
+                        ? "No photos in these zip files. Apple leaves them out if Advanced Data Protection is on."
                         : Join(ExportPhotos.Count(count), missing);
                     break;
                 }

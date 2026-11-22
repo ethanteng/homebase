@@ -31,9 +31,9 @@ plugged into it.
   their own files. Nobody else in the household can open them.
 - **Bring your files home.** Click **Add files** and send files and folders from the computer or
   phone you're using, or copy them out of Dropbox, or out of a folder or drive on the host (such as
-  the folder your Google Drive, OneDrive or iCloud app keeps), or out of the copy of everything that
-  iCloud or Google will give you, into your space. What you add is yours alone; sharing is
-  something you choose to do.
+  the folder your Google Drive, OneDrive or iCloud app keeps), or from a download of your iCloud or
+  Google account, into your space. What you add is yours alone; sharing is something you choose
+  to do.
 - **Keep your laptop in step.** Choose a folder on your laptop and it stays in sync with Uncloud.
   Add, change or delete a file on one and the same happens on the other, even when you're away
   from home.
@@ -51,9 +51,8 @@ plugged into it.
 - Add files from Dropbox, or from folders and drives on the host, all from the same **Add files**
   button: everything at once, a whole folder, or any mix of files and folders you tick, with how big
   it all is shown before you start.
-- Add your photos and files from iCloud and Google, from the copy of everything each of them gives
-  you to download. Every photo arrives once, in a folder for the year it was taken and with that
-  date, and each album becomes a page that shows its photos.
+- Add your photos and files from iCloud and Google, from a download of your account. Photos are
+  sorted into a folder for each year.
 - Add notebooks exported from Evernote. Each note becomes a page you can open in a web browser.
 - See how much room is left on the host at a glance, on every page.
 - Sync folders on your own computers with your space.
@@ -71,8 +70,8 @@ plugged into it.
 - **No sharing of files inside Uncloud** between people, and no storage limits per person. (A folder
   on the host can be shared for others to add from.)
 - **No built-in backup.** Uncloud keeps one copy of everything. [Set up a backup](#keeping-your-files-safe).
-- **No Google Drive, iCloud or Evernote sign-in.** For Google Drive and iCloud, download everything
-  and add the zips (see [Photos and files from iCloud and Google](#photos-and-files-from-icloud-and-google)),
+- **No Google Drive, iCloud or Evernote sign-in.** For Google Drive and iCloud, download your account
+  and add it (see [Photos and files from iCloud and Google](#photos-and-files-from-icloud-and-google)),
   or use the folder their app keeps on the host. For Evernote, export your notebooks: see
   [Notes from Evernote](#notes-from-evernote).
 - Syncing a Windows or Linux computer needs a free app called Syncthing, set up by hand.
@@ -323,16 +322,16 @@ On **My files**, click **Add files** and choose where they are:
   back, and you copy it into the box Uncloud is waiting with. Mistyping it costs nothing — paste it
   again.
 - **Shared with you**, if someone has shared a folder with everyone.
-- **iCloud** and **Google**, for the zips Apple and Google Takeout give you of everything you
-  keep with them. See [Photos and files from iCloud and Google](#photos-and-files-from-icloud-and-google).
+- **iCloud** and **Google**, for photos and files you download from Apple or Google. See
+  [Photos and files from iCloud and Google](#photos-and-files-from-icloud-and-google).
 - **Evernote**, for notebooks you've exported from Evernote. See
   [Notes from Evernote](#notes-from-evernote).
 
 **Sign Uncloud out of Dropbox** at the bottom of the Dropbox list ends the connection whenever you
 like. Files you already added stay where they are; only Uncloud's way back into Dropbox goes.
 
-Signing in to Google Drive is still to come. Until then, add the zips Google Takeout makes (see
-below), or use the folder the Google Drive app keeps on the host: it works under **This device**
+Signing in to Google Drive is still to come. Until then, download your Google account and add it
+(see below), or use the folder the Google Drive app keeps on the host: it works under **This device**
 when you're at the host, or **Uncloud computer** from anywhere else.
 
 Click **Add** next to a file or folder to bring just that. To bring more at once, the row above the
@@ -350,57 +349,50 @@ at the top of **My files**, in a folder named after where they came from, such a
 
 #### Photos and files from iCloud and Google
 
-Uncloud can't sign in to iCloud or Google, but both will put everything you keep with them into zip
-files for you to download, and Uncloud can add those.
+Uncloud can't sign in to iCloud or Google, but both let you download a copy of everything as zip
+files, and Uncloud can add those.
 
 **From iCloud:**
 
-1. On a computer, go to [privacy.apple.com](https://privacy.apple.com) and sign in.
+1. Go to [privacy.apple.com](https://privacy.apple.com) and sign in.
 2. Choose **Request a copy of your data**, tick **iCloud Photos** and **iCloud Drive files and
-   documents**, then choose the largest file size.
-3. Apple emails you when it's ready, which can take a few days. Download every part.
-4. In Uncloud, click **Add files**, then **iCloud**, and choose all the zip files together.
+   documents**, and choose the largest size.
+3. Apple emails you when it's ready. This can take a few days.
+4. Download all the zip files. In Uncloud, click **Add files**, then **iCloud**, and add them all at
+   once.
 
 **From Google:**
 
-1. Go to [takeout.google.com](https://takeout.google.com) and sign in. Choose **Deselect all**, then
-   tick **Drive** and **Google Photos**.
-2. Choose **Next step**. Keep **.zip**, choose **50 GB**, then **Create export**.
-3. Google emails you when it's ready. Download every part.
-4. In Uncloud, click **Add files**, then **Google**, and choose all the zip files together.
+1. Go to [takeout.google.com](https://takeout.google.com) and sign in.
+2. Choose **Deselect all**, tick **Drive** and **Google Photos**, then choose **Next step**.
+3. Choose **50 GB**, then **Create export**. Google emails you when it's ready.
+4. Download all the zip files. In Uncloud, click **Add files**, then **Google**, and add them all at
+   once.
 
-When they've uploaded, Uncloud adds what's in them to a folder called **iCloud** or **Google** in
-**My files**:
+Everything goes into a folder called **iCloud** or **Google** in **My files**:
 
-- **Photos** has a folder for each year, and each photo or video is in the year it was taken, once,
-  however many albums it was in. Each one keeps the date it was taken, rather than the day you
-  downloaded it.
-- **Albums** has a page for each album, which shows its photos where they are. It opens in any
-  web browser on a computer that syncs with Uncloud.
-- **iCloud Drive** and **Drive** keep the folders they had. Google Docs, Sheets and Slides come as
-  Word, Excel and PowerPoint files, which is how Takeout saves them.
-- Photos you'd deleted but that were still in **Recently Deleted** (iCloud) or the **Trash**
-  (Google) go in a folder of that name, apart from the rest.
-- The zips are kept too. Delete them once everything is in, to get the room back.
-
-**Add files** → **iCloud** or **Google** shows how many photos and files the zips hold, and says
-when a part is missing. Compare the numbers with iCloud or Google before you delete anything there.
+- **Photos** has a folder for each year. Each photo is there once, with the date it was taken.
+- **Albums** has a page for each album that shows its photos. Open it in a web browser on a computer
+  that syncs with Uncloud.
+- **iCloud Drive** or **Drive** has your files and folders. Google Docs, Sheets and Slides come as
+  Word, Excel and PowerPoint files.
+- **Recently Deleted** or **Trash** has photos that were in the bin.
 
 Good to know:
 
-- **Download them on the Uncloud computer if you can.** The zips are big, and that way they don't
-  have to come in over the internet a second time.
-- **Add all the parts together.** When a photo was taken is sometimes in a different part from the
-  photo, and an album's list of photos usually is. Adding a part later still brings only what's new,
-  and adds its photos to their albums' pages (unless you've changed a page yourself).
-- **You need room for about twice what you're adding**, because the zips stay until you delete them.
-  Uncloud checks it fits before it starts.
-- **With Advanced Data Protection on, Apple leaves your photos out** of the copy, and Uncloud says so.
-  Use **Photos** on a Mac instead: choose your photos, then **File** → **Export** → **Export
-  Unmodified Originals**, and add the folder you exported them to.
-- Shared albums from iCloud come as zips of their own, in **Shared Albums**. Memories aren't added.
-- Choose **.zip** in Takeout, not **.tgz**. A file bigger than the size you chose can come by itself
-  rather than in a zip; add that one from **This device**.
+- Download the zip files on the Uncloud computer if you can. They're big, and this saves sending them
+  over the internet again.
+- You need about twice the space, because the zip files are kept. Delete them once everything is in.
+- Add all the parts at once. A photo's date or album is sometimes in a different part. If you add a
+  part later, only what's new is added.
+- **Add files** shows how many photos and files the zips hold, and if a part is missing. Check the
+  numbers before you delete anything from iCloud or Google.
+- If Advanced Data Protection is on, Apple leaves your photos out. Use the Photos app on a Mac
+  instead: select your photos, choose **File** → **Export** → **Export Unmodified Originals**, and
+  add that folder.
+- Shared albums from iCloud arrive as zip files in **Shared Albums**. Memories aren't added.
+- In Takeout, keep the file type as **.zip**. A very large file can come on its own instead of in a
+  zip; add it from **This device**.
 
 #### Notes from Evernote
 

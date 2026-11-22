@@ -281,7 +281,7 @@ export default function App() {
   );
   /** What's in an export's zips, brought in once they've arrived. */
   const bringExportHome = useCallback(
-    (id: string) => bringHome(id, EXPORT_PLACES[id]?.name ?? id, "what’s in them wasn’t added.", true),
+    (id: string) => bringHome(id, EXPORT_PLACES[id]?.name ?? id, "nothing was added from them.", true),
     [bringHome],
   );
 

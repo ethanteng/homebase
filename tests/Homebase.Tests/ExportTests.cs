@@ -188,8 +188,8 @@ public sealed class ExportTests : IDisposable
 
         var top = await source.ListFolderAsync("/", CancellationToken.None);
         Assert.Equal(["half.zip", "takeout-20260406T202814Z-001.zip"], top.Select(entry => entry.Name));
-        Assert.Contains("isn’t a zip Uncloud can open", top[0].Detail);
-        Assert.Equal("This is from Google Takeout, not iCloud. Add it under Google instead.", top[1].Detail);
+        Assert.Contains("Uncloud can’t open this zip file", top[0].Detail);
+        Assert.Equal("This is from Google. Add it under Google instead.", top[1].Detail);
         Assert.Empty(await source.ListFolderAsync(top[1].Path, CancellationToken.None));
         var result = await _imports.ImportAsync(source, "/", CancellationToken.None);
         Assert.Empty(result.Imported);

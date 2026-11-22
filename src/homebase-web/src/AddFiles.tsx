@@ -41,18 +41,12 @@ import type {
 } from "./api";
 
 /**
- * Services that can't be signed in to but will put everything in zips to download, by the id the
- * server knows each by: what it holds, and where that goes.
+ * Services that can't be signed in to but let people download everything as zip files, by the id
+ * the server knows each by, with what to say under its name.
  */
-const EXPORTS: Record<string, { detail: string; brings: string }> = {
-  [ICLOUD]: {
-    detail: "Photos and iCloud Drive, from the copy Apple sends you",
-    brings: "Photos go in folders by the year they were taken, and iCloud Drive keeps its folders.",
-  },
-  [GOOGLE]: {
-    detail: "Drive and Google Photos, from Google Takeout",
-    brings: "Photos go in folders by the year they were taken, and Drive keeps its folders.",
-  },
+const EXPORTS: Record<string, { detail: string }> = {
+  [ICLOUD]: { detail: "Photos and iCloud Drive, downloaded from Apple" },
+  [GOOGLE]: { detail: "Google Photos and Drive, downloaded from Google" },
 };
 
 const LAST_SOURCE = "uncloud.add-files.source";
@@ -471,9 +465,7 @@ export default function AddFiles({
         zips.push({ file, path: name });
       }
       if (zips.length === 0)
-        throw new Error(
-          `Those aren’t zip files. Choose the ones you downloaded from ${EXPORT_PLACES[id]?.name ?? "there"}, ending in .zip.`,
-        );
+        throw new Error(`Choose the zip files you downloaded from ${EXPORT_PLACES[id]?.name ?? "there"}.`);
       await onUploadExport(id, zips);
     });
 
@@ -1056,7 +1048,6 @@ export default function AddFiles({
             !current && (
               <ExportSteps
                 id={exporting}
-                folder={source.destination}
                 busy={busy === "upload"}
                 disabled={disabled}
                 onPicked={(picking) => void uploadExport(exporting, picking)}
@@ -1190,10 +1181,9 @@ export default function AddFiles({
             </p>
           ) : exporting ? (
             <p className="field-help add-promise">
-              <HardDrive size={13} /> What’s in the zips goes into <strong>{source.destination}</strong>, in
-              My files. {EXPORTS[exporting]?.brings} Each file keeps the date it was taken or last
-              changed. The zips are kept there too: delete them once everything is in. Adding them again
-              brings only what’s new.
+              <HardDrive size={13} /> Everything goes into <strong>{source.destination}</strong> in My files.
+              Photos are sorted into a folder for each year and keep their original dates. Delete the zip
+              files once it’s all in.
             </p>
           ) : (
             <p className="field-help add-promise">
@@ -1389,19 +1379,17 @@ function EvernoteSteps({
 }
 
 /**
- * How to download everything from iCloud or Google, said in each one's own words for its buttons
- * since that's what people will look for, and somewhere to put the zips. The zips are large, and
- * downloading them on the Uncloud computer means they don't have to cross the internet a second time.
+ * How to download everything from iCloud or Google, using each one's own words for its buttons
+ * since that's what people will look for, and somewhere to put the zip files. They're large, and
+ * downloading them on the Uncloud computer saves sending them over the internet again.
  */
 function ExportSteps({
   id,
-  folder,
   busy,
   disabled,
   onPicked,
 }: {
   id: string;
-  folder: string;
   busy: boolean;
   disabled: boolean;
   onPicked: (picking: Promise<Picked[]>) => void;
@@ -1411,23 +1399,18 @@ function ExportSteps({
       {id === ICLOUD ? (
         <ol className="export-steps">
           <li>
-            On a computer, go to{" "}
+            Go to{" "}
             <a href="https://privacy.apple.com" target="_blank" rel="noreferrer">
               privacy.apple.com
             </a>{" "}
-            and sign in with your Apple Account.
+            and sign in.
           </li>
           <li>
             Choose <strong>Request a copy of your data</strong>, tick <strong>iCloud Photos</strong> and{" "}
-            <strong>iCloud Drive files and documents</strong>, then choose the largest file size.
+            <strong>iCloud Drive files and documents</strong>, and choose the largest size.
           </li>
-          <li>
-            Apple emails you when it’s ready, which can take a few days. Download every part, on the
-            Uncloud computer if you can.
-          </li>
-          <li>
-            Add all the zip files here together. They’re kept in <strong>{folder}</strong>, in My files.
-          </li>
+          <li>Apple emails you when it’s ready. This can take a few days.</li>
+          <li>Download all the zip files, on the Uncloud computer if you can, and add them here.</li>
         </ol>
       ) : (
         <ol className="export-steps">
@@ -1436,19 +1419,16 @@ function ExportSteps({
             <a href="https://takeout.google.com" target="_blank" rel="noreferrer">
               takeout.google.com
             </a>{" "}
-            and sign in. Choose <strong>Deselect all</strong>, then tick <strong>Drive</strong> and{" "}
-            <strong>Google Photos</strong>.
+            and sign in.
           </li>
           <li>
-            Choose <strong>Next step</strong>. Keep <strong>.zip</strong>, choose <strong>50 GB</strong>, then{" "}
-            <strong>Create export</strong>.
+            Choose <strong>Deselect all</strong>, tick <strong>Drive</strong> and <strong>Google Photos</strong>,
+            then choose <strong>Next step</strong>.
           </li>
           <li>
-            Google emails you when it’s ready. Download every part, on the Uncloud computer if you can.
+            Choose <strong>50 GB</strong>, then <strong>Create export</strong>. Google emails you when it’s ready.
           </li>
-          <li>
-            Add all the zip files here together. They’re kept in <strong>{folder}</strong>, in My files.
-          </li>
+          <li>Download all the zip files, on the Uncloud computer if you can, and add them here.</li>
         </ol>
       )}
       <DeviceDrop

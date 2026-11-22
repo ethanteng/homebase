@@ -80,8 +80,8 @@ public sealed partial class GoogleTakeout : IExportLayout
             }
             if (!any)
                 unrecognised[zip.FileName] = AppleExport.LooksLikeApple(zip)
-                    ? "This is from iCloud, not Google. Add it under iCloud instead."
-                    : "This isn’t a Google Takeout zip.";
+                    ? "This is from Apple. Add it under iCloud instead."
+                    : "This isn’t a zip file from Google.";
             else if (Numbered().Match(zip.FileName) is { Success: true } number)
             {
                 if (!numbered.TryGetValue(number.Groups["export"].Value, out var seen)) numbered[number.Groups["export"].Value] = seen = [];

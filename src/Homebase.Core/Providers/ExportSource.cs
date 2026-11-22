@@ -403,7 +403,7 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
             catch (InvalidDataException)
             {
                 return new ExportZip(file.FullName, file.Name, [], 0,
-                    "This isn’t a zip Uncloud can open. If it’s still downloading, wait for it to finish, then add it again.");
+                    "Uncloud can’t open this zip file. If it was still downloading, add it again once it’s done.");
             }
         })));
         try
@@ -420,5 +420,5 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
 
     private static string Folder(string path) => string.Join('/', path.Split('/', StringSplitOptions.RemoveEmptyEntries));
 
-    private LibraryException Gone() => new($"This is no longer in your {layout.FolderName} export.", "not_found");
+    private LibraryException Gone() => new($"This isn’t in your {layout.FolderName} zip files any more.", "not_found");
 }
