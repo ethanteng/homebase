@@ -405,13 +405,21 @@ export default function AddFiles({
   const uploadEvernote = (picking: Promise<Picked[]>) =>
     run("upload", async () => {
       const exports: Picked[] = [];
-      const seen = new Set<string>();
-      for (const item of await picking) {
-        const name = item.file.name;
-        // Two with the same name, from two folders dropped together, would land on each other.
-        if (!name.toLowerCase().endsWith(".enex") || seen.has(name.toLowerCase())) continue;
-        seen.add(name.toLowerCase());
-        exports.push({ file: item.file, path: name });
+      const named = new Map<string, File>();
+      for (const { file } of await picking) {
+        if (!file.name.toLowerCase().endsWith(".enex")) continue;
+        // The same file chosen twice, with a folder it's in, say, goes once.
+        const same = (other: File) =>
+          other.name.toLowerCase() === file.name.toLowerCase() &&
+          other.size === file.size &&
+          other.lastModified === file.lastModified;
+        if ([...named.values()].some(same)) continue;
+        // Two different exports with one name each go, the second numbered, as notebooks of their own.
+        const stem = file.name.slice(0, -".enex".length);
+        let name = file.name;
+        for (let number = 2; named.has(name.toLowerCase()); number++) name = `${stem} ${number}.enex`;
+        named.set(name.toLowerCase(), file);
+        exports.push({ file, path: name });
       }
       if (exports.length === 0)
         throw new Error("Those aren’t Evernote files. Choose the ones ending in .enex.");

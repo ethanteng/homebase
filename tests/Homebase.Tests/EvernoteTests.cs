@@ -264,6 +264,23 @@ public sealed class EvernoteTests : IDisposable
     }
 
     [Fact]
+    public async Task Notes_made_the_same_second_with_the_same_title_keep_their_paths_when_another_is_added()
+    {
+        var first = new Note("Untitled", "<div>one</div>", Created: "20200101T000000Z");
+        var second = new Note("Untitled", "<div>two</div>", Created: "20200101T000000Z");
+        var third = new Note("Untitled", "<div>three</div>", Created: "20200101T000000Z");
+        Save("Imported.enex", Export(first, second));
+        var before = (await Source().ListFolderAsync("/Imported", CancellationToken.None)).Select(entry => entry.Path).ToHashSet();
+
+        // A newer export with another of them first: the two already there are known by the same paths.
+        Save("Imported.enex", Export(third, first, second));
+        var after = (await Source().ListFolderAsync("/Imported", CancellationToken.None)).Select(entry => entry.Path).ToArray();
+
+        Assert.Equal(3, after.Length);
+        Assert.Subset(after.ToHashSet(), before);
+    }
+
+    [Fact]
     public async Task Names_fit_on_any_disk_however_many_bytes_their_characters_take()
     {
         // 150 characters, each three bytes: under any count of characters, but 450 bytes, and a disk

@@ -617,13 +617,22 @@ describe("bringing notes home from Evernote", () => {
     expect(await screen.findByText("Recipes", { selector: "strong" })).toBeInTheDocument();
     expect(await screen.findByText("143 notes · 2 MB")).toBeInTheDocument();
 
-    // Whatever else is chosen with them, only the export files go, each by its own name.
-    const exported = file("Exports/Recipes.enex");
+    // Whatever else is chosen with them, only the export files go, each by its own name. Two
+    // different exports with one name both go, the second numbered; one file chosen twice goes once.
+    const exported = file("Exports/Recipes.enex", "one");
+    const other = file("Older/Recipes.enex", "two!");
     await act(async () => {
-      fireEvent.change(screen.getByTestId("choose-files"), { target: { files: [exported, file("photo.jpg")] } });
+      fireEvent.change(screen.getByTestId("choose-files"), {
+        target: { files: [exported, file("photo.jpg"), other, exported] },
+      });
     });
     await waitFor(() => expect(onUploadEvernote).toHaveBeenCalledTimes(1));
-    expect(onUploadEvernote.mock.calls[0]).toEqual([[{ file: exported, path: "Recipes.enex" }]]);
+    expect(onUploadEvernote.mock.calls[0]).toEqual([
+      [
+        { file: exported, path: "Recipes.enex" },
+        { file: other, path: "Recipes 2.enex" },
+      ],
+    ]);
 
     // And a notebook already here can be brought in by itself.
     answer = (path, method) =>

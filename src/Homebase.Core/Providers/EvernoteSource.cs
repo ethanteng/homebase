@@ -352,22 +352,34 @@ public sealed partial class EvernoteSource(string libraryRoot, ImportLog log) : 
 
     /// <summary>
     /// A key for every note: when it was made and a hash of its title, the same in every export of
-    /// the notebook. Two notes made the same second with the same title are numbered in file order.
+    /// the notebook. Notes made the same second with the same title — a batch brought into Evernote
+    /// from somewhere else, say — are told apart by what they say, not where they are in the file, so
+    /// adding or removing one of them leaves the others' keys alone. Only notes that are word for
+    /// word the same are numbered, and which of those is which makes no difference.
     /// </summary>
     internal static IReadOnlyList<string> Keys(IReadOnlyList<EnexNote> notes)
     {
-        var taken = new HashSet<string>(StringComparer.Ordinal);
-        return notes.Select(note =>
+        var plain = notes.Select(note =>
         {
             var made = note.Created?.UtcDateTime.ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture) ?? "undated";
-            var title = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(note.Title.Normalize(NormalizationForm.FormC))))[..12]
-                .ToLowerInvariant();
-            var key = $"{made}-{title}";
+            return $"{made}-{Fingerprint(note.Title)}";
+        }).ToArray();
+        var clashing = plain.GroupBy(key => key, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1).Select(group => group.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        var taken = new HashSet<string>(StringComparer.Ordinal);
+        return notes.Select((note, index) =>
+        {
+            var key = clashing.Contains(plain[index]) ? $"{plain[index]}-{Fingerprint(note.Content)}" : plain[index];
             var candidate = key;
             for (var number = 2; !taken.Add(candidate); number++) candidate = $"{key}-{number}";
             return candidate;
         }).ToArray();
     }
+
+    private static string Fingerprint(string text) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text.Normalize(NormalizationForm.FormC))))[..12]
+            .ToLowerInvariant();
 
     /// <summary>A name for every attachment, from the one it had where possible, and none the same.</summary>
     internal static IReadOnlyList<string> AttachmentNames(IReadOnlyList<EnexResource> resources)

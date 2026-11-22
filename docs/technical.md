@@ -730,7 +730,9 @@ other note is named for its title, never takes a name the log already has, and, 
 in the export shares its title, adds the day it was made, then a number. A newer export with notes
 added or reordered therefore brings each new note under a name of its own and nothing twice, and a
 note's name doesn't depend on whether another has arrived yet, so names hold still during an import.
-A note renamed in Evernote has a new key, so it arrives again under its new name.
+A note renamed in Evernote has a new key, so it arrives again under its new name. Notes made the
+same second with the same title (a batch brought into Evernote from elsewhere) are told apart by a
+hash of their contents rather than their place in the file.
 Titles are made safe for macOS, Windows and Linux (no separators or `*?"<>|:`, no leading dot) and
 cut to 180 UTF-8 bytes, leaving room for a date, a number and an ending within a disk's 255.
 Attachments keep their own names where the export has one, cut the same way with their ending kept,
