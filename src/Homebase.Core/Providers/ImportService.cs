@@ -376,6 +376,7 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             {
                 await remote.CopyToAsync(file, cancellationToken);
             }
+            if (source.KeepsDates && entry.Modified is { } modified) KeepDate(temporary, modified);
             var hash = await HashAsync(temporary, cancellationToken);
 
             PathPolicy.RejectLink(fullPath);
@@ -399,6 +400,22 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         finally
         {
             if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    /// <summary>
+    /// Gives a file the date its place says it has, before it is moved into place so it never shows
+    /// another. A date the disk can't hold leaves the file with the day it arrived, which is no worse
+    /// than not trying.
+    /// </summary>
+    private static void KeepDate(string path, DateTimeOffset modified)
+    {
+        try
+        {
+            File.SetLastWriteTimeUtc(path, modified.UtcDateTime);
+        }
+        catch (Exception failure) when (failure is ArgumentOutOfRangeException or IOException or UnauthorizedAccessException)
+        {
         }
     }
 

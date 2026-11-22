@@ -385,6 +385,16 @@ export interface ImportSources {
   // Evernote can't be signed in to; its export files are added to this folder in My files, and the
   // notebooks made from them go beside them.
   evernote?: { folder: string };
+  // iCloud and Google can't be signed in to either, but each will put everything in zips to download.
+  // Those are added to a folder of their own in My files, and what's in them goes beside them.
+  exports?: ExportPlace[];
+}
+
+/// Somewhere whose export zips Uncloud can bring files in from, such as iCloud.
+export interface ExportPlace {
+  id: string;
+  // The folder in My files the zips go into, and what's in them lands in.
+  folder: string;
 }
 
 export interface DropboxAppSettings {
@@ -430,6 +440,15 @@ export const EVERNOTE = "evernote";
 /// The folder those export files are kept in, and where the notebooks made from them land.
 /// The same name the server uses (`EvernoteSource.FolderName`).
 export const EVERNOTE_FOLDER = "Evernote";
+/// What's in the zips Apple sends of somebody's iCloud, and Google's Takeout zips.
+export const ICLOUD = "icloud";
+export const GOOGLE = "google";
+/// What each export is called, and the folder in My files its zips go into and what's in them
+/// lands in: the same names the server uses (`AppleExport.Folder`, `GoogleTakeout.Folder`).
+export const EXPORT_PLACES: Record<string, { name: string; folder: string }> = {
+  [ICLOUD]: { name: "iCloud", folder: "iCloud" },
+  [GOOGLE]: { name: "Google", folder: "Google" },
+};
 export interface ImportedFile {
   provider: string;
   remotePath: string;

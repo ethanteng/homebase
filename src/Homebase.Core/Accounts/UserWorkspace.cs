@@ -20,6 +20,8 @@ public sealed class UserWorkspace
     public SourceSizes SourceSizes { get; } = new();
     /// <summary>The Evernote export files this account has put in its own files, as somewhere to bring notes in from.</summary>
     public EvernoteSource Evernote { get; }
+    /// <summary>The zips this account has downloaded from iCloud and Google and put in its own files.</summary>
+    public IReadOnlyList<ExportSource> Exports { get; }
 
     private readonly ImportPlaces _places;
 
@@ -46,7 +48,12 @@ public sealed class UserWorkspace
         // bringing a folder home is no reason to be told to wait.
         Jobs = new ImportJobs(Imports, loggers.CreateLogger<ImportJobs>());
         Evernote = new EvernoteSource(root, log);
+        Exports = [new ExportSource(root, log, new AppleExport()), new ExportSource(root, log, new GoogleTakeout())];
     }
+
+    /// <summary>The export of that name, such as iCloud's, or null.</summary>
+    public ExportSource? Export(string? sourceId) =>
+        Exports.FirstOrDefault(export => export.ProviderId == sourceId);
 
     /// <summary>
     /// The place a request names, as something the import engine can read. The id is the only thing
@@ -58,5 +65,7 @@ public sealed class UserWorkspace
             ? Dropbox
             : sourceId == EvernoteSource.ProviderName
                 ? Evernote
-                : _places.Open(_places.Require(sourceId, UserId));
+                : Export(sourceId) is { } export
+                    ? export
+                    : _places.Open(_places.Require(sourceId, UserId));
 }

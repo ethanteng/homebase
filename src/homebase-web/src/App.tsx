@@ -17,8 +17,8 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { api, EVERNOTE, EVERNOTE_FOLDER, SignedOutError } from "./api";
-import { bringNotesWhenFree, type FollowUp } from "./evernoteFollowUp";
+import { api, EVERNOTE, EVERNOTE_FOLDER, EXPORT_PLACES, SignedOutError } from "./api";
+import { bringNotesWhenFree, importEverything, type FollowUp } from "./evernoteFollowUp";
 import type { ImportJob, LibraryState, Session, StorageReport, User } from "./api";
 import AddFiles from "./AddFiles";
 import ImportStatus, { useImportJob } from "./ImportStatus";
@@ -211,62 +211,79 @@ export default function App() {
   const onImported = useCallback(() => setRevision((value) => value + 1), []);
   const imports = useImportJob(me != null && library?.rootPath != null, onImported);
   const uploads = useUpload(me != null, onImported);
-  // Why notes from Evernote's export files didn't start coming in once the files had, when they didn't.
-  const [evernoteProblem, setEvernoteProblem] = useState<string | null>(null);
+  // Why what was uploaded to be read from — Evernote's export files, or the zips iCloud and Google
+  // export — didn't start coming in once it had, when it didn't.
+  const [bringProblem, setBringProblem] = useState<string | null>(null);
   const startImport = imports.start;
-  // One import at a time. An export that lands while one is going is remembered, not failed:
-  // the one going may have looked before that file was in the folder.
-  const evernoteFollowUp = useRef<FollowUp>({ going: false, again: false });
+  // One import at a time. Files that land while one is going are remembered, not failed: the one
+  // going may have looked before they were in the folder. Kept for each place on its own.
+  const followUps = useRef(new Map<string, { current: FollowUp }>());
 
   /**
-   * Turns every Evernote export file that has been added into notebooks of notes. Asked for as soon
-   * as export files have finished arriving, so choosing them is the only step there is; any already
-   * brought in are passed over, so it's never more than what's new. One asked for while notes are
-   * already coming in waits, and runs when they finish, so a second notebook isn't left behind.
+   * Brings in everything that has been added to one of the places that are read from files in My
+   * files: Evernote's export files become notebooks of notes, and an export's zips become photos and
+   * documents. Asked for as soon as the files have finished arriving, so choosing them is the only
+   * step there is; anything already brought in is passed over, so it's never more than what's new.
+   * One asked for while an import is already going waits, and runs when it finishes. An import
+   * brings so many files at most, and a photo library can have more, so for those it carries on
+   * until everything is in or somebody stops it.
    */
-  const bringEvernoteHome = useCallback(async () => {
-    const pause = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-    const running = async () => {
-      const { job } = await api<{ job: ImportJob | null }>("/imports/job");
-      return job?.running ? job : null;
-    };
-    try {
-      const message = await bringNotesWhenFree(
-        evernoteFollowUp,
-        async () => {
-          setEvernoteProblem(null);
-          const { job } = await api<{ job: ImportJob }>("/imports", {
-            method: "POST",
-            body: JSON.stringify({ source: EVERNOTE, remotePaths: ["/"], label: "Evernote" }),
-          });
-          startImport(job);
-          for (;;) {
-            await pause(700);
-            const latest = await running();
-            if (latest?.id !== job.id) return;
-          }
-        },
-        async () => {
-          for (;;) {
-            if (!(await running())) return;
-            await pause(700);
-          }
-        },
-      );
-      if (message)
-        setEvernoteProblem(
-          `Your Evernote files uploaded, but the notes weren’t added. ${message} To try again, ` +
-            "open Add files, then Evernote.",
+  const bringHome = useCallback(
+    async (source: string, name: string, what: string, carryOn: boolean) => {
+      let gate = followUps.current.get(source);
+      if (!gate) followUps.current.set(source, (gate = { current: { going: false, again: false } }));
+      const pause = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+      const latestJob = async () => (await api<{ job: ImportJob | null }>("/imports/job")).job;
+      const problem = (message: string) =>
+        `Your ${name} files uploaded, but ${what} ${message} To try again, open Add files, then ${name}.`;
+      try {
+        const message = await bringNotesWhenFree(
+          gate,
+          async () => {
+            setBringProblem(null);
+            await importEverything(
+              async () => {
+                const { job } = await api<{ job: ImportJob }>("/imports", {
+                  method: "POST",
+                  body: JSON.stringify({ source, remotePaths: ["/"], label: name }),
+                });
+                startImport(job);
+                return job;
+              },
+              async (job) => {
+                for (;;) {
+                  await pause(700);
+                  const latest = await latestJob();
+                  if (latest?.id !== job.id || !latest.running) return latest;
+                }
+              },
+              carryOn,
+            );
+          },
+          async () => {
+            for (;;) {
+              if (!(await latestJob())?.running) return;
+              await pause(700);
+            }
+          },
         );
-    } catch (problem: unknown) {
-      if (problem instanceof SignedOutError) return;
-      setEvernoteProblem(
-        `Your Evernote files uploaded, but the notes weren’t added. ${
-          problem instanceof Error ? problem.message : "Uncloud didn’t answer."
-        } To try again, open Add files, then Evernote.`,
-      );
-    }
-  }, [startImport]);
+        if (message) setBringProblem(problem(message));
+      } catch (failure: unknown) {
+        if (failure instanceof SignedOutError) return;
+        setBringProblem(problem(failure instanceof Error ? failure.message : "Uncloud didn’t answer."));
+      }
+    },
+    [startImport],
+  );
+  const bringEvernoteHome = useCallback(
+    () => bringHome(EVERNOTE, "Evernote", "the notes weren’t added.", false),
+    [bringHome],
+  );
+  /** What's in an export's zips, brought in once they've arrived. */
+  const bringExportHome = useCallback(
+    (id: string) => bringHome(id, EXPORT_PLACES[id]?.name ?? id, "what’s in them wasn’t added.", true),
+    [bringHome],
+  );
 
   // A session that ends while the app is open returns everyone to the sign-in screen rather
   // than to a page of errors nobody can act on.
@@ -658,6 +675,10 @@ export default function App() {
                           await uploads.place(upload);
                           // Put in place after an import had the folder: the notes still need bringing in.
                           if (upload.destination === EVERNOTE_FOLDER) void bringEvernoteHome();
+                          const exported = Object.keys(EXPORT_PLACES).find(
+                            (id) => EXPORT_PLACES[id].folder === upload.destination,
+                          );
+                          if (exported) void bringExportHome(exported);
                         }}
                         onThrowAway={() => uploads.throwAway(upload.id)}
                       />
@@ -673,16 +694,16 @@ export default function App() {
                         onDecide={(merge) => uploads.decide(upload.key, merge)}
                       />
                     ))}
-                    {evernoteProblem && (
+                    {bringProblem && (
                       <section className="import-progress import-outcome failed" role="alert">
                         <div className="import-progress-head">
                           <strong>
                             <TriangleAlert size={16} />
-                            {evernoteProblem}
+                            {bringProblem}
                           </strong>
                           <button
                             className="icon-button"
-                            onClick={() => setEvernoteProblem(null)}
+                            onClick={() => setBringProblem(null)}
                             aria-label="Dismiss"
                             title="Dismiss"
                           >
@@ -748,6 +769,16 @@ export default function App() {
             onUploadEvernote={async (picked) => {
               const { path: folder } = await api<{ path: string }>("/imports/evernote/folder", { method: "POST" });
               await uploads.start(folder, picked, () => void bringEvernoteHome());
+              closeDialog();
+            }}
+            // Into the folder that export's zips are kept in, and what's in them brought in once
+            // every one of them has arrived, since a photo and its date can be in different zips.
+            onUploadExport={async (id, picked) => {
+              const { path: folder } = await api<{ path: string }>(
+                `/imports/exports/${encodeURIComponent(id)}/folder`,
+                { method: "POST" },
+              );
+              await uploads.start(folder, picked, () => void bringExportHome(id));
               closeDialog();
             }}
             // An admin sets Dropbox up once for everybody; anyone else can set up their own,

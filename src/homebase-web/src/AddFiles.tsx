@@ -5,7 +5,9 @@ import {
   ArrowUpRight,
   ChevronRight,
   Cloud,
+  CloudDownload,
   File,
+  FileArchive,
   Folder,
   FolderOpen,
   HardDrive,
@@ -20,7 +22,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { api, formatSize, nameTogether, DROPBOX, EVERNOTE } from "./api";
+import { api, formatSize, nameTogether, DROPBOX, EVERNOTE, EXPORT_PLACES, GOOGLE, ICLOUD } from "./api";
 import type { FolderSize } from "./api";
 import { useFolderSizes } from "./folderSizes";
 import type { FolderSizes } from "./folderSizes";
@@ -39,10 +41,19 @@ import type {
 } from "./api";
 
 /**
- * Where people's files are waiting that Uncloud can't reach yet. Shown so the shape of what's
- * coming is clear; each becomes an online account like Dropbox when it arrives.
+ * Services that can't be signed in to but will put everything in zips to download, by the id the
+ * server knows each by: what it holds, and where that goes.
  */
-const COMING_SOON = [{ id: "googledrive", name: "Google Drive", icon: Cloud }];
+const EXPORTS: Record<string, { detail: string; brings: string }> = {
+  [ICLOUD]: {
+    detail: "Photos and iCloud Drive, from the copy Apple sends you",
+    brings: "Photos go in folders by the year they were taken, and iCloud Drive keeps its folders.",
+  },
+  [GOOGLE]: {
+    detail: "Drive and Google Photos, from Google Takeout",
+    brings: "Photos go in folders by the year they were taken, and Drive keeps its folders.",
+  },
+};
 
 const LAST_SOURCE = "uncloud.add-files.source";
 
@@ -54,7 +65,8 @@ type Where =
   | { at: "shared" }
   | { at: "account"; id: string }
   | { at: "place"; id: string }
-  | { at: "evernote" };
+  | { at: "evernote" }
+  | { at: "export"; id: string };
 
 /** One step into a folder, by the name a person knows it by and the path the source knows. */
 interface Step {
@@ -80,6 +92,11 @@ interface Props {
    * home once they're there. Settles once Uncloud has agreed to take them.
    */
   onUploadEvernote: (picked: Picked[]) => Promise<void>;
+  /**
+   * Sends the zips an export came in to that export's folder, and brings what's in them home once
+   * they're all there. Settles once Uncloud has agreed to take them.
+   */
+  onUploadExport: (id: string, picked: Picked[]) => Promise<void>;
   /** Dropbox needs an app set up before anybody can connect; this opens wherever that happens. */
   onSetUpDropbox: () => void;
   /**
@@ -187,6 +204,7 @@ export default function AddFiles({
   onStarted,
   onUpload,
   onUploadEvernote,
+  onUploadExport,
   onSetUpDropbox,
   arrivedFromDropbox,
 }: Props) {
@@ -251,6 +269,7 @@ export default function AddFiles({
       if (last === "computer" && hostOffered(latest)) setWhere({ at: "computer" });
       else if (last === "device") setWhere({ at: "device" });
       else if (last === EVERNOTE && latest.evernote) setWhere({ at: "evernote" });
+      else if (last && latest.exports?.some((candidate) => candidate.id === last)) setWhere({ at: "export", id: last });
       else if (last && latest.accounts.some((account) => account.id === last))
         setWhere({ at: "account", id: last });
     });
@@ -258,6 +277,7 @@ export default function AddFiles({
 
   const place = sources?.places.find((candidate) => candidate.id === (where.at === "place" ? where.id : ""));
   const account = sources?.accounts.find((candidate) => candidate.id === (where.at === "account" ? where.id : ""));
+  const exported = sources?.exports?.find((candidate) => candidate.id === (where.at === "export" ? where.id : ""));
   // Said only once the account agrees it is signed in. The callback's word and the account's own
   // state should never differ, and saying "signed in" above a button asking them to sign in would
   // be worse than saying nothing — the folders underneath are the real confirmation anyway.
@@ -275,7 +295,9 @@ export default function AddFiles({
         ? where.id
         : where.at === "evernote"
           ? EVERNOTE
-          : null;
+          : where.at === "export" && exported
+            ? where.id
+            : null;
 
   // Listing whatever folder is being looked at, whenever that changes.
   const folder = trail.at(-1)?.path ?? "";
@@ -321,6 +343,7 @@ export default function AddFiles({
     if (next.at === "computer") rememberSource("computer");
     if (next.at === "device") rememberSource("device");
     if (next.at === "evernote") rememberSource(EVERNOTE);
+    if (next.at === "export") rememberSource(next.id);
     if (next.at === "account") rememberSource(next.id);
   }
 
@@ -424,6 +447,34 @@ export default function AddFiles({
       if (exports.length === 0)
         throw new Error("Those aren’t Evernote files. Choose the ones ending in .enex.");
       await onUploadEvernote(exports);
+    });
+
+  /**
+   * The zips an export came in, sent to that export's folder. Only zips are taken, each by its own
+   * name, since they're read from the top of that folder; the same zip chosen twice goes once.
+   */
+  const uploadExport = (id: string, picking: Promise<Picked[]>) =>
+    run("upload", async () => {
+      const zips: Picked[] = [];
+      const named = new Map<string, File>();
+      for (const { file } of await picking) {
+        if (!file.name.toLowerCase().endsWith(".zip")) continue;
+        const same = (other: File) =>
+          other.name.toLowerCase() === file.name.toLowerCase() &&
+          other.size === file.size &&
+          other.lastModified === file.lastModified;
+        if ([...named.values()].some(same)) continue;
+        const stem = file.name.slice(0, -".zip".length);
+        let name = file.name;
+        for (let number = 2; named.has(name.toLowerCase()); number++) name = `${stem} ${number}.zip`;
+        named.set(name.toLowerCase(), file);
+        zips.push({ file, path: name });
+      }
+      if (zips.length === 0)
+        throw new Error(
+          `Those aren’t zip files. Choose the ones you downloaded from ${EXPORT_PLACES[id]?.name ?? "there"}, ending in .zip.`,
+        );
+      await onUploadExport(id, zips);
     });
 
   const share = (target: ImportPlace, next: boolean) =>
@@ -591,6 +642,17 @@ export default function AddFiles({
               onClick={() => go({ at: "account", id: candidate.id })}
             />
           ))}
+          {sources.exports
+            ?.filter((candidate) => EXPORTS[candidate.id])
+            .map((candidate) => (
+              <SourceCard
+                key={candidate.id}
+                icon={<CloudDownload size={22} strokeWidth={1.5} />}
+                name={EXPORT_PLACES[candidate.id]?.name ?? candidate.folder}
+                detail={EXPORTS[candidate.id].detail}
+                onClick={() => go({ at: "export", id: candidate.id })}
+              />
+            ))}
           {sources.evernote && (
             <SourceCard
               icon={<NotebookPen size={22} strokeWidth={1.5} />}
@@ -607,15 +669,6 @@ export default function AddFiles({
               onClick={() => go({ at: "shared" })}
             />
           )}
-          {COMING_SOON.map((soon) => (
-            <SourceCard
-              key={soon.id}
-              icon={<soon.icon size={22} strokeWidth={1.5} />}
-              name={soon.name}
-              detail="Coming soon"
-              soon
-            />
-          ))}
         </div>
         <p className="field-help add-promise">
           <Lock size={13} /> Uncloud copies what you choose into your files, where only you can see
@@ -633,6 +686,8 @@ export default function AddFiles({
         ? { name: "This device", to: where }
         : where.at === "evernote"
         ? { name: "Evernote", to: where }
+        : where.at === "export"
+        ? { name: EXPORT_PLACES[where.id]?.name ?? "Export", to: where }
         : where.at === "shared" || where.at === "place"
         ? { name: "Shared with you", to: { at: "shared" } as Where }
         : { name: account?.name ?? "Online", to: where };
@@ -924,12 +979,15 @@ export default function AddFiles({
   // Inside something with files in it: an online account, a folder on this computer, or the
   // export files somebody saved from Evernote.
   const evernote = where.at === "evernote";
+  const exporting = where.at === "export" ? where.id : null;
   const source =
     where.at === "place"
       ? place
       : evernote
         ? { name: "Evernote", destination: sources.evernote?.folder ?? "Evernote" }
-        : account;
+        : exporting && exported
+          ? { name: EXPORT_PLACES[exporting]?.name ?? exported.folder, destination: exported.folder }
+          : account;
   if (!source)
     return (
       <div className="add-files">
@@ -994,6 +1052,16 @@ export default function AddFiles({
                 onPicked={(picking) => void uploadEvernote(picking)}
               />
             )
+          ) : exporting ? (
+            !current && (
+              <ExportSteps
+                id={exporting}
+                folder={source.destination}
+                busy={busy === "upload"}
+                disabled={disabled}
+                onPicked={(picking) => void uploadExport(exporting, picking)}
+              />
+            )
           ) : (
             <p className="muted add-where">
               {where.at === "account" && account
@@ -1023,6 +1091,8 @@ export default function AddFiles({
                 <FolderOpen size={19} strokeWidth={1.6} />
               ) : evernote ? (
                 <NotebookPen size={19} strokeWidth={1.6} />
+              ) : exporting ? (
+                <FileArchive size={19} strokeWidth={1.6} />
               ) : place ? (
                 <PlaceIcon kind={place.kind} />
               ) : (
@@ -1062,7 +1132,9 @@ export default function AddFiles({
             <p className="field-help">
               {evernote && !current
                 ? "No notebooks added yet."
-                : "This folder is empty."}
+                : exporting && !current
+                  ? "No zip files added yet."
+                  : "This folder is empty."}
             </p>
           ) : entries ? (
             <ul className="import-list browse-list">
@@ -1115,6 +1187,13 @@ export default function AddFiles({
               <HardDrive size={13} /> Each notebook becomes a folder in <strong>{source.destination}</strong>,
               in My files, with a page for each note. The exported files are kept there too. Adding a
               notebook again brings only new notes.
+            </p>
+          ) : exporting ? (
+            <p className="field-help add-promise">
+              <HardDrive size={13} /> What’s in the zips goes into <strong>{source.destination}</strong>, in
+              My files. {EXPORTS[exporting]?.brings} Each file keeps the date it was taken or last
+              changed. The zips are kept there too: delete them once everything is in. Adding them again
+              brings only what’s new.
             </p>
           ) : (
             <p className="field-help add-promise">
@@ -1303,6 +1382,81 @@ function EvernoteSteps({
         onPicked={onPicked}
         title="Drop the exported files here"
         accept=".enex"
+        folders={false}
+      />
+    </div>
+  );
+}
+
+/**
+ * How to download everything from iCloud or Google, said in each one's own words for its buttons
+ * since that's what people will look for, and somewhere to put the zips. The zips are large, and
+ * downloading them on the Uncloud computer means they don't have to cross the internet a second time.
+ */
+function ExportSteps({
+  id,
+  folder,
+  busy,
+  disabled,
+  onPicked,
+}: {
+  id: string;
+  folder: string;
+  busy: boolean;
+  disabled: boolean;
+  onPicked: (picking: Promise<Picked[]>) => void;
+}) {
+  return (
+    <div className="evernote-steps">
+      {id === ICLOUD ? (
+        <ol className="export-steps">
+          <li>
+            On a computer, go to{" "}
+            <a href="https://privacy.apple.com" target="_blank" rel="noreferrer">
+              privacy.apple.com
+            </a>{" "}
+            and sign in with your Apple Account.
+          </li>
+          <li>
+            Choose <strong>Request a copy of your data</strong>, tick <strong>iCloud Photos</strong> and{" "}
+            <strong>iCloud Drive files and documents</strong>, then choose the largest file size.
+          </li>
+          <li>
+            Apple emails you when it’s ready, which can take a few days. Download every part, on the
+            Uncloud computer if you can.
+          </li>
+          <li>
+            Add all the zip files here together. They’re kept in <strong>{folder}</strong>, in My files.
+          </li>
+        </ol>
+      ) : (
+        <ol className="export-steps">
+          <li>
+            Go to{" "}
+            <a href="https://takeout.google.com" target="_blank" rel="noreferrer">
+              takeout.google.com
+            </a>{" "}
+            and sign in. Choose <strong>Deselect all</strong>, then tick <strong>Drive</strong> and{" "}
+            <strong>Google Photos</strong>.
+          </li>
+          <li>
+            Choose <strong>Next step</strong>. Keep <strong>.zip</strong>, choose <strong>50 GB</strong>, then{" "}
+            <strong>Create export</strong>.
+          </li>
+          <li>
+            Google emails you when it’s ready. Download every part, on the Uncloud computer if you can.
+          </li>
+          <li>
+            Add all the zip files here together. They’re kept in <strong>{folder}</strong>, in My files.
+          </li>
+        </ol>
+      )}
+      <DeviceDrop
+        busy={busy}
+        disabled={disabled}
+        onPicked={onPicked}
+        title="Drop the zip files here"
+        accept=".zip"
         folders={false}
       />
     </div>

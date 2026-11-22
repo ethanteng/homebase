@@ -319,6 +319,7 @@ function renderAddFiles(onStarted: () => void = () => {}) {
       onStarted={onStarted}
       onUpload={async () => {}}
       onUploadEvernote={async () => {}}
+      onUploadExport={async () => {}}
       onSetUpDropbox={() => {}}
     />,
   );

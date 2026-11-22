@@ -38,6 +38,13 @@ public interface IImportSource
     Task<Stream> OpenAsync(string path, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Whether what arrives from here should carry the date the place gives each file. An export is
+    /// read long after its files were made, and the day of the export is no use to anybody looking
+    /// for last summer's photos.
+    /// </summary>
+    bool KeepsDates => false;
+
+    /// <summary>
     /// What a folder here holds, counted the way an import collects it: every file beneath it,
     /// hidden ones left out. This walks the tree a folder at a time, which is right for a folder on
     /// this computer; a place that can list a whole tree in one go should do that instead.
