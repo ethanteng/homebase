@@ -13,7 +13,10 @@ public sealed record ExportZip(string File, string FileName, IReadOnlyList<ZipIt
 /// twice; <paramref name="Folder"/> and <paramref name="Name"/> are where it would like to go, which
 /// is only settled once every other file has a name too.
 /// </summary>
-/// <param name="Date">When it was taken or last changed, for the file to carry once it's home.</param>
+/// <param name="Date">
+/// When it was taken or last changed, for the file to carry once it's home, or null when nothing in
+/// the export says.
+/// </param>
 public sealed record ExportFile(string Key, string Folder, string Name, ExportZip Zip, ZipItem Item, DateTimeOffset? Date);
 
 /// <summary>
@@ -25,11 +28,14 @@ public sealed record ExportAlbum(string Key, string Name, IReadOnlyList<string> 
 
 /// <summary>What one kind of export makes of the zips added to its folder.</summary>
 /// <param name="Details">What to say about each folder at the top, such as how many photos are in it.</param>
-/// <param name="Unrecognised">Zips that aren't this kind of export, with why, by file name.</param>
+/// <param name="Notes">
+/// Zips to mention by name, with what to say: ones that aren't this kind of export, parts that are
+/// missing, and ones with files in them that can't be read.
+/// </param>
 public sealed record ExportReading(
     IReadOnlyList<ExportFile> Files,
     IReadOnlyDictionary<string, string> Details,
-    IReadOnlyDictionary<string, string> Unrecognised,
+    IReadOnlyDictionary<string, string> Notes,
     IReadOnlyList<ExportAlbum>? Albums = null);
 
 /// <summary>How one service lays out the zips it exports, and so where everything in them belongs.</summary>
@@ -99,6 +105,12 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
         /// <summary>An album's page, worked out once everything it shows has a name.</summary>
         public string? Page { get; init; }
 
+        /// <summary>
+        /// An album's page that has arrived and can't be read back, so isn't brought again: a new
+        /// one would show only what these zips hold, and a page only ever gains photos.
+        /// </summary>
+        public bool Frozen { get; init; }
+
         public long Size => File?.Item.Size ?? System.Text.Encoding.UTF8.GetByteCount(Page ?? "");
     }
 
@@ -123,7 +135,8 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
             {
                 // Read once for everybody asking, and not abandoned because the first to ask went away.
                 var snapshot = zips.ToArray();
-                current = (key, new Lazy<Task<ExportReading>>(() => Task.Run(() => layout.Read(snapshot, CancellationToken.None))));
+                current = (key, new Lazy<Task<ExportReading>>(() => Task.Run(() =>
+                    WithUnreadable(layout.Read(snapshot, CancellationToken.None), snapshot))));
                 _reading = current;
             }
             reading = current.Reading;
@@ -141,11 +154,27 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
         }
     }
 
+    /// <summary>
+    /// The layout's reading, with a word about each zip that has files in it that can't be read —
+    /// ones whose names reach outside the zip, links, or entries too damaged to make out — so they
+    /// aren't left out without anybody knowing.
+    /// </summary>
+    private static ExportReading WithUnreadable(ExportReading reading, IReadOnlyList<ExportZip> zips)
+    {
+        var notes = new Dictionary<string, string>(reading.Notes, StringComparer.Ordinal);
+        foreach (var zip in zips)
+            if (zip.Unreadable > 0 && !notes.ContainsKey(zip.FileName))
+                notes[zip.FileName] = zip.Unreadable == 1
+                    ? "1 file in this zip can’t be read."
+                    : $"{zip.Unreadable:N0} files in this zip can’t be read.";
+        return reading with { Notes = notes };
+    }
+
     public async Task<SourceEntry> GetMetadataAsync(string path, CancellationToken cancellationToken)
     {
         var (reading, tree) = await NamedAsync(afresh: true, cancellationToken);
         if (path.StartsWith(OtherMark, StringComparison.Ordinal))
-            return reading.Unrecognised.TryGetValue(path[OtherMark.Length..], out var why)
+            return reading.Notes.TryGetValue(path[OtherMark.Length..], out var why)
                 ? Other(path[OtherMark.Length..], why)
                 : throw Gone();
         if (path.StartsWith(FileMark, StringComparison.Ordinal))
@@ -179,7 +208,7 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
             one.IsFolder != two.IsFolder ? (one.IsFolder ? -1 : 1) : StringComparer.OrdinalIgnoreCase.Compare(one.Name, two.Name));
         if (folder.Length == 0)
             // Zips that aren't this export are shown, with why, so a wrong one isn't silently ignored.
-            entries.AddRange(reading.Unrecognised.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            entries.AddRange(reading.Notes.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
                 .Select(pair => Other(pair.Key, pair.Value)));
         return entries;
     }
@@ -242,12 +271,12 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
     /// ignoring case, as a Mac's disk does.
     /// </summary>
     /// <param name="shownBefore">
-    /// What an album's page that has already arrived shows, by where it landed. A page only ever
-    /// gains photos: one added again with a part missing, or after its zips were deleted, still shows
-    /// everything it did.
+    /// What an album's page that has already arrived shows, by where it landed, or null when that
+    /// can't be told. A page only ever gains photos: one added again with a part missing, or after
+    /// its zips were deleted, still shows everything it did.
     /// </param>
     private static Tree Name(ExportReading reading, IReadOnlyDictionary<string, string> arrived, string prefix,
-        Func<string, IReadOnlyList<(string Path, string Name)>> shownBefore)
+        Func<string, IReadOnlyList<(string Path, string Name)>?> shownBefore)
     {
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var kept = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -287,9 +316,13 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
             if (shown.Length == 0) continue;
             var page = Place(album.Key, AlbumsFolder, Clean(album.Name, "Album") + ".html", null, album);
             var before = kept.ContainsKey(album.Key) ? shownBefore(page.Path) : [];
-            var showing = before.Concat(shown.Select(landed => (landed.Path, landed.Name)))
+            var showing = (before ?? []).Concat(shown.Select(landed => (landed.Path, landed.Name)))
                 .DistinctBy(photo => photo.Path, StringComparer.OrdinalIgnoreCase).ToArray();
-            files[album.Key] = page with { Page = AlbumPage.Render(album.Name, prefix, page.Folder, showing) };
+            files[album.Key] = page with
+            {
+                Page = AlbumPage.Render(album.Name, prefix, page.Folder, showing),
+                Frozen = before is null,
+            };
         }
 
         var folders = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -315,20 +348,27 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
 
     private static string Join(string folder, string name) => folder.Length == 0 ? name : $"{folder}/{name}";
 
-    /// <summary>What the page that landed at a place in the export's folder shows, or nothing if it isn't there.</summary>
-    private IReadOnlyList<(string Path, string Name)> ShownBefore(string landed)
+    /// <summary>The largest album page that is read back to find what it shows.</summary>
+    public long LargestPage { get; init; } = 16 << 20;
+
+    /// <summary>
+    /// What the page that landed at a place in the export's folder shows: nothing if it isn't there,
+    /// and null if it can't be read back, which leaves it as it is.
+    /// </summary>
+    private IReadOnlyList<(string Path, string Name)>? ShownBefore(string landed)
     {
         try
         {
             var full = PathPolicy.Resolve(libraryRoot, $"{layout.FolderName}/{landed}");
             var file = new FileInfo(full);
-            if (!file.Exists || file.Length > 16 << 20) return [];
+            if (!file.Exists) return [];
+            if (file.Length > LargestPage) return null;
             var folder = landed.LastIndexOf('/') is var split and >= 0 ? landed[..split] : "";
             return AlbumPage.Shown(File.ReadAllText(full), folder);
         }
         catch (Exception failure) when (failure is LibraryException or IOException or UnauthorizedAccessException)
         {
-            return [];
+            return null;
         }
     }
 
@@ -355,11 +395,13 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
             // photos in a part added later shows them once that part is in.
             return new SourceEntry(path, file.Name, path, "/" + file.Path, false, page.Length,
                 $"{page.Length}-{Crc32.Append(0, page).ToString("x8", CultureInfo.InvariantCulture)}", null,
-                Refreshable: true);
+                Refreshable: !file.Frozen);
         }
         var item = exported.Item;
+        // When nothing says when a photo was taken, it has no date to carry: the zip's own is only
+        // when the export was made.
         return new SourceEntry(path, file.Name, path, "/" + file.Path, false, item.Size,
-            $"{item.Size}-{item.Crc.ToString("x8", CultureInfo.InvariantCulture)}", exported.Date ?? item.Modified);
+            $"{item.Size}-{item.Crc.ToString("x8", CultureInfo.InvariantCulture)}", exported.Date);
     }
 
     private static SourceEntry Describe(ExportReading reading, string folder)

@@ -153,13 +153,18 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         // estimate wrote off as already home was one the import then went and fetched, over room
         // the drive was never checked for. Dropbox hands back lowercased paths either way.
         var fromHere = log.List(root).Where(file => file.Provider == source.ProviderId)
-            .ToDictionary(file => file.RemotePath, file => file.RemoteRev, StringComparer.Ordinal);
+            .ToDictionary(file => file.RemotePath, StringComparer.Ordinal);
         var arrived = log.LocalPaths(root);
-        // A file the place makes itself is only home while it is still what was made: once what it's
-        // made from changes, it is brought again, in place of the one Uncloud wrote.
-        return file => fromHere.TryGetValue(file.Path, out var rev)
-            ? !file.Refreshable || rev == (file.Rev ?? "")
-            : ArrivedFromElsewhere(source, root, arrived, file);
+        return file =>
+        {
+            if (!fromHere.TryGetValue(file.Path, out var before)) return ArrivedFromElsewhere(source, root, arrived, file);
+            // A file the place makes itself is only home while it is still what was made: once what
+            // it's made from changes, it is brought again, in place of the one Uncloud wrote.
+            if (before.RemoteRev != (file.Rev ?? "")) return !file.Refreshable;
+            // Nor is one whose date the place has learned since, such as a photo whose details came
+            // in a later part: it's gone back to, to be given that date.
+            return !Undated(source, root, before, file);
+        };
     }
 
     /// <summary>The same test <see cref="ImportOneAsync"/> makes before calling a file already home.</summary>
@@ -350,9 +355,12 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         CancellationToken cancellationToken)
     {
         if (log.Find(root, source.ProviderId, entry.Path) is { } before)
-            return entry.Refreshable && before.RemoteRev != (entry.Rev ?? "")
-                ? await RefreshAsync(source, root, before, entry, cancellationToken)
-                : null;
+        {
+            if (before.RemoteRev != (entry.Rev ?? ""))
+                return entry.Refreshable ? await RefreshAsync(source, root, before, entry, cancellationToken) : null;
+            if (Undated(source, root, before, entry)) await DateAsync(root, before, entry.Modified!.Value, cancellationToken);
+            return null;
+        }
 
         var localPath = DestinationFor(source, entry);
         var fullPath = PathPolicy.Resolve(root, localPath);
@@ -408,6 +416,38 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         {
             if (File.Exists(temporary)) File.Delete(temporary);
         }
+    }
+
+    /// <summary>
+    /// Whether a file that has arrived, the same as it was, carries a different date from the one its
+    /// place now gives it — a photo that came before the part that says when it was taken, say.
+    /// Two seconds either way is the same date, as some disks only keep it to that.
+    /// </summary>
+    private static bool Undated(IImportSource source, string root, ImportedFile before, SourceEntry entry)
+    {
+        if (!source.KeepsDates || entry.Modified is not { } wanted) return false;
+        try
+        {
+            var full = PathPolicy.Resolve(root, before.LocalPath);
+            return File.Exists(full)
+                   && Math.Abs((File.GetLastWriteTimeUtc(full) - wanted.UtcDateTime).TotalSeconds) > 2;
+        }
+        catch (Exception failure) when (failure is LibraryException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Gives a file that has arrived the date its place now knows. Only the date, and only while
+    /// the file is still what Uncloud wrote: it isn't moved, because its name and where it is are
+    /// what everything else finds it by, and one somebody has changed since is theirs.
+    /// </summary>
+    private static async Task DateAsync(string root, ImportedFile before, DateTimeOffset date, CancellationToken cancellationToken)
+    {
+        var full = PathPolicy.Resolve(root, before.LocalPath);
+        PathPolicy.RejectLink(full);
+        if (File.Exists(full) && await HashAsync(full, cancellationToken) == before.ContentHash) KeepDate(full, date);
     }
 
     /// <summary>

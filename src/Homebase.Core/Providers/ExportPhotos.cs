@@ -62,8 +62,8 @@ public static partial class ExportPhotos
             var date = ordered.Select(copy => copy.Date).FirstOrDefault(date => date is not null);
             var year = date is null ? ordered.Select(copy => copy.Year).FirstOrDefault(year => year is not null) ?? Undated : Year(date);
             files.Add(deleted
-                ? new ExportFile("deleted/" + same.Key, deletedFolder, named.Name, named.Zip, named.Item, date ?? named.Item.Modified)
-                : new ExportFile("photos/" + same.Key, $"{Folder}/{year}", named.Name, named.Zip, named.Item, date ?? named.Item.Modified));
+                ? new ExportFile("deleted/" + same.Key, deletedFolder, named.Name, named.Zip, named.Item, date)
+                : new ExportFile("photos/" + same.Key, $"{Folder}/{year}", named.Name, named.Zip, named.Item, date));
         }
         return files;
     }

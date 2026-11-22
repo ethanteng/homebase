@@ -820,7 +820,7 @@ every offset and length is held to the file; a file's contents stop at the size 
 which is what the room check counted, so a zip can't fill a disk; and each file's CRC-32 is checked as
 it's read, so a part damaged or cut short in the download fails that file (skipped, with why) rather
 than arriving as a broken photo. Paths are split on either slash, `.` parts dropped, and anything with
-`..`, a NUL, or a symlink's mode is left out and counted. Names not marked UTF-8 are read as UTF-8 if
+`..`, a NUL, or a symlink's mode is left out, and the zip is listed saying how many. Names not marked UTF-8 are read as UTF-8 if
 they are valid, else as code page 437; Info-ZIP's Unicode path field wins when its checksum matches.
 Each zip's directory is read once and kept until the zip's size or date changes. Encrypted entries and
 methods other than stored and deflate are refused per file.
@@ -842,7 +842,11 @@ to after the ending. `-edited` copies (and the same in other languages) and live
 share the original's. `GoogleTakeout.Match` tries the name as written first, then the moved `(1)`,
 then the longest cut-short name that starts what the full one would be, then — only when the name
 has no `(1)` — the one file whose `title` is the photo's name. A photo
-with no date at all goes in the year folder Google filed it under, or `Undated`.
+with no date at all goes in the year folder Google filed it under, or `Undated`, and carries no date
+rather than the export's: so does any of Apple's files that nothing else dates. A file that arrived
+before the part with its date (a Takeout part can hold a photo's details and not the photo) is given
+that date on a later import, if it is still what Uncloud wrote: only the date, never where it is,
+since its name and place are what album pages and the log find it by.
 
 **Each photo once.** A photo's key is its size and CRC-32, which is the same in every copy of it and
 every export it's in, so a photo in a year folder and three albums arrives once, and a newer export
@@ -857,19 +861,21 @@ own instead of among the years.
 pointing up into `Photos/`, no scripts, the same Content-Security-Policy as Evernote's pages. Apple's
 are `Albums/<title>.csv`, a column of photo names (headed `Images`, `imgName` or `imageName`), usually
 in a different part from the photos; a name stands for every photo of that name, since nothing else
-says which. Takeout's are folders with a small JSON of their own that has a `title` and no photo
+says which, and spreadsheets for albums of the same name are put together. Takeout's are folders with a small JSON of their own that has a `title` and no photo
 dates (`metadata.json`, `Metadaten.json`, and so on), holding copies of the photos, or in some 2026
 exports only their details files, which are then matched to photos by title and date taken.
 A page is the one file the engine may bring again: it's marked `Refreshable`, so when a part added
 later puts more photos in its album, its new version replaces the one Uncloud wrote — only while that
 file is still exactly what Uncloud wrote, by the hash in the log, so a page somebody edited or deleted
 is left alone. A page only ever gains photos: what an arrived page already shows is read back from its
-links and kept, so adding a part after the earlier zips were deleted doesn't shrink it.
+links and kept, so adding a part after the earlier zips were deleted doesn't shrink it. A page too large
+to read back (over 16 MB) is left as it is rather than made again from less.
 
 **Recognising them.** Takeout zips have everything under `Takeout/`, then a folder per product; Google
 Photos is found by its name in the languages it's been seen in, or by being media with JSON beside
 it, and every other product (Drive above all) keeps its folders under its own name. Takeout numbers
-its parts `-001` and so on without a total, so only a gap can be called missing. Apple's zips have one
+its parts `-001` and so on without a total, so only a gap can be called missing, and since which product
+a missing part held can't be told, the part is listed by its own name. Apple's zips have one
 folder at the top, named after the part ("iCloud Photos Part 2 of 5", translated, such as
 "iCloud-bilder Del 2 av 5"), so what a part holds is told from what's in it: `Photos/Photo Details*`,
 `Albums/`, `Memories/` or `Recently Deleted/` for photos, `Drive/Drive Details.csv` for iCloud Drive;

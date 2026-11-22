@@ -298,8 +298,11 @@ public sealed class ExportTests : IDisposable
         Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-003.zip", ("Takeout/Drive/Recipes/Pad thai.pdf", Text("%PDF")));
         var source = Google();
 
-        var drive = Assert.Single(await source.ListFolderAsync("/", CancellationToken.None));
-        Assert.Equal("2 files · a part is missing", drive.Detail);
+        // Which of Google's folders the missing part held can't be told, so the part itself is named.
+        var top = await source.ListFolderAsync("/", CancellationToken.None);
+        Assert.Equal(["Drive", "takeout-20260406T202814Z-002.zip"], top.Select(entry => entry.Name));
+        Assert.Equal("2 files", top[0].Detail);
+        Assert.Equal("Not added yet.", top[1].Detail);
         await _imports.ImportAsync(source, "/", CancellationToken.None);
 
         Assert.Equal("numbers", await File.ReadAllTextAsync(Local("Google/Drive/Taxes/2025 return.docx")));
@@ -409,6 +412,89 @@ public sealed class ExportTests : IDisposable
         await _imports.ImportAsync(Google(), "/", CancellationToken.None);
 
         Assert.Equal(then.UtcDateTime, File.GetLastWriteTimeUtc(Local("Google/Photos/1962/grandma.jpg")));
+    }
+
+    [Fact]
+    public async Task A_photo_that_came_before_the_part_with_its_date_is_given_that_date()
+    {
+        var taken = new DateTimeOffset(2021, 8, 14, 18, 30, 0, TimeSpan.Zero);
+        const string year = "Takeout/Google Photos/Photos from 2021/";
+        Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-001.zip",
+            (year + "IMG_7.jpg", Photo("a lake")),
+            (year + "IMG_8.jpg", Photo("a boat")));
+        await _imports.ImportAsync(Google(), "/", CancellationToken.None);
+        Assert.NotEqual(taken.UtcDateTime, File.GetLastWriteTimeUtc(Local("Google/Photos/2021/IMG_7.jpg")));
+        // Somebody has edited one of them since, which makes it theirs.
+        await File.WriteAllBytesAsync(Local("Google/Photos/2021/IMG_8.jpg"), Photo("a boat, cropped"));
+        var edited = File.GetLastWriteTimeUtc(Local("Google/Photos/2021/IMG_8.jpg"));
+
+        // The part with their details comes later.
+        Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-002.zip",
+            (year + "IMG_7.jpg.supplemental-metadata.json", Details("IMG_7.jpg", taken)),
+            (year + "IMG_8.jpg.supplemental-metadata.json", Details("IMG_8.jpg", taken)));
+        var again = await _imports.ImportAsync(Google(), "/", CancellationToken.None);
+
+        Assert.Empty(again.Imported);
+        // Only the date changes: where it is, and what's in it, stay as they were.
+        Assert.Equal(taken.UtcDateTime, File.GetLastWriteTimeUtc(Local("Google/Photos/2021/IMG_7.jpg")));
+        Assert.Equal(Photo("a lake"), await File.ReadAllBytesAsync(Local("Google/Photos/2021/IMG_7.jpg")));
+        Assert.Equal(edited, File.GetLastWriteTimeUtc(Local("Google/Photos/2021/IMG_8.jpg")));
+    }
+
+    [Fact]
+    public async Task Two_of_Apple_s_album_spreadsheets_with_one_name_are_one_album()
+    {
+        Zip(AppleExport.Folder, "iCloud Photos Part 1 of 2.zip",
+            ("iCloud Photos Part 1 of 2/Photos/IMG_0001.HEIC", Photo("a beach")),
+            ("iCloud Photos Part 1 of 2/Photos/IMG_0002.HEIC", Photo("a cake")),
+            ("iCloud Photos Part 1 of 2/Photos/Photo Details.csv", Text(PhotoHeader
+                + Row("IMG_0001.HEIC", "Saturday June 1,2019 1:23 PM GMT") + Row("IMG_0002.HEIC", "Saturday June 1,2019 1:24 PM GMT"))),
+            ("iCloud Photos Part 1 of 2/Albums/Summer.csv", Text("Images\nIMG_0001.HEIC\n")));
+        Zip(AppleExport.Folder, "iCloud Photos Part 2 of 2.zip",
+            ("iCloud Photos Part 2 of 2/Albums/Summer.csv", Text("Images\nIMG_0002.HEIC\n")));
+
+        await _imports.ImportAsync(ICloud(), "/", CancellationToken.None);
+
+        var page = await File.ReadAllTextAsync(Local("iCloud/Albums/Summer.html"));
+        Assert.Contains("href=\"../Photos/2019/IMG_0001.HEIC\"", page);
+        Assert.Contains("href=\"../Photos/2019/IMG_0002.HEIC\"", page);
+    }
+
+    [Fact]
+    public async Task An_album_page_too_large_to_read_back_is_left_as_it_is()
+    {
+        var day = new DateTimeOffset(2021, 7, 4, 12, 0, 0, TimeSpan.Zero);
+        Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-001.zip",
+            ("Takeout/Google Photos/Picnic/metadata.json", Text("{\"title\":\"Picnic\"}")),
+            ("Takeout/Google Photos/Picnic/IMG_A.jpg", Photo("a blanket")),
+            ("Takeout/Google Photos/Picnic/IMG_A.jpg.supplemental-metadata.json", Details("IMG_A.jpg", day)));
+        // Pages bigger than this can't be read back to see what they show.
+        ExportSource Small() => new(_root, _log, new GoogleTakeout()) { LargestPage = 10 };
+        await _imports.ImportAsync(Small(), "/", CancellationToken.None);
+        var page = Local("Google/Albums/Picnic.html");
+        var first = await File.ReadAllTextAsync(page);
+
+        Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-002.zip",
+            ("Takeout/Google Photos/Picnic/IMG_B.jpg", Photo("a basket")),
+            ("Takeout/Google Photos/Picnic/IMG_B.jpg.supplemental-metadata.json", Details("IMG_B.jpg", day)));
+        var again = await _imports.ImportAsync(Small(), "/", CancellationToken.None);
+
+        // A page made only from what these zips hold might show fewer, so it isn't made again.
+        Assert.Equal(first, await File.ReadAllTextAsync(page));
+        Assert.Equal("Google/Photos/2021/IMG_B.jpg", Assert.Single(again.Imported).LocalPath);
+    }
+
+    [Fact]
+    public async Task A_zip_with_files_that_can_t_be_read_says_how_many()
+    {
+        Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-001.zip",
+            ("Takeout/Drive/fine.txt", Text("fine")),
+            ("Takeout/../../outside.txt", Text("nope")));
+
+        var top = await Google().ListFolderAsync("/", CancellationToken.None);
+
+        Assert.Equal(["Drive", "takeout-20260406T202814Z-001.zip"], top.Select(entry => entry.Name));
+        Assert.Equal("1 file in this zip can’t be read.", top[1].Detail);
     }
 
     [Fact]

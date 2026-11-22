@@ -52,7 +52,7 @@ public sealed partial class GoogleTakeout : IExportLayout
 
     public ExportReading Read(IReadOnlyList<ExportZip> zips, CancellationToken cancellationToken)
     {
-        var unrecognised = new Dictionary<string, string>(StringComparer.Ordinal);
+        var notes = new Dictionary<string, string>(StringComparer.Ordinal);
         // Takeout numbers its zips -001, -002 and so on, without saying how many there are, so a gap
         // is all that can be told missing.
         var numbered = new Dictionary<string, HashSet<int>>(StringComparer.OrdinalIgnoreCase);
@@ -62,7 +62,7 @@ public sealed partial class GoogleTakeout : IExportLayout
         {
             if (zip.Problem is { } problem)
             {
-                unrecognised[zip.FileName] = problem;
+                notes[zip.FileName] = problem;
                 continue;
             }
             var any = false;
@@ -79,7 +79,7 @@ public sealed partial class GoogleTakeout : IExportLayout
                 list.Add((zip, item, rest[(split + 1)..]));
             }
             if (!any)
-                unrecognised[zip.FileName] = AppleExport.LooksLikeApple(zip)
+                notes[zip.FileName] = AppleExport.LooksLikeApple(zip)
                     ? "This is from Apple. Add it under iCloud instead."
                     : "This isn’t a zip file from Google.";
             else if (Numbered().Match(zip.FileName) is { Success: true } number)
@@ -88,8 +88,10 @@ public sealed partial class GoogleTakeout : IExportLayout
                 seen.Add(int.Parse(number.Groups["number"].Value, CultureInfo.InvariantCulture));
             }
         }
-        var gaps = numbered.Values.Sum(seen => Enumerable.Range(1, seen.Max()).Count(part => !seen.Contains(part)));
-        var missing = gaps == 0 ? null : gaps == 1 ? "a part is missing" : $"{gaps} parts are missing";
+        // Which product a missing part held can't be told, so the part itself is named.
+        foreach (var (export, seen) in numbered)
+            foreach (var part in Enumerable.Range(1, seen.Max()).Where(part => !seen.Contains(part)))
+                notes.TryAdd($"{export}-{part.ToString("D3", CultureInfo.InvariantCulture)}.zip", "Not added yet.");
 
         var files = new List<ExportFile>();
         var albums = new List<ExportAlbum>();
@@ -121,10 +123,7 @@ public sealed partial class GoogleTakeout : IExportLayout
         var trashed = files.Count(file => file.Key.StartsWith("deleted/", StringComparison.Ordinal));
         if (trashed > 0) details[TrashFolder] = ExportPhotos.Count(trashed);
         if (albums.Count > 0) details[ExportSource.AlbumsFolder] = albums.Count == 1 ? "1 album" : $"{albums.Count:N0} albums";
-        if (missing is not null)
-            foreach (var folder in details.Keys.ToArray())
-                details[folder] = $"{details[folder]} · {missing}";
-        return new ExportReading(files, details, unrecognised, albums);
+        return new ExportReading(files, details, notes, albums);
     }
 
     /// <summary>

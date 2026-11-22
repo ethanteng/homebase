@@ -18,7 +18,8 @@ namespace Homebase.Core.Providers;
 /// its own part. Which photos each album holds is in a spreadsheet for each album, by name alone and
 /// often in a different part from the photos, which is why every part should be added together.
 /// The spreadsheets are read for what they say and aren't brought home themselves. Photos in
-/// Recently Deleted keep that folder, rather than turning up among the rest.
+/// Recently Deleted keep that folder, rather than turning up among the rest. The dates on the files
+/// in Apple's zips are only when the copy was made, so a file nothing else gives a date for carries none.
 /// </summary>
 public sealed partial class AppleExport : IExportLayout
 {
@@ -82,7 +83,7 @@ public sealed partial class AppleExport : IExportLayout
 
     public ExportReading Read(IReadOnlyList<ExportZip> zips, CancellationToken cancellationToken)
     {
-        var unrecognised = new Dictionary<string, string>(StringComparer.Ordinal);
+        var notes = new Dictionary<string, string>(StringComparer.Ordinal);
         // Everything, by the name of what it is with the part taken off, such as "iCloud Photos".
         var categories = new Dictionary<string, List<Entry>>(StringComparer.OrdinalIgnoreCase);
         var parts = new Dictionary<string, (HashSet<int> Seen, int Of)>(StringComparer.OrdinalIgnoreCase);
@@ -90,12 +91,12 @@ public sealed partial class AppleExport : IExportLayout
         {
             if (zip.Problem is { } problem)
             {
-                unrecognised[zip.FileName] = problem;
+                notes[zip.FileName] = problem;
                 continue;
             }
             if (!LooksLikeApple(zip))
             {
-                unrecognised[zip.FileName] = zip.Items.Any(item => item.Path.StartsWith("Takeout/", StringComparison.Ordinal))
+                notes[zip.FileName] = zip.Items.Any(item => item.Path.StartsWith("Takeout/", StringComparison.Ordinal))
                     ? "This is from Google. Add it under Google instead."
                     : "This isn’t a zip file from Apple.";
                 continue;
@@ -151,7 +152,7 @@ public sealed partial class AppleExport : IExportLayout
                     {
                         var split = path.LastIndexOf('/');
                         files.Add(new ExportFile($"files/{category}/{path}", split < 0 ? category : $"{category}/{path[..split]}",
-                            path[(split + 1)..], zip, item, item.Modified));
+                            path[(split + 1)..], zip, item, null));
                     }
                     details[category] = Join(ExportPhotos.Files(entries.Count), missing);
                     break;
@@ -160,7 +161,7 @@ public sealed partial class AppleExport : IExportLayout
         }
         if (photosSaid is not null) details[ExportPhotos.Folder] = photosSaid;
         if (albums.Count > 0) details[ExportSource.AlbumsFolder] = albums.Count == 1 ? "1 album" : $"{albums.Count:N0} albums";
-        return new ExportReading(files, details, unrecognised, albums);
+        return new ExportReading(files, details, notes, albums);
     }
 
     private static string Join(string said, string? missing) => missing is null ? said : $"{said} · {missing}";
@@ -183,7 +184,7 @@ public sealed partial class AppleExport : IExportLayout
             {
                 // Shared albums come as zips inside the part. They arrive as they came, to be opened as they are.
                 shared.Add(new ExportFile($"shared/{name}/{entry.Item.Size:x}-{entry.Item.Crc:x8}", SharedFolder, name,
-                    entry.Zip, entry.Item, entry.Item.Modified));
+                    entry.Zip, entry.Item, null));
                 continue;
             }
             if (!name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
@@ -234,9 +235,14 @@ public sealed partial class AppleExport : IExportLayout
         var byName = copies.Where(copy => !copy.Deleted).GroupBy(copy => copy.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.Select(copy => ExportPhotos.Key(copy.Item)).Distinct().ToArray(),
                 StringComparer.OrdinalIgnoreCase);
+        // Spreadsheets for albums of the same name, in different parts, are put together: Apple's
+        // spreadsheets say nothing that tells two albums of one name apart, and leaving one out
+        // would leave its photos off the page.
         var albums = albumNames
-            .Select(album => new ExportAlbum(album.Key, album.Name,
-                album.Photos.SelectMany(photo => byName.GetValueOrDefault(photo) ?? []).Distinct().ToArray()))
+            .GroupBy(album => album.Key, StringComparer.Ordinal)
+            .Select(same => new ExportAlbum(same.Key, same.First().Name,
+                same.SelectMany(album => album.Photos).SelectMany(photo => byName.GetValueOrDefault(photo) ?? [])
+                    .Distinct().ToArray()))
             .Where(album => album.Files.Count > 0)
             .ToArray();
         return ([.. ExportPhotos.Once(copies, DeletedFolder), .. shared], albums, rows);
@@ -279,7 +285,7 @@ public sealed partial class AppleExport : IExportLayout
             var name = inside[(split + 1)..];
             var date = changed.TryGetValue((name.ToLowerInvariant(), item.Size), out var known) ? known : null;
             files.Add(new ExportFile($"files/{DriveFolder}/{inside}", split < 0 ? DriveFolder : $"{DriveFolder}/{inside[..split]}",
-                name, zip, item, date ?? item.Modified));
+                name, zip, item, date));
         }
         return files;
     }
