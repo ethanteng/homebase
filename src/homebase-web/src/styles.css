@@ -2164,6 +2164,26 @@ tbody tr.selected {
   margin: 0;
   font-size: 15px;
 }
+/* Getting notes out of Evernote: what to do in its app, then somewhere to put what it saved. */
+.evernote-steps {
+  display: grid;
+  gap: 14px;
+}
+.export-steps {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 6px;
+  font-size: 15px;
+  line-height: 1.45;
+  list-style: decimal;
+}
+.export-steps li {
+  padding-left: 4px;
+}
+.evernote-steps .drop-zone {
+  padding: 20px;
+}
 /* The folder being looked at, as one thing to add: how much it holds, and a button for all of it.
    Kept out of the list, which scrolls, so it stays in view however long the folder is. */
 .add-whole {

@@ -160,6 +160,7 @@ function Harness({
   signedIn = true,
   onUploaded = () => {},
   onOpen = () => {},
+  then,
 }: {
   chosen: Picked[];
   /** Chosen afterwards, with "Send more", into the same folder. */
@@ -168,11 +169,13 @@ function Harness({
   signedIn?: boolean;
   onUploaded?: () => void;
   onOpen?: (path: string) => void;
+  /** What to do once they're in, as Evernote's export files are followed by their notes. */
+  then?: () => void;
 }) {
   const uploads = useUpload(signedIn, onUploaded);
   const [problem, setProblem] = useState("");
   const send = (picked: Picked[]) =>
-    void uploads.start(folder, picked).catch((error: Error) => setProblem(error.message));
+    void uploads.start(folder, picked, then).catch((error: Error) => setProblem(error.message));
   return (
     <>
       <button onClick={() => send(chosen)}>Send</button>
@@ -221,6 +224,7 @@ describe("adding files from this device", () => {
         arrivedFromDropbox={null}
         onStarted={() => {}}
         onUpload={onUpload}
+        onUploadEvernote={async () => {}}
         onSetUpDropbox={() => {}}
       />,
     );
@@ -268,6 +272,7 @@ describe("adding files from this device", () => {
         arrivedFromDropbox={null}
         onStarted={() => {}}
         onUpload={async () => {}}
+        onUploadEvernote={async () => {}}
         onSetUpDropbox={() => {}}
       />
     );
@@ -307,6 +312,7 @@ describe("adding files from this device", () => {
         onUpload={async () => {
           throw new Error("This would add 4 GB and only 1 GB is free on your Uncloud drive.");
         }}
+        onUploadEvernote={async () => {}}
         onSetUpDropbox={() => {}}
       />,
     );
@@ -378,6 +384,30 @@ describe("adding files from this device", () => {
     // One folder was chosen, so that's where "Show them" goes.
     await click(screen.getByRole("button", { name: /Show them/ }));
     expect(opened).toHaveBeenCalledWith("Trips/Holiday");
+  });
+
+  it("does what was asked next only once they're all in place", async () => {
+    answer = accepting([{ from: "Recipes.enex", to: "Evernote/Recipes.enex" }]);
+    const next = vi.fn();
+    render(<Harness chosen={pickedFrom([file("Recipes.enex")])} folder="Evernote" then={next} />);
+
+    await click(screen.getByText("Send"));
+
+    await screen.findByText(/from this device: 1 file,/);
+    expect(asked.at(-1)?.path).toBe("/uploads/u1/finish");
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't do what was asked next when none of them arrived", async () => {
+    answer = accepting();
+    FakeRequest.respond = (request) => request.finish(400, { detail: "Not today." });
+    const next = vi.fn();
+    render(<Harness chosen={pickedFrom([file("Recipes.enex")])} folder="Evernote" then={next} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByText(/None of it could be added/)).toBeInTheDocument();
+    expect(next).not.toHaveBeenCalled();
   });
 
   it("says when a name was already taken where they went", async () => {
@@ -501,6 +531,114 @@ describe("adding files from this device", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Uncloud leaves hidden files out");
     expect(asked).toHaveLength(0);
+  });
+});
+
+describe("bringing notes home from Evernote", () => {
+  // Starting from the list of places, rather than wherever the last test left off.
+  beforeEach(() => window.localStorage.clear());
+
+  const sources = () =>
+    json({
+      accounts: [],
+      places: [],
+      suggestions: [],
+      canAddFolders: false,
+      canPickFolder: false,
+      evernote: { folder: "Evernote" },
+    });
+
+  it("says how to export, lists the notebooks already added, and sends only the export files", async () => {
+    answer = (path) => {
+      if (path.startsWith("/imports/sources/evernote/files"))
+        return json([
+          {
+            id: "/Recipes",
+            name: "Recipes",
+            path: "/Recipes",
+            displayPath: "/Recipes",
+            isFolder: true,
+            size: null,
+            rev: null,
+            modified: null,
+            detail: "143 notes",
+          },
+        ]);
+      if (path.startsWith("/imports/sources/evernote/size")) return json({ bytes: 2 * 1024 * 1024, files: 160 });
+      return sources();
+    };
+    const onUploadEvernote = vi.fn(async () => {});
+    const onStarted = vi.fn();
+    render(
+      <AddFiles
+        importing={false}
+        uploading={false}
+        isAdmin={false}
+        folder="Photos"
+        storage={null}
+        arrivedFromDropbox={null}
+        onStarted={onStarted}
+        onUpload={async () => {}}
+        onUploadEvernote={onUploadEvernote}
+        onSetUpDropbox={() => {}}
+      />,
+    );
+
+    // Not "coming soon" any more: somewhere to go, like any other place.
+    await click(await screen.findByRole("button", { name: /Evernote/ }));
+    // Only Evernote's desktop app exports, so that's where it starts, in Evernote's own words.
+    expect(screen.getByText(/The website and phone app can’t export/)).toBeInTheDocument();
+    expect(screen.getByText("Export notebook…")).toBeInTheDocument();
+    // A notebook says how many notes it has, which is what to check against Evernote before cancelling.
+    expect(await screen.findByText("Recipes", { selector: "strong" })).toBeInTheDocument();
+    expect(await screen.findByText("143 notes · 2 MB")).toBeInTheDocument();
+
+    // Whatever else is chosen with them, only the export files go, each by its own name.
+    const exported = file("Exports/Recipes.enex");
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("choose-files"), { target: { files: [exported, file("photo.jpg")] } });
+    });
+    await waitFor(() => expect(onUploadEvernote).toHaveBeenCalledTimes(1));
+    expect(onUploadEvernote.mock.calls[0]).toEqual([[{ file: exported, path: "Recipes.enex" }]]);
+
+    // And a notebook already here can be brought in by itself.
+    answer = (path, method) =>
+      path === "/imports" && method === "POST" ? json({ job: { id: "job-1" } }) : sources();
+    await click(screen.getByRole("button", { name: "Add all" }));
+    await waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
+    expect(asked.find((request) => request.path === "/imports")?.body).toEqual({
+      source: "evernote",
+      remotePaths: ["/"],
+      label: "Evernote",
+    });
+  });
+
+  it("says what to choose when nothing chosen is an export file", async () => {
+    answer = (path) => (path.startsWith("/imports/sources/evernote/files") ? json([]) : sources());
+    const onUploadEvernote = vi.fn(async () => {});
+    render(
+      <AddFiles
+        importing={false}
+        uploading={false}
+        isAdmin={false}
+        folder=""
+        storage={null}
+        arrivedFromDropbox={null}
+        onStarted={() => {}}
+        onUpload={async () => {}}
+        onUploadEvernote={onUploadEvernote}
+        onSetUpDropbox={() => {}}
+      />,
+    );
+
+    await click(await screen.findByRole("button", { name: /Evernote/ }));
+    expect(await screen.findByText("No notebooks added yet.")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("choose-files"), { target: { files: [file("Recipes.pdf")] } });
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Choose the ones ending in .enex.");
+    expect(onUploadEvernote).not.toHaveBeenCalled();
   });
 });
 

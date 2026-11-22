@@ -33,8 +33,8 @@ export const QUESTIONS = [
   {
     q: "Does Uncloud replace a notes app like Evernote?",
     a: [
-      "Not yet, but it’s on our list. Turning notes into everyday files you can open, search and keep for good is a problem we want to solve, for our own notes too.",
-      "Right now we’re focused on making the move from Dropbox and Google Drive as smooth as possible. In the meantime, you can export your notes from Evernote and keep the export safe in Uncloud.",
+      "No. You can’t write or edit notes in Uncloud.",
+      "But it can keep your Evernote notes. Export your notebooks from the Evernote app and add them to Uncloud. Each note becomes a page you can open in a web browser, and the exported files are kept in case you want to import them into another notes app.",
       "Have an idea for how notes should work? We’d love to hear it at hello@uncloud.life.",
     ],
   },

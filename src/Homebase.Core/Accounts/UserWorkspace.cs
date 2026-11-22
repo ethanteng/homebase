@@ -18,6 +18,8 @@ public sealed class UserWorkspace
     public ImportJobs Jobs { get; }
     /// <summary>Sizes of folders in the places this account brings files in from.</summary>
     public SourceSizes SourceSizes { get; } = new();
+    /// <summary>The Evernote export files this account has put in its own files, as somewhere to bring notes in from.</summary>
+    public EvernoteSource Evernote { get; }
 
     private readonly ImportPlaces _places;
 
@@ -43,6 +45,7 @@ public sealed class UserWorkspace
         // One import at a time per account, rather than one for the whole host: somebody else
         // bringing a folder home is no reason to be told to wait.
         Jobs = new ImportJobs(Imports, loggers.CreateLogger<ImportJobs>());
+        Evernote = new EvernoteSource(root);
     }
 
     /// <summary>
@@ -53,5 +56,7 @@ public sealed class UserWorkspace
     public IImportSource Source(string? sourceId) =>
         sourceId is null || sourceId.Length == 0 || sourceId == DropboxApi.ProviderName
             ? Dropbox
-            : _places.Open(_places.Require(sourceId, UserId));
+            : sourceId == EvernoteSource.ProviderName
+                ? Evernote
+                : _places.Open(_places.Require(sourceId, UserId));
 }

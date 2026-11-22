@@ -308,6 +308,8 @@ interface Job {
   /** The requests in flight, and how far each has got. */
   requests: Set<XMLHttpRequest>;
   loaded: Map<string, number>;
+  /** What to do once they're all in the folder, the ones that were there already included. */
+  then?: () => void;
 }
 
 /** The folder something went into, as somebody would call it. */
@@ -623,6 +625,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           openTo: one && items.some((item) => item.path.startsWith(`${one.from}/`)) ? one.to : folder,
         });
         onUploaded();
+        job.then?.();
       } catch (problem: unknown) {
         // No answer at all, rather than a refusal: Uncloud may well have put them in place and
         // only the reply was lost. Saying nothing was added would have them added twice.
@@ -717,6 +720,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           if (items.length === 0) {
             jobs.current.delete(job.key);
             update(job.key, { stage: "done" });
+            job.then?.();
             return;
           }
         }
@@ -768,7 +772,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
 
   /** Adds files to the end of the line. Settles at once: what happens to them shows in their own status. */
   const start = useCallback(
-    async (folder: string, chosen: Picked[]) => {
+    async (folder: string, chosen: Picked[], then?: () => void) => {
       const items = chosen.filter((item) => !hidden(item.path));
       if (items.length === 0)
         throw new Error(
@@ -790,6 +794,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         requests: new Set(),
         loaded: new Map(),
         cancel: new AbortController(),
+        then,
       });
       setUploads((list) => [
         ...list,

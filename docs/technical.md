@@ -200,7 +200,8 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
 
 - Sharing a folder between accounts, per-account storage quotas, search across folders, and a
   restore button for synced files.
-- Direct connectors for Google Drive, iCloud or Evernote (use their synced folders instead).
+- Direct connectors for Google Drive or iCloud (use their synced folders instead). Evernote can't be
+  signed in to; its export files are brought in instead (see [Evernote's export files](#evernotes-export-files)).
 - A packaged, signed app, a background service that starts with the computer, and a desktop client.
   The folder chooser is macOS-only; elsewhere you type a path.
 - Any backup. See [Keeping a copy](#keeping-a-copy).
@@ -592,8 +593,9 @@ Everything comes in through one place: **Add files** on **My files**. It asks wh
 the device the browser is on, this computer, an online account such as Dropbox, or a folder somebody
 shared. Files from the browser's own device are sent by the page rather than imported (see
 [What's built](#whats-built)); every other source is browsed and added the same way, because underneath it is the same import: the same walk, the same
-room check, the same never-overwrite rule, the same log. Google Drive and Evernote appear there as
-*coming soon*; each will be an online account like Dropbox when it arrives.
+room check, the same never-overwrite rule, the same log. Evernote is one of them, read from the
+export files its app saves; Google Drive appears there as *coming soon*, and will be an online
+account like Dropbox when it arrives.
 
 What anybody adds is **theirs alone**. Sharing is a separate, deliberate step, not the default.
 
@@ -685,6 +687,69 @@ against the old app and its refresh token cannot be used against a new one — U
 rather than leaving connections that fail on a later refresh with nothing on screen to explain why.
 Changing the host's key leaves anybody connecting through their own alone, which is the whole point
 of having one.
+
+### Evernote's export files
+
+Evernote isn't issuing developer keys to new apps (requests have been "on hold" through 2026), so
+there is no sign-in to offer, and borrowing another app's key or a browser session cookie isn't
+something Uncloud will do. What Evernote's
+desktop app does still do is save any notebook, or up to 100 chosen notes, as an export file (`.enex`):
+one XML document with every note's text in Evernote's markup (ENML) and every attachment in base64.
+`EvernoteSource` is an `IImportSource` over those files, so turning them into notes is an ordinary
+import, with the same room check, log and never-overwrite rule as everything else.
+
+**Where things go.** The export files are added to `Evernote/` at the top of the account's folder,
+from the browser like any upload (`POST /api/imports/evernote/folder` makes the folder first). The
+source lists one notebook per `.enex` file directly in that folder, named after the file, and its
+imports land in `Evernote/` too, so each notebook's folder sits beside the export file it came from:
+
+```
+Evernote/Recipes.enex                   the export file, kept as the complete copy
+Evernote/Recipes/Pad thai.html          one page per note
+Evernote/Recipes/Pad thai files/…       that note's attachments, when it has any
+```
+
+Once an upload from the Evernote panel has finished, the page asks for the whole source (`/`), so
+choosing the files is the only step; notes already brought in are passed over by the log, as for
+any source. Adding a newer export brings notes that are new; a note changed since keeps its first
+version, because an import happens once.
+
+**Reading a large file.** An export can be gigabytes, and the engine opens each note and attachment
+separately, so reading the whole file per open would be quadratic. `EvernoteExport.FindNotes` goes
+through the file once for the byte range of each `<note>…</note>`. Those markers can't appear
+anywhere else, because ENML escapes `<` in text, attachments are base64, and every other field is
+escaped text. Each note is then parsed on its own from a window onto the file (`FileWindow`), and an
+attachment is decoded as it is copied (`Base64Element`) rather than held in memory. What a file holds,
+including every page's rendered size so the room check is exact, is worked out once and kept per
+file, by path, size and modification time. A file replaced by a newer export is read afresh.
+
+**Names.** A note's page is its title, made safe for a filename on macOS, Windows and Linux (no
+separators or `*?"<>|:`, no leading dot, 100 characters at most) and compared ignoring case. Notes that
+share a title are told apart by the day each was made, then numbered in file order. Attachments keep
+their own names where the export has one, gain an extension from their MIME type where they don't,
+and are numbered when two collide. Every path the source hands out is made of names it chose, and a
+request's path is only ever looked up among them, never joined onto a folder on disk.
+
+**Pages.** `EvernotePage` writes each note as a standalone HTML page that needs neither Evernote nor
+Uncloud: title, notebook, dates, tags and source URL at the top, then the note, then its Evernote
+tasks and any attachments the text never placed. Pictures are shown where the note had them, audio
+and video get players, other files are linked. ENML is an HTML subset, so conversion is a filter,
+not a translation. An export file may come from anybody, though, so it is an allowlist: only ENML's
+elements and their presentational attributes are written, `href` only for `http`, `https`,
+`mailto` and `tel` (after removing whitespace and control characters, which browsers ignore in a
+scheme), `src` only for web and `data:image` pictures, and `style` only when it can't fetch or
+escape (`url(`, `expression(`, `@import`, backslashes). Scripts, frames, forms, embeds and every
+event handler are dropped. The page also carries a Content-Security-Policy that refuses scripts,
+objects, frames and forms. The server sends files as downloads, never inline, so a page is never
+rendered on Uncloud's own origin.
+
+Neither the export nor a note's markup is read with a DTD. Evernote's files name its DTD by URL,
+and resolving it, or any entity a crafted file declares, would let a file somebody was sent reach
+out from the host. HTML's named entities, which ENML gets from that DTD, are rewritten as numeric
+references before parsing. Encrypted text (`en-crypt`) is left encrypted and said to be. A note whose
+markup isn't well formed keeps its words as plain text. A note the file stops partway through, from
+an export still being written when it was copied, is still listed and says so. Both are counted in
+the notebook's summary, beside the note count people check against Evernote before cancelling.
 
 ### Either way
 
@@ -977,13 +1042,13 @@ the settings screen; an account with its own key ignores it. `Homebase__Syncthin
 
 ### Future importers
 
-`IImportSource` is what the import engine sees: metadata, a listing, and a stream. A Dropbox account
-and a folder on this computer both implement it, so nothing in the engine, the panel, or the log
-knows which is which. A new service is that interface plus whatever it takes to authenticate, and it
+`IImportSource` is what the import engine sees: metadata, a listing, and a stream. A Dropbox account,
+a folder on this computer and Evernote's export files all implement it, so nothing in the engine,
+the panel, or the log knows which is which. A new service is that interface plus whatever it takes to authenticate, and it
 chooses the folder at the top of My files its imports land in. An implementation is responsible for refusing
 any path that reaches outside the place it stands for. `IHomebaseImporter` remains an unimplemented
-contract for adapters that want to write into the library directly, such as Evernote notes and
-attachments under `Notes/Evernote/`; these folders aren’t created until something needs them.
+contract for adapters that want to write into the library directly; Evernote didn't need it, since a
+note and its attachments are just files a source can list.
 
 ### The Uncloud app
 

@@ -975,6 +975,9 @@ app.MapGet("/api/imports/sources", (HttpContext context, CurrentUser user, UserW
                 destination = workspace.Source(DropboxApi.ProviderName).DestinationPrefix
             }
         },
+        // Evernote can't be signed in to, but the export files its app saves can be brought in. They
+        // go into this folder in My files, and the notebooks made from them go beside them.
+        evernote = new { folder = EvernoteSource.FolderName },
         places = visible.Select(place => Place(place, user.Id, places, kind)),
         suggestions = user.IsAdmin ? places.Suggestions(user.Id) : [],
         // Only somebody who looks after this host can read its folders. Anyone else is shown what
@@ -1001,7 +1004,36 @@ app.MapGet("/api/imports/sources/{sourceId}/files", async (string sourceId, stri
 app.MapGet("/api/imports/sources/{sourceId}/size", async (string sourceId, string? path, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
 {
     var workspace = workspaces.For(user.Account);
-    return Results.Ok(await workspace.SourceSizes.MeasureAsync(workspace.Source(sourceId), path ?? "", cancellationToken));
+    var source = workspace.Source(sourceId);
+    // Evernote's sizes come from export files it has already read and keeps until they change, so
+    // asking again costs nothing — and a notebook just added mustn't read as it was minutes ago.
+    return Results.Ok(source is EvernoteSource
+        ? await source.SizeAsync(path ?? "", cancellationToken)
+        : await workspace.SourceSizes.MeasureAsync(source, path ?? "", cancellationToken));
+});
+
+// The folder Evernote's export files are added to, made the first time somebody adds one: they're
+// sent there like any other files, and an upload goes into a folder that is already there.
+app.MapPost("/api/imports/evernote/folder", async (CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+{
+    var library = workspaces.For(user.Account).Library;
+    var folder = PathPolicy.Resolve(library.Root, EvernoteSource.FolderName);
+    if (!Directory.Exists(folder))
+    {
+        if (File.Exists(folder))
+            throw new LibraryException(
+                $"A file called “{EvernoteSource.FolderName}” is in the way in My files. Rename it, then try again.",
+                "conflict");
+        try
+        {
+            await library.CreateFolderAsync("", EvernoteSource.FolderName, cancellationToken);
+        }
+        catch (LibraryException failure) when (failure.Code == "conflict" && Directory.Exists(folder))
+        {
+            // Made a moment ago by another page doing the same; it's there, which is all that was asked.
+        }
+    }
+    return Results.Ok(new { path = EvernoteSource.FolderName });
 });
 
 app.MapGet("/api/imports", (CurrentUser user, UserWorkspaces workspaces) =>

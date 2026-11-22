@@ -20,7 +20,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { api, formatSize, nameTogether, DROPBOX } from "./api";
+import { api, formatSize, nameTogether, DROPBOX, EVERNOTE } from "./api";
 import type { FolderSize } from "./api";
 import { useFolderSizes } from "./folderSizes";
 import type { FolderSizes } from "./folderSizes";
@@ -42,10 +42,7 @@ import type {
  * Where people's files are waiting that Uncloud can't reach yet. Shown so the shape of what's
  * coming is clear; each becomes an online account like Dropbox when it arrives.
  */
-const COMING_SOON = [
-  { id: "googledrive", name: "Google Drive", icon: Cloud },
-  { id: "evernote", name: "Evernote", icon: NotebookPen },
-];
+const COMING_SOON = [{ id: "googledrive", name: "Google Drive", icon: Cloud }];
 
 const LAST_SOURCE = "uncloud.add-files.source";
 
@@ -56,7 +53,8 @@ type Where =
   | { at: "device" }
   | { at: "shared" }
   | { at: "account"; id: string }
-  | { at: "place"; id: string };
+  | { at: "place"; id: string }
+  | { at: "evernote" };
 
 /** One step into a folder, by the name a person knows it by and the path the source knows. */
 interface Step {
@@ -77,6 +75,11 @@ interface Props {
   onStarted: (job: ImportJob) => void;
   /** Starts sending files from this device, and settles once Uncloud has agreed to take them. */
   onUpload: (picked: Picked[]) => Promise<void>;
+  /**
+   * Sends Evernote export files to where Evernote's notes are brought in from, and brings the notes
+   * home once they're there. Settles once Uncloud has agreed to take them.
+   */
+  onUploadEvernote: (picked: Picked[]) => Promise<void>;
   /** Dropbox needs an app set up before anybody can connect; this opens wherever that happens. */
   onSetUpDropbox: () => void;
   /**
@@ -102,6 +105,11 @@ function describeFolder(size: FolderSize | null | undefined): string {
   if (size === undefined) return "Folder · measuring…";
   if (size === null) return "Folder";
   return describeSize(size);
+}
+
+/** What a place says about something, with its size once that's known. */
+function withSize(detail: string, size: FolderSize | null | undefined): string {
+  return size ? `${detail} · ${formatSize(size.bytes)}` : detail;
 }
 
 /** What some of a folder's entries hold together, as far as it's known yet. */
@@ -178,6 +186,7 @@ export default function AddFiles({
   storage,
   onStarted,
   onUpload,
+  onUploadEvernote,
   onSetUpDropbox,
   arrivedFromDropbox,
 }: Props) {
@@ -241,6 +250,7 @@ export default function AddFiles({
       const last = readLastSource();
       if (last === "computer" && hostOffered(latest)) setWhere({ at: "computer" });
       else if (last === "device") setWhere({ at: "device" });
+      else if (last === EVERNOTE && latest.evernote) setWhere({ at: "evernote" });
       else if (last && latest.accounts.some((account) => account.id === last))
         setWhere({ at: "account", id: last });
     });
@@ -258,7 +268,14 @@ export default function AddFiles({
   const shared = sources?.places.filter((candidate) => !candidate.mine) ?? [];
   const mine = sources?.places.filter((candidate) => candidate.mine) ?? [];
   // The id the server knows this source by, when it is somewhere with files to list.
-  const sourceId = where.at === "place" ? where.id : where.at === "account" && account?.connected ? where.id : null;
+  const sourceId =
+    where.at === "place"
+      ? where.id
+      : where.at === "account" && account?.connected
+        ? where.id
+        : where.at === "evernote"
+          ? EVERNOTE
+          : null;
 
   // Listing whatever folder is being looked at, whenever that changes.
   const folder = trail.at(-1)?.path ?? "";
@@ -303,6 +320,7 @@ export default function AddFiles({
     setTyping(false);
     if (next.at === "computer") rememberSource("computer");
     if (next.at === "device") rememberSource("device");
+    if (next.at === "evernote") rememberSource(EVERNOTE);
     if (next.at === "account") rememberSource(next.id);
   }
 
@@ -377,6 +395,27 @@ export default function AddFiles({
   const upload = (picking: Promise<Picked[]>) =>
     run("upload", async () => {
       await onUpload(await picking);
+    });
+
+  /**
+   * Evernote's export files, sent to where its notes are brought in from. Only the export files are
+   * taken, and each by its own name: they're read from the top of that folder, so one chosen from
+   * inside a folder mustn't arrive inside one.
+   */
+  const uploadEvernote = (picking: Promise<Picked[]>) =>
+    run("upload", async () => {
+      const exports: Picked[] = [];
+      const seen = new Set<string>();
+      for (const item of await picking) {
+        const name = item.file.name;
+        // Two with the same name, from two folders dropped together, would land on each other.
+        if (!name.toLowerCase().endsWith(".enex") || seen.has(name.toLowerCase())) continue;
+        seen.add(name.toLowerCase());
+        exports.push({ file: item.file, path: name });
+      }
+      if (exports.length === 0)
+        throw new Error("Those aren’t Evernote files. Choose the ones ending in .enex.");
+      await onUploadEvernote(exports);
     });
 
   const share = (target: ImportPlace, next: boolean) =>
@@ -544,6 +583,14 @@ export default function AddFiles({
               onClick={() => go({ at: "account", id: candidate.id })}
             />
           ))}
+          {sources.evernote && (
+            <SourceCard
+              icon={<NotebookPen size={22} strokeWidth={1.5} />}
+              name="Evernote"
+              detail="Notebooks you export from Evernote"
+              onClick={() => go({ at: "evernote" })}
+            />
+          )}
           {shared.length > 0 && (
             <SourceCard
               icon={<Users size={22} strokeWidth={1.5} />}
@@ -576,6 +623,8 @@ export default function AddFiles({
       ? { name: "Uncloud computer", to: { at: "computer" } as Where }
       : where.at === "device"
         ? { name: "This device", to: where }
+        : where.at === "evernote"
+        ? { name: "Evernote", to: where }
         : where.at === "shared" || where.at === "place"
         ? { name: "Shared with you", to: { at: "shared" } as Where }
         : { name: account?.name ?? "Online", to: where };
@@ -864,8 +913,15 @@ export default function AddFiles({
       </div>
     );
 
-  // Inside something with files in it: an online account, or a folder on this computer.
-  const source = where.at === "place" ? place : account;
+  // Inside something with files in it: an online account, a folder on this computer, or the
+  // export files somebody saved from Evernote.
+  const evernote = where.at === "evernote";
+  const source =
+    where.at === "place"
+      ? place
+      : evernote
+        ? { name: "Evernote", destination: sources.evernote?.folder ?? "Evernote" }
+        : account;
   if (!source)
     return (
       <div className="add-files">
@@ -921,15 +977,26 @@ export default function AddFiles({
         </div>
       ) : (
         <>
-          <p className="muted add-where">
-            {where.at === "account" && account
-              ? `Signed in to ${account.name} as ${account.accountName ?? "you"}`
-              : place && !place.mine
-                ? `Shared by ${place.sharedBy ?? "someone here"}`
-                : place?.shared
-                  ? "Everyone here can add from this folder"
-                  : "Only you can add from this folder"}
-          </p>
+          {evernote ? (
+            !current && (
+              <EvernoteSteps
+                folder={source.destination}
+                busy={busy === "upload"}
+                disabled={disabled}
+                onPicked={(picking) => void uploadEvernote(picking)}
+              />
+            )
+          ) : (
+            <p className="muted add-where">
+              {where.at === "account" && account
+                ? `Signed in to ${account.name} as ${account.accountName ?? "you"}`
+                : place && !place.mine
+                  ? `Shared by ${place.sharedBy ?? "someone here"}`
+                  : place?.shared
+                    ? "Everyone here can add from this folder"
+                    : "Only you can add from this folder"}
+            </p>
+          )}
           {listed.length > 0 && (
             <div className={`add-whole${chosen.length > 0 ? " choosing" : ""}`} aria-live="polite">
               <label className="check">
@@ -946,6 +1013,8 @@ export default function AddFiles({
               </label>
               {current ? (
                 <FolderOpen size={19} strokeWidth={1.6} />
+              ) : evernote ? (
+                <NotebookPen size={19} strokeWidth={1.6} />
               ) : place ? (
                 <PlaceIcon kind={place.kind} />
               ) : (
@@ -982,7 +1051,11 @@ export default function AddFiles({
               Opening {current?.name ?? sourceName}…
             </div>
           ) : entries?.length === 0 ? (
-            <p className="field-help">This folder is empty.</p>
+            <p className="field-help">
+              {evernote && !current
+                ? "No notebooks added yet."
+                : "This folder is empty."}
+            </p>
           ) : entries ? (
             <ul className="import-list browse-list">
               {entries.map((entry) => (
@@ -1011,7 +1084,11 @@ export default function AddFiles({
                     <span>
                       <strong>{entry.name}</strong>
                       <span className="muted">
-                        {entry.isFolder ? describeFolder(folderSizes[entry.path]) : formatSize(entry.size)}
+                        {entry.detail
+                          ? withSize(entry.detail, entry.isFolder ? folderSizes[entry.path] : undefined)
+                          : entry.isFolder
+                            ? describeFolder(folderSizes[entry.path])
+                            : formatSize(entry.size)}
                       </span>
                     </span>
                     {entry.isFolder && <ChevronRight size={16} className="browse-chevron" />}
@@ -1025,11 +1102,19 @@ export default function AddFiles({
               ))}
             </ul>
           ) : null}
-          <p className="field-help add-promise">
-            <HardDrive size={13} /> Copies go into My files, in a folder called{" "}
-            <strong>{source.destination}</strong>. Nothing in {sourceName} is moved or changed,
-            and adding something twice only brings what’s new.
-          </p>
+          {evernote ? (
+            <p className="field-help add-promise">
+              <HardDrive size={13} /> Each notebook becomes a folder in <strong>{source.destination}</strong>,
+              in My files, with a page for each note. The exported files are kept there too. Adding a
+              notebook again brings only new notes.
+            </p>
+          ) : (
+            <p className="field-help add-promise">
+              <HardDrive size={13} /> Copies go into My files, in a folder called{" "}
+              <strong>{source.destination}</strong>. Nothing in {sourceName} is moved or changed,
+              and adding something twice only brings what’s new.
+            </p>
+          )}
           {where.at === "account" && account && (
             <button className="link-button" onClick={() => void disconnect(account)} disabled={busy !== ""}>
               Sign Uncloud out of {account.name}
@@ -1082,15 +1167,25 @@ function DeviceDrop({
   busy,
   disabled,
   onPicked,
+  title = "Drop files or folders here",
+  chooseLabel = "Choose files…",
+  accept,
+  folders = true,
 }: {
   busy: boolean;
   disabled: boolean;
   onPicked: (picking: Promise<Picked[]>) => void;
+  title?: string;
+  chooseLabel?: string;
+  /** Which kinds of file the chooser offers, as the file input's own list. */
+  accept?: string;
+  /** Whether a whole folder can be chosen as well as files. */
+  folders?: boolean;
 }) {
   const filesInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
-  const [canChooseFolder] = useState(() => "webkitdirectory" in document.createElement("input"));
+  const [canChooseFolder] = useState(() => folders && "webkitdirectory" in document.createElement("input"));
 
   const chosen = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -1125,7 +1220,7 @@ function DeviceDrop({
       <span className="source-card-icon">
         {busy ? <LoaderCircle className="spin" size={22} /> : <Upload size={22} strokeWidth={1.5} />}
       </span>
-      <strong>{busy ? "Getting ready…" : "Drop files or folders here"}</strong>
+      <strong>{busy ? "Getting ready…" : title}</strong>
       <div className="card-actions">
         <button
           className="button primary"
@@ -1133,7 +1228,7 @@ function DeviceDrop({
           disabled={disabled}
         >
           <File size={16} />
-          Choose files…
+          {chooseLabel}
         </button>
         {canChooseFolder && (
           <button
@@ -1146,7 +1241,15 @@ function DeviceDrop({
           </button>
         )}
       </div>
-      <input ref={filesInput} type="file" multiple hidden onChange={chosen} data-testid="choose-files" />
+      <input
+        ref={filesInput}
+        type="file"
+        multiple
+        hidden
+        accept={accept}
+        onChange={chosen}
+        data-testid="choose-files"
+      />
       <input
         ref={(input) => {
           folderInput.current = input;
@@ -1156,6 +1259,43 @@ function DeviceDrop({
         hidden
         onChange={chosen}
         data-testid="choose-folder"
+      />
+    </div>
+  );
+}
+
+/**
+ * How to get notes out of Evernote, which only its desktop app can do, and somewhere to put the
+ * files it saves. Said in Evernote's own words for the menu, since that's what people will look for.
+ */
+function EvernoteSteps({
+  folder,
+  busy,
+  disabled,
+  onPicked,
+}: {
+  folder: string;
+  busy: boolean;
+  disabled: boolean;
+  onPicked: (picking: Promise<Picked[]>) => void;
+}) {
+  return (
+    <div className="evernote-steps">
+      <ol className="export-steps">
+        <li>Open the Evernote app on a Mac or PC. The website and phone app can’t export.</li>
+        <li>
+          Right-click a notebook, choose <strong>Export notebook…</strong>, then <strong>ENEX</strong>.
+          Do this for each notebook.
+        </li>
+        <li>Add the exported files here. They’re kept in <strong>{folder}</strong>, in My files.</li>
+      </ol>
+      <DeviceDrop
+        busy={busy}
+        disabled={disabled}
+        onPicked={onPicked}
+        title="Drop the exported files here"
+        accept=".enex"
+        folders={false}
       />
     </div>
   );

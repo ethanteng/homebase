@@ -123,8 +123,7 @@ export default function Backups({ onChanged, open }: Props) {
         <div>
           <h1>Backups</h1>
           <p>
-            Bring back files as they were on the date you pick. If you still have a newer version,
-            you keep both.
+            Pick the date you’d like to restore. Newer files are not overwritten.
           </p>
         </div>
         <div className="heading-actions">

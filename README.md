@@ -50,6 +50,7 @@ plugged into it.
 - Add files from Dropbox, or from folders and drives on the host, all from the same **Add files**
   button: everything at once, a whole folder, or any mix of files and folders you tick, with how big
   it all is shown before you start.
+- Add notebooks exported from Evernote. Each note becomes a page you can open in a web browser.
 - See how much room is left on the host at a glance, on every page.
 - Sync folders on your own computers with your space.
 - Get back a file deleted on a synced laptop for 30 days afterwards.
@@ -66,8 +67,9 @@ plugged into it.
 - **No sharing of files inside Uncloud** between people, and no storage limits per person. (A folder
   on the host can be shared for others to add from.)
 - **No built-in backup.** Uncloud keeps one copy of everything. [Set up a backup](#keeping-your-files-safe).
-- **No direct Google Drive, iCloud or Evernote sign-in.** Use the folder their app keeps on the
-  host instead.
+- **No Google Drive, iCloud or Evernote sign-in.** For Google Drive and iCloud, use the folder their
+  app keeps on the host. For Evernote, export your notebooks: see
+  [Notes from Evernote](#notes-from-evernote).
 - Syncing a Windows or Linux computer needs a free app called Syncthing, set up by hand.
 - Windows can't be the host yet, though Windows computers can use Uncloud in a browser.
 
@@ -316,12 +318,14 @@ On **My files**, click **Add files** and choose where they are:
   back, and you copy it into the box Uncloud is waiting with. Mistyping it costs nothing — paste it
   again.
 - **Shared with you**, if someone has shared a folder with everyone.
+- **Evernote**, for notebooks you've exported from Evernote. See
+  [Notes from Evernote](#notes-from-evernote).
 
 **Sign Uncloud out of Dropbox** at the bottom of the Dropbox list ends the connection whenever you
 like. Files you already added stay where they are; only Uncloud's way back into Dropbox goes.
 
-Google Drive and Evernote are coming. Until then, the folder the Google Drive app keeps on the host
-works under **This device** when you're at the host, or **Uncloud computer** from anywhere else.
+Google Drive is coming. Until then, the folder the Google Drive app keeps on the host works under
+**This device** when you're at the host, or **Uncloud computer** from anywhere else.
 
 Click **Add** next to a file or folder to bring just that. To bring more at once, the row above the
 list shows how big everything in the folder you're looking at is — all of Dropbox, at its top — and
@@ -335,6 +339,33 @@ Files are copied, never moved: the originals stay where they were. Adding the sa
 only brings what's new, and Uncloud never overwrites a file you already have. Added files appear
 at the top of **My files**, in a folder named after where they came from, such as **Dropbox** or
 **Documents** — except files from **This device**, which go wherever you had open.
+
+#### Notes from Evernote
+
+Uncloud can't sign in to Evernote, but it can add notebooks you export from the Evernote app.
+
+1. Open the Evernote app on a Mac or PC. The website and phone app can't export.
+2. Right-click a notebook, choose **Export notebook…**, then choose **ENEX**. Do this for each
+   notebook.
+3. In Uncloud, click **Add files**, then **Evernote**, and choose the files you exported.
+
+When they've uploaded, Uncloud adds the notes to a folder called **Evernote** in **My files**:
+
+- Each notebook becomes a folder, with a page for each note. The pages open in any web browser.
+- A note's attachments go in a folder next to its page.
+- The exported files are kept too, in case you want to import them into another notes app.
+
+**Add files** → **Evernote** shows how many notes each notebook has. Compare these with Evernote
+before you cancel it.
+
+Good to know:
+
+- Export when you've stopped using Evernote. Adding a notebook again later brings only new notes,
+  not changes to notes already added.
+- Encrypted text stays encrypted. You need your Evernote passphrase to read it.
+- If a note couldn't be fully read, its page says so.
+- A page shows its pictures when you open it on a computer that syncs with Uncloud. A page you
+  download on its own from the browser doesn't include them.
 
 **What you add is yours alone.** A folder on this computer that you add can only be added from by
 you. To let everyone in the house add from it too — a folder of family photos, say — open it in

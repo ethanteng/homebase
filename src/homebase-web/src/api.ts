@@ -323,6 +323,8 @@ export interface SourceEntry {
   size: number | null;
   rev: string | null;
   modified: string | null;
+  // Anything the place has to say about it that a size doesn't, such as how many notes a notebook has.
+  detail?: string | null;
 }
 
 /// What a folder on this computer looks like to a person, which decides its icon.
@@ -377,6 +379,9 @@ export interface ImportSources {
   // Why the folders on the computer Uncloud runs on can't be read just now — on a Mac where it runs
   // in an account of its own, because the Uncloud app isn't open there — or null when they can.
   computerUnavailable?: string | null;
+  // Evernote can't be signed in to; its export files are added to this folder in My files, and the
+  // notebooks made from them go beside them.
+  evernote?: { folder: string };
 }
 
 export interface DropboxAppSettings {
@@ -417,6 +422,8 @@ export interface MyDropboxApp {
 
 /// Dropbox is always reachable by this name; a folder on this computer is named by its id.
 export const DROPBOX = "dropbox";
+/// Where notes from Evernote's export files are brought in from.
+export const EVERNOTE = "evernote";
 export interface ImportedFile {
   provider: string;
   remotePath: string;
