@@ -338,6 +338,8 @@ export default function SyncPanel({
                     {busy === "open" ? "Opening…" : "Open in the Uncloud app"}
                   </button>
                   <span className="muted">On the computer you’re adding, with the app installed.</span>
+                  {/* It hands the app a code for whoever is signed in here, like Get a pairing code. */}
+                  <SignedInAs me={me} onSignOut={onSignOut} />
                 </div>
               )}
               <details className="advanced-section">
@@ -352,8 +354,10 @@ export default function SyncPanel({
                       <>
                         <p className="field-help">
                           For when the app can’t open a browser to sign in. Type the code in the
-                          app, under Other ways to connect.
+                          app, under Other ways to connect. It adds the computer to {me.displayName}’s
+                          files.
                         </p>
+                        <SignedInAs me={me} onSignOut={onSignOut} />
                         <button
                           className="button secondary"
                           onClick={() => void getCode()}

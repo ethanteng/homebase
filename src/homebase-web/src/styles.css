@@ -3431,6 +3431,10 @@ dialog.side-sheet::backdrop {
   gap: 8px 14px;
   margin: 18px 0 6px;
 }
+.open-app .signed-in-as {
+  flex-basis: 100%;
+  margin: 0;
+}
 /* The pairing code and Syncthing: still there, after the way most people go. */
 .other-ways {
   display: flex;

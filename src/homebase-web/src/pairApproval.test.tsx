@@ -40,6 +40,8 @@ let requestGone = false;
 let ownedElsewhere = false;
 let requestState: "waiting" | "added" | "declined" = "waiting";
 let reachAddress: string | null = "https://home.example.ts.net";
+// Where the signed-in account's files are, or null on a host nobody has set up yet.
+let rootPath: string | null = LIBRARY.rootPath;
 let sent: { method: string; path: string }[] = [];
 
 const json = (body: unknown, status = 200) =>
@@ -81,7 +83,25 @@ function serve(method: string, path: string, body: string | undefined) {
     return json({ code: "AB12C-DE34F", expiresAt: "2026-10-03T12:10:00Z" });
   if (path === "/sync/reach") return json({ address: reachAddress });
   if (path.startsWith("/sync")) return json(SYNC);
-  if (path.startsWith("/library")) return json(LIBRARY);
+  // What My account reads about Dropbox: nothing set up.
+  if (path === "/account/dropbox")
+    return json({
+      appKey: null,
+      configured: false,
+      source: "none",
+      hostProvides: false,
+      relayProvides: false,
+      relayReachable: false,
+      redirectUri: "http://localhost/api/providers/dropbox/callback",
+      scopes: [],
+    });
+  if (path === "/host" && method === "PUT") {
+    rootPath = JSON.parse(body ?? "{}").path;
+    return json({ rootPath });
+  }
+  if (path === "/host") return json({ rootPath, canPickFolder: false });
+  if (path.startsWith("/host/unclaimed")) return json({ entries: [] });
+  if (path.startsWith("/library")) return json({ ...LIBRARY, rootPath });
   if (path.startsWith("/storage")) return json(STORAGE);
   if (path.startsWith("/imports/job")) return json({ job: null });
   // No uploads left unfinished by an earlier page.
@@ -111,6 +131,7 @@ beforeEach(() => {
   ownedElsewhere = false;
   requestState = "waiting";
   reachAddress = "https://home.example.ts.net";
+  rootPath = LIBRARY.rootPath;
   sent = [];
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input).replace(/^.*\/api/, "");
@@ -247,6 +268,38 @@ describe("arriving from a computer that asked to be added", () => {
     expect(screen.getByRole("button", { name: "Add this computer" })).toBeTruthy();
   });
 
+  it("lets an admin choose where files go first, then asks", async () => {
+    signedIn = { ...USER, isAdmin: true };
+    rootPath = null;
+    await arriveAt("?pair=abc123");
+
+    // Approving needs somewhere for the computer's files, so setup comes first.
+    expect(await screen.findByRole("heading", { name: "Where should files be stored?" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Add Ada’s MacBook Air/ })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Folder"), { target: { value: "/Users/ada/Uncloud" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Add Ada’s MacBook Air to Ada’s files?" }),
+    ).toBeTruthy();
+  });
+
+  it("is still asked after a look at My account", async () => {
+    signedIn = USER;
+    await arriveAt("?pair=abc123");
+    expect(await screen.findByRole("heading", { name: /Add Ada’s MacBook Air to/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Account:/ }));
+    await act(async () => {
+      screen.getByRole("menuitem", { name: "My account" }).click();
+    });
+    expect(screen.queryByRole("heading", { name: /Add Ada’s MacBook Air to/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Computers" }));
+    expect(await screen.findByRole("heading", { name: /Add Ada’s MacBook Air to/ })).toBeTruthy();
+  });
+
   it("opens on My files as usual without one", async () => {
     signedIn = USER;
     await arriveAt("");
@@ -298,6 +351,8 @@ describe("getting a pairing code", () => {
     await openComputers();
     fireEvent.click(screen.getByText("Other ways to connect"));
 
+    // Which account a code adds to is said before one is made, with the way out.
+    expect(screen.getByText(/You’re signed in as Ada \(@ada\)\. Not you\?/)).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: /Get a pairing code/ }));
 
     expect(await screen.findByText("AB12C-DE34F")).toBeTruthy();

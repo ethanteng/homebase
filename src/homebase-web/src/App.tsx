@@ -501,37 +501,6 @@ export default function App() {
       </div>
     );
 
-  // A computer asking to be added: that question alone, before anything else loads.
-  if (approving)
-    return (
-      <div className="app-shell">
-        <Header>
-          <AccountMenu
-            me={me}
-            onAccount={() => {
-              setApproving(null);
-              show("account");
-            }}
-            onSignOut={() => void signOut()}
-          />
-        </Header>
-        <main>
-          <div className="main-content">
-            <PairApproval
-              id={approving}
-              me={me}
-              onDone={() => {
-                setApproving(null);
-                setView("sync");
-              }}
-              // "Not you?": the wrong account is signed in, so the question waits for the right one.
-              onSignOut={() => void signOut(true)}
-            />
-          </div>
-        </main>
-      </div>
-    );
-
   if (library === undefined)
     return (
       <div className="app-shell">
@@ -559,6 +528,32 @@ export default function App() {
         <main>
           <div className="main-content">
             <HostSetup onSaved={() => setRevision((value) => value + 1)} />
+          </div>
+        </main>
+      </div>
+    );
+
+  // A computer asking to be added: that question alone. After setup, for an admin who hasn't
+  // chosen where files go yet, since approving needs that; and kept through a visit to My
+  // account, so the question is still there afterwards until it's answered.
+  if (approving && view !== "account")
+    return (
+      <div className="app-shell">
+        <Header>
+          <AccountMenu me={me} onAccount={() => show("account")} onSignOut={() => void signOut()} />
+        </Header>
+        <main>
+          <div className="main-content">
+            <PairApproval
+              id={approving}
+              me={me}
+              onDone={() => {
+                setApproving(null);
+                setView("sync");
+              }}
+              // "Not you?": the wrong account is signed in, so the question waits for the right one.
+              onSignOut={() => void signOut(true)}
+            />
           </div>
         </main>
       </div>
