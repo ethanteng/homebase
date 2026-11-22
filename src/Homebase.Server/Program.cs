@@ -992,6 +992,9 @@ app.MapGet("/api/imports/sources", (HttpContext context, CurrentUser user, UserW
         // Evernote can't be signed in to, but the export files its app saves can be brought in. They
         // go into this folder in My files, and the notebooks made from them go beside them.
         evernote = new { folder = EvernoteSource.FolderName },
+        // iCloud and Google can't be signed in to either, but both will put everything in zips to
+        // download. Those go into a folder of their own in My files, and what's in them beside them.
+        exports = workspace.Exports.Select(export => new { id = export.ProviderId, folder = export.DestinationPrefix }),
         places = visible.Select(place => Place(place, user.Id, places, kind)),
         suggestions = user.IsAdmin ? places.Suggestions(user.Id) : [],
         // Only somebody who looks after this host can read its folders. Anyone else is shown what
@@ -1021,7 +1024,7 @@ app.MapGet("/api/imports/sources/{sourceId}/size", async (string sourceId, strin
     var source = workspace.Source(sourceId);
     // Evernote's sizes come from export files it has already read and keeps until they change, so
     // asking again costs nothing — and a notebook just added mustn't read as it was minutes ago.
-    return Results.Ok(source is EvernoteSource
+    return Results.Ok(source is EvernoteSource or ExportSource
         ? await source.SizeAsync(path ?? "", cancellationToken)
         : await workspace.SourceSizes.MeasureAsync(source, path ?? "", cancellationToken));
 });
@@ -1029,26 +1032,34 @@ app.MapGet("/api/imports/sources/{sourceId}/size", async (string sourceId, strin
 // The folder Evernote's export files are added to, made the first time somebody adds one: they're
 // sent there like any other files, and an upload goes into a folder that is already there.
 app.MapPost("/api/imports/evernote/folder", async (CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+    Results.Ok(new { path = await ExportFolderAsync(workspaces.For(user.Account).Library, EvernoteSource.FolderName, cancellationToken) }));
+
+// The same for the zips iCloud and Google export.
+app.MapPost("/api/imports/exports/{sourceId}/folder", async (string sourceId, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
 {
-    var library = workspaces.For(user.Account).Library;
-    var folder = PathPolicy.Resolve(library.Root, EvernoteSource.FolderName);
+    var workspace = workspaces.For(user.Account);
+    var export = workspace.Export(sourceId) ?? throw new LibraryException("Uncloud doesn’t bring in exports from there.", "not_found");
+    return Results.Ok(new { path = await ExportFolderAsync(workspace.Library, export.DestinationPrefix, cancellationToken) });
+});
+
+static async Task<string> ExportFolderAsync(LibraryService library, string name, CancellationToken cancellationToken)
+{
+    var folder = PathPolicy.Resolve(library.Root, name);
     if (!Directory.Exists(folder))
     {
         if (File.Exists(folder))
-            throw new LibraryException(
-                $"A file called “{EvernoteSource.FolderName}” is in the way in My files. Rename it, then try again.",
-                "conflict");
+            throw new LibraryException($"A file called “{name}” is in the way in My files. Rename it, then try again.", "conflict");
         try
         {
-            await library.CreateFolderAsync("", EvernoteSource.FolderName, cancellationToken);
+            await library.CreateFolderAsync("", name, cancellationToken);
         }
         catch (LibraryException failure) when (failure.Code == "conflict" && Directory.Exists(folder))
         {
             // Made a moment ago by another page doing the same; it's there, which is all that was asked.
         }
     }
-    return Results.Ok(new { path = EvernoteSource.FolderName });
-});
+    return name;
+}
 
 app.MapGet("/api/imports", (CurrentUser user, UserWorkspaces workspaces) =>
     Results.Ok(workspaces.For(user.Account).Imports.Imported()));

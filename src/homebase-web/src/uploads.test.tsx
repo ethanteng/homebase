@@ -225,6 +225,7 @@ describe("adding files from this device", () => {
         onStarted={() => {}}
         onUpload={onUpload}
         onUploadEvernote={async () => {}}
+        onUploadExport={async () => {}}
         onSetUpDropbox={() => {}}
       />,
     );
@@ -273,6 +274,7 @@ describe("adding files from this device", () => {
         onStarted={() => {}}
         onUpload={async () => {}}
         onUploadEvernote={async () => {}}
+        onUploadExport={async () => {}}
         onSetUpDropbox={() => {}}
       />
     );
@@ -313,6 +315,7 @@ describe("adding files from this device", () => {
           throw new Error("This would add 4 GB and only 1 GB is free on your Uncloud drive.");
         }}
         onUploadEvernote={async () => {}}
+        onUploadExport={async () => {}}
         onSetUpDropbox={() => {}}
       />,
     );
@@ -604,6 +607,7 @@ describe("bringing notes home from Evernote", () => {
         onStarted={onStarted}
         onUpload={async () => {}}
         onUploadEvernote={onUploadEvernote}
+        onUploadExport={async () => {}}
         onSetUpDropbox={() => {}}
       />,
     );
@@ -660,6 +664,7 @@ describe("bringing notes home from Evernote", () => {
         onStarted={() => {}}
         onUpload={async () => {}}
         onUploadEvernote={onUploadEvernote}
+        onUploadExport={async () => {}}
         onSetUpDropbox={() => {}}
       />,
     );
@@ -672,6 +677,118 @@ describe("bringing notes home from Evernote", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Choose the ones ending in .enex.");
     expect(onUploadEvernote).not.toHaveBeenCalled();
+  });
+});
+
+describe("bringing everything home from an iCloud or Google export", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  const sources = () =>
+    json({
+      accounts: [],
+      places: [],
+      suggestions: [],
+      canAddFolders: false,
+      canPickFolder: false,
+      exports: [
+        { id: "icloud", folder: "iCloud" },
+        { id: "google", folder: "Google" },
+      ],
+    });
+
+  const renderAddFiles = (onUploadExport: (id: string, picked: Picked[]) => Promise<void>, onStarted = () => {}) =>
+    render(
+      <AddFiles
+        importing={false}
+        uploading={false}
+        isAdmin={false}
+        folder="Photos"
+        storage={null}
+        arrivedFromDropbox={null}
+        onStarted={onStarted}
+        onUpload={async () => {}}
+        onUploadEvernote={async () => {}}
+        onUploadExport={onUploadExport}
+        onSetUpDropbox={() => {}}
+      />,
+    );
+
+  it("says how to get the zips from Apple, lists what they hold, and sends only the zips", async () => {
+    answer = (path) => {
+      if (path.startsWith("/imports/sources/icloud/files"))
+        return json([
+          {
+            id: "/Photos",
+            name: "Photos",
+            path: "/Photos",
+            displayPath: "/Photos",
+            isFolder: true,
+            size: null,
+            rev: null,
+            modified: null,
+            detail: "12,345 photos and videos · part 3 of 5 not added yet",
+          },
+        ]);
+      if (path.startsWith("/imports/sources/icloud/size")) return json({ bytes: 40 * 1024 ** 3, files: 12345 });
+      return sources();
+    };
+    const onUploadExport = vi.fn(async () => {});
+    const onStarted = vi.fn();
+    renderAddFiles(onUploadExport, onStarted);
+
+    // Google Drive isn't "coming soon" any more: what Google lets people download is a place like any other.
+    expect(await screen.findByRole("button", { name: /Google Photos and Drive/ })).toBeEnabled();
+    expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
+    await click(screen.getByRole("button", { name: /iCloud/ }));
+    expect(screen.getByRole("link", { name: "privacy.apple.com" })).toHaveAttribute("href", "https://privacy.apple.com");
+    expect(screen.getByText("Request a copy of your data")).toBeInTheDocument();
+    // What's in them so far, with what's still to come, which is what to check before adding.
+    expect(await screen.findByText("Photos", { selector: "strong" })).toBeInTheDocument();
+    expect(await screen.findByText(/12,345 photos and videos · part 3 of 5 not added yet/)).toBeInTheDocument();
+
+    // Only zips go, each by its own name; one chosen twice goes once, and two with one name both go.
+    const part = file("Downloads/iCloud Photos Part 1 of 5.zip", "one");
+    const again = file("Old/iCloud Photos Part 1 of 5.zip", "two!");
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("choose-files"), {
+        target: { files: [part, file("notes.txt"), again, part] },
+      });
+    });
+    await waitFor(() => expect(onUploadExport).toHaveBeenCalledTimes(1));
+    expect(onUploadExport.mock.calls[0]).toEqual([
+      "icloud",
+      [
+        { file: part, path: "iCloud Photos Part 1 of 5.zip" },
+        { file: again, path: "iCloud Photos Part 1 of 5 2.zip" },
+      ],
+    ]);
+
+    // What's already there can be brought in by itself.
+    answer = (path, method) =>
+      path === "/imports" && method === "POST" ? json({ job: { id: "job-1" } }) : sources();
+    await click(screen.getByRole("button", { name: "Add all" }));
+    await waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
+    expect(asked.find((request) => request.path === "/imports")?.body).toEqual({
+      source: "icloud",
+      remotePaths: ["/"],
+      label: "iCloud",
+    });
+  });
+
+  it("says how to use Takeout, and what to choose when nothing chosen is a zip", async () => {
+    answer = (path) => (path.startsWith("/imports/sources/google/files") ? json([]) : sources());
+    const onUploadExport = vi.fn(async () => {});
+    renderAddFiles(onUploadExport);
+
+    await click(await screen.findByRole("button", { name: /Google/ }));
+    expect(screen.getByRole("link", { name: "takeout.google.com" })).toBeInTheDocument();
+    expect(await screen.findByText("No zip files added yet.")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("choose-files"), { target: { files: [file("takeout.tgz")] } });
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Choose the zip files you downloaded from Google.");
+    expect(onUploadExport).not.toHaveBeenCalled();
   });
 });
 

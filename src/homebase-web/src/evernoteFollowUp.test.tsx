@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SignedOutError } from "./api";
-import { bringNotesWhenFree, type FollowUp } from "./evernoteFollowUp";
+import { bringNotesWhenFree, importEverything, MOST_ROUNDS, type FollowUp } from "./evernoteFollowUp";
+import type { ImportJob, ImportStage } from "./api";
 
 const gate = (): { current: FollowUp } => ({ current: { going: false, again: false } });
 
@@ -91,5 +92,59 @@ describe("bringing Evernote notes in after an export", () => {
     );
     await expect(run).rejects.toBeInstanceOf(SignedOutError);
     expect(state.current).toEqual({ going: false, again: false });
+  });
+});
+
+describe("bringing in everything an export holds", () => {
+  const job = (id: string, stage: ImportStage = "Done", more = false) =>
+    ({ id, stage, running: false, result: { more } }) as unknown as ImportJob;
+
+  it("starts another while the one before stopped at the most one import brings", async () => {
+    const started: string[] = [];
+    const left = [true, true, false];
+    await importEverything(
+      async () => {
+        const id = `job-${started.length + 1}`;
+        started.push(id);
+        return job(id);
+      },
+      async (begun) => job(begun.id, "Done", left[started.length - 1]),
+      true,
+    );
+    expect(started).toEqual(["job-1", "job-2", "job-3"]);
+  });
+
+  it("stops at one when somebody stopped it, it failed, another took over, or it isn't asked to carry on", async () => {
+    for (const [finished, carryOn] of [
+      [job("job-1", "Stopped", true), true],
+      [job("job-1", "Failed", true), true],
+      [job("someone-else", "Done", true), true],
+      [null, true],
+      [job("job-1", "Done", true), false],
+    ] as const) {
+      let starts = 0;
+      await importEverything(
+        async () => {
+          starts++;
+          return job("job-1");
+        },
+        async () => finished,
+        carryOn,
+      );
+      expect(starts).toBe(1);
+    }
+  });
+
+  it("gives up eventually on an import that always says there's more", async () => {
+    let starts = 0;
+    await importEverything(
+      async () => {
+        starts++;
+        return job("job");
+      },
+      async () => job("job", "Done", true),
+      true,
+    );
+    expect(starts).toBe(MOST_ROUNDS);
   });
 });

@@ -1,4 +1,5 @@
 import { SignedOutError } from "./api";
+import type { ImportJob } from "./api";
 
 /**
  * Bringing Evernote notes in after an export has uploaded. One import at a time: a later export
@@ -73,5 +74,26 @@ export async function bringNotesWhenFree(
   } catch (problem) {
     gate.current = { going: false, again: false };
     throw problem;
+  }
+}
+
+/** The most imports one follow-up runs in a row, so one that keeps saying there's more can't go on for ever. */
+export const MOST_ROUNDS = 100;
+
+/**
+ * Starts an import and waits for it to finish. One import brings so many files at most, and a photo
+ * library can hold more, so where <code>carryOn</code> is set another starts whenever the one before
+ * finished with more left — and only then: one that was stopped, or failed, is the last.
+ */
+export async function importEverything(
+  start: () => Promise<ImportJob>,
+  finished: (job: ImportJob) => Promise<ImportJob | null>,
+  carryOn: boolean,
+): Promise<void> {
+  for (let round = 1; ; round++) {
+    const job = await start();
+    const done = await finished(job);
+    const more = done?.id === job.id && done.stage === "Done" && done.result?.more === true;
+    if (!carryOn || !more || round >= MOST_ROUNDS) return;
   }
 }

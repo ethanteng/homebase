@@ -184,7 +184,7 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   goes the next time the account's bin is opened or added to, or Uncloud starts. The bin counts
   toward the account's usage until it lets go.
 
-**Bringing files in** — two sources, one import engine
+**Bringing files in** — several sources, one import engine
 
 - **A folder on the host's computer**: a Dropbox, Google Drive, OneDrive or iCloud Drive folder a
   desktop app already syncs, an old drive, `Documents`. An administrator chooses which folders are
@@ -192,6 +192,9 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
 - **A Dropbox account online**, read-only, over OAuth with PKCE. Each account connects its own
   Dropbox. The Dropbox app key can be set by the administrator for everybody, or by any person for
   themselves, entirely in the app.
+- **Export files somebody downloads**, for services that can't be signed in to: the zips iCloud
+  (privacy.apple.com) and Google Takeout make of everything an account holds, and Evernote's
+  notebook exports. They're uploaded into the person's own folder and read from there.
 - Imports run as background jobs with progress and **Stop**, check the drive has room before
   starting, never overwrite anything, bring only what's new on a repeat, and log provenance.
 
@@ -223,8 +226,9 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
 
 - Sharing a folder between accounts, per-account storage quotas, search across folders, and a
   restore button for synced files.
-- Direct connectors for Google Drive or iCloud (use their synced folders instead). Evernote can't be
-  signed in to; its export files are brought in instead (see [Evernote's export files](#evernotes-export-files)).
+- Direct connectors for Google Drive or iCloud. Their export zips are brought in instead (see
+  [iCloud's and Google's export zips](#iclouds-and-googles-export-zips)), or their synced folders. Evernote
+  can't be signed in to; its export files are brought in instead (see [Evernote's export files](#evernotes-export-files)).
 - A packaged, signed app, a background service that starts with the computer, and a desktop client.
   The folder chooser is macOS-only; elsewhere you type a path.
 - Any backup. See [Keeping a copy](#keeping-a-copy).
@@ -616,9 +620,9 @@ Everything comes in through one place: **Add files** on **My files**. It asks wh
 the device the browser is on, this computer, an online account such as Dropbox, or a folder somebody
 shared. Files from the browser's own device are sent by the page rather than imported (see
 [What's built](#whats-built)); every other source is browsed and added the same way, because underneath it is the same import: the same walk, the same
-room check, the same never-overwrite rule, the same log. Evernote is one of them, read from the
-export files its app saves; Google Drive appears there as *coming soon*, and will be an online
-account like Dropbox when it arrives.
+room check, the same never-overwrite rule, the same log. iCloud, Google and Evernote are among
+them, read from the export files each saves; a Google Drive sign-in would be an online account
+like Dropbox if it comes.
 
 What anybody adds is **theirs alone**. Sharing is a separate, deliberate step, not the default.
 
@@ -783,6 +787,104 @@ references before parsing. Encrypted text (`en-crypt`) is left encrypted and sai
 markup isn't well formed keeps its words as plain text. A note the file stops partway through, from
 an export still being written when it was copied, is still listed and says so. Both are counted in
 the notebook's summary, beside the note count people check against Evernote before cancelling.
+
+### iCloud's and Google's export zips
+
+Neither iCloud nor Google Drive and Photos can be signed in to from a server: Apple has no public
+API for iCloud Drive or Photos, Google Photos stopped letting apps read a whole library in March
+2025, and Drive's read-everything scope needs Google's paid yearly security review. Both will put
+everything an account holds into zips to download, though — Apple at privacy.apple.com in parts of
+up to 25 GB, Google Takeout in parts of up to 50 GB — and `ExportSource` is an `IImportSource` over
+those zips, with an `IExportLayout` for each: `AppleExport` and `GoogleTakeout`.
+
+**Where things go.** As with Evernote, the zips are uploaded into a folder at the top of the
+account's folder, `iCloud/` or `Google/` (`POST /api/imports/exports/{icloud|google}/folder` makes it
+first), and what's in them lands beside them. Once an upload from either panel has finished, the page
+imports the whole source (`/`), and again while each import ends at the engine's 20,000-file cap
+with more left, so a large photo library arrives without anybody adding it again.
+
+```
+iCloud/iCloud Photos Part 1 of 3.zip    the zips, kept until somebody deletes them
+iCloud/Photos/2019/IMG_0001.HEIC        each photo once, in the year it was taken, with that date
+iCloud/Albums/Birthdays.html            each album, as a page of links to its photos
+iCloud/Recently Deleted/…               what was in the bin, kept apart
+iCloud/iCloud Drive/…                   iCloud Drive's own folders
+Google/Drive/…                          Drive's own folders (Docs as .docx and so on)
+Google/Trash/…                          Google Photos' bin
+```
+
+**Reading zips in place.** Unpacking a 50 GB zip first would need its room twice. `ZipIndex` reads a
+zip's central directory (zip64 included) and then each file's bytes straight from where they lie,
+through a `FileWindow` and, for deflated entries, a `DeflateStream`. Nothing in a zip is believed:
+every offset and length is held to the file; a file's contents stop at the size the directory gave,
+which is what the room check counted, so a zip can't fill a disk; and each file's CRC-32 is checked as
+it's read, so a part damaged or cut short in the download fails that file (skipped, with why) rather
+than arriving as a broken photo. Paths are split on either slash, `.` parts dropped, and anything with
+`..`, a NUL, or a symlink's mode is left out, and the zip is listed saying how many. Names not marked UTF-8 are read as UTF-8 if
+they are valid, else as code page 437; Info-ZIP's Unicode path field wins when its checksum matches.
+Each zip's directory is read once and kept until the zip's size or date changes. Encrypted entries and
+methods other than stored and deflate are refused per file.
+
+**Dates.** The dates on files in both exports are when the export was made, which is no use, so each
+layout gets a photo's date from the export's own details and `IImportSource.KeepsDates` has the engine
+set it on the file before moving it into place. Apple writes it in `Photo Details*.csv` beside the
+photos (`originalCreationDate`, like `Thursday August 29,2013 7:08 AM GMT`, UTC to the minute), one
+row per photo by name. Each part's spreadsheets describe that part only, and the same name is often a
+different photo in another part, so a row is matched only within its own part (and its own
+`Photos/` or `Recently Deleted/` folder). iCloud Drive's dates come from `Drive/Drive Details.csv`
+(`Modified On`, `MM-DD-YYYY HH:MM:SS`, which reads as Pacific time), used only where a file's name and
+size are one row's alone, since the spreadsheet names files without their folders. Google keeps a
+photo's details in a JSON file beside it: `photoTakenTime.timestamp`, else `creationTime`, in Unix
+seconds as a string. Its name is the photo's plus `.json` (before late 2024) or
+`.supplemental-metadata.json`, cut to 51 characters in all. A `(1)` that was already part of the
+photo's name stays in the details file's name; a `(1)` Takeout added to tell two photos apart moves
+to after the ending. `-edited` copies (and the same in other languages) and live photos' videos
+share the original's. `GoogleTakeout.Match` tries the name as written first, then the moved `(1)`,
+then the longest cut-short name that starts what the full one would be, then — only when the name
+has no `(1)` — the one file whose `title` is the photo's name. A photo
+with no date at all goes in the year folder Google filed it under, or `Undated`, and carries no date
+rather than the export's: so does any of Apple's files that nothing else dates. A file that arrived
+before the part with its date (a Takeout part can hold a photo's details and not the photo) is given
+that date on a later import, if it is still what Uncloud wrote: only the date, never where it is,
+since its name and place are what album pages and the log find it by.
+
+**Each photo once.** A photo's key is its size and CRC-32, which is the same in every copy of it and
+every export it's in, so a photo in a year folder and three albums arrives once, and a newer export
+brings only photos that are new. Other files are keyed by their path in the export with the part
+taken off. Like Evernote's notes, a file that has arrived keeps the name it arrived with, and a new one
+never takes a name the log already has, so a part added later can't land on top of one already in and
+names hold still during an import; two photos that would share a name in one year are numbered. A
+copy only ever in the bin (Google's `trashed`, or Apple's `Recently Deleted/`) goes in a folder of its
+own instead of among the years.
+
+**Albums** become pages rather than second copies of their photos (`AlbumPage`): links and pictures
+pointing up into `Photos/`, no scripts, the same Content-Security-Policy as Evernote's pages. Apple's
+are `Albums/<title>.csv`, a column of photo names (headed `Images`, `imgName` or `imageName`), usually
+in a different part from the photos; a name stands for every photo of that name, since nothing else
+says which, and spreadsheets for albums of the same name are put together. Takeout's are folders with a small JSON of their own that has a `title` and no photo
+dates (`metadata.json`, `Metadaten.json`, and so on), holding copies of the photos, or in some 2026
+exports only their details files, which are then matched to photos by title and date taken.
+A page is the one file the engine may bring again: it's marked `Refreshable`, so when a part added
+later puts more photos in its album, its new version replaces the one Uncloud wrote — only while that
+file is still exactly what Uncloud wrote, by the hash in the log, so a page somebody edited or deleted
+is left alone. A page only ever gains photos: what an arrived page already shows is read back from its
+links and kept, so adding a part after the earlier zips were deleted doesn't shrink it. A page too large
+to read back (over 16 MB) is left as it is rather than made again from less.
+
+**Recognising them.** Takeout zips have everything under `Takeout/`, then a folder per product; Google
+Photos is found by its name in the languages it's been seen in, or by being media with JSON beside
+it, and every other product (Drive above all) keeps its folders under its own name. Takeout numbers
+its parts `-001` and so on without a total, so only a gap can be called missing, and since which product
+a missing part held can't be told, the part is listed by its own name. Apple's zips have one
+folder at the top, named after the part ("iCloud Photos Part 2 of 5", translated, such as
+"iCloud-bilder Del 2 av 5"), so what a part holds is told from what's in it: `Photos/Photo Details*`,
+`Albums/`, `Memories/` or `Recently Deleted/` for photos, `Drive/Drive Details.csv` for iCloud Drive;
+anything else Apple sent keeps its own folder. Missing parts are said beside the count. A zip that
+isn't either, or is the other one's, is listed with why and brings nothing. With Advanced Data
+Protection on, Apple sends the spreadsheets without the photos, and the Photos folder says so.
+
+Not yet: shared albums, which Apple sends as zips inside its parts, arrive as those zips; Memories
+aren't brought; nor are `.tgz` Takeouts, or a file Takeout put outside any zip for being too big.
 
 ### Either way
 

@@ -38,6 +38,24 @@ public sealed class ImportLog
         return arrived;
     }
 
+    /// <summary>What was recorded when one thing arrived from one place, or null if it hasn't.</summary>
+    public ImportedFile? Find(string root, string provider, string remotePath)
+    {
+        using var connection = MetadataIndex.Open(root);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT provider, remote_path, remote_rev, local_path, size, content_hash, imported_at
+            FROM imported_files WHERE provider = $provider AND remote_path = $remote
+            """;
+        command.Parameters.AddWithValue("$provider", provider);
+        command.Parameters.AddWithValue("$remote", remotePath);
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? new ImportedFile(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
+                reader.GetInt64(4), reader.GetString(5), DateTimeOffset.Parse(reader.GetString(6)))
+            : null;
+    }
+
     public bool Contains(string root, string provider, string remotePath)
     {
         using var connection = MetadataIndex.Open(root);

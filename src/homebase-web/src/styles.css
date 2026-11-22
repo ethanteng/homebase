@@ -115,7 +115,8 @@ a {
 }
 /* A link in a sentence has to look like one; links dressed as buttons keep their own look. */
 .field-help a:not([class]),
-.library-note a:not([class]) {
+.library-note a:not([class]),
+.export-steps a:not([class]) {
   color: var(--accent-text);
   text-decoration: underline;
   text-underline-offset: 2px;
