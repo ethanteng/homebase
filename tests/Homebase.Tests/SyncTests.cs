@@ -593,9 +593,9 @@ public sealed class SyncTests : IDisposable
         var requests = Requests();
         var ticket = requests.Open(Laptop, "Laptop", true, "10.0.0.5");
 
-        requests.Decline(ticket.Id, _ada.Id);
+        await requests.DeclineAsync(ticket.Id, _ada.Id, CancellationToken.None);
         // Twice is harmless: a second tap.
-        requests.Decline(ticket.Id, _ada.Id);
+        await requests.DeclineAsync(ticket.Id, _ada.Id, CancellationToken.None);
         Assert.Equal(PairingRequests.Declined, requests.Describe(ticket.Id, _ada.Id).State);
         Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Describe(ticket.Id, _bo.Id)).Code);
 
@@ -621,11 +621,36 @@ public sealed class SyncTests : IDisposable
         var ticket = requests.Open(Laptop, "Laptop", false, null);
         await requests.ApproveAsync(ticket.Id, _ada.Id, _ => _adaRoot, CancellationToken.None);
 
-        var refused = Assert.Throws<LibraryException>(() => requests.Decline(ticket.Id, _ada.Id));
+        var refused = await Assert.ThrowsAsync<LibraryException>(
+            () => requests.DeclineAsync(ticket.Id, _ada.Id, CancellationToken.None));
         Assert.Equal("conflict", refused.Code);
         Assert.Contains("click Remove", refused.Message);
         // Somebody else is told nothing about it.
-        Assert.Equal("not_found", Assert.Throws<LibraryException>(() => requests.Decline(ticket.Id, _bo.Id)).Code);
+        Assert.Equal("not_found", (await Assert.ThrowsAsync<LibraryException>(
+            () => requests.DeclineAsync(ticket.Id, _bo.Id, CancellationToken.None))).Code);
+        Assert.True(requests.Answer(ticket.Id, ticket.Secret).Approved);
+    }
+
+    [Fact]
+    public async Task A_no_from_another_tab_waits_for_a_yes_already_pairing_the_computer()
+    {
+        var requests = Requests();
+        var ticket = requests.Open(Laptop, "Laptop", true, null);
+        var slow = new TaskCompletionSource();
+        _syncthing.HoldDeviceAdds = slow.Task;
+
+        // Yes in one tab, held while Syncthing adds the computer; no in another, meanwhile.
+        var yes = requests.ApproveAsync(ticket.Id, _ada.Id, _ => _adaRoot, CancellationToken.None);
+        var no = requests.DeclineAsync(ticket.Id, _ada.Id, CancellationToken.None);
+        await Task.Delay(50);
+        Assert.False(no.IsCompleted);
+
+        slow.SetResult();
+        await yes;
+        // The yes came first and the computer is syncing, so the no is refused and nothing disagrees.
+        Assert.Equal("conflict", (await Assert.ThrowsAsync<LibraryException>(() => no)).Code);
+        Assert.Equal(_ada.Id, _ownership.FindDevice(Laptop)!.UserId);
+        Assert.Equal(PairingRequests.Added, requests.Describe(ticket.Id, _ada.Id).State);
         Assert.True(requests.Answer(ticket.Id, ticket.Secret).Approved);
     }
 

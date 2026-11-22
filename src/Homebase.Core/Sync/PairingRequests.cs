@@ -161,23 +161,34 @@ public sealed class PairingRequests(
     /// Says no to a computer that asked, so it stops waiting and says it wasn't added. Final: the
     /// same code can't be approved afterwards, by this person or anybody else. Saying no twice is
     /// harmless; saying no to a computer already added is refused, since it's syncing by then.
+    /// Decided one at a time with approving: a no from another tab waits for a yes already under
+    /// way, rather than landing while it pairs the computer and leaving one added that the
+    /// computer is told wasn't.
     /// </summary>
-    public void Decline(string? id, string userId)
+    public async Task DeclineAsync(string? id, string userId, CancellationToken cancellationToken)
     {
-        lock (_requests)
+        await _approving.WaitAsync(cancellationToken);
+        try
         {
-            if (Find(id) is not { } request) throw Gone();
-            if (request.DeclinedBy is { } declinedBy)
+            lock (_requests)
             {
-                if (declinedBy == userId) return;
-                throw Gone();
+                if (Find(id) is not { } request) throw Gone();
+                if (request.DeclinedBy is { } declinedBy)
+                {
+                    if (declinedBy == userId) return;
+                    throw Gone();
+                }
+                if (request.Result is not null)
+                    throw request.ApprovedBy == userId
+                        ? new LibraryException(
+                            "That computer is already added. To stop it syncing, open Computers and click Remove next to it.", "conflict")
+                        : Gone();
+                request.DeclinedBy = userId;
             }
-            if (request.Result is not null)
-                throw request.ApprovedBy == userId
-                    ? new LibraryException(
-                        "That computer is already added. To stop it syncing, open Computers and click Remove next to it.", "conflict")
-                    : Gone();
-            request.DeclinedBy = userId;
+        }
+        finally
+        {
+            _approving.Release();
         }
     }
 

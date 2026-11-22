@@ -1568,9 +1568,9 @@ app.MapPost("/api/sync/pairing-requests/{id}/approve", async (string id, Current
     return Results.Ok(await sync.StatusAsync(user.Id, cancellationToken));
 });
 // No to a computer that asked, so it stops waiting and says it wasn't added.
-app.MapPost("/api/sync/pairing-requests/{id}/decline", (string id, CurrentUser user, PairingRequests requests) =>
+app.MapPost("/api/sync/pairing-requests/{id}/decline", async (string id, CurrentUser user, PairingRequests requests, CancellationToken cancellationToken) =>
 {
-    requests.Decline(id, user.Id);
+    await requests.DeclineAsync(id, user.Id, cancellationToken);
     return Results.Ok(new { declined = true });
 });
 // Whether other computers can reach this Uncloud, for Computers to say before anybody starts: the

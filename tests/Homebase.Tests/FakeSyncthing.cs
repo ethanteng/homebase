@@ -27,11 +27,14 @@ public sealed class FakeSyncthing : ISyncthingApi
     public Task<IReadOnlyList<SyncthingDevice>> DevicesAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<SyncthingDevice>>(Devices.Values.ToArray());
 
-    public Task AddDeviceAsync(string deviceId, string name, CancellationToken cancellationToken)
+    /// <summary>Holds every device add until it completes, as a slow Syncthing would.</summary>
+    public Task? HoldDeviceAdds { get; set; }
+
+    public async Task AddDeviceAsync(string deviceId, string name, CancellationToken cancellationToken)
     {
+        if (HoldDeviceAdds is { } hold) await hold.WaitAsync(cancellationToken);
         if (Devices.ContainsKey(deviceId)) throw new InvalidOperationException($"{deviceId} added twice");
         Devices[deviceId] = new SyncthingDevice(deviceId, name, false, null, false);
-        return Task.CompletedTask;
     }
 
     public Task RemoveDeviceAsync(string deviceId, CancellationToken cancellationToken)
