@@ -164,10 +164,10 @@ public sealed partial class LibraryService
                     foreach (var (same, file) in sending)
                         if (!whole.Contains(same)
                             && pieces.TryGetValue(PieceName(same, file.Bytes, When(file.Modified)?.ToUnixTimeMilliseconds()), out var some)
-                            && some > 0 && some < file.Bytes)
+                            && Short(some, file.Bytes) is > 0 and var usable)
                         {
-                            partly.Add(new PartArrived(file.Path!, some));
-                            bytes += some;
+                            partly.Add(new PartArrived(file.Path!, usable));
+                            bytes += usable;
                         }
             }
             // Finished or thrown away while it was looked at.
@@ -380,17 +380,25 @@ public sealed partial class LibraryService
 
     /// <summary>
     /// How much of a file being sent in pieces is here: what a page asks after a piece went
-    /// unanswered, so it carries on from there rather than from the start of that piece. All of it,
-    /// when it's whole already and only the answer to its last piece was lost.
+    /// unanswered, so it carries on from there rather than from the start of that piece. All of it
+    /// only once it's in its place in the upload — whole, with only the answer to its last piece lost.
     /// </summary>
     public long PieceArrived(string? id, string? path, long size, DateTimeOffset? modified)
     {
         var upload = Upload(id);
         var target = FileIn(upload, path);
         var piece = new FileInfo(Path.Combine(upload, ".parts", PieceName(path!, size, modified)));
-        if (piece.Exists && piece.LinkTarget is null) return Math.Min(piece.Length, size);
+        if (piece.Exists && piece.LinkTarget is null) return Short(piece.Length, size);
         return Whole(target, size, modified) ? size : 0;
     }
+
+    /// <summary>
+    /// How much of a file still arriving in pieces to say is here: never all of it. Every byte may
+    /// have been written and the request stopped — or Uncloud restarted — before it was moved into
+    /// place, and a file said to be whole there would never be sent the last of, nor be in the upload
+    /// when it's finished. Its last byte sent again moves it into place.
+    /// </summary>
+    private static long Short(long arrived, long size) => Math.Max(0, Math.Min(arrived, size - 1));
 
     /// <summary>
     /// Where a file of an upload goes: <paramref name="path"/> inside it, refused by the same rules
@@ -455,7 +463,7 @@ public sealed partial class LibraryService
     /// file — the same path, size and time last changed — and different for any other, so a file
     /// changed since an earlier try starts again rather than carrying on from the old one.
     /// </summary>
-    private static string PieceName(string path, long size, DateTimeOffset? modified) =>
+    internal static string PieceName(string path, long size, DateTimeOffset? modified) =>
         PieceName(path, size, modified?.ToUnixTimeMilliseconds());
 
     private static string PieceName(string path, long size, long? modified) =>

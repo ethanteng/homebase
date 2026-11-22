@@ -1043,6 +1043,35 @@ public sealed class UploadTests : IDisposable
     }
 
     [Fact]
+    public async Task A_file_written_whole_but_never_moved_into_place_isnt_said_to_have_arrived()
+    {
+        var (app, admin, _, member, root) = await StartAsync();
+        using var __ = app;
+        using var ___ = admin;
+        using var ____ = member;
+        var then = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero);
+        const string notebook = "every byte of it";
+        object[] export = [Described("Notebook.enex", notebook, then)];
+        var id = (await BeginSendingAsync(member, "", export)).Id;
+        // Every byte written, and then the request stopped — or Uncloud restarted — before it was moved into place.
+        var parts = Directory.CreateDirectory(Path.Combine(Uploads(root), id, ".parts")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(parts, LibraryService.PieceName("Notebook.enex", notebook.Length, then)), notebook);
+
+        // Said to be all there, the page would never send the last of it, and finishing would lose it.
+        Assert.Equal(notebook.Length - 1, await PieceArrivedAsync(member, id, "Notebook.enex", notebook.Length, then.ToUnixTimeMilliseconds()));
+        var response = await member.PostAsJsonAsync("/api/uploads", new { destination = "", bytes = notebook.Length, files = export });
+        var part = Assert.Single((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("partly").EnumerateArray());
+        Assert.Equal(notebook.Length - 1, part.GetProperty("bytes").GetInt64());
+
+        // Its last byte sent again moves it into place.
+        (await SendPieceAsync(member, id, "Notebook.enex", "t", notebook.Length - 1, notebook.Length, then.ToUnixTimeMilliseconds()))
+            .EnsureSuccessStatusCode();
+        Assert.Equal(notebook.Length, await PieceArrivedAsync(member, id, "Notebook.enex", notebook.Length, then.ToUnixTimeMilliseconds()));
+        await FinishAsync(member, id);
+        Assert.Equal(notebook, await File.ReadAllTextAsync(Path.Combine(root, "Notebook.enex")));
+    }
+
+    [Fact]
     public async Task An_earlier_try_at_a_piece_still_waiting_on_its_connection_gives_way_to_the_next()
     {
         var root = Directory.CreateDirectory(Path.Combine(_temporary, "Library")).FullName;

@@ -482,6 +482,11 @@ export function useUpload(active: boolean, onUploaded: () => void) {
       // What arrived on an earlier try is done from the start, and isn't sent again.
       const rest = items.filter((item) => !already.has(item.path));
       const resumed = items.length - rest.length;
+      // Whether an earlier try left anything here, whole files or the start of one: never this one's to throw away.
+      const earlier = resumed > 0 || partly.size > 0;
+      // Whether any of a file sent in pieces is on the host, from this try or an earlier one. Kept
+      // when the connection gives out, like a whole file, so adding it again carries on from there.
+      let piecesHere = partly.size > 0;
       let next = 0;
       let doneFiles = resumed;
       let doneBytes = bytes - rest.reduce((sum, item) => sum + item.file.size, 0);
@@ -547,6 +552,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
                 if (there !== null) {
                   at = there;
                   job.loaded.set(item.path, at);
+                  if (at > 0) piecesHere = true;
                 }
               }
               if (!inPieces) await send(id, item, (loaded) => job.loaded.set(item.path, loaded), job.requests);
@@ -556,6 +562,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
                   const to = Math.min(from + PIECE, size);
                   await send(id, item, (loaded) => job.loaded.set(item.path, from + loaded), job.requests, { from, to });
                   at = to;
+                  piecesHere = true;
                   // Moving again, so whatever wait came before is behind it.
                   waited = 0;
                   attempt = 1;
@@ -644,7 +651,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         return;
       }
       // Lost to the connection, what arrived is kept, so adding them again needn't send it all again.
-      if (unanswered && arrived > 0) {
+      if (unanswered && (arrived > 0 || piecesHere)) {
         update(key, {
           stage: "failed",
           error:
@@ -654,7 +661,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
         return;
       }
       // Whatever went wrong this time, what an earlier try left was never this one's to throw away.
-      if (fatal !== null && fatal !== gone && resumed > 0) {
+      if (fatal !== null && fatal !== gone && earlier) {
         // "Nothing was added" would deny the files this try picked up.
         update(key, {
           stage: "failed",
@@ -701,7 +708,7 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           problem instanceof Error && problem.message.includes("still bringing files into");
         // What an earlier try left isn't this one's to throw away when it never got into My files.
         // If the host did finish and only the reply was lost, the upload is already gone.
-        if (resumed === 0 && !heldBack) await discard(id);
+        if (!earlier && !heldBack) await discard(id);
         if (unanswered) onUploaded();
         const kept =
           " What had arrived is kept for a day, so adding the same files again sends only the rest.";
@@ -715,8 +722,8 @@ export function useUpload(active: boolean, onUploaded: () => void) {
           stage: "failed",
           error: unanswered
             ? "Uncloud didn’t answer while putting them in place, so they may already be in your files. Look there before adding them again." +
-              (resumed > 0 ? " If they aren’t, what had arrived is kept for a day." : "")
-            : heldBack || resumed > 0
+              (earlier ? " If they aren’t, what had arrived is kept for a day." : "")
+            : heldBack || earlier
               ? refused + kept
               : problem instanceof SignedOutError
                 ? signedOut

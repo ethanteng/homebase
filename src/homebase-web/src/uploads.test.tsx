@@ -1095,6 +1095,51 @@ describe("when the connection or the page goes away partway", () => {
     }
   });
 
+  it("keeps the pieces of a big file that arrived when Uncloud stops answering, so adding it again carries on", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const export_ = file("Recipes.enex");
+      Object.defineProperty(export_, "size", { value: 3 * PIECE });
+      const accept = accepting();
+      answer = (path, method, body) =>
+        // Not answering this either: what arrived is only what the page knows of.
+        path.startsWith("/uploads/u1/piece?") ? Promise.reject(new TypeError("Failed to fetch")) : accept(path, method, body);
+      // The first piece arrives, then nothing more does.
+      FakeRequest.respond = (request) =>
+        FakeRequest.sent.length === 1 ? request.finish(200, { bytes: PIECE }) : request.onerror?.();
+      render(<Harness chosen={pickedFrom([export_])} />);
+
+      await click(screen.getByText("Send"));
+      await waitFor(() => expect(FakeRequest.sent.length).toBeGreaterThan(1));
+      await passes(GIVE_UP_AFTER + 60_000, 5000);
+
+      expect(await screen.findByRole("status")).toHaveTextContent(
+        "What arrived is kept for a day: check you’re still connected, then add the same files again and only the rest is sent.",
+      );
+      expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never throws away the start of a big file an earlier page sent, whatever ends this try", async () => {
+    const export_ = file("Recipes.enex");
+    Object.defineProperty(export_, "size", { value: 3 * PIECE });
+    const accept = accepting();
+    answer = (path, method, body) =>
+      path === "/uploads" && method === "POST"
+        ? json({ id: "u1", partly: [{ path: "Recipes.enex", bytes: 5000 }] })
+        : accept(path, method, body);
+    // Signed out on another tab before the first piece of this try arrives.
+    FakeRequest.respond = (request) => request.finish(401, { detail: "Sign in again." });
+    render(<Harness chosen={pickedFrom([export_])} />);
+
+    await click(screen.getByText("Send"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("What had arrived is kept for a day.");
+    expect(asked.some((request) => request.method === "DELETE")).toBe(false);
+  });
+
   it("sends a file no bigger than a piece whole, as it always was", async () => {
     answer = accepting();
     render(<Harness chosen={pickedFrom([file("small.enex")])} />);

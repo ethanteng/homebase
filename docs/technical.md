@@ -136,9 +136,12 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   `offset`, cutting anything an earlier try at it left past there, and refused with a 409 if the file
   has less than that; one still lingering on a dropped connection gives way at once to a newer try
   at the same file rather than holding it for 45 seconds. After a piece goes unanswered the page
-  asks `GET /api/uploads/{id}/piece?path=&size=&modified=` how much has arrived (all of it, if the
-  file is whole and only the last answer was lost) and carries on from there, so a dropped connection
-  costs only what was on its way. Beginning the same files again also answers `partly: [{ path, bytes }]`
+  asks `GET /api/uploads/{id}/piece?path=&size=&modified=` how much has arrived (all of it only once
+  the file is in its place in the upload; a piece file that has every byte but was never moved there —
+  the request stopped, or Uncloud restarted, in between — is said to be one byte short, so the page
+  sends that byte again and it's moved into place) and carries on from there, so a dropped connection
+  costs only what was on its way. When the connection is given up on, what arrived of a file sent in
+  pieces is kept like a whole file, and whatever an earlier page left is never thrown away. Beginning the same files again also answers `partly: [{ path, bytes }]`
   for files of which only the start arrived, so a page closed partway carries on too; a file changed
   since has a different piece name and starts again. While the browser says it's
   offline, a file waits for the `online` event and isn't counted as Uncloud failing to answer; while
