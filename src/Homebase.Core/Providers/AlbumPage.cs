@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Homebase.Core.Providers;
 
@@ -10,7 +11,7 @@ namespace Homebase.Core.Providers;
 /// with Uncloud, and it is only words and links: nothing in an export, which may have come from
 /// anybody, gets to run.
 /// </summary>
-public static class AlbumPage
+public static partial class AlbumPage
 {
     private static readonly HashSet<string> Pictures = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -56,6 +57,28 @@ public static class AlbumPage
         }
         return page.Append("</ul>\n</main>\n</body>\n</html>\n").ToString();
     }
+
+    /// <summary>
+    /// What a page made by <see cref="Render"/> shows, by where each photo is relative to the
+    /// export's folder and its name, read back from its links. Anything else in it is passed over.
+    /// </summary>
+    public static IReadOnlyList<(string Path, string Name)> Shown(string page, string folder)
+    {
+        var up = folder.Split('/', StringSplitOptions.RemoveEmptyEntries).Length;
+        var shown = new List<(string, string)>();
+        foreach (Match match in Item().Matches(page))
+        {
+            var parts = WebUtility.HtmlDecode(match.Groups["link"].Value).Split('/');
+            if (parts.Length <= up || parts.Take(up).Any(part => part != "..")) continue;
+            var path = string.Join('/', parts.Skip(up).Select(Uri.UnescapeDataString));
+            if (path.Split('/').Any(part => part is "" or "." or "..")) continue;
+            shown.Add((path, WebUtility.HtmlDecode(match.Groups["name"].Value)));
+        }
+        return shown;
+    }
+
+    [GeneratedRegex("""<li><a href="(?<link>[^"]*)">.*?<span>(?<name>[^<]*)</span></a></li>""")]
+    private static partial Regex Item();
 
     private static string Escape(string text) => WebUtility.HtmlEncode(text);
 

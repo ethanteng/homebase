@@ -230,7 +230,7 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
         lock (_lock)
             if (!afresh && _named is { } kept && ReferenceEquals(kept.Reading, reading))
                 return kept;
-        var tree = Name(reading, log.Arrived(libraryRoot, ProviderId), layout.FolderName);
+        var tree = Name(reading, log.Arrived(libraryRoot, ProviderId), layout.FolderName, ShownBefore);
         lock (_lock) _named = (reading, tree);
         return (reading, tree);
     }
@@ -241,7 +241,13 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
     /// the order of their keys so the same export always names the same way. Names are compared
     /// ignoring case, as a Mac's disk does.
     /// </summary>
-    private static Tree Name(ExportReading reading, IReadOnlyDictionary<string, string> arrived, string prefix)
+    /// <param name="shownBefore">
+    /// What an album's page that has already arrived shows, by where it landed. A page only ever
+    /// gains photos: one added again with a part missing, or after its zips were deleted, still shows
+    /// everything it did.
+    /// </param>
+    private static Tree Name(ExportReading reading, IReadOnlyDictionary<string, string> arrived, string prefix,
+        Func<string, IReadOnlyList<(string Path, string Name)>> shownBefore)
     {
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var kept = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -280,10 +286,10 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
                 .OfType<Landed>().Where(landed => landed.File is not null).DistinctBy(landed => landed.Key).ToArray();
             if (shown.Length == 0) continue;
             var page = Place(album.Key, AlbumsFolder, Clean(album.Name, "Album") + ".html", null, album);
-            files[album.Key] = page with
-            {
-                Page = AlbumPage.Render(album.Name, prefix, page.Folder, shown.Select(landed => (landed.Path, landed.Name)).ToArray())
-            };
+            var before = kept.ContainsKey(album.Key) ? shownBefore(page.Path) : [];
+            var showing = before.Concat(shown.Select(landed => (landed.Path, landed.Name)))
+                .DistinctBy(photo => photo.Path, StringComparer.OrdinalIgnoreCase).ToArray();
+            files[album.Key] = page with { Page = AlbumPage.Render(album.Name, prefix, page.Folder, showing) };
         }
 
         var folders = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -309,6 +315,23 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
 
     private static string Join(string folder, string name) => folder.Length == 0 ? name : $"{folder}/{name}";
 
+    /// <summary>What the page that landed at a place in the export's folder shows, or nothing if it isn't there.</summary>
+    private IReadOnlyList<(string Path, string Name)> ShownBefore(string landed)
+    {
+        try
+        {
+            var full = PathPolicy.Resolve(libraryRoot, $"{layout.FolderName}/{landed}");
+            var file = new FileInfo(full);
+            if (!file.Exists || file.Length > 16 << 20) return [];
+            var folder = landed.LastIndexOf('/') is var split and >= 0 ? landed[..split] : "";
+            return AlbumPage.Shown(File.ReadAllText(full), folder);
+        }
+        catch (Exception failure) when (failure is LibraryException or IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>A name as a file can be called, or <paramref name="otherwise"/> when nothing of it is left.</summary>
     private static string Clean(string name, string otherwise) =>
         EvernoteSource.Clean(name, LongestName) is { Length: > 0 } cleaned ? cleaned : otherwise;
@@ -328,8 +351,11 @@ public sealed class ExportSource(string libraryRoot, ImportLog log, IExportLayou
         if (file.File is not { } exported)
         {
             var page = System.Text.Encoding.UTF8.GetBytes(file.Page ?? "");
+            // Made here from what the zips hold, so brought again when that changes: an album with
+            // photos in a part added later shows them once that part is in.
             return new SourceEntry(path, file.Name, path, "/" + file.Path, false, page.Length,
-                $"{page.Length}-{Crc32.Append(0, page).ToString("x8", CultureInfo.InvariantCulture)}", null);
+                $"{page.Length}-{Crc32.Append(0, page).ToString("x8", CultureInfo.InvariantCulture)}", null,
+                Refreshable: true);
         }
         var item = exported.Item;
         return new SourceEntry(path, file.Name, path, "/" + file.Path, false, item.Size,

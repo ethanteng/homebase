@@ -391,7 +391,8 @@ Good to know:
 - **Download them on the Uncloud computer if you can.** The zips are big, and that way they don't
   have to come in over the internet a second time.
 - **Add all the parts together.** When a photo was taken is sometimes in a different part from the
-  photo, and an album's list of photos usually is. Adding a part later still brings only what's new.
+  photo, and an album's list of photos usually is. Adding a part later still brings only what's new,
+  and adds its photos to their albums' pages (unless you've changed a page yourself).
 - **You need room for about twice what you're adding**, because the zips stay until you delete them.
   Uncloud checks it fits before it starts.
 - **With Advanced Data Protection on, Apple leaves your photos out** of the copy, and Uncloud says so.

@@ -858,6 +858,11 @@ in a different part from the photos; a name stands for every photo of that name,
 says which. Takeout's are folders with a small JSON of their own that has a `title` and no photo
 dates (`metadata.json`, `Metadaten.json`, and so on), holding copies of the photos, or in some 2026
 exports only their details files, which are then matched to photos by title and date taken.
+A page is the one file the engine may bring again: it's marked `Refreshable`, so when a part added
+later puts more photos in its album, its new version replaces the one Uncloud wrote — only while that
+file is still exactly what Uncloud wrote, by the hash in the log, so a page somebody edited or deleted
+is left alone. A page only ever gains photos: what an arrived page already shows is read back from its
+links and kept, so adding a part after the earlier zips were deleted doesn't shrink it.
 
 **Recognising them.** Takeout zips have everything under `Takeout/`, then a folder per product; Google
 Photos is found by its name in the languages it's been seen in, or by being media with JSON beside

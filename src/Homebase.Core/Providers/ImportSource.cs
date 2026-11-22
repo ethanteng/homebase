@@ -5,6 +5,9 @@ namespace Homebase.Core.Providers;
 /// place addresses the entry and is the key an import is recorded under; <paramref name="Rev"/> is
 /// whatever the place uses to say "these contents changed". <paramref name="Detail"/> is anything
 /// the place has to say about it that a size doesn't — how many notes are in a notebook, say.
+/// <paramref name="Refreshable"/> marks a file the place makes itself from what it holds, such as
+/// an album's page, which is brought again when what it's made from changes — in place of the copy
+/// Uncloud wrote, and only while that copy is still exactly what Uncloud wrote.
 /// </summary>
 public sealed record SourceEntry(
     string Id,
@@ -15,7 +18,8 @@ public sealed record SourceEntry(
     long? Size,
     string? Rev,
     DateTimeOffset? Modified,
-    string? Detail = null);
+    string? Detail = null,
+    bool Refreshable = false);
 
 /// <summary>
 /// Somewhere files can be brought home from. The import engine knows only this much, so an online

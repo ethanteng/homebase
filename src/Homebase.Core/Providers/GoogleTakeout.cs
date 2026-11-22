@@ -309,10 +309,10 @@ public sealed partial class GoogleTakeout : IExportLayout
                     JsonValueKind.Number when stamp.TryGetInt64(out var value) => value,
                     _ => (long?)null,
                 };
-                // Zero is what Google writes when it doesn't know.
-                if (seconds is > 0 and < 253402300800)
+                // Zero is what Google writes when it doesn't know. Before 1970 is below zero, and a real date.
+                if (seconds is { } known and not 0 and >= -62135596800 and < 253402300800)
                 {
-                    taken = DateTimeOffset.FromUnixTimeSeconds(seconds.Value);
+                    taken = DateTimeOffset.FromUnixTimeSeconds(known);
                     break;
                 }
             }

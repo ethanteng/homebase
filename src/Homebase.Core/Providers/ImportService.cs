@@ -153,9 +153,13 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         // estimate wrote off as already home was one the import then went and fetched, over room
         // the drive was never checked for. Dropbox hands back lowercased paths either way.
         var fromHere = log.List(root).Where(file => file.Provider == source.ProviderId)
-            .Select(file => file.RemotePath).ToHashSet(StringComparer.Ordinal);
+            .ToDictionary(file => file.RemotePath, file => file.RemoteRev, StringComparer.Ordinal);
         var arrived = log.LocalPaths(root);
-        return file => fromHere.Contains(file.Path) || ArrivedFromElsewhere(source, root, arrived, file);
+        // A file the place makes itself is only home while it is still what was made: once what it's
+        // made from changes, it is brought again, in place of the one Uncloud wrote.
+        return file => fromHere.TryGetValue(file.Path, out var rev)
+            ? !file.Refreshable || rev == (file.Rev ?? "")
+            : ArrivedFromElsewhere(source, root, arrived, file);
     }
 
     /// <summary>The same test <see cref="ImportOneAsync"/> makes before calling a file already home.</summary>
@@ -345,7 +349,10 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
         IImportSource source, string root, IReadOnlySet<string> alreadyHome, SourceEntry entry,
         CancellationToken cancellationToken)
     {
-        if (log.Contains(root, source.ProviderId, entry.Path)) return null;
+        if (log.Find(root, source.ProviderId, entry.Path) is { } before)
+            return entry.Refreshable && before.RemoteRev != (entry.Rev ?? "")
+                ? await RefreshAsync(source, root, before, entry, cancellationToken)
+                : null;
 
         var localPath = DestinationFor(source, entry);
         var fullPath = PathPolicy.Resolve(root, localPath);
@@ -396,6 +403,50 @@ public sealed class ImportService(LibraryService library, ImportLog log, ILogger
             log.Record(root, new ImportedFile(
                 source.ProviderId, entry.Path, entry.Rev ?? "", localPath, written.Length, hash, DateTimeOffset.UtcNow));
             return new ImportedItem(localPath, entry.DisplayPath, written.Length);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    /// <summary>
+    /// Brings a file the place makes itself again, now that what it's made from has changed, in
+    /// place of the copy Uncloud wrote. Only that copy: one somebody has changed or deleted since is
+    /// theirs, and is left as it is. The new one is written beside it and moved over it, so the old
+    /// one is there until the new one is whole.
+    /// </summary>
+    private async Task<ImportedItem?> RefreshAsync(
+        IImportSource source, string root, ImportedFile before, SourceEntry entry, CancellationToken cancellationToken)
+    {
+        var fullPath = PathPolicy.Resolve(root, before.LocalPath);
+        if (!File.Exists(fullPath) || await HashAsync(fullPath, cancellationToken) != before.ContentHash) return null;
+
+        var metadata = Path.GetDirectoryName(PathPolicy.PrepareMetadata(root))!;
+        var temporary = Path.Combine(metadata, $"import.{Guid.NewGuid():N}.tmp");
+        PathPolicy.RejectLink(temporary);
+        try
+        {
+            await using (var remote = await source.OpenAsync(entry.Path, cancellationToken))
+            await using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                             1 << 16, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                await remote.CopyToAsync(file, cancellationToken);
+            }
+            if (source.KeepsDates && entry.Modified is { } modified) KeepDate(temporary, modified);
+            var hash = await HashAsync(temporary, cancellationToken);
+
+            // Looked at again just before: changed in the meantime, it's somebody's now.
+            PathPolicy.RejectLink(fullPath);
+            if (!File.Exists(fullPath) || await HashAsync(fullPath, cancellationToken) != before.ContentHash) return null;
+            File.Move(temporary, fullPath, overwrite: true);
+
+            var written = new FileInfo(fullPath);
+            log.Record(root, before with
+            {
+                RemoteRev = entry.Rev ?? "", Size = written.Length, ContentHash = hash, ImportedAt = DateTimeOffset.UtcNow
+            });
+            return new ImportedItem(before.LocalPath, entry.DisplayPath, written.Length);
         }
         finally
         {

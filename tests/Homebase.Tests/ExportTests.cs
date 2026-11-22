@@ -333,6 +333,61 @@ public sealed class ExportTests : IDisposable
     }
 
     [Fact]
+    public async Task An_album_page_gains_the_photos_a_later_part_brings_and_never_loses_any()
+    {
+        var day = new DateTimeOffset(2021, 7, 4, 12, 0, 0, TimeSpan.Zero);
+        (string, byte[])[] Photo(string name, string what) =>
+        [
+            ($"Takeout/Google Photos/Photos from 2021/{name}", ExportTests.Photo(what)),
+            ($"Takeout/Google Photos/Photos from 2021/{name}.supplemental-metadata.json", Details(name, day)),
+            ($"Takeout/Google Photos/Picnic/{name}", ExportTests.Photo(what)),
+            ($"Takeout/Google Photos/Picnic/{name}.supplemental-metadata.json", Details(name, day)),
+        ];
+        Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-001.zip",
+            [("Takeout/Google Photos/Picnic/metadata.json", Text("{\"title\":\"Picnic\"}")), .. Photo("IMG_A.jpg", "a blanket")]);
+        await _imports.ImportAsync(Google(), "/", CancellationToken.None);
+        var page = Local("Google/Albums/Picnic.html");
+        Assert.Contains("IMG_A.jpg", await File.ReadAllTextAsync(page));
+
+        // The part with the album's other photo arrives later, and the page shows it too.
+        Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-002.zip", Photo("IMG_B.jpg", "a basket"));
+        var again = await _imports.ImportAsync(Google(), "/", CancellationToken.None);
+        Assert.Contains(again.Imported, item => item.LocalPath == "Google/Albums/Picnic.html");
+        var both = await File.ReadAllTextAsync(page);
+        Assert.Contains("href=\"../Photos/2021/IMG_A.jpg\"", both);
+        Assert.Contains("href=\"../Photos/2021/IMG_B.jpg\"", both);
+
+        // With the first zips deleted, a later part still adds to the page rather than replacing it.
+        File.Delete(Path.Combine(_root, GoogleTakeout.Folder, "takeout-20260406T202814Z-002.zip"));
+        Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-003.zip", Photo("IMG_C.jpg", "a wasp"));
+        await _imports.ImportAsync(Google(), "/", CancellationToken.None);
+        var all = await File.ReadAllTextAsync(page);
+        foreach (var name in new[] { "IMG_A.jpg", "IMG_B.jpg", "IMG_C.jpg" })
+            Assert.Contains($"href=\"../Photos/2021/{name}\"", all);
+
+        // A page somebody has changed is theirs, and is left alone.
+        await File.WriteAllTextAsync(page, "My own notes about the picnic.");
+        Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-004.zip", Photo("IMG_D.jpg", "a sunset"));
+        var last = await _imports.ImportAsync(Google(), "/", CancellationToken.None);
+        Assert.Equal("My own notes about the picnic.", await File.ReadAllTextAsync(page));
+        Assert.Equal("Google/Photos/2021/IMG_D.jpg", Assert.Single(last.Imported).LocalPath);
+    }
+
+    [Fact]
+    public async Task A_photo_taken_before_1970_keeps_its_year()
+    {
+        var then = new DateTimeOffset(1962, 5, 20, 15, 0, 0, TimeSpan.Zero);
+        Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-001.zip",
+            ("Takeout/Google Photos/Photos from 1962/grandma.jpg", Photo("a wedding")),
+            // Uploaded much later, which is what creationTime says; when it was taken is below zero.
+            ("Takeout/Google Photos/Photos from 1962/grandma.jpg.supplemental-metadata.json", Details("grandma.jpg", then)));
+
+        await _imports.ImportAsync(Google(), "/", CancellationToken.None);
+
+        Assert.Equal(then.UtcDateTime, File.GetLastWriteTimeUtc(Local("Google/Photos/1962/grandma.jpg")));
+    }
+
+    [Fact]
     public async Task Sizes_are_added_up_from_what_was_read_rather_than_walked()
     {
         Zip(GoogleTakeout.Folder, "takeout-20260406T202814Z-001.zip",
