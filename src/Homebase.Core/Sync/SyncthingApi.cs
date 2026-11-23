@@ -116,7 +116,8 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
                 folder.TryGetProperty("label", out var label) ? label.GetString() ?? id : id,
                 folder.TryGetProperty("path", out var path) ? path.GetString() ?? "" : "",
                 devices, state, string.IsNullOrEmpty(error) ? null : error, files, bytes, versioned,
-                KeepFree(folder), waiting));
+                KeepFree(folder), waiting,
+                folder.TryGetProperty("paused", out var paused) && paused.ValueKind == JsonValueKind.True));
         }
         return folders;
     }

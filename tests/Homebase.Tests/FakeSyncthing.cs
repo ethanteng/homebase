@@ -76,12 +76,18 @@ public sealed class FakeSyncthing : ISyncthingApi
                 ? new SyncthingProgress(SyncthingProgress.Valid, 100, 0, 0)
                 : null);
 
-    public HashSet<string> PausedFolders { get; } = [];
+    /// <summary>Makes the next request to start a folder again fail, as a Syncthing that stops answering would.</summary>
+    public bool FailNextUnpause { get; set; }
 
     public Task PauseFolderAsync(string id, bool paused, CancellationToken cancellationToken)
     {
         if (!Folders.ContainsKey(id)) throw new InvalidOperationException($"{id} isn’t a folder");
-        if (paused) PausedFolders.Add(id); else PausedFolders.Remove(id);
+        if (!paused && FailNextUnpause)
+        {
+            FailNextUnpause = false;
+            throw new Homebase.Core.LibraryException("Uncloud couldn’t reach Syncthing.", "sync_unavailable");
+        }
+        Folders[id] = Folders[id] with { Paused = paused };
         return Task.CompletedTask;
     }
 
@@ -107,7 +113,6 @@ public sealed class FakeSyncthing : ISyncthingApi
     public Task RemoveFolderAsync(string id, CancellationToken cancellationToken)
     {
         Folders.Remove(id);
-        PausedFolders.Remove(id);
         return Task.CompletedTask;
     }
 

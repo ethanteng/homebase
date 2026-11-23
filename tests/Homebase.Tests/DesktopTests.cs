@@ -373,7 +373,58 @@ public sealed class DesktopTests : IDisposable
         Assert.Equal("sunset", await File.ReadAllTextAsync(Path.Combine(desktop, "photo.jpg")));
         Assert.False(Directory.Exists(misplaced));
         // Stopped while it moved, and started again.
-        Assert.Empty(_computer.PausedFolders);
+        Assert.False(_computer.Folders["uncloud-desktop-1"].Paused);
+    }
+
+    [Fact]
+    public async Task A_folder_left_stopped_after_its_move_is_started_again_on_the_next_look()
+    {
+        var computer = new ComputerSync(_computer, _paths);
+        await computer.ApplyAsync(new PairingResult(FakeSyncthing.Self, "Ada", []), CancellationToken.None);
+        HostConnected();
+        var misplaced = Directory.CreateDirectory(Path.Combine(_paths.Files, "uncloud-desktop-1")).FullName;
+        await _computer.AddFolderAsync("uncloud-desktop-1", "Desktop", misplaced, [FakeSyncthing.Self], null, CancellationToken.None);
+        var host = HostSays(new PairedFolder("uncloud-desktop-1", "Desktop", "Desktop"));
+
+        // Syncthing out of reach just as the move ends.
+        _computer.FailNextUnpause = true;
+        await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+        Assert.Equal(Path.Combine(_paths.Files, "Desktop"), _computer.Folders["uncloud-desktop-1"].Path);
+        Assert.True(_computer.Folders["uncloud-desktop-1"].Paused);
+
+        // Moved, so no longer under its ID, and still started again — as it would be by a copy of
+        // the app opened after one that closed part-way, knowing nothing of the move.
+        await new ComputerSync(_computer, _paths).KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+        Assert.False(_computer.Folders["uncloud-desktop-1"].Paused);
+    }
+
+    [Fact]
+    public async Task Disconnecting_waits_for_a_look_under_way_so_nothing_it_sets_up_outlives_it()
+    {
+        var computer = new ComputerSync(_computer, _paths);
+        await computer.ApplyAsync(new PairingResult(FakeSyncthing.Self, "Ada", []), CancellationToken.None);
+        HostConnected();
+        _computer.Offers.Add(new SyncthingOffer("uncloud-desktop-1", "Desktop", FakeSyncthing.Self));
+        var asked = new TaskCompletionSource();
+        var answer = new TaskCompletionSource<IReadOnlyList<PairedFolder>?>();
+        WhereFoldersGo host = _ =>
+        {
+            asked.SetResult();
+            return answer.Task;
+        };
+
+        // A look asks the host where Desktop goes, and the person disconnects meanwhile.
+        var looking = computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+        await asked.Task;
+        var forgetting = computer.ForgetAsync(FakeSyncthing.Self, CancellationToken.None);
+        Assert.False(forgetting.IsCompleted);
+
+        answer.SetResult([new PairedFolder("uncloud-desktop-1", "Desktop", "Desktop")]);
+        await looking;
+        await forgetting;
+
+        Assert.Empty(_computer.Folders);
+        Assert.Empty(_computer.Devices);
     }
 
     [Fact]

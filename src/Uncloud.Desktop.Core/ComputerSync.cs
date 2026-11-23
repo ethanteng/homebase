@@ -48,6 +48,14 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
     /// </summary>
     public async Task ApplyAsync(PairingResult pairing, CancellationToken cancellationToken)
     {
+        // Not alongside a look already under way, which could set the same folder up as well.
+        await _gate.WaitAsync(cancellationToken);
+        try { await ApplyGatedAsync(pairing, cancellationToken); }
+        finally { _gate.Release(); }
+    }
+
+    private async Task ApplyGatedAsync(PairingResult pairing, CancellationToken cancellationToken)
+    {
         Directory.CreateDirectory(paths.Files);
         if ((await syncthing.DevicesAsync(cancellationToken)).All(device => device.DeviceId != pairing.HostDeviceId))
             await syncthing.AddDeviceAsync(pairing.HostDeviceId, "Uncloud", cancellationToken);
@@ -79,6 +87,16 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
         try
         {
             await StopAcceptingByItselfAsync(hostDeviceId, cancellationToken);
+            var folders = await syncthing.FoldersAsync(cancellationToken);
+            // This app pauses a folder only while moving it, so one of the host's still paused is a
+            // move whose end didn't reach Syncthing, or the app closing part-way. Nothing else would
+            // ever start it again: Resume in the menu is for the host, not a folder.
+            foreach (var folder in folders.Where(folder => folder.Paused && folder.DeviceIds.Contains(hostDeviceId)))
+            {
+                await syncthing.PauseFolderAsync(folder.Id, false, cancellationToken);
+                logger?.LogInformation("Started {Folder} again, which was left stopped", folder.Id);
+            }
+
             var host = (await syncthing.DevicesAsync(cancellationToken)).FirstOrDefault(device => device.DeviceId == hostDeviceId);
             // What the host shares is only known while it's connected. Not sharing has to be seen
             // throughout, so a gap starts the wait again.
@@ -89,7 +107,7 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
             }
 
             var kept = new List<SyncthingFolder>();
-            foreach (var folder in await syncthing.FoldersAsync(cancellationToken))
+            foreach (var folder in folders)
             {
                 if (folder.DeviceIds.Contains(hostDeviceId) && await StoppedOnHostAsync(folder.Id, hostDeviceId, cancellationToken))
                 {
@@ -222,7 +240,12 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
         }
         finally
         {
-            await syncthing.PauseFolderAsync(folder.Id, false, uncancelled);
+            try { await syncthing.PauseFolderAsync(folder.Id, false, uncancelled); }
+            // Left for the next look, which starts any of the host's folders it finds stopped.
+            catch (Exception error) when (error is LibraryException or HttpRequestException or TaskCanceledException)
+            {
+                logger?.LogWarning(error, "Couldn’t start {Folder} again after moving it; trying again on the next look", folder.Id);
+            }
         }
     }
 
@@ -297,11 +320,21 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
     /// <summary>Stops syncing with the host. Everything in ~/Uncloud stays where it is.</summary>
     public async Task ForgetAsync(string hostDeviceId, CancellationToken cancellationToken)
     {
-        foreach (var folder in await syncthing.FoldersAsync(cancellationToken))
-            await syncthing.RemoveFolderAsync(folder.Id, cancellationToken);
-        if ((await syncthing.DevicesAsync(cancellationToken)).Any(device => device.DeviceId == hostDeviceId))
-            await syncthing.RemoveDeviceAsync(hostDeviceId, cancellationToken);
-        _places.Clear();
-        _notShared.Clear();
+        // After any look already under way: a folder it sets up after these are listed would
+        // outlive the disconnect, and pairing again leaves a folder it already has as it is.
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            foreach (var folder in await syncthing.FoldersAsync(cancellationToken))
+                await syncthing.RemoveFolderAsync(folder.Id, cancellationToken);
+            if ((await syncthing.DevicesAsync(cancellationToken)).Any(device => device.DeviceId == hostDeviceId))
+                await syncthing.RemoveDeviceAsync(hostDeviceId, cancellationToken);
+            _places.Clear();
+            _notShared.Clear();
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 }

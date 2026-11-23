@@ -9,6 +9,7 @@ public sealed record SyncthingDevice(string DeviceId, string Name, bool Connecte
 /// in, or null for a share of the drive, which is how Syncthing sets it by itself.
 /// </param>
 /// <param name="WaitingForRoom">Files a computer sent that Syncthing is holding back for want of room.</param>
+/// <param name="Paused">Stopped in Syncthing's configuration, keeping what it has.</param>
 public sealed record SyncthingFolder(
     string Id,
     string Label,
@@ -20,7 +21,8 @@ public sealed record SyncthingFolder(
     long Bytes,
     bool Versioned,
     long? KeepFree = null,
-    int WaitingForRoom = 0);
+    int WaitingForRoom = 0,
+    bool Paused = false);
 
 /// <summary>A folder a paired computer has offered, which nobody on this host has taken up yet.</summary>
 public sealed record SyncthingOffer(string FolderId, string Label, string DeviceId);
