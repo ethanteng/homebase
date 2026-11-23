@@ -521,6 +521,20 @@ export interface SyncFolder {
   bytes: number;
   // Files from your computers that can't arrive until this Uncloud has room.
   waitingForRoom?: number;
+  // How far each computer has got. State, files and bytes above are this Uncloud's own copy only.
+  computers?: SyncProgress[] | null;
+}
+/// How far one of your computers has got with a folder, as Uncloud last heard from it. `state` is
+/// whether it has the folder at all: "valid", "notSharing" (not accepted there), "paused", or
+/// "unknown" while it's away, when how far it had got still stands.
+export interface SyncProgress {
+  deviceId: string;
+  state: string;
+  completion: number;
+  needBytes: number;
+  needItems: number;
+  // Deletions still to make. Syncthing counts these apart from needItems, and they take no bytes.
+  needDeletes?: number;
 }
 export interface SyncOffer {
   folderId: string;

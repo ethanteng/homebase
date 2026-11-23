@@ -14,10 +14,83 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { api, formatSize } from "./api";
-import type { DirectoryListing, PairingCode, SyncFolder, SyncReach, SyncStatus, User } from "./api";
+import type {
+  DirectoryListing,
+  PairingCode,
+  SyncDevice,
+  SyncFolder,
+  SyncProgress,
+  SyncReach,
+  SyncStatus,
+  User,
+} from "./api";
 import { SignedInAs } from "./PairApproval";
 
-function describe(folder: SyncFolder) {
+/// What your computers still have to get of a folder, or null once every one of them has it all.
+/// This Uncloud having everything says nothing about whether they do: a big folder takes a
+/// computer far longer than it took here.
+function behind(folder: SyncFolder, devices: SyncDevice[]): string | null {
+  // From an Uncloud that doesn't say, nothing is claimed either way.
+  if (!folder.computers) return null;
+  const known = folder.computers;
+  // A computer Uncloud couldn't ask about hasn't been heard from, which isn't the same as done.
+  const computers = folder.deviceIds.map(
+    (deviceId): SyncProgress =>
+      known.find((computer) => computer.deviceId === deviceId) ?? {
+        deviceId,
+        state: "unheard",
+        completion: 0,
+        needBytes: 0,
+        needItems: 0,
+        needDeletes: 0,
+      },
+  );
+  // Syncthing says "unknown" of a computer that's away, and still knows how far it had got: one
+  // asleep with everything is up to date as far as anybody can tell. Deletions are counted apart
+  // from files and take no bytes, so they have to be asked about on their own.
+  const waiting = computers.filter(
+    (computer) =>
+      !(computer.state === "valid" || computer.state === "unknown") ||
+      computer.needItems > 0 ||
+      computer.needBytes > 0 ||
+      (computer.needDeletes ?? 0) > 0,
+  );
+  if (waiting.length === 0) return null;
+  if (waiting.length > 1) {
+    // Only what's on its way counts as to go: a computer that hasn't taken the folder up "needs"
+    // all of it, and one that's paused isn't getting any.
+    const receiving = waiting.filter((computer) => computer.state === "valid" || computer.state === "unknown");
+    const count = (state: string) => waiting.filter((computer) => computer.state === state).length;
+    const computers = (n: number) => `${n} computer${n === 1 ? "" : "s"}`;
+    const toGo = receiving.reduce((sum, computer) => sum + computer.needBytes, 0);
+    const unheard = waiting.length - receiving.length - count("notSharing") - count("paused");
+    return [
+      receiving.length > 0 &&
+        `Sending to ${computers(receiving.length)}${toGo > 0 ? `, ${formatSize(toGo)} to go` : ""}`,
+      count("notSharing") > 0 && `${computers(count("notSharing"))} still to accept it`,
+      count("paused") > 0 && `paused on ${computers(count("paused"))}`,
+      unheard > 0 && `waiting to hear from ${computers(unheard)}`,
+    ]
+      .filter(Boolean)
+      .join("; ")
+      .replace(/^./, (first) => first.toUpperCase());
+  }
+
+  const [computer] = waiting;
+  const device = devices.find((entry) => entry.deviceId === computer.deviceId);
+  const who = device?.name ?? "your computer";
+  if (computer.state === "notSharing") return `Waiting for ${who} to accept it`;
+  if (computer.state === "paused") return `Paused on ${who}`;
+  if (computer.state !== "valid" && computer.state !== "unknown") return `Waiting to hear from ${who}`;
+  // Never 100% while something is left, however little.
+  const done = Math.min(99, Math.floor(computer.completion));
+  const toGo = computer.needBytes > 0 ? `, ${formatSize(computer.needBytes)} to go` : "";
+  return device?.connected
+    ? `Sending to ${who}: ${done}% there${toGo}`
+    : `${who} is ${done}% there${toGo} — it catches up when it’s back online`;
+}
+
+function describe(folder: SyncFolder, devices: SyncDevice[]) {
   if (folder.error) return folder.error;
   // Held back by Syncthing until there's room, which is worth saying before anything else: from
   // the computer it looks as though they've been sent.
@@ -26,7 +99,7 @@ function describe(folder: SyncFolder) {
     return `${waiting} file${waiting === 1 ? " is" : "s are"} waiting for room on this Uncloud`;
   const state =
     folder.state === "idle"
-      ? "Up to date"
+      ? (behind(folder, devices) ?? "Up to date")
       : folder.state === "syncing" || folder.state === "sync-preparing"
         ? "Syncing"
         : folder.state === "scanning" || folder.state === "scan-waiting"
@@ -512,7 +585,7 @@ export default function SyncPanel({
                     <div>
                       <strong>{folder.path || "All of your files"}</strong>
                       <span className={folder.error || folder.waitingForRoom ? "error-message" : "muted"}>
-                        {describe(folder)} · with {folder.deviceIds.length}{" "}
+                        {describe(folder, status.devices)} · with {folder.deviceIds.length}{" "}
                         computer{folder.deviceIds.length === 1 ? "" : "s"}
                       </span>
                     </div>

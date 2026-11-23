@@ -851,6 +851,67 @@ public sealed class SyncTests : IDisposable
     }
 
     [Fact]
+    public async Task A_computer_that_signs_for_it_is_told_where_its_own_folders_are_and_nothing_else()
+    {
+        var laptop = SyncthingIdentity.Ed25519();
+        var stranger = SyncthingIdentity.Ed25519();
+        await _sync.PairAsync(_ada.Id, laptop.DeviceId, "Ada’s laptop", CancellationToken.None);
+        await _sync.PairAsync(_ada.Id, Desktop, "Ada’s desktop", CancellationToken.None);
+        Directory.CreateDirectory(Path.Combine(_adaRoot, "Work", "Documents"));
+        Directory.CreateDirectory(Path.Combine(_adaRoot, "Pictures"));
+        await _sync.ShareAsync(_ada.Id, _adaRoot, "Work/Documents", null, CancellationToken.None);
+        await _sync.ShareAsync(_ada.Id, _adaRoot, "Documents/Taxes", [laptop.DeviceId], CancellationToken.None);
+        // Ada's, but not shared with the laptop, so not the laptop's to know about.
+        await _sync.ShareAsync(_ada.Id, _adaRoot, "Pictures", [Desktop], CancellationToken.None);
+        var releases = Releases();
+        string Signed(SyncthingIdentity by, string nonce, Func<string, string, string, byte[]> message) =>
+            ComputerReleases.Sign(by.Key, message(FakeSyncthing.Self, by.DeviceId, nonce));
+
+        var challenge = releases.Challenge(laptop.DeviceId, null);
+        var folders = await releases.FoldersAsync(laptop.Certificate, challenge.Nonce,
+            Signed(laptop, challenge.Nonce, ComputerReleases.FoldersMessage), null, CancellationToken.None);
+
+        // Where each is, which Syncthing on the laptop is never told: only that both are called Documents and Taxes.
+        Assert.Equal([("Documents/Taxes", "Taxes"), ("Work/Documents", "Documents")],
+            folders.Select(folder => (folder.Path, folder.Label)).Order());
+        Assert.All(folders, folder => Assert.Equal(SyncService.FolderId(_ada.Id, folder.Path), folder.Id));
+
+        // A signature made for letting go isn't one for this, nor the other way round.
+        challenge = releases.Challenge(laptop.DeviceId, null);
+        Assert.Equal("not_found", (await Assert.ThrowsAsync<LibraryException>(() => releases.FoldersAsync(laptop.Certificate,
+            challenge.Nonce, Signed(laptop, challenge.Nonce, ComputerReleases.Message), null, CancellationToken.None))).Code);
+        challenge = releases.Challenge(laptop.DeviceId, null);
+        Assert.Equal("not_found", (await Assert.ThrowsAsync<LibraryException>(() => releases.ReleaseAsync(laptop.Certificate,
+            challenge.Nonce, Signed(laptop, challenge.Nonce, ComputerReleases.FoldersMessage), null, CancellationToken.None))).Code);
+        Assert.Equal(_ada.Id, _ownership.FindDevice(laptop.DeviceId)!.UserId);
+
+        // Nor does a computer this host doesn't have learn anything, signing properly.
+        challenge = releases.Challenge(stranger.DeviceId, null);
+        Assert.Equal("not_found", (await Assert.ThrowsAsync<LibraryException>(() => releases.FoldersAsync(stranger.Certificate,
+            challenge.Nonce, Signed(stranger, challenge.Nonce, ComputerReleases.FoldersMessage), null, CancellationToken.None))).Code);
+    }
+
+    [Fact]
+    public async Task Status_says_how_far_each_computer_has_got_not_only_that_this_Uncloud_has_everything()
+    {
+        await _sync.PairAsync(_ada.Id, Laptop, "Ada’s laptop", CancellationToken.None);
+        await _sync.PairAsync(_ada.Id, Desktop, "Ada’s desktop", CancellationToken.None);
+        var shared = await _sync.ShareAsync(_ada.Id, _adaRoot, "Documents", null, CancellationToken.None);
+        _syncthing.Progress[(shared.Id, Laptop)] = new SyncthingProgress(SyncthingProgress.Valid, 10.2, 23_800_958_563, 2139);
+        // Deletions are a separate count from files. They still have to be carried across.
+        _syncthing.Progress[(shared.Id, Desktop)] = new SyncthingProgress(SyncthingProgress.NotSharing, 0, 26_504_024_098, 2332, 4);
+
+        var folder = Assert.Single((await _sync.StatusAsync(_ada.Id, CancellationToken.None)).Folders);
+
+        Assert.Equal("idle", folder.State);
+        var computers = folder.Computers!.ToDictionary(computer => computer.DeviceId);
+        Assert.Equal(new SyncProgress(Laptop, SyncthingProgress.Valid, 10.2, 23_800_958_563, 2139), computers[Laptop]);
+        Assert.Equal(SyncthingProgress.NotSharing, computers[Desktop].State);
+        Assert.Equal(4, computers[Desktop].NeedDeletes);
+        Assert.Equal(2, computers.Count);
+    }
+
+    [Fact]
     public async Task Asking_to_be_let_go_is_bounded_and_says_nothing_about_which_computers_there_are()
     {
         var releases = Releases();

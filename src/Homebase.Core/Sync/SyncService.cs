@@ -61,16 +61,31 @@ public sealed partial class SyncService(
         var liveFolders = (await syncthing.FoldersAsync(cancellationToken)).ToDictionary(folder => folder.Id);
         var offers = await syncthing.OffersAsync(cancellationToken);
 
+        var shown = new List<SyncFolder>();
+        foreach (var folder in folders)
+        {
+            if (!liveFolders.TryGetValue(folder.FolderId, out var state))
+            {
+                shown.Add(new SyncFolder(folder.FolderId, folder.Path, Label(folder.Path), [], null, null, 0, 0));
+                continue;
+            }
+            var computers = state.DeviceIds.Where(mine.Contains).ToArray();
+            // This Uncloud being idle only means it has everything. Whether each computer does is
+            // a separate question, and a big folder takes a computer far longer than it took here.
+            var progress = new List<SyncProgress>();
+            foreach (var deviceId in computers)
+                if (await syncthing.ProgressAsync(folder.FolderId, deviceId, cancellationToken) is { } got)
+                    progress.Add(new SyncProgress(deviceId, got.State, got.Completion, got.NeedBytes, got.NeedItems, got.NeedDeletes));
+            shown.Add(new SyncFolder(folder.FolderId, folder.Path, Label(folder.Path), computers,
+                state.State, state.Error, state.Files, state.Bytes, state.WaitingForRoom, progress));
+        }
+
         return new SyncStatus(true, null,
             await syncthing.DeviceIdAsync(cancellationToken),
             devices.Select(device => live.TryGetValue(device.DeviceId, out var state)
                 ? new SyncDevice(device.DeviceId, device.Name, state.Connected, state.Address)
                 : new SyncDevice(device.DeviceId, device.Name, false, null)).ToArray(),
-            folders.Select(folder => liveFolders.TryGetValue(folder.FolderId, out var state)
-                ? new SyncFolder(folder.FolderId, folder.Path, Label(folder.Path),
-                    state.DeviceIds.Where(mine.Contains).ToArray(), state.State, state.Error, state.Files, state.Bytes,
-                    state.WaitingForRoom)
-                : new SyncFolder(folder.FolderId, folder.Path, Label(folder.Path), [], null, null, 0, 0)).ToArray(),
+            shown,
             // Only offers made by this account's own computers, for folders nobody here has yet —
             // and never a folder this Uncloud shared itself. A computer goes on offering back a
             // folder that was stopped here, since stopping leaves its copy where it is; taking that
@@ -212,6 +227,22 @@ public sealed partial class SyncService(
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// Every folder this account shares with one of its computers, with where it is in the
+    /// account's folder: what the computer needs to keep each at the same place. Syncthing itself
+    /// only tells the computer a folder's name.
+    /// </summary>
+    public async Task<IReadOnlyList<PairedFolder>> SharedWithAsync(string userId, string deviceId, CancellationToken cancellationToken)
+    {
+        Require();
+        var device = OwnedDevice(userId, deviceId).DeviceId;
+        var live = (await syncthing.FoldersAsync(cancellationToken)).ToDictionary(folder => folder.Id);
+        return ownership.Folders(userId)
+            .Where(folder => live.TryGetValue(folder.FolderId, out var state) && state.DeviceIds.Contains(device))
+            .Select(folder => new PairedFolder(folder.FolderId, Label(folder.Path), folder.Path))
+            .ToArray();
     }
 
     /// <summary>
