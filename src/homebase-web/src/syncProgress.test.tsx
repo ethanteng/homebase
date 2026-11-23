@@ -22,6 +22,7 @@ const progress = (overrides: Partial<SyncProgress> = {}): SyncProgress => ({
 
 let computers: SyncProgress[] | undefined;
 let connected = true;
+let deviceIds = ["LAPTOP"];
 
 const ME = {
   id: "u1",
@@ -42,13 +43,17 @@ beforeEach(() => {
         available: true,
         detail: null,
         hostDeviceId: "HOST",
-        devices: [{ deviceId: "LAPTOP", name: "Ada’s MacBook", connected, address: null }],
+        devices: [
+          { deviceId: "LAPTOP", name: "Ada’s MacBook", connected, address: null },
+          { deviceId: "IMAC", name: "Ada’s iMac", connected, address: null },
+          { deviceId: "OLD", name: "Ada’s old laptop", connected, address: null },
+        ],
         folders: [
           {
             id: "desktop",
             path: "Desktop",
             label: "Desktop",
-            deviceIds: ["LAPTOP"],
+            deviceIds,
             state: "idle",
             error: null,
             files: 2332,
@@ -67,6 +72,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   connected = true;
+  deviceIds = ["LAPTOP"];
 });
 
 describe("a synced folder this Uncloud has all of", () => {
@@ -127,6 +133,23 @@ describe("a synced folder this Uncloud has all of", () => {
 
     expect(await screen.findByText(/Sending to Ada’s MacBook: 95% there ·/)).toBeInTheDocument();
     expect(screen.queryByText(/Up to date/)).not.toBeInTheDocument();
+  });
+
+  it("counts only what's on its way to computers that have taken the folder up", async () => {
+    deviceIds = ["LAPTOP", "IMAC", "OLD"];
+    computers = [
+      progress({ completion: 50, needBytes: 2 * GB, needItems: 10 }),
+      // Hasn't accepted it, so all 24.7 GB of it is "needed" there; none of that is on its way.
+      progress({ deviceId: "IMAC", state: "notSharing", completion: 0, needBytes: 24.7 * GB, needItems: 2332 }),
+      progress({ deviceId: "OLD", state: "paused", completion: 0, needBytes: 24.7 * GB, needItems: 2332 }),
+    ];
+    render(<SyncPanel me={ME} onSignOut={() => {}} />);
+
+    expect(
+      await screen.findByText(
+        /Sending to 1 computer, 2 GB to go; 1 computer still to accept it; paused on 1 computer · 2,332 files/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("doesn't claim a computer it couldn't ask about is done", async () => {

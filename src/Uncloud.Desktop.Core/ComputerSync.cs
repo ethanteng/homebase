@@ -27,8 +27,19 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
     /// </summary>
     public static readonly TimeSpan StoppedFor = TimeSpan.FromMinutes(1);
 
-    /// <summary>How soon the host is asked again where a folder goes, when its last answer didn't say.</summary>
+    /// <summary>
+    /// How soon the host is asked again where a folder goes when one is waiting to be set up or
+    /// moved, and its last answer didn't say.
+    /// </summary>
     public static readonly TimeSpan AskAtMostEvery = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How soon it's asked again only to check folders already kept here that it hasn't placed since
+    /// the app opened: ones set up by name under a host that couldn't say then, which a host that
+    /// can say now has somewhere else. Nothing waits on that, so a host that still can't say, or
+    /// can't be reached, isn't asked every few seconds.
+    /// </summary>
+    public static readonly TimeSpan ConfirmAtMostEvery = TimeSpan.FromHours(1);
 
     /// <summary>The clock, replaceable so waiting can be tested without waiting.</summary>
     public Func<DateTimeOffset> Now { get; init; } = () => DateTimeOffset.UtcNow;
@@ -85,9 +96,10 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
     /// under ~/Uncloud as on the host. Run whenever the app looks: a folder synced later from
     /// Computers is set up here; one stopped there stops being kept here, its files left where they
     /// are; and one Syncthing put under its ID, as it did by itself when a folder of the same name
-    /// was in the way, is moved to where it belongs once nothing is.
+    /// was in the way — or one put under its name by a host that couldn't say where it went — is
+    /// moved to where it belongs once nothing is there.
     /// </summary>
-    /// <param name="whereTheyGo">Asks the host, only when there is something to place.</param>
+    /// <param name="whereTheyGo">Asks the host, only when there is something it hasn't placed yet.</param>
     public async Task KeepInStepAsync(string hostDeviceId, WhereFoldersGo whereTheyGo, CancellationToken cancellationToken)
     {
         if (!syncthing.IsAvailable || !await _gate.WaitAsync(0, cancellationToken)) return;
@@ -126,21 +138,30 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
                 kept.Add(folder);
             }
 
-            foreach (var folder in kept.ToArray())
-            {
-                if (!folder.DeviceIds.Contains(hostDeviceId) || !SamePlace(folder.Path, Path.Combine(paths.Files, folder.Id))) continue;
-                if (await PlaceAsync(folder.Id, folder.Label, whereTheyGo, cancellationToken) is not { } place) continue;
-                if (await MoveAsync(folder, place, kept, cancellationToken) is { } moved)
-                    kept[kept.IndexOf(folder)] = moved;
-            }
-
             var offers = (await syncthing.OffersAsync(cancellationToken))
                 .Where(offer => offer.DeviceId == hostDeviceId && kept.All(folder => folder.Id != offer.FolderId))
                 .DistinctBy(offer => offer.FolderId)
                 .ToArray();
+            // Only where Syncthing would have put a folder by itself, or this app by name: anywhere
+            // else is where the host said, and its place never changes.
+            var movable = kept.Where(folder => folder.DeviceIds.Contains(hostDeviceId)
+                && (Under(folder, folder.Id) || Under(folder, folder.Label))).ToArray();
+            // A folder offered or under its ID is waiting on the answer; one only to be checked isn't.
+            var waiting = offers.Select(offer => offer.FolderId)
+                .Concat(movable.Where(folder => Under(folder, folder.Id)).Select(folder => folder.Id))
+                .Any(id => !_places.ContainsKey(id));
+            if (waiting || movable.Any(folder => !_places.ContainsKey(folder.Id)))
+                await AskAsync(waiting ? AskAtMostEvery : ConfirmAtMostEvery, whereTheyGo, cancellationToken);
+
+            foreach (var folder in movable)
+            {
+                if (PlaceOf(folder.Id, folder.Label) is not { } place) continue;
+                if (await MoveAsync(folder, place, kept, cancellationToken) is { } moved)
+                    kept[kept.IndexOf(folder)] = moved;
+            }
             foreach (var offer in offers)
             {
-                if (await PlaceAsync(offer.FolderId, offer.Label, whereTheyGo, cancellationToken) is not { } place) continue;
+                if (PlaceOf(offer.FolderId, offer.Label) is not { } place) continue;
                 if (await AcceptAsync(place, hostDeviceId, kept, cancellationToken) is { } accepted) kept.Add(accepted);
             }
         }
@@ -176,29 +197,33 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
         return Now() - since >= StoppedFor;
     }
 
-    /// <summary>
-    /// Where a folder belongs, from the host's last answer or by asking it again. A host from before
-    /// it could say has each folder go under its name, as Syncthing would have put it.
-    /// </summary>
-    private async Task<PairedFolder?> PlaceAsync(string folderId, string label, WhereFoldersGo whereTheyGo, CancellationToken cancellationToken)
+    /// <summary>Asks the host where its folders go, unless it was asked within <paramref name="atMostEvery"/>.</summary>
+    private async Task AskAsync(TimeSpan atMostEvery, WhereFoldersGo whereTheyGo, CancellationToken cancellationToken)
     {
-        if (_places.TryGetValue(folderId, out var known)) return known;
-        if (Now() - _askedAt >= AskAtMostEvery)
+        if (Now() - _askedAt < atMostEvery) return;
+        _askedAt = Now();
+        IReadOnlyList<PairedFolder>? answer;
+        try { answer = await whereTheyGo(cancellationToken); }
+        catch (PairingException error)
         {
-            _askedAt = Now();
-            IReadOnlyList<PairedFolder>? answer;
-            try { answer = await whereTheyGo(cancellationToken); }
-            catch (PairingException error)
-            {
-                logger?.LogWarning("Couldn’t ask Uncloud where {Folder} goes: {Reason}", folderId, error.Message);
-                return null;
-            }
-            _hostCantSay = answer is null;
-            foreach (var place in answer ?? []) _places[place.Id] = place;
-            if (_places.TryGetValue(folderId, out known)) return known;
+            logger?.LogWarning("Couldn’t ask Uncloud where its folders go: {Reason}", error.Message);
+            return;
         }
-        return _hostCantSay ? new PairedFolder(folderId, label, label) : null;
+        _hostCantSay = answer is null;
+        foreach (var place in answer ?? []) _places[place.Id] = place;
     }
+
+    /// <summary>
+    /// Where a folder belongs, as the host last said. A host from before it could say has each
+    /// folder go under its name, as Syncthing would have put it; null until the host has answered.
+    /// </summary>
+    private PairedFolder? PlaceOf(string folderId, string label) =>
+        _places.TryGetValue(folderId, out var known) ? known
+        : _hostCantSay ? new PairedFolder(folderId, label, label)
+        : null;
+
+    /// <summary>Whether a folder is at ~/Uncloud/<paramref name="name"/>.</summary>
+    private bool Under(SyncthingFolder folder, string name) => SamePlace(folder.Path, Path.Combine(paths.Files, name));
 
     private async Task<SyncthingFolder?> AcceptAsync(PairedFolder place, string hostDeviceId, List<SyncthingFolder> kept, CancellationToken cancellationToken)
     {
@@ -212,13 +237,13 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
 
     /// <summary>
     /// Moves a folder to where it belongs, stopped while it goes so Syncthing neither writes into it
-    /// nor finds it missing. Only into a place nothing is in yet: whatever is there may not be the
-    /// same files, and isn't merged into them.
+    /// nor finds it missing. Only into a place with nothing in it yet: whatever is there may not be
+    /// the same files, and isn't merged into them.
     /// </summary>
     private async Task<SyncthingFolder?> MoveAsync(SyncthingFolder folder, PairedFolder place, List<SyncthingFolder> kept, CancellationToken cancellationToken)
     {
-        if (TargetFor(place, kept, except: folder.Id) is not { } target
-            || Directory.Exists(target) || File.Exists(target) || !Directory.Exists(folder.Path))
+        if (TargetFor(place, kept, except: folder.Id) is not { } target || SamePlace(target, folder.Path)
+            || !Vacant(target) || !Directory.Exists(folder.Path))
             return null;
 
         await syncthing.PauseFolderAsync(folder.Id, true, cancellationToken);
@@ -227,6 +252,7 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
         var moved = false;
         try
         {
+            Clear(target);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             Directory.Move(folder.Path, target);
             moved = true;
@@ -254,6 +280,28 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
                 logger?.LogWarning(error, "Couldn’t start {Folder} again after moving it; trying again on the next look", folder.Id);
             }
         }
+    }
+
+    private const string FinderMetadata = ".DS_Store";
+
+    /// <summary>
+    /// Nothing there, or a folder with nothing in it but what Finder writes on opening it, which
+    /// isn't synced anyway: as good as nothing to move a folder into.
+    /// </summary>
+    private static bool Vacant(string path) =>
+        !File.Exists(path) && (!Directory.Exists(path) || Directory.EnumerateFileSystemEntries(path)
+            .All(entry => Path.GetFileName(entry) == FinderMetadata && File.Exists(entry)));
+
+    /// <summary>
+    /// Makes way for a folder at a <see cref="Vacant"/> place. One by one, and the folder itself
+    /// without recursing, so anything put there since it was looked at stops the move instead.
+    /// </summary>
+    private static void Clear(string path)
+    {
+        if (!Directory.Exists(path)) return;
+        var finder = Path.Combine(path, FinderMetadata);
+        if (File.Exists(finder)) File.Delete(finder);
+        Directory.Delete(path, recursive: false);
     }
 
     /// <summary>

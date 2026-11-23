@@ -365,15 +365,57 @@ public sealed class DesktopTests : IDisposable
         await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
         Assert.Equal(misplaced, _computer.Folders["uncloud-desktop-1"].Path);
 
-        Directory.Delete(inTheWay, true);
+        // Emptied, with only what Finder writes on opening a folder left in it, it's made way for.
+        File.Delete(Path.Combine(inTheWay, "other.txt"));
+        await File.WriteAllTextAsync(Path.Combine(inTheWay, ".DS_Store"), "Finder");
         await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
 
         var desktop = Path.Combine(_paths.Files, "Desktop");
         Assert.Equal(desktop, _computer.Folders["uncloud-desktop-1"].Path);
         Assert.Equal("sunset", await File.ReadAllTextAsync(Path.Combine(desktop, "photo.jpg")));
+        Assert.Equal(["photo.jpg"], Directory.GetFiles(desktop).Select(Path.GetFileName));
         Assert.False(Directory.Exists(misplaced));
         // Stopped while it moved, and started again.
         Assert.False(_computer.Folders["uncloud-desktop-1"].Paused);
+    }
+
+    [Fact]
+    public async Task A_folder_placed_by_name_under_a_host_that_couldnt_say_moves_once_it_can()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var computer = new ComputerSync(_computer, _paths) { Now = () => now };
+        await computer.ApplyAsync(new PairingResult(FakeSyncthing.Self, "Ada", []), CancellationToken.None);
+        HostConnected();
+        _computer.Offers.Add(new SyncthingOffer("uncloud-documents-1", "Documents", FakeSyncthing.Self));
+        var asked = 0;
+        IReadOnlyList<PairedFolder>? answer = null;
+        WhereFoldersGo host = _ =>
+        {
+            asked++;
+            return Task.FromResult(answer);
+        };
+
+        // A host from before it could say: Documents goes by its name.
+        await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+        var byName = Path.Combine(_paths.Files, "Documents");
+        Assert.Equal(byName, _computer.Folders["uncloud-documents-1"].Path);
+        await File.WriteAllTextAsync(Path.Combine(byName, "letter.txt"), "dear");
+
+        // Nothing waits on checking it again, so a host that can't say isn't asked every few seconds.
+        now += ComputerSync.AskAtMostEvery;
+        await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+        Assert.Equal(1, asked);
+
+        // Updated, the host says it's Work/Documents, and that's where it goes.
+        answer = [new PairedFolder("uncloud-documents-1", "Documents", "Work/Documents")];
+        now += ComputerSync.ConfirmAtMostEvery;
+        await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+
+        Assert.Equal(2, asked);
+        var there = Path.Combine(_paths.Files, "Work", "Documents");
+        Assert.Equal(there, _computer.Folders["uncloud-documents-1"].Path);
+        Assert.Equal("dear", await File.ReadAllTextAsync(Path.Combine(there, "letter.txt")));
+        Assert.False(Directory.Exists(byName));
     }
 
     [Fact]

@@ -57,10 +57,23 @@ function behind(folder: SyncFolder, devices: SyncDevice[]): string | null {
   );
   if (waiting.length === 0) return null;
   if (waiting.length > 1) {
-    const toGo = waiting.reduce((sum, computer) => sum + computer.needBytes, 0);
-    return toGo > 0
-      ? `Sending to ${waiting.length} computers, ${formatSize(toGo)} to go`
-      : `Waiting on ${waiting.length} computers`;
+    // Only what's on its way counts as to go: a computer that hasn't taken the folder up "needs"
+    // all of it, and one that's paused isn't getting any.
+    const receiving = waiting.filter((computer) => computer.state === "valid" || computer.state === "unknown");
+    const count = (state: string) => waiting.filter((computer) => computer.state === state).length;
+    const computers = (n: number) => `${n} computer${n === 1 ? "" : "s"}`;
+    const toGo = receiving.reduce((sum, computer) => sum + computer.needBytes, 0);
+    const unheard = waiting.length - receiving.length - count("notSharing") - count("paused");
+    return [
+      receiving.length > 0 &&
+        `Sending to ${computers(receiving.length)}${toGo > 0 ? `, ${formatSize(toGo)} to go` : ""}`,
+      count("notSharing") > 0 && `${computers(count("notSharing"))} still to accept it`,
+      count("paused") > 0 && `paused on ${computers(count("paused"))}`,
+      unheard > 0 && `waiting to hear from ${computers(unheard)}`,
+    ]
+      .filter(Boolean)
+      .join("; ")
+      .replace(/^./, (first) => first.toUpperCase());
   }
 
   const [computer] = waiting;
