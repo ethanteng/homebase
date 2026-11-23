@@ -533,6 +533,8 @@ export interface SyncProgress {
   completion: number;
   needBytes: number;
   needItems: number;
+  // Deletions still to make. Syncthing counts these apart from needItems, and they take no bytes.
+  needDeletes?: number;
 }
 export interface SyncOffer {
   folderId: string;

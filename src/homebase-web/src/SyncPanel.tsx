@@ -42,15 +42,18 @@ function behind(folder: SyncFolder, devices: SyncDevice[]): string | null {
         completion: 0,
         needBytes: 0,
         needItems: 0,
+        needDeletes: 0,
       },
   );
   // Syncthing says "unknown" of a computer that's away, and still knows how far it had got: one
-  // asleep with everything is up to date as far as anybody can tell.
+  // asleep with everything is up to date as far as anybody can tell. Deletions are counted apart
+  // from files and take no bytes, so they have to be asked about on their own.
   const waiting = computers.filter(
     (computer) =>
       !(computer.state === "valid" || computer.state === "unknown") ||
       computer.needItems > 0 ||
-      computer.needBytes > 0,
+      computer.needBytes > 0 ||
+      (computer.needDeletes ?? 0) > 0,
   );
   if (waiting.length === 0) return null;
   if (waiting.length > 1) {

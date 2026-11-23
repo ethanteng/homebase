@@ -38,8 +38,12 @@ public sealed record SyncthingOffer(string FolderId, string Label, string Device
 /// </param>
 /// <param name="Completion">How much of the folder it has, out of 100.</param>
 /// <param name="NeedBytes">What it still has to bring in.</param>
-/// <param name="NeedItems">Files, folders and deletions it still has to catch up on.</param>
-public sealed record SyncthingProgress(string State, double Completion, long NeedBytes, int NeedItems)
+/// <param name="NeedItems">Files and folders it still has to catch up on.</param>
+/// <param name="NeedDeletes">
+/// Deletions it still has to make. Syncthing counts these apart from <paramref name="NeedItems"/>,
+/// and they take no bytes, so a computer with only these left would otherwise look finished.
+/// </param>
+public sealed record SyncthingProgress(string State, double Completion, long NeedBytes, int NeedItems, int NeedDeletes = 0)
 {
     public const string Valid = "valid";
     public const string NotSharing = "notSharing";
@@ -70,7 +74,8 @@ public sealed record SyncFolder(
 
 /// <summary>How far one of your computers has got with a folder.</summary>
 /// <param name="State">See <see cref="SyncthingProgress.State"/>.</param>
-public sealed record SyncProgress(string DeviceId, string State, double Completion, long NeedBytes, int NeedItems);
+/// <param name="NeedDeletes">See <see cref="SyncthingProgress.NeedDeletes"/>.</param>
+public sealed record SyncProgress(string DeviceId, string State, double Completion, long NeedBytes, int NeedItems, int NeedDeletes = 0);
 
 /// <summary>A folder one of your computers wants to send here.</summary>
 public sealed record SyncOffer(string FolderId, string Label, string DeviceId, string DeviceName);

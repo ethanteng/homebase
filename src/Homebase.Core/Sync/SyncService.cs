@@ -75,7 +75,7 @@ public sealed partial class SyncService(
             var progress = new List<SyncProgress>();
             foreach (var deviceId in computers)
                 if (await syncthing.ProgressAsync(folder.FolderId, deviceId, cancellationToken) is { } got)
-                    progress.Add(new SyncProgress(deviceId, got.State, got.Completion, got.NeedBytes, got.NeedItems));
+                    progress.Add(new SyncProgress(deviceId, got.State, got.Completion, got.NeedBytes, got.NeedItems, got.NeedDeletes));
             shown.Add(new SyncFolder(folder.FolderId, folder.Path, Label(folder.Path), computers,
                 state.State, state.Error, state.Files, state.Bytes, state.WaitingForRoom, progress));
         }

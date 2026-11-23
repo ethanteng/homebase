@@ -898,7 +898,8 @@ public sealed class SyncTests : IDisposable
         await _sync.PairAsync(_ada.Id, Desktop, "Ada’s desktop", CancellationToken.None);
         var shared = await _sync.ShareAsync(_ada.Id, _adaRoot, "Documents", null, CancellationToken.None);
         _syncthing.Progress[(shared.Id, Laptop)] = new SyncthingProgress(SyncthingProgress.Valid, 10.2, 23_800_958_563, 2139);
-        _syncthing.Progress[(shared.Id, Desktop)] = new SyncthingProgress(SyncthingProgress.NotSharing, 0, 26_504_024_098, 2332);
+        // Deletions are a separate count from files. They still have to be carried across.
+        _syncthing.Progress[(shared.Id, Desktop)] = new SyncthingProgress(SyncthingProgress.NotSharing, 0, 26_504_024_098, 2332, 4);
 
         var folder = Assert.Single((await _sync.StatusAsync(_ada.Id, CancellationToken.None)).Folders);
 
@@ -906,6 +907,7 @@ public sealed class SyncTests : IDisposable
         var computers = folder.Computers!.ToDictionary(computer => computer.DeviceId);
         Assert.Equal(new SyncProgress(Laptop, SyncthingProgress.Valid, 10.2, 23_800_958_563, 2139), computers[Laptop]);
         Assert.Equal(SyncthingProgress.NotSharing, computers[Desktop].State);
+        Assert.Equal(4, computers[Desktop].NeedDeletes);
         Assert.Equal(2, computers.Count);
     }
 

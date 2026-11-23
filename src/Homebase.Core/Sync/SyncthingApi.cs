@@ -151,7 +151,8 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
                 root.TryGetProperty("remoteState", out var state) ? state.GetString() ?? "unknown" : "unknown",
                 root.TryGetProperty("completion", out var completion) && completion.TryGetDouble(out var percent) ? percent : 0,
                 root.TryGetProperty("needBytes", out var bytes) && bytes.TryGetInt64(out var need) ? need : 0,
-                root.TryGetProperty("needItems", out var items) && items.TryGetInt32(out var count) ? count : 0);
+                root.TryGetProperty("needItems", out var items) && items.TryGetInt32(out var count) ? count : 0,
+                root.TryGetProperty("needDeletes", out var deletes) && deletes.TryGetInt32(out var removed) ? removed : 0);
         }
         // A folder or device Syncthing doesn't know is refused, which only means it can't say.
         catch (LibraryException error) when (error.Code == "sync_failed")

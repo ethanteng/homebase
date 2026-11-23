@@ -16,6 +16,7 @@ const progress = (overrides: Partial<SyncProgress> = {}): SyncProgress => ({
   completion: 100,
   needBytes: 0,
   needItems: 0,
+  needDeletes: 0,
   ...overrides,
 });
 
@@ -117,6 +118,15 @@ describe("a synced folder this Uncloud has all of", () => {
     render(<SyncPanel me={ME} onSignOut={() => {}} />);
 
     expect(await screen.findByText(/Up to date · 2,332 files/)).toBeInTheDocument();
+  });
+
+  it("isn't up to date while a computer still has deletions to make", async () => {
+    // Syncthing counts deletions apart from files, and they take none of the bytes.
+    computers = [progress({ completion: 95, needBytes: 0, needItems: 0, needDeletes: 4 })];
+    render(<SyncPanel me={ME} onSignOut={() => {}} />);
+
+    expect(await screen.findByText(/Sending to Ada’s MacBook: 95% there ·/)).toBeInTheDocument();
+    expect(screen.queryByText(/Up to date/)).not.toBeInTheDocument();
   });
 
   it("doesn't claim a computer it couldn't ask about is done", async () => {
