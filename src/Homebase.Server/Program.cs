@@ -887,6 +887,17 @@ app.MapDelete("/api/shares/{id}", (string id, CurrentUser user, ShareLinks links
 static LibraryException OnlyToLookAt() =>
     new("Whoever shared this lets people look at it, not download it.", "forbidden");
 
+// Where a visitor asked to look, once it's known to be something the link actually shares. A hidden
+// name, a link, or a path that climbs out is answered the same as a name that isn't there: saying
+// which of those it was would tell them about files the link never listed.
+static string SharedInside(ShareLink link, LibraryService library, string? path, string choose)
+{
+    var inside = link.Locate(path) ?? throw new LibraryException(choose);
+    if (library.Find(inside) is null)
+        throw new LibraryException("That isn’t in what was shared.", "not_found");
+    return inside;
+}
+
 // One thing in a link as a visitor sees it: its name, and where it is inside what was shared — never
 // where it is in its owner's folder.
 static object Visible(string name, string path, LibraryEntry entry) => new
@@ -915,9 +926,11 @@ app.MapGet("/api/shared/{token}", (string token, ShareLinks links, UserStore use
 app.MapGet("/api/shared/{token}/files", async (string token, string? path, ShareLinks links, UserStore users, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
 {
     var (link, _, library) = Shared(token, links, users, workspaces);
-    if (link.Locate(path) is not { } inside)
+    if (link.Locate(path) is not { } located)
         return Results.Ok(new { path = "", entries = SharedItems(link, library), skippedCount = 0 });
-    var listing = await library.BrowseAsync(inside, cancellationToken);
+    if (library.Find(located) is null)
+        throw new LibraryException("That isn’t in what was shared.", "not_found");
+    var listing = await library.BrowseAsync(located, cancellationToken);
     var at = path!.Trim('/');
     return Results.Ok(new
     {
@@ -930,7 +943,7 @@ app.MapGet("/api/shared/{token}/files", async (string token, string? path, Share
 app.MapGet("/api/shared/{token}/size", (string token, string? path, ShareLinks links, UserStore users, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
 {
     var (link, _, library) = Shared(token, links, users, workspaces);
-    var inside = link.Locate(path) ?? throw new LibraryException("Choose a folder in what was shared.");
+    var inside = SharedInside(link, library, path, "Choose a folder in what was shared.");
     return Results.Ok(library.Size(inside, cancellationToken));
 });
 
@@ -939,7 +952,7 @@ app.MapGet("/api/shared/{token}/size", (string token, string? path, ShareLinks l
 app.MapGet("/api/shared/{token}/file", async (string token, string? path, HttpContext context, ShareLinks links, UserStore users, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
 {
     var (link, _, library) = Shared(token, links, users, workspaces);
-    var inside = link.Locate(path) ?? throw new LibraryException("Choose a file in what was shared.");
+    var inside = SharedInside(link, library, path, "Choose a file in what was shared.");
     var name = inside[(inside.LastIndexOf('/') + 1)..];
     if (SharePreview.Kind(name) is not { } kind || SharePreview.ContentType(name) is not { } type)
         return Results.Problem("This kind of file can’t be shown in a browser.", statusCode: StatusCodes.Status415UnsupportedMediaType);
@@ -954,7 +967,7 @@ app.MapGet("/api/shared/{token}/download", async (string token, string? path, Sh
 {
     var (link, _, library) = Shared(token, links, users, workspaces);
     if (!link.CanDownload) throw OnlyToLookAt();
-    var inside = link.Locate(path) ?? throw new LibraryException("Choose a file in what was shared.");
+    var inside = SharedInside(link, library, path, "Choose a file in what was shared.");
     var (stream, name) = await library.OpenFileAsync(inside, cancellationToken);
     // A download, like every other: nothing anybody shares runs on this address.
     return Results.File(stream, "application/octet-stream", name, enableRangeProcessing: true);

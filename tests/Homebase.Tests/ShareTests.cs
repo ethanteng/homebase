@@ -149,10 +149,16 @@ public sealed class ShareTests : IDisposable
                      "../Private/diary.txt", ".homebase/index.db"
                  })
         {
-            Assert.False((await visitor.GetAsync($"/api/shared/{token}/download?path={path}")).IsSuccessStatusCode, path);
-            Assert.False((await visitor.GetAsync($"/api/shared/{token}/file?path={path}")).IsSuccessStatusCode, path);
-            Assert.False((await visitor.GetAsync($"/api/shared/{token}/files?path={path}")).IsSuccessStatusCode, path);
-            Assert.False((await visitor.GetAsync($"/api/shared/{token}/zip?path={path}")).IsSuccessStatusCode, path);
+            foreach (var which in new[] { "download", "file", "files", "zip" })
+            {
+                var response = await visitor.GetAsync($"/api/shared/{token}/{which}?path={path}");
+                Assert.False(response.IsSuccessStatusCode, $"{which} {path}");
+                // A hidden name or a link must read the same as a name that isn't there, not say which it was.
+                var body = await response.Content.ReadAsStringAsync();
+                Assert.DoesNotContain("Hidden", body, StringComparison.Ordinal);
+                Assert.DoesNotContain("Symbolic", body, StringComparison.Ordinal);
+                Assert.DoesNotContain("outside", body, StringComparison.OrdinalIgnoreCase);
+            }
         }
         var everything = await ZipNamesAsync(await visitor.GetAsync($"/api/shared/{token}/zip"));
         Assert.Equal(["Photos/beach.jpg"], everything);
