@@ -510,9 +510,9 @@ at once, so neither is something anybody has to go and find. The public address 
 once it is through. The node's identity is kept in `tunnel/` beside the accounts, so both are
 asked once and not again.
 
-On a host the app set up in an account of its own, the menu's **Reach From Anywhere…** opens this
+On a host the app set up in an account of its own, the menu's **Access From Anywhere…** opens this
 panel (`/?settings`), because that account's settings are its alone. On a host still running as the
-person signed in, the menu's **Reach From Anywhere** tick is the same switch, writing the same
+person signed in, the menu's **Access From Anywhere** tick is the same switch, writing the same
 setting; it restarts the server rather than opening the tunnel in place, because from outside there
 is no signed-in way to ask it to do that. Neither one overrules the other.
 
@@ -996,10 +996,14 @@ without it, each person installs Syncthing and pairs by device ID:
 2. In **Computers**, paste your computer's ID and **Add computer**.
 3. Either **Sync folder** in Uncloud — a folder such as `Documents`, or leave it empty for all of
    your files — and accept the offer in Syncthing on your computer; or share a folder from your
-   computer, and **Keep it here** when it appears under **Offered by your computers**.
+   computer, and **Start syncing** when it appears under **Shared from Syncthing**. An offer of a
+   folder whose ID this host made (`uncloud-…`) is never listed there: it's a folder that was
+   stopped here, which a computer goes on offering back because stopping leaves its copy alone.
 
-Instead of copying device IDs, a computer can pair itself with a code. **Get a pairing code** in
-**Computers** shows a ten-character code that works once, for ten minutes. A client on the
+Instead of copying device IDs, a computer can pair itself with a code. **Get a pairing code**,
+under **Other ways to connect** in **Computers**, shows a ten-character code that works once, for
+ten minutes. **Open in the Uncloud app**, shown there to a desktop browser that isn't on the host,
+gets one and hands it to the app as an `uncloud://pair?address=…&code=…` link, so nobody types it. A client on the
 computer sends it to `POST /api/sync/pair` as `{ "code", "deviceId", "name" }`, without a session
 and with the `X-Homebase-Request: 1` header, and gets back `{ "hostDeviceId", "accountName", "folders" }`. With `"syncEverything": true`, which
 the Uncloud app sends, the computer is also brought in on every folder the account already syncs,
@@ -1011,14 +1015,19 @@ up.
 
 The Uncloud app pairs the other way round: the computer asks first, and the person it belongs to
 approves. `POST /api/sync/pair/requests` with `{ "deviceId", "name", "syncEverything" }`, without a
-session, answers `{ "id", "secret", "expiresAt" }`, and the app shows `<address>/?pair=<id>` as a QR
-code. Opened by somebody signed in, that address asks **Add this computer?** at the top of **My
-computers** (`GET /api/sync/pairing-requests/{id}`), and approving it
-(`POST /api/sync/pairing-requests/{id}/approve`) pairs the computer with whoever approved, as
-redeeming a code would. Meanwhile the app asks `POST /api/sync/pair/requests/{id}/answer` with
-`{ "secret" }` every couple of seconds; that answers `{ "approved": false }` until somebody has, then
-`{ "approved": true, "result" }` — the same result a code gets — once, after which the request is
-gone. The id is on the computer's screen for anyone to read, and only ever leads to a page that
+session, answers `{ "id", "secret", "expiresAt" }`. The app's **Sign in to connect** opens
+`<address>/?pair=<id>` in that computer's own browser, and **Scan with a phone that's signed in
+instead** shows the same address as a QR code. Opened, that address is a page of its own: signed
+out, the sign-in says a computer is asking; signed in, it asks **Add this computer?**
+(`GET /api/sync/pairing-requests/{id}`, which answers `{ "name", "expiresAt", "state" }`).
+Approving it (`POST /api/sync/pairing-requests/{id}/approve`) pairs the computer with whoever
+approved, as redeeming a code would; **Don't add** (`POST /api/sync/pairing-requests/{id}/decline`)
+says no, for good. Meanwhile the app asks `POST /api/sync/pair/requests/{id}/answer` with
+`{ "secret" }` every couple of seconds; that answers `{ "approved": false }` until somebody has
+answered, then `{ "approved": true, "result" }` — the same result a code gets — or
+`{ "approved": false, "declined": true }`, once, after which the request is gone for the computer.
+Until it runs out, the person who answered sees `state` as `added` or `declined` if they open the
+link again, rather than an error; anybody else is told it's gone. The id is on the computer's screen for anyone to read, and only ever leads to a page that
 needs a session; the secret never leaves the computer. So a photo of the QR code can neither
 approve the request into somebody else's account nor collect what was approved. Requests last ten
 minutes and are kept in memory: a computer asking again replaces what it asked before, no more
@@ -1048,7 +1057,8 @@ computer's own name, with a TXT record carrying `url=` and the address other com
 `Homebase__PublicUrl` if that was set, or the tunnel's. It is asked again every ten seconds, since a
 tunnel allowed after startup brings an address the host didn't have before, and it carries no
 `url` at all while there's nowhere another computer can reach it; the app then says to turn on
-**Reach From Anywhere**. The address is all that's announced, and it is no key to anything —
+**Access From Anywhere**, and keeps looking until it's on. **Computers** shows the same address,
+from `GET /api/sync/reach` (`{ "address" }`, null while there's none), before anybody starts. The address is all that's announced, and it is no key to anything —
 everybody still signs in. `Homebase__Announce=false` stops it. A host on Linux doesn't announce
 itself, so its computers type the address.
 
@@ -1195,7 +1205,7 @@ this Mac is:
   run in an account of its own, from startup (see
   [Keeping the host private](#keeping-the-host-private)), then opens the browser for the first
   account. After that it serves the Mac's folders to the server, and its menu opens Uncloud,
-  **Reach From Anywhere…** (Settings), **Use Another Folder…**, **Update Uncloud…** when the app has
+  **Access From Anywhere…** (Settings), **Use Another Folder…**, **Update Uncloud…** when the app has
   been updated since Uncloud's own copy, and **Turn Off Uncloud on This Mac…**. Quitting the menu leaves Uncloud
   running. A host set up before this runs the server as the app's child process, as it did,
   and is asked once — then offered in the menu — to **Keep Everyone's Files Private**, which moves

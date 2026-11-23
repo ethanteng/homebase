@@ -1926,19 +1926,28 @@ tbody tr.selected {
 .warning-text {
   color: var(--danger-text);
 }
-/* A computer asking to be added, first on the page: on a phone that has just scanned its code,
-   the question is the only thing the person came for. */
+/* A computer asking to be added, on a page of its own: in that computer's browser, or on a phone
+   that has just scanned its code, the question is the only thing the person came for. */
 .pair-approval {
-  margin-bottom: 28px;
-  border-color: var(--accent);
+  gap: 18px;
 }
-.pair-approval h2 {
-  display: flex;
-  align-items: center;
-  gap: 9px;
+.pair-approval .wizard-title h1 {
+  font-size: 28px;
 }
-.pair-approval h2 svg {
-  flex-shrink: 0;
+.pair-approval .signed-in-as {
+  font-size: 15px;
+}
+.pair-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: var(--nav-active-bg);
+  color: var(--nav-active-text);
+}
+.pair-icon.done {
+  color: var(--ok);
 }
 .pair-loading {
   display: flex;
@@ -3379,6 +3388,80 @@ dialog.side-sheet::backdrop {
   align-items: flex-start;
   gap: 2px;
   min-width: 0;
+}
+/* Whether other computers can reach this Uncloud, said before the steps that depend on it. */
+.reach-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 0 16px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.reach-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.reach-note.ok {
+  color: var(--ok);
+}
+.reach-note.ok strong {
+  color: var(--text);
+}
+.reach-note.warn {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.reach-note.warn > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.reach-note.warn .link-button {
+  display: inline;
+  font-size: inherit;
+}
+/* Straight into the app, for somebody already at the computer they're adding. */
+.open-app {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 18px 0 6px;
+}
+.open-app .signed-in-as {
+  flex-basis: 100%;
+  margin: 0;
+}
+/* The pairing code and Syncthing: still there, after the way most people go. */
+.other-ways {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-left: 24px;
+}
+.other-way {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.other-way h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.other-way .field-help {
+  margin: 0;
+}
+.other-way .sync-form,
+.other-way .device-id,
+.other-way .pairing {
+  align-self: stretch;
+}
+.step-body a {
+  color: var(--accent-text);
 }
 /* The other way to do a step, said as one phrase under it and lined up with its words. */
 .step-alternative {

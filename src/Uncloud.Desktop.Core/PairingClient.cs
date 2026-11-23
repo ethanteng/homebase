@@ -41,12 +41,15 @@ public sealed class PairingClient(HttpClient client)
 
     /// <summary>
     /// What it takes to sync, once somebody has approved the request; null while nobody has yet.
-    /// A request that has run out is a <see cref="PairingExpiredException"/>, for a new one.
+    /// A request that has run out is a <see cref="PairingExpiredException"/>, for a new one; one
+    /// somebody said no to is a <see cref="PairingDeclinedException"/>, to stop asking.
     /// </summary>
     public async Task<PairingResult?> AnswerAsync(PairingRequest request, CancellationToken cancellationToken)
     {
         var answer = await SendAsync<PairingAnswer>(request.Address,
             $"/api/sync/pair/requests/{Uri.EscapeDataString(request.Id)}/answer", new { secret = request.Secret }, cancellationToken);
+        if (answer.Declined)
+            throw new PairingDeclinedException("This Mac wasn’t added. Whoever was asked chose not to add it.");
         return answer.Approved
             ? answer.Result ?? throw new PairingException("Uncloud answered, but not with anything this app understands.")
             : null;
@@ -158,3 +161,6 @@ public class PairingException(string message) : Exception(message);
 /// answer is a new one.
 /// </summary>
 public sealed class PairingExpiredException(string message) : PairingException(message);
+
+/// <summary>Somebody signed in to Uncloud said no to adding this computer.</summary>
+public sealed class PairingDeclinedException(string message) : PairingException(message);

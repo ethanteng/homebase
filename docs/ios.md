@@ -57,7 +57,7 @@ links there.
 ## How the phone reaches the host
 
 The host listens on `127.0.0.1` only. Nothing on the home network can reach it directly, the phone
-included. The one way in is the address **Reach From Anywhere** gives it, such as
+included. The one way in is the address **Access from anywhere** gives it, such as
 `https://uncloud.tail1234.ts.net`, and the phone uses that address **at home as well as away**:
 
 ```text
@@ -103,7 +103,7 @@ sends it to everyone ([README step 6](../README.md#6-let-everyone-in)).
 an address somewhere else can reach. A Linux host announces nothing, and its address is typed. A **Find it on this Wi-Fi** button browses for that with
 `NWBrowser` and fills in the address. A host found *without* a `url` is a host whose remote access is
 off, and the app can say exactly that: *"Found Ethan's Mac mini, but your phone can't reach it yet.
-Ask whoever looks after it to turn on Reach From Anywhere."*
+Ask whoever looks after it to turn on Access from anywhere."*
 
 Browsing for Bonjour services makes iOS ask for permission to use the local network. That prompt
 comes when the button is tapped, never at launch, so it arrives with a reason in front of it. The
@@ -307,7 +307,7 @@ Five things to get right, each with a test:
 Open `src/Uncloud.iOS/Uncloud.xcodeproj` in Xcode 16 or later, choose your team under **Signing &
 Capabilities**, and run. To try it in the simulator against a host on the same Mac, start one with
 `./scripts/run.sh`, make its first account at `http://127.0.0.1:5210` in a browser, then type
-`http://127.0.0.1:5210` into the app. On a real iPhone or iPad, use the host's Reach From Anywhere
+`http://127.0.0.1:5210` into the app. On a real iPhone or iPad, use the host's Access from anywhere
 address.
 
 `swift test --package-path src/Uncloud.iOS/UncloudKit` runs the library's tests without Xcode.

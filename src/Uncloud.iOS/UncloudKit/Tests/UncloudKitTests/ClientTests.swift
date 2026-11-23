@@ -65,7 +65,7 @@ struct ClientTests {
         let host = StubHost { _ in StubHost.Reply(status: 403) }
         let error = try await #require(throws: UncloudError.self) { try await host.client().checkHost() }
         guard case .refused(403, let message) = error else { Issue.record("\(error)"); return }
-        #expect(message.contains("Reach From Anywhere"))
+        #expect(message.contains("Access from anywhere"))
     }
 
     // MARK: Signing in

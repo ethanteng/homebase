@@ -35,7 +35,7 @@ public struct UncloudClient: Sendable {
         // The host refuses a name it doesn't answer to before anything else, with no body at all.
         if response.statusCode == 403 && body.isEmpty {
             throw UncloudError.refused(status: 403, message:
-                "Uncloud doesn’t answer to \(address.displayHost). Use the address it shows under Reach From Anywhere.")
+                "Uncloud doesn’t answer to \(address.displayHost). Use the address it shows under Access from anywhere.")
         }
         struct Health: Decodable { let status: String }
         guard response.statusCode == 200,

@@ -71,8 +71,12 @@ public sealed partial class SyncService(
                     state.DeviceIds.Where(mine.Contains).ToArray(), state.State, state.Error, state.Files, state.Bytes,
                     state.WaitingForRoom)
                 : new SyncFolder(folder.FolderId, folder.Path, Label(folder.Path), [], null, null, 0, 0)).ToArray(),
-            // Only offers made by this account's own computers, for folders nobody here has yet.
-            offers.Where(offer => mine.Contains(offer.DeviceId) && !liveFolders.ContainsKey(offer.FolderId))
+            // Only offers made by this account's own computers, for folders nobody here has yet —
+            // and never a folder this Uncloud shared itself. A computer goes on offering back a
+            // folder that was stopped here, since stopping leaves its copy where it is; taking that
+            // "offer" would only start the stopped folder again, so it isn't one.
+            offers.Where(offer => mine.Contains(offer.DeviceId) && !liveFolders.ContainsKey(offer.FolderId)
+                    && !IsOwnFolderId(offer.FolderId))
                 .Select(offer => new SyncOffer(offer.FolderId, offer.Label, offer.DeviceId,
                     devices.First(device => device.DeviceId == offer.DeviceId).Name))
                 .ToArray());
@@ -230,6 +234,13 @@ public sealed partial class SyncService(
             if (ownership.FindFolder(folderId) is not null
                 || (await syncthing.FoldersAsync(cancellationToken)).Any(folder => folder.Id == folderId))
                 throw new LibraryException("That folder is already syncing.", "conflict");
+            // The same echo Status leaves off the list. Stopping a folder this Uncloud shared
+            // leaves the copy on the computer, which offers it back; taking that offer would only
+            // start the stopped folder again.
+            if (IsOwnFolderId(folderId))
+                throw new LibraryException(
+                    "That folder came from this Uncloud. To sync it again, choose it under What stays in sync.",
+                    "conflict");
 
             // The offered label comes from the other computer, so it gets this account's rules too.
             var path = NormalizePath(relativePath ?? offers[0].Label);
@@ -479,6 +490,12 @@ public sealed partial class SyncService(
         if (slug.Length == 0) slug = "folder";
         return $"uncloud-{slug}-{Convert.ToHexString(digest)[..12].ToLowerInvariant()}";
     }
+
+    /// <summary>
+    /// Whether a folder ID is one an Uncloud made (<see cref="FolderId"/>), rather than one somebody
+    /// chose in Syncthing on their own computer. The Uncloud app never makes folders of its own.
+    /// </summary>
+    public static bool IsOwnFolderId(string folderId) => folderId.StartsWith("uncloud-", StringComparison.Ordinal);
 
     /// <summary>What the folder is called on the other computer, which is where it lands by default.</summary>
     public static string Label(string relativePath) =>

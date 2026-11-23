@@ -8,13 +8,15 @@ import { WizardSteps } from "./Wizard";
 interface Props {
   session: Session;
   onSignedIn: (user: User) => void;
+  /// Why they're signing in, when they came for one thing: a computer waiting to be added.
+  purpose?: { title: string; lead: string };
 }
 
 /**
  * The way in. On a host with no accounts this makes the first one, which is the admin because
  * somebody has to choose where everyone's files live; after that it signs people in.
  */
-export default function SignIn({ session, onSignedIn }: Props) {
+export default function SignIn({ session, onSignedIn, purpose }: Props) {
   const setup = session.setupNeeded;
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -48,11 +50,11 @@ export default function SignIn({ session, onSignedIn }: Props) {
       {setup && <WizardSteps step={1} total={2} />}
       <form className="wizard-card" onSubmit={submit}>
         <div className="wizard-title">
-          <h1>{setup ? "Create your account" : "Sign in"}</h1>
+          <h1>{setup ? "Create your account" : (purpose?.title ?? "Sign in")}</h1>
           <p>
             {setup
               ? "You’ll be the admin, so you can add family members later."
-              : "Welcome back to Uncloud."}
+              : (purpose?.lead ?? "Welcome back to Uncloud.")}
           </p>
         </div>
         {setup && (

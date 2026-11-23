@@ -194,7 +194,7 @@ Choose **Admin** only for another adult who should be able to add people and cha
 Open **Settings** and turn on **Access from anywhere**, then click **Approve in Tailscale**. You'll be taken to Tailscale, a free service Uncloud uses for
 its secure connection. Sign in or make an account.
 
-(With the app, **Reach From Anywhere…** under the **U** in the menu bar opens this panel.)
+(With the app, **Access From Anywhere…** under the **U** in the menu bar opens this panel.)
 
 Tailscale then asks one more thing, also once: that you let this tailnet be reached from the
 public internet. Uncloud puts that in front of you too — the same row shows **Open in Tailscale**.
@@ -432,33 +432,34 @@ Uncloud.
 **On a Mac, with the Uncloud app:**
 
 1. [Get the app](#get-the-app) on your laptop, open it, and choose **Connect to your Uncloud**.
-2. At home, the app finds your Uncloud by itself and shows a QR code. Scan it with your phone's
-   camera, sign in to Uncloud if it asks, and tap **Add this computer**. (No phone to hand? Click
-   **Approve in Browser** instead.)
+2. The app finds your Uncloud by itself. Click **Sign in to connect**: your browser opens, you
+   sign in to Uncloud, and click **Add this computer**.
 
 That's all. Your Uncloud files appear in a folder called **Uncloud** in your home folder, and stay
 in step both ways. The Uncloud icon in the menu bar shows whether you're up to date, and pauses or
 disconnects the laptop.
 
-Away from home, the app asks for the address you open Uncloud at, then shows the code the same
-way. Either way, the host needs [Reach From Anywhere](#6-let-everyone-in) turned on, because that's
-how other computers reach it. You can also pair with a code instead: in Uncloud in your laptop's
-browser, open **Computers**, click **Add a computer** and **Get a pairing code**, then **Open it in
-the Uncloud app**.
+If your phone is already signed in to Uncloud, you can click **Scan with a phone that's signed in
+instead** and approve there. The host needs [Access from anywhere](#6-let-everyone-in) turned on,
+even for a laptop at home, because that's how other computers reach it; **Computers** says whether
+it is, and the app waits until it is. Away from home, or when the app can't find your Uncloud,
+enter the address you open Uncloud at. To pair with a code instead, open **Computers** in Uncloud,
+then **Other ways to connect** and **Get a pairing code**, and in the app choose **Other ways to
+connect**, then **Type a pairing code**.
 
 **On Windows or Linux, or without the app:**
 
 1. Download and install [Syncthing](https://syncthing.net/downloads/) on your laptop, and open it.
-2. In Uncloud, open **Computers**, click **Add a computer**, open **Windows or Linux? Use Syncthing
-   instead**, and copy this Uncloud's ID.
+2. In Uncloud, open **Computers**, then **Other ways to connect**, and copy this Uncloud's ID under
+   **Windows or Linux, with Syncthing**.
 3. In Syncthing, click **Add Remote Device** and paste it.
 4. In Syncthing, click **Actions → Show ID** and copy your laptop's ID.
 5. Back in Uncloud, paste it and click **Add computer**.
-6. In Uncloud, type the folder to sync (for example `Documents`, or leave it empty for everything)
-   and click **Sync folder**. Accept the folder when Syncthing on your laptop offers it.
+6. In Uncloud, click **Choose what to sync**, pick a folder (or all of your files) and click
+   **Start syncing**. Accept the folder when Syncthing on your laptop offers it.
 
-Or go the other way: share a folder from Syncthing on your laptop, and click **Keep it here** when
-it appears in Uncloud under **Folders your computers offered**.
+Or go the other way: share a folder from Syncthing on your laptop. It appears in Uncloud under
+**Shared from Syncthing**; choose where to keep it and click **Start syncing**.
 
 From then on, changes on either side reach the other, whether you're at home or away.
 

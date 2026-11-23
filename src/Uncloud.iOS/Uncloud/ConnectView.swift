@@ -21,7 +21,7 @@ struct ConnectView: View {
                 } header: {
                     Text("Your Uncloud’s address")
                 } footer: {
-                    Text("Whoever looks after your Uncloud has it. It’s the address Reach From Anywhere shows, "
+                    Text("Whoever looks after your Uncloud has it. It’s the address Access from anywhere shows, "
                         + "such as https://uncloud.tail1234.ts.net.")
                 }
                 if let failure {

@@ -177,7 +177,7 @@ public sealed class App : Application
                 menu.Add(Item("Open Uncloud", () => Open(DesktopController.HostAddress.ToString())));
                 // Its settings are its own account's, so they're changed where everybody else
                 // changes them, in Settings.
-                menu.Add(Item("Reach From Anywhere…", () => Open(new Uri(DesktopController.HostAddress, "/?settings").ToString())));
+                menu.Add(Item("Access From Anywhere…", () => Open(new Uri(DesktopController.HostAddress, "/?settings").ToString())));
                 menu.Add(Item("Use Another Folder…", () => ShowSetup(null, SetupStart.UseAnotherFolder)));
                 // Ticked while it does; either way, changing it asks for an administrator's password.
                 var awake = new NativeMenuItem("Keep This Mac Awake")
@@ -205,7 +205,7 @@ public sealed class App : Application
                     keep.Click += (_, _) => ShowSetup(null, SetupStart.KeepPrivate);
                     menu.Add(keep);
                 }
-                var reach = new NativeMenuItem("Reach From Anywhere")
+                var reach = new NativeMenuItem("Access From Anywhere")
                 {
                     ToggleType = NativeMenuItemToggleType.CheckBox,
                     IsChecked = _controller.ReachFromAnywhere

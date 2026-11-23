@@ -35,6 +35,7 @@ import SyncPanel from "./SyncPanel";
 import HostSetup, { LocationSetting, RemoteAccessSetting } from "./HostSetup";
 import { SettingsGroup } from "./Settings";
 import SignIn from "./SignIn";
+import PairApproval from "./PairApproval";
 import UsersPanel from "./UsersPanel";
 import AccountPanel from "./AccountPanel";
 import { useTheme } from "./theme";
@@ -481,7 +482,20 @@ export default function App() {
         <Header />
         <main>
           <div className="main-content">
-            <SignIn session={session} onSignedIn={onSignedIn} />
+            <SignIn
+              session={session}
+              onSignedIn={onSignedIn}
+              // Arrived from a computer's "Sign in to connect", or its QR code: said, so a sign-in
+              // page on its own isn't a surprise.
+              purpose={
+                approving
+                  ? {
+                      title: "Sign in to add a computer",
+                      lead: "A computer is asking to sync with your files. Sign in, then say whether to add it.",
+                    }
+                  : undefined
+              }
+            />
           </div>
         </main>
       </div>
@@ -514,6 +528,32 @@ export default function App() {
         <main>
           <div className="main-content">
             <HostSetup onSaved={() => setRevision((value) => value + 1)} />
+          </div>
+        </main>
+      </div>
+    );
+
+  // A computer asking to be added: that question alone. After setup, for an admin who hasn't
+  // chosen where files go yet, since approving needs that; and kept through a visit to My
+  // account, so the question is still there afterwards until it's answered.
+  if (approving && view !== "account")
+    return (
+      <div className="app-shell">
+        <Header>
+          <AccountMenu me={me} onAccount={() => show("account")} onSignOut={() => void signOut()} />
+        </Header>
+        <main>
+          <div className="main-content">
+            <PairApproval
+              id={approving}
+              me={me}
+              onDone={() => {
+                setApproving(null);
+                setView("sync");
+              }}
+              // "Not you?": the wrong account is signed in, so the question waits for the right one.
+              onSignOut={() => void signOut(true)}
+            />
           </div>
         </main>
       </div>
@@ -629,11 +669,8 @@ export default function App() {
             ) : hasFolder && view === "sync" ? (
               <SyncPanel
                 me={me}
-                // "Not you?": the wrong account is signed in to add a computer, so the computer's
-                // question waits for the right one.
-                onSignOut={() => void signOut(true)}
-                approving={approving}
-                onApprovalClosed={() => setApproving(null)}
+                onSignOut={() => void signOut()}
+                onOpenSettings={me.isAdmin ? () => show("settings") : undefined}
               />
             ) : hasFolder && view === "backups" ? (
               <Backups

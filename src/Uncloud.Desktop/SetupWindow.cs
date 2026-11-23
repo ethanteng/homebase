@@ -28,8 +28,9 @@ public enum SetupStart
 
 /// <summary>
 /// The one window the app has. First run asks what this computer is. A computer then finds the
-/// Uncloud on its network and shows a QR code for its owner to scan and approve on their phone —
-/// or pairs with a link or an address and code, as it always could. The host sets Uncloud up in an
+/// Uncloud on its network and asks to be added: its owner says yes after signing in, in this
+/// computer's own browser, or on a phone that's signed in already by scanning a QR code — or it
+/// pairs with a link or an address and code, as it always could. The host sets Uncloud up in an
 /// account of its own and opens it in the browser, where the first account is made as it always
 /// has been.
 /// </summary>
@@ -133,21 +134,29 @@ public sealed class SetupWindow : Window
     /// <summary>Looks for the household's Uncloud on this network, so nobody has to know its address.</summary>
     private async void ShowFind()
     {
-        Reset("Connect to Uncloud", "Looking for your Uncloud…");
+        Reset("Connect this Mac", "Looking for your Uncloud…");
         var stop = Begin();
+        // Two seconds of looking: nothing to offer instead until it has had them.
         _body.Children.Add(new ProgressBar { IsIndeterminate = true });
-        _body.Children.Add(Links(("Enter its address instead", () => ShowAddress(null)), ("Use a pairing code", () => ShowCode(null))));
 
         IReadOnlyList<FoundHost> found;
         try { found = await _controller.FindAsync(stop); }
         catch (OperationCanceledException) { return; }
         if (stop.IsCancellationRequested) return;
 
+        if (!GoTo(found))
+            // Found but not reachable from here is worth saying: what to do about it is on the host.
+            if (found.FirstOrDefault() is { } host) ShowUnreachable(host);
+            else ShowAddress(notFound: true);
+    }
+
+    /// <summary>On to whatever was found that this Mac can reach, if anything was.</summary>
+    private bool GoTo(IReadOnlyList<FoundHost> found)
+    {
         var reachable = found.Where(host => Reachable(host) is not null).ToList();
-        if (reachable.Count == 1) ShowScan(Reachable(reachable[0])!, reachable[0].Name);
+        if (reachable.Count == 1) ShowConnect(Reachable(reachable[0])!, reachable[0].Name);
         else if (reachable.Count > 1) ShowPick(reachable);
-        // Found but not reachable from here is worth saying: what to do about it is on the host.
-        else ShowAddress(found.FirstOrDefault());
+        return reachable.Count > 0;
     }
 
     private static Uri? Reachable(FoundHost host)
@@ -158,21 +167,66 @@ public sealed class SetupWindow : Window
 
     private void ShowPick(IReadOnlyList<FoundHost> hosts)
     {
-        Reset("Connect to Uncloud", "Found more than one Uncloud. Which is yours?");
+        Reset("Connect this Mac", "Found more than one Uncloud. Which is yours?");
         foreach (var host in hosts)
         {
             var address = Reachable(host)!;
-            _body.Children.Add(Choice(host.Name, address.Host, () => ShowScan(address, host.Name)));
+            _body.Children.Add(Choice(host.Name, address.Host, () => ShowConnect(address, host.Name)));
         }
-        _body.Children.Add(Links(("Use a code instead", () => ShowCode(null))));
+        _body.Children.Add(Links(("Other ways to connect", () => ShowAddress(notFound: false))));
     }
 
-    /// <param name="unreachable">An Uncloud that was found but can't be reached from other computers yet.</param>
-    private void ShowAddress(FoundHost? unreachable)
+    /// <summary>
+    /// Found on this network, but not open to other computers: the host only answers its own
+    /// browser until Access From Anywhere is on. Said once, with who can do something about it, and
+    /// then this keeps looking, so it carries on by itself the moment it's turned on.
+    /// </summary>
+    private async void ShowUnreachable(FoundHost host)
     {
-        Reset("Connect to Uncloud", unreachable is { } host
-            ? $"Found it on {host.Name}, but it can’t be reached yet. On {host.Name}, turn on Reach From Anywhere in the Uncloud menu, then look again."
-            : "Couldn’t find your Uncloud. Check you’re on your home Wi-Fi, or enter its address.");
+        Reset($"{host.Name} isn’t open to other computers yet", "");
+        var stop = Begin();
+        _body.Children.Add(new Border
+        {
+            Background = new SolidColorBrush(Color.Parse("#fdf0dc")),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(14, 12),
+            Child = new StackPanel
+            {
+                Spacing = 4,
+                Children =
+                {
+                    new TextBlock { Text = $"Turn on Access From Anywhere on {host.Name}", FontWeight = FontWeight.SemiBold, Foreground = new SolidColorBrush(Color.Parse("#8a4b00")), TextWrapping = TextWrapping.Wrap },
+                    new TextBlock
+                    {
+                        Text = $"On {host.Name}, open the Uncloud menu and choose Access From Anywhere. Ask whoever set up Uncloud if that isn’t you.",
+                        Foreground = new SolidColorBrush(Color.Parse("#5c3300")),
+                        TextWrapping = TextWrapping.Wrap
+                    }
+                }
+            }
+        });
+        _body.Children.Add(Waiting("This window carries on by itself once it’s on."));
+        _body.Children.Add(Links(("Other ways to connect", () => ShowAddress(notFound: false))));
+
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), stop);
+                var found = await _controller.FindAsync(stop);
+                if (stop.IsCancellationRequested) return;
+                if (GoTo(found)) return;
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    /// <param name="notFound">Whether this is because looking found nothing, rather than having been asked for.</param>
+    private void ShowAddress(bool notFound)
+    {
+        Reset("Connect this Mac", notFound
+            ? "Couldn’t find your Uncloud on this network. Enter the address you open it at in your browser."
+            : "Enter the address you open Uncloud at in your browser.");
 
         var address = new TextBox { Watermark = "Address, such as https://home.example.ts.net", Text = _controller.Settings.Address };
         var next = new Button { Content = "Next", Background = Accent, Foreground = Brushes.White };
@@ -185,53 +239,137 @@ public sealed class SetupWindow : Window
                 ShowCode(text);
                 return;
             }
-            try { ShowScan(PairingLink.ParseAddress(text), null); }
+            try { ShowConnect(PairingLink.ParseAddress(text), null); }
             catch (FormatException error) { Problem(error.Message); }
         };
-        var again = new Button { Content = "Look Again" };
-        again.Click += (_, _) => ShowFind();
 
         _body.Children.Add(Labelled("Uncloud address", address));
         _body.Children.Add(_problem);
-        _body.Children.Add(new StackPanel
+        if (notFound)
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Children = { again, next }
-        });
-        _body.Children.Add(Links(("Use a code instead", () => ShowCode(null))));
+            var again = new Button { Content = "Look Again" };
+            again.Click += (_, _) => ShowFind();
+            _body.Children.Add(Buttons(again, next));
+        }
+        else _body.Children.Add(Buttons(next));
+        _body.Children.Add(Links(("Type a pairing code instead", () => ShowCode(null))));
     }
 
     /// <summary>
-    /// Shows a QR code for the person to scan with their phone, and waits for them to approve it.
-    /// A code that runs out, or that a restarted host has forgotten, is replaced by a new one.
+    /// Asks the Uncloud at this address to add this Mac, and waits for somebody signed in to say
+    /// yes. The quickest way to say it is right here, in this Mac's browser, so that's the button;
+    /// a phone that's already signed in can scan a QR code instead. Either way the same request is
+    /// waiting, and one that runs out, or that a restarted host has forgotten, is quietly replaced.
     /// </summary>
-    private async void ShowScan(Uri address, string? hostName)
+    private async void ShowConnect(Uri address, string? hostName)
     {
-        Reset("Connect to Uncloud", hostName is null ? $"Uncloud at {address.Host}" : $"Found it on {hostName}");
+        Reset("Connect this Mac", "");
         var stop = Begin();
-        var code = new Image { Width = 220, Height = 220, HorizontalAlignment = HorizontalAlignment.Center };
-        RenderOptions.SetBitmapInterpolationMode(code, BitmapInterpolationMode.None);
-        var instructions = new TextBlock { Text = "Getting a code…", TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center };
-        var browser = new Button { Content = "Approve in Browser", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Center };
-        PairingRequest? request = null;
-        browser.Click += (_, _) => { if (request is not null) App.Open(request.ApproveUrl.ToString()); };
-        _body.Children.Add(code);
-        _body.Children.Add(instructions);
-        _body.Children.Add(browser);
-        _body.Children.Add(_problem);
-        _body.Children.Add(Links(("Use a code instead", () => ShowCode(null))));
-
+        var heading = (TextBlock)_body.Children[0];
         var name = DesktopController.ComputerName();
+        PairingRequest? request = null;
+        void OpenBrowser() { if (request is not null) App.Open(request.ApproveUrl.ToString()); }
+
+        // Ready: what this is, and the one thing to do.
+        var signIn = new Button
+        {
+            Content = "Getting ready…",
+            IsEnabled = false,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            Padding = new Thickness(16, 11),
+            Background = Accent,
+            Foreground = Brushes.White,
+            FontWeight = FontWeight.SemiBold
+        };
+        var preparing = Quiet("Getting this Mac ready to sync. The first time, this can take a minute.");
+        var ready = new StackPanel
+        {
+            Spacing = 14,
+            Children =
+            {
+                HostCard(hostName ?? address.Host, address.Host, found: hostName is not null),
+                new TextBlock
+                {
+                    Text = $"Sign in to Uncloud in your browser to add {name}. Your files will sync to the Uncloud folder in your home folder.",
+                    TextWrapping = TextWrapping.Wrap,
+                    Opacity = 0.8
+                },
+                signIn,
+                preparing
+            }
+        };
+
+        // Waiting on this Mac's browser.
+        var browserWait = new StackPanel
+        {
+            Spacing = 12,
+            IsVisible = false,
+            Children = { Waiting("Waiting for you to sign in and add this Mac…") }
+        };
+
+        // Waiting on a phone, with the code to scan.
+        var code = new Image { Width = 200, Height = 200, HorizontalAlignment = HorizontalAlignment.Center };
+        RenderOptions.SetBitmapInterpolationMode(code, BitmapInterpolationMode.None);
+        var phoneWait = new StackPanel
+        {
+            Spacing = 12,
+            IsVisible = false,
+            Children =
+            {
+                code,
+                new TextBlock { Text = "Scan with your phone’s camera, then tap Add this computer.", TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center },
+                Waiting("Waiting for you to add this Mac on your phone…")
+            }
+        };
+
+        var waitingActions = new StackPanel { Spacing = 10, IsVisible = false };
+        var otherWays = Links(("Other ways to connect", () => ShowAddress(notFound: false)));
+        // Declared ahead of Show, which hides it, so the link can call Show itself.
+        WrapPanel phoneLink = null!;
+        phoneLink = Links(("Scan with a phone that’s signed in instead", () => Show(phone: true)));
+        phoneLink.IsEnabled = false;
+
+        void Show(bool? phone)
+        {
+            heading.Text = phone switch { null => "Connect this Mac", true => "Scan with your phone", false => "Finish in your browser" };
+            ready.IsVisible = phone is null;
+            phoneLink.IsVisible = phone is null;
+            otherWays.IsVisible = phone is null;
+            browserWait.IsVisible = phone is false;
+            phoneWait.IsVisible = phone is true;
+            waitingActions.IsVisible = phone is not null;
+            waitingActions.Children.Clear();
+            // Back on the choice there is nothing to cancel. A fresh button each time the wait
+            // shows: Clear() drops the row, but a button left in that row still has a parent, and
+            // Avalonia refuses to put the same control into the next row.
+            if (phone is null) return;
+            if (phone is false) waitingActions.Children.Add(Links(("Didn’t see a browser window? Open it again", OpenBrowser)));
+            if (phone is true) waitingActions.Children.Add(Links(("Sign in on this Mac instead", () => { OpenBrowser(); Show(phone: false); })));
+            var cancel = new Button { Content = "Cancel" };
+            cancel.Click += (_, _) => Show(phone: null);
+            waitingActions.Children.Add(Buttons(cancel));
+        }
+        signIn.Click += (_, _) => { OpenBrowser(); Show(phone: false); };
+
+        _body.Children.Add(ready);
+        _body.Children.Add(browserWait);
+        _body.Children.Add(phoneWait);
+        _body.Children.Add(_problem);
+        _body.Children.Add(waitingActions);
+        _body.Children.Add(phoneLink);
+        _body.Children.Add(otherWays);
+
         try
         {
             while (true)
             {
                 request = await _controller.RequestPairingAsync(address, name, stop);
                 code.Source = QrCode(request.ApproveUrl);
-                instructions.Text = $"Scan with your phone, check it shows your name, then tap Add this computer. This Mac is called {name}.";
-                browser.IsEnabled = true;
+                signIn.Content = "Sign in to connect";
+                signIn.IsEnabled = true;
+                phoneLink.IsEnabled = true;
+                preparing.IsVisible = false;
                 _problem.IsVisible = false;
 
                 while (true)
@@ -240,6 +378,11 @@ public sealed class SetupWindow : Window
                     PairingResult? result;
                     try { result = await _controller.CollectPairingAsync(request, stop); }
                     catch (PairingExpiredException) { break; }
+                    catch (PairingDeclinedException)
+                    {
+                        ShowNotAdded(address, hostName);
+                        return;
+                    }
                     // Not reachable for a moment — the Wi-Fi changing, the host restarting — is
                     // said, and tried again, rather than the end of setting up.
                     catch (PairingException error) when (!stop.IsCancellationRequested)
@@ -261,14 +404,72 @@ public sealed class SetupWindow : Window
         {
             if (stop.IsCancellationRequested) return;
             Problem(error.Message);
-            code.Source = null;
-            browser.IsEnabled = false;
-            instructions.Text = "";
+            Show(phone: null);
+            signIn.Content = "Sign in to connect";
+            signIn.IsEnabled = false;
+            phoneLink.IsEnabled = false;
+            preparing.IsVisible = false;
             var again = new Button { Content = "Try Again", HorizontalAlignment = HorizontalAlignment.Right };
-            again.Click += (_, _) => ShowScan(address, hostName);
+            again.Click += (_, _) => ShowConnect(address, hostName);
             _body.Children.Insert(_body.Children.IndexOf(_problem) + 1, again);
         }
     }
+
+    /// <summary>Somebody signed in said no. Nothing changed here, and it can be asked again.</summary>
+    private void ShowNotAdded(Uri address, string? hostName)
+    {
+        Reset("This Mac wasn’t added", "Whoever was asked chose not to add it, so nothing has changed. If that was a mistake, start again.");
+        var again = new Button { Content = "Start Again", Background = Accent, Foreground = Brushes.White };
+        again.Click += (_, _) => ShowConnect(address, hostName);
+        var close = new Button { Content = "Close" };
+        close.Click += (_, _) => Close();
+        _body.Children.Add(Buttons(close, again));
+    }
+
+    /// <summary>The Uncloud this Mac is about to join, so nobody has to wonder which.</summary>
+    private static Border HostCard(string name, string address, bool found) => new()
+    {
+        BorderBrush = new SolidColorBrush(Color.Parse("#40808080")),
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(10),
+        Padding = new Thickness(14, 12),
+        Child = new DockPanel
+        {
+            LastChildFill = true,
+            Children =
+            {
+                new TextBlock
+                {
+                    [DockPanel.DockProperty] = Dock.Right,
+                    Text = found ? "Found" : "",
+                    Foreground = new SolidColorBrush(Color.Parse("#17663a")),
+                    FontWeight = FontWeight.SemiBold,
+                    FontSize = 14,
+                    VerticalAlignment = VerticalAlignment.Center
+                },
+                new StackPanel
+                {
+                    Spacing = 2,
+                    Children =
+                    {
+                        new TextBlock { Text = name, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap },
+                        new TextBlock { Text = address, Opacity = 0.7, FontSize = 14, TextWrapping = TextWrapping.Wrap }
+                    }
+                }
+            }
+        }
+    };
+
+    /// <summary>Something this window is waiting on, said plainly, with motion so it doesn't look stuck.</summary>
+    private static StackPanel Waiting(string text) => new()
+    {
+        Spacing = 8,
+        Children =
+        {
+            new ProgressBar { IsIndeterminate = true },
+            new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Opacity = 0.8 }
+        }
+    };
 
     /// <summary>Dark on white whatever the window's theme, with the quiet border scanners need.</summary>
     private static Bitmap QrCode(Uri url)
@@ -278,23 +479,34 @@ public sealed class SetupWindow : Window
         return new Bitmap(new MemoryStream(new PngByteQRCode(data).GetGraphic(10)));
     }
 
+    /// <summary>
+    /// Pairing with a code from Computers. A link from there arrives with the address and code in
+    /// it, and asks only for a yes; typed by hand, it takes both.
+    /// </summary>
     private void ShowCode(string? link)
     {
-        Reset("Connect with a code",
-            "In Uncloud, open Computers and choose Get a pairing code. Open the link it shows, or enter the address and code here.");
+        PairingLink? parsed = null;
+        string? problem = null;
+        if (link is not null)
+        {
+            try { parsed = PairingLink.Parse(link); }
+            catch (FormatException error) { problem = error.Message; }
+        }
+
+        if (parsed is not null)
+            Reset("Connect this Mac", $"Connect to Uncloud at {parsed.Address.Host}, with the code Computers gave you.");
+        else
+            Reset("Type a pairing code",
+                "In Uncloud in your browser, open Computers, then Other ways to connect, and choose Get a pairing code.");
+        if (problem is not null) Problem(problem);
 
         var address = new TextBox { Watermark = "Address, such as https://home.example.ts.net" };
         var code = new TextBox { Watermark = "Pairing code, such as AB12C-DE34F" };
         var name = new TextBox { Text = DesktopController.ComputerName(), Watermark = "What to call this computer" };
-        if (link is not null)
+        if (parsed is not null)
         {
-            try
-            {
-                var parsed = PairingLink.Parse(link);
-                address.Text = parsed.Address.ToString().TrimEnd('/');
-                code.Text = parsed.Code;
-            }
-            catch (FormatException error) { Problem(error.Message); }
+            address.Text = parsed.Address.ToString().TrimEnd('/');
+            code.Text = parsed.Code;
         }
         else if (_controller.Settings.Address is { } known) address.Text = known;
 
@@ -320,12 +532,15 @@ public sealed class SetupWindow : Window
             }
         };
 
-        _body.Children.Add(Labelled("Uncloud address", address));
-        _body.Children.Add(Labelled("Pairing code", code));
+        if (parsed is null)
+        {
+            _body.Children.Add(Labelled("Uncloud address", address));
+            _body.Children.Add(Labelled("Pairing code", code));
+        }
         _body.Children.Add(Labelled("This computer’s name", name));
         _body.Children.Add(_problem);
         _body.Children.Add(connect);
-        _body.Children.Add(Links(("Scan with your phone instead", ShowFind)));
+        _body.Children.Add(Links(("Sign in with your browser instead", ShowFind)));
     }
 
     private void ShowPaired(string account)
