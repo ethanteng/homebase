@@ -24,7 +24,7 @@ interface Props {
   onClose: () => void;
   /** Called once the change is made, with a sentence saying what happened. */
   onDone: (summary: string) => void;
-  /** Whether any of it, or anything inside it, is shared by link, which deleting stops. */
+  /** Whether any of it, or anything inside it, is on a shared link. Deleting takes it off that link. */
   shared?: boolean;
 }
 
@@ -234,8 +234,8 @@ export default function EditDialog({ edit, from, onClose, onDone, shared = false
               {shared && (
                 <p className="field-help">
                   {one && !edit.entries[0].isDirectory
-                    ? "It’s shared by link, and the link will stop working."
-                    : "Links to what you’re deleting will stop working."}{" "}
+                    ? "It’s shared by link. Deleting it takes it off that link, which keeps working if it still shares something else."
+                    : "What’s deleted comes off its link, which keeps working if it still shares something else."}{" "}
                   Restoring doesn’t share anything again.
                 </p>
               )}

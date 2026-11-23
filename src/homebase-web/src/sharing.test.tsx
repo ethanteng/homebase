@@ -181,7 +181,9 @@ describe("sharing from My files", () => {
 
     // What's inside a folder being deleted counts as much as the folder itself.
     await waitFor(() =>
-      expect(screen.getByRole("dialog")).toHaveTextContent("Links to what you’re deleting will stop working."),
+      expect(screen.getByRole("dialog")).toHaveTextContent(
+        "What’s deleted comes off its link, which keeps working if it still shares something else.",
+      ),
     );
   });
 });
