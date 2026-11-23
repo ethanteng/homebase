@@ -552,8 +552,10 @@ public sealed class DesktopController(
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
+            // Not the same as a host that can't say: that one has folders placed by name. This is
+            // asked again on the next look, and nothing is put in the wrong place meanwhile.
             _logger.LogWarning(error, "Couldn’t read this computer’s Syncthing key to ask Uncloud where its folders go");
-            return null;
+            throw new PairingException("Couldn’t read this computer’s Syncthing key to ask Uncloud where its folders go.");
         }
         // Asked from the menu bar's own look at how things stand, which mustn't wait long on it.
         using var patience = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -562,7 +564,7 @@ public sealed class DesktopController(
         catch (System.Security.Cryptography.CryptographicException error)
         {
             _logger.LogWarning(error, "Couldn’t sign with this computer’s Syncthing key to ask Uncloud where its folders go");
-            return null;
+            throw new PairingException("Couldn’t sign with this computer’s Syncthing key to ask Uncloud where its folders go.");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

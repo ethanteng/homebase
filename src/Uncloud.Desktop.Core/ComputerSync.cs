@@ -56,6 +56,13 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
 
     private async Task ApplyGatedAsync(PairingResult pairing, CancellationToken cancellationToken)
     {
+        // Pairing is a host saying where its folders are. What a previous one couldn't say, and
+        // whether this process already turned auto-accept off for that one, doesn't decide the next.
+        _hostCantSay = false;
+        _askedAt = DateTimeOffset.MinValue;
+        _autoAcceptOff = false;
+        _notShared.Clear();
+
         Directory.CreateDirectory(paths.Files);
         if ((await syncthing.DevicesAsync(cancellationToken)).All(device => device.DeviceId != pairing.HostDeviceId))
             await syncthing.AddDeviceAsync(pairing.HostDeviceId, "Uncloud", cancellationToken);
@@ -331,6 +338,9 @@ public sealed class ComputerSync(ISyncthingApi syncthing, DesktopPaths paths, IL
                 await syncthing.RemoveDeviceAsync(hostDeviceId, cancellationToken);
             _places.Clear();
             _notShared.Clear();
+            _hostCantSay = false;
+            _askedAt = DateTimeOffset.MinValue;
+            _autoAcceptOff = false;
         }
         finally
         {

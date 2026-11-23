@@ -428,6 +428,36 @@ public sealed class DesktopTests : IDisposable
     }
 
     [Fact]
+    public async Task Disconnecting_forgets_that_an_older_host_could_not_say_where_folders_go()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var computer = new ComputerSync(_computer, _paths) { Now = () => now };
+        await computer.ApplyAsync(new PairingResult(FakeSyncthing.Self, "Ada", []), CancellationToken.None);
+        HostConnected();
+        _computer.Offers.Add(new SyncthingOffer("uncloud-desktop-1", "Desktop", FakeSyncthing.Self));
+        // The host this computer is leaving can't say. Folders go by their name, for now.
+        await computer.KeepInStepAsync(FakeSyncthing.Self, _ => Task.FromResult<IReadOnlyList<PairedFolder>?>(null), CancellationToken.None);
+        Assert.Equal(Path.Combine(_paths.Files, "Desktop"), _computer.Folders["uncloud-desktop-1"].Path);
+
+        await computer.ForgetAsync(FakeSyncthing.Self, CancellationToken.None);
+        await computer.ApplyAsync(new PairingResult(FakeSyncthing.Self, "Ada", []), CancellationToken.None);
+        HostConnected();
+        _computer.Offers.Add(new SyncthingOffer("uncloud-documents-1", "Documents", FakeSyncthing.Self));
+        var asked = 0;
+        await computer.KeepInStepAsync(FakeSyncthing.Self, _ =>
+        {
+            asked++;
+            return Task.FromResult<IReadOnlyList<PairedFolder>?>(
+                [new PairedFolder("uncloud-documents-1", "Documents", "Work/Documents")]);
+        }, CancellationToken.None);
+
+        // The new host is asked straight away, and the folder lands where that host has it —
+        // not under its name, which is what the previous host left this computer doing.
+        Assert.Equal(1, asked);
+        Assert.Equal(Path.Combine(_paths.Files, "Work", "Documents"), _computer.Folders["uncloud-documents-1"].Path);
+    }
+
+    [Fact]
     public async Task A_host_out_of_reach_is_asked_again_later_and_one_from_before_it_could_say_has_folders_go_by_name()
     {
         var now = DateTimeOffset.UtcNow;
