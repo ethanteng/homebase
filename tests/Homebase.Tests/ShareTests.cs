@@ -293,6 +293,65 @@ public sealed class ShareTests : IDisposable
     }
 
     [Fact]
+    public async Task A_move_that_fails_partway_still_takes_links_along_with_what_did_move()
+    {
+        // Root can move anything out of anywhere, so there'd be no failure to see.
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return;
+        var (app, owner, root) = await StartAsync();
+        using var _ = app;
+        await WriteAsync(root, "a.txt", "a");
+        await WriteAsync(root, "Locked/b.txt", "b");
+        Directory.CreateDirectory(Path.Combine(root, "Dest"));
+        var first = TokenOf(await ShareAsync(owner, canDownload: true, "a.txt"));
+        var second = TokenOf(await ShareAsync(owner, canDownload: true, "Locked/b.txt"));
+        using var visitor = app.CreateClient();
+        var locked = Path.Combine(root, "Locked");
+        File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            // a.txt goes; b.txt can't leave a folder nothing may be taken out of.
+            Assert.False((await owner.PostAsJsonAsync("/api/files/move",
+                new { paths = new[] { "a.txt", "Locked/b.txt" }, destination = "Dest" })).IsSuccessStatusCode);
+        }
+        finally
+        {
+            File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        Assert.True(File.Exists(Path.Combine(root, "Dest", "a.txt")));
+        var paths = (await owner.GetFromJsonAsync<JsonElement>("/api/shares")).GetProperty("links").EnumerateArray()
+            .Select(link => link.GetProperty("items")[0].GetProperty("path").GetString()!).Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(["Dest/a.txt", "Locked/b.txt"], paths);
+        Assert.Equal("a", await visitor.GetStringAsync($"/api/shared/{first}/download?path=a.txt"));
+        Assert.Equal("b", await visitor.GetStringAsync($"/api/shared/{second}/download?path=b.txt"));
+    }
+
+    [Fact]
+    public async Task A_delete_that_never_happened_leaves_its_links_alone()
+    {
+        var (app, owner, root) = await StartAsync();
+        using var _ = app;
+        await WriteAsync(root, "a.txt", "a");
+        var token = TokenOf(await ShareAsync(owner, canDownload: true, "a.txt"));
+        using var visitor = app.CreateClient();
+
+        // As though the drive it's on were unplugged: nothing can be deleted, and nothing can be found.
+        var away = $"{root}.away";
+        Directory.Move(root, away);
+        try
+        {
+            Assert.False((await owner.PostAsJsonAsync("/api/files/delete", new { paths = new[] { "a.txt" } })).IsSuccessStatusCode);
+        }
+        finally
+        {
+            Directory.Move(away, root);
+        }
+
+        Assert.Single((await owner.GetFromJsonAsync<JsonElement>("/api/shares")).GetProperty("links").EnumerateArray());
+        Assert.Equal("a", await visitor.GetStringAsync($"/api/shared/{token}/download?path=a.txt"));
+    }
+
+    [Fact]
     public async Task A_link_stops_working_while_its_owner_is_turned_off_and_goes_with_them()
     {
         var (app, owner, _) = await StartAsync();

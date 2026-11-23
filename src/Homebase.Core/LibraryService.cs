@@ -166,8 +166,13 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
     /// The folders this account syncs with its computers, relative to its root. One of those, or a
     /// folder holding one, can't be moved: Syncthing would lose the folder it was told to keep.
     /// </param>
+    /// <param name="moved">
+    /// Told of each item the moment it has moved, so that whatever follows it — a shared link — keeps
+    /// up even when a later item in the same move fails and nothing is returned.
+    /// </param>
     public async Task<IReadOnlyList<EditedEntry>> MoveAsync(
-        IReadOnlyList<string>? paths, string? destination, IReadOnlyCollection<string> synced, CancellationToken cancellationToken)
+        IReadOnlyList<string>? paths, string? destination, IReadOnlyCollection<string> synced, CancellationToken cancellationToken,
+        Action<EditedEntry>? moved = null)
     {
         await _edits.WaitAsync(cancellationToken);
         try
@@ -182,15 +187,17 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
                 KeepSynced(item, synced, "moved");
             }
 
-            var moved = new List<EditedEntry>();
+            var done = new List<EditedEntry>();
             foreach (var item in items)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (Path.GetDirectoryName(item.FullPath) == folder) continue;
                 var name = Place(item.FullPath, folder, item.Name, item.IsDirectory, copy: false);
-                moved.Add(new EditedEntry(item.Relative, Join(folder, name)));
+                var entry = new EditedEntry(item.Relative, Join(folder, name));
+                done.Add(entry);
+                moved?.Invoke(entry);
             }
-            return moved;
+            return done;
         }
         finally { _edits.Release(); }
     }
@@ -257,8 +264,13 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
     /// once, and for good after <see cref="KeepDeletedFor"/> unless put back first.
     /// </summary>
     /// <param name="synced">As for <see cref="MoveAsync"/>: a synced folder, or one holding one, stays.</param>
+    /// <param name="deleted">
+    /// Told of each item, by where it was, the moment it is in the bin: only those, so a delete that
+    /// fails partway, or never starts because the drive is gone, reports only what really went.
+    /// </param>
     public async Task<int> DeleteAsync(
-        IReadOnlyList<string>? paths, IReadOnlyCollection<string> synced, CancellationToken cancellationToken)
+        IReadOnlyList<string>? paths, IReadOnlyCollection<string> synced, CancellationToken cancellationToken,
+        Action<string>? deleted = null)
     {
         await _edits.WaitAsync(cancellationToken);
         try
@@ -272,6 +284,7 @@ public sealed partial class LibraryService(string root, MetadataIndex index) : I
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ToBin(bin, item);
+                deleted?.Invoke(item.Relative);
             }
             return items.Count;
         }

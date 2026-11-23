@@ -697,12 +697,19 @@ app.MapPost("/api/files/copy", async (EditFiles request, CurrentUser user, UserW
 });
 
 // A link to something moved or renamed here goes with it, so the address somebody was sent still works.
+// Each item is followed as it moves, so a move that fails partway still takes along what did go.
 app.MapPost("/api/files/move", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, ShareLinks links, CancellationToken cancellationToken) =>
 {
-    var moved = await workspaces.For(user.Account).Library.MoveAsync(
-        request.Paths, request.Destination, Synced(ownership, user), cancellationToken);
-    links.Follow(user.Id, moved);
-    return Results.Ok(new { items = moved });
+    var moved = new List<EditedEntry>();
+    try
+    {
+        return Results.Ok(new
+        {
+            items = await workspaces.For(user.Account).Library.MoveAsync(
+                request.Paths, request.Destination, Synced(ownership, user), cancellationToken, moved.Add)
+        });
+    }
+    finally { links.Follow(user.Id, moved); }
 });
 
 app.MapPost("/api/files/rename", async (RenameFile request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, ShareLinks links, CancellationToken cancellationToken) =>
@@ -721,17 +728,18 @@ app.MapPost("/api/files/folder", async (NewFolder request, CurrentUser user, Use
 // file given its name later is a different file, and nobody chose to share that.
 app.MapPost("/api/files/delete", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, ShareLinks links, CancellationToken cancellationToken) =>
 {
-    var library = workspaces.For(user.Account).Library;
+    // Only what the library says went into the bin, as it goes: a delete that stops partway lets go
+    // of what did go, and one that never starts — the drive unplugged, say — leaves every link alone.
+    var deleted = new List<string>();
     try
     {
-        return Results.Ok(new { deleted = await library.DeleteAsync(request.Paths, Synced(ownership, user), cancellationToken) });
+        return Results.Ok(new
+        {
+            deleted = await workspaces.For(user.Account).Library.DeleteAsync(
+                request.Paths, Synced(ownership, user), cancellationToken, deleted.Add)
+        });
     }
-    finally
-    {
-        // Asked of each whether it's gone, rather than taken from the request, so a delete that
-        // stopped partway still lets go of what did go, and nothing it refused.
-        links.Forget(user.Id, (request.Paths ?? []).Where(path => library.Find(path) is null));
-    }
+    finally { links.Forget(user.Id, deleted); }
 });
 
 // Files sent from the browser, from whichever computer or phone somebody is using, into their own
