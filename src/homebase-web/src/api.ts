@@ -622,3 +622,57 @@ export function nameTogether(names: string[]): string {
 export function downloadUrl(path: string): string {
   return `/api/files/download?${new URLSearchParams({ path })}`;
 }
+
+/// One thing a link shares, as its owner sees it: where it is in My files, and whether it still is.
+export interface ShareItem {
+  path: string;
+  name: string;
+  isDirectory: boolean;
+  here: boolean;
+}
+/// A link to files of yours that anyone who has it can open without an account.
+export interface ShareLink {
+  id: string;
+  /// Null only when Uncloud can't read the address back any more; the link still works.
+  url: string | null;
+  canDownload: boolean;
+  createdAt: string;
+  items: ShareItem[];
+}
+export interface ShareList {
+  /// Whether anybody away from this computer can open a link at all.
+  reachable: boolean;
+  links: ShareLink[];
+}
+
+/// How a shared file is shown in the browser, or null when it can only be downloaded.
+export type PreviewKind = "image" | "video" | "audio" | "pdf" | "text";
+/// Something in a shared link, as whoever has the link sees it: its path is inside what was shared.
+export interface SharedEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number | null;
+  modifiedAt: string;
+  preview: PreviewKind | null;
+}
+export interface SharedLinkInfo {
+  sharedBy: string;
+  canDownload: boolean;
+  items: SharedEntry[];
+}
+export interface SharedListing {
+  path: string;
+  entries: SharedEntry[];
+  skippedCount: number;
+}
+
+/** What to ask api() for about a shared link's files, for whoever has the link. */
+export function sharedPath(token: string, what: "files" | "size", path: string): string {
+  return `/shared/${encodeURIComponent(token)}/${what}?${new URLSearchParams({ path })}`;
+}
+
+/** Where the page shows, downloads or zips a shared link's files from. */
+export function sharedUrl(token: string, what: "file" | "download" | "zip", path: string): string {
+  return `/api/shared/${encodeURIComponent(token)}/${what}?${new URLSearchParams({ path })}`;
+}

@@ -3,6 +3,7 @@ using Homebase.Core;
 using Homebase.Core.Accounts;
 using Homebase.Core.Backup;
 using Homebase.Core.Providers;
+using Homebase.Core.Sharing;
 using Homebase.Core.Sync;
 using Homebase.Server;
 using Microsoft.AspNetCore.Http.Features;
@@ -97,6 +98,7 @@ builder.Services.AddSingleton(provider => new SecretProtector(ConfigDirectory(pr
 builder.Services.AddSingleton(provider => new SettingsStore(ConfigDirectory(provider, defaultConfig)));
 builder.Services.AddSingleton<UserStore>();
 builder.Services.AddSingleton<SessionStore>();
+builder.Services.AddSingleton<ShareLinks>();
 builder.Services.AddSingleton<ConnectorStore>();
 builder.Services.AddSingleton<LoginThrottle>();
 builder.Services.AddSingleton<UsageService>();
@@ -366,7 +368,10 @@ string[] anonymous =
     // key is its authority then.
     "/api/sync/computers/release-challenge",
     "/api/sync/computers/release",
-    "/api/sync/computers/folders"
+    "/api/sync/computers/folders",
+    // Files somebody shared by link, for whoever has the link. The link is the authority, and it only
+    // ever reads: what it shares, and nothing beside or above that.
+    "/api/shared"
 ];
 // Reached only by an administrator: the host's own folder, and the accounts on it.
 string[] administrative =
@@ -437,6 +442,9 @@ app.Use(async (context, next) =>
     context.Response.Headers.XContentTypeOptions = "nosniff";
     context.Response.Headers["Referrer-Policy"] = "no-referrer";
     context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+    // A shared link's address is the whole of its key, so nothing that shows one is to be indexed.
+    if (request.Path.StartsWithSegments("/s") || request.Path.StartsWithSegments("/api/shared"))
+        context.Response.Headers["X-Robots-Tag"] = "noindex, nofollow";
     // Dropbox returns the browser here by redirect, so this one path is necessarily cross-site.
     // It carries no authority of its own: the state parameter names the account and is checked
     // before the code is used.
@@ -688,27 +696,43 @@ app.MapPost("/api/files/copy", async (EditFiles request, CurrentUser user, UserW
     return Results.Ok(new { items = copied });
 });
 
-app.MapPost("/api/files/move", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, CancellationToken cancellationToken) =>
-    Results.Ok(new
-    {
-        items = await workspaces.For(user.Account).Library.MoveAsync(
-            request.Paths, request.Destination, Synced(ownership, user), cancellationToken)
-    }));
+// A link to something moved or renamed here goes with it, so the address somebody was sent still works.
+app.MapPost("/api/files/move", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, ShareLinks links, CancellationToken cancellationToken) =>
+{
+    var moved = await workspaces.For(user.Account).Library.MoveAsync(
+        request.Paths, request.Destination, Synced(ownership, user), cancellationToken);
+    links.Follow(user.Id, moved);
+    return Results.Ok(new { items = moved });
+});
 
-app.MapPost("/api/files/rename", async (RenameFile request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, CancellationToken cancellationToken) =>
-    Results.Ok(await workspaces.For(user.Account).Library.RenameAsync(
-        request.Path, request.Name, Synced(ownership, user), cancellationToken)));
+app.MapPost("/api/files/rename", async (RenameFile request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, ShareLinks links, CancellationToken cancellationToken) =>
+{
+    var renamed = await workspaces.For(user.Account).Library.RenameAsync(
+        request.Path, request.Name, Synced(ownership, user), cancellationToken);
+    links.Follow(user.Id, [renamed]);
+    return Results.Ok(renamed);
+});
 
 app.MapPost("/api/files/folder", async (NewFolder request, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
     Results.Ok(new { path = await workspaces.For(user.Account).Library.CreateFolderAsync(request.Path, request.Name, cancellationToken) }));
 
 // Deleting moves things into the bin, which is still this account's folder and still takes room,
-// so nothing is freed until the bin lets go of it.
-app.MapPost("/api/files/delete", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, CancellationToken cancellationToken) =>
-    Results.Ok(new
+// so nothing is freed until the bin lets go of it. Whatever was deleted stops being shared: a new
+// file given its name later is a different file, and nobody chose to share that.
+app.MapPost("/api/files/delete", async (EditFiles request, CurrentUser user, UserWorkspaces workspaces, SyncOwnership ownership, ShareLinks links, CancellationToken cancellationToken) =>
+{
+    var library = workspaces.For(user.Account).Library;
+    try
     {
-        deleted = await workspaces.For(user.Account).Library.DeleteAsync(request.Paths, Synced(ownership, user), cancellationToken)
-    }));
+        return Results.Ok(new { deleted = await library.DeleteAsync(request.Paths, Synced(ownership, user), cancellationToken) });
+    }
+    finally
+    {
+        // Asked of each whether it's gone, rather than taken from the request, so a delete that
+        // stopped partway still lets go of what did go, and nothing it refused.
+        links.Forget(user.Id, (request.Paths ?? []).Where(path => library.Find(path) is null));
+    }
+});
 
 // Files sent from the browser, from whichever computer or phone somebody is using, into their own
 // folder — which, like every other edit's, comes from the session and never from the request. An
@@ -793,6 +817,165 @@ app.MapPost("/api/bin/empty", async (CurrentUser user, UserWorkspaces workspaces
     var deleted = await workspace.Library.EmptyBinAsync(cancellationToken);
     usage.Invalidate(workspace.Root);
     return Results.Ok(new { deleted });
+});
+
+// Sharing by link. Somebody picks files or folders of their own and gets an address anyone can open
+// without an account, to look at them, or to download them too if they say so. They can change that,
+// or turn the link off, whenever they like; the address then stops working at once.
+
+// The address links are opened at: wherever other computers reach this Uncloud, or failing that the
+// one this page is open at, which is the best there is and works at least here.
+string LinkBase(HttpRequest request) => (Reachable() ?? $"{request.Scheme}://{request.Host}").TrimEnd('/');
+
+// A link as its owner sees it: the address to send, and what it shares now, which may have gone.
+static object LinkView(ShareLink link, LibraryService library, string at) => new
+{
+    link.Id,
+    url = link.Token is null ? null : $"{at}/s/{link.Token}",
+    link.CanDownload,
+    link.CreatedAt,
+    items = link.Paths.Select(path => library.Find(path) is { } entry
+        ? new { path, name = entry.Name, isDirectory = entry.IsDirectory, here = true }
+        : new { path, name = path[(path.LastIndexOf('/') + 1)..], isDirectory = false, here = false })
+};
+
+app.MapGet("/api/shares", (HttpContext context, CurrentUser user, ShareLinks links, UserWorkspaces workspaces) =>
+{
+    var library = workspaces.For(user.Account).Library;
+    var at = LinkBase(context.Request);
+    return Results.Ok(new
+    {
+        // Whether anybody outside this computer can open a link at all.
+        reachable = Reachable() is not null,
+        links = links.List(user.Id).Select(link => LinkView(link, library, at))
+    });
+});
+
+app.MapPost("/api/shares", (ShareFiles request, HttpContext context, CurrentUser user, ShareLinks links, UserWorkspaces workspaces) =>
+{
+    var library = workspaces.For(user.Account).Library;
+    var link = links.Create(user.Id, library.ShareablePaths(request.Paths), request.CanDownload);
+    return Results.Ok(LinkView(link, library, LinkBase(context.Request)));
+});
+
+app.MapPatch("/api/shares/{id}", (string id, ChangeShare request, HttpContext context, CurrentUser user, ShareLinks links, UserWorkspaces workspaces) =>
+    Results.Ok(LinkView(links.SetAccess(user.Id, id, request.CanDownload), workspaces.For(user.Account).Library, LinkBase(context.Request))));
+
+app.MapDelete("/api/shares/{id}", (string id, CurrentUser user, ShareLinks links) =>
+{
+    links.Remove(user.Id, id);
+    return Results.Ok(new { removed = true });
+});
+
+// What a link leads to, for whoever has it. None of this needs an account, so all of it starts from
+// the link: whose files, and which of them. A link that was turned off, or whose owner can't sign in
+// any more, is no link at all, and says nothing about which.
+(ShareLink Link, UserAccount Owner, LibraryService Library) Shared(string token, ShareLinks links, UserStore users, UserWorkspaces workspaces) =>
+    links.Find(token) is { } link && users.Find(link.UserId) is { IsActive: true } owner
+        ? (link, owner, workspaces.For(owner).Library)
+        : throw new LibraryException(
+            "Nothing is shared at this address. The link may have been turned off, or part of it may be missing.", "not_found");
+
+static LibraryException OnlyToLookAt() =>
+    new("Whoever shared this lets people look at it, not download it.", "forbidden");
+
+// One thing in a link as a visitor sees it: its name, and where it is inside what was shared — never
+// where it is in its owner's folder.
+static object Visible(string name, string path, LibraryEntry entry) => new
+{
+    name,
+    path,
+    entry.IsDirectory,
+    entry.Size,
+    entry.ModifiedAt,
+    preview = entry.IsDirectory ? null : SharePreview.Kind(entry.Name)
+};
+
+// The top of a link: what it shares that's still there.
+static object[] SharedItems(ShareLink link, LibraryService library) =>
+    link.Items.Select(item => (item, entry: library.Find(item.Path)))
+        .Where(found => found.entry is not null)
+        .Select(found => Visible(found.item.Name, found.item.Name, found.entry!))
+        .ToArray();
+
+app.MapGet("/api/shared/{token}", (string token, ShareLinks links, UserStore users, UserWorkspaces workspaces) =>
+{
+    var (link, owner, library) = Shared(token, links, users, workspaces);
+    return Results.Ok(new { sharedBy = owner.DisplayName, link.CanDownload, items = SharedItems(link, library) });
+});
+
+app.MapGet("/api/shared/{token}/files", async (string token, string? path, ShareLinks links, UserStore users, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+{
+    var (link, _, library) = Shared(token, links, users, workspaces);
+    if (link.Locate(path) is not { } inside)
+        return Results.Ok(new { path = "", entries = SharedItems(link, library), skippedCount = 0 });
+    var listing = await library.BrowseAsync(inside, cancellationToken);
+    var at = path!.Trim('/');
+    return Results.Ok(new
+    {
+        path = at,
+        entries = listing.Entries.Select(entry => Visible(entry.Name, $"{at}/{entry.Name}", entry)),
+        listing.SkippedCount
+    });
+});
+
+app.MapGet("/api/shared/{token}/size", (string token, string? path, ShareLinks links, UserStore users, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+{
+    var (link, _, library) = Shared(token, links, users, workspaces);
+    var inside = link.Locate(path) ?? throw new LibraryException("Choose a folder in what was shared.");
+    return Results.Ok(library.Size(inside, cancellationToken));
+});
+
+// A file shown in the page, for either kind of link. Only kinds that can't run anything on this
+// address are ever shown; the rest are only downloaded, where the link allows that.
+app.MapGet("/api/shared/{token}/file", async (string token, string? path, HttpContext context, ShareLinks links, UserStore users, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+{
+    var (link, _, library) = Shared(token, links, users, workspaces);
+    var inside = link.Locate(path) ?? throw new LibraryException("Choose a file in what was shared.");
+    var name = inside[(inside.LastIndexOf('/') + 1)..];
+    if (SharePreview.Kind(name) is not { } kind || SharePreview.ContentType(name) is not { } type)
+        return Results.Problem("This kind of file can’t be shown in a browser.", statusCode: StatusCodes.Status415UnsupportedMediaType);
+    var (stream, fileName) = await library.OpenFileAsync(inside, cancellationToken);
+    context.Response.Headers.ContentSecurityPolicy = SharePreview.Policy(kind);
+    context.Response.Headers.ContentDisposition =
+        new Microsoft.Net.Http.Headers.ContentDispositionHeaderValue("inline") { FileNameStar = fileName }.ToString();
+    return Results.File(stream, type, enableRangeProcessing: true);
+});
+
+app.MapGet("/api/shared/{token}/download", async (string token, string? path, ShareLinks links, UserStore users, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+{
+    var (link, _, library) = Shared(token, links, users, workspaces);
+    if (!link.CanDownload) throw OnlyToLookAt();
+    var inside = link.Locate(path) ?? throw new LibraryException("Choose a file in what was shared.");
+    var (stream, name) = await library.OpenFileAsync(inside, cancellationToken);
+    // A download, like every other: nothing anybody shares runs on this address.
+    return Results.File(stream, "application/octet-stream", name, enableRangeProcessing: true);
+});
+
+// A folder in a link, or all of it, as one zip, written as it's read.
+app.MapGet("/api/shared/{token}/zip", async (string token, string? path, HttpContext context, ShareLinks links, UserStore users, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+{
+    var (link, owner, library) = Shared(token, links, users, workspaces);
+    if (!link.CanDownload) throw OnlyToLookAt();
+    (string Name, string Path)[] items;
+    string zipName;
+    if (link.Locate(path) is { } inside)
+    {
+        var entry = library.Find(inside) ?? throw new LibraryException("That’s no longer here.", "not_found");
+        items = [(entry.Name, inside)];
+        zipName = entry.Name;
+    }
+    else
+    {
+        items = link.Items.Where(item => library.Find(item.Path) is not null).Select(item => (item.Name, item.Path)).ToArray();
+        if (items.Length == 0) throw new LibraryException("Nothing that was shared is here any more.", "not_found");
+        zipName = items.Length == 1 ? items[0].Name : $"Shared by {owner.DisplayName}";
+    }
+    context.Response.ContentType = "application/zip";
+    context.Response.Headers.ContentDisposition =
+        new Microsoft.Net.Http.Headers.ContentDispositionHeaderValue("attachment") { FileNameStar = $"{zipName}.zip" }.ToString();
+    await library.ZipAsync(items, context.Response.Body, cancellationToken);
+    return Results.Empty;
 });
 
 // Each person's own files in this Uncloud's backups: which backups there are, what was in their
@@ -1661,6 +1844,10 @@ public sealed record RecoverBackup(string? Recovery, string? Password, string? N
 public sealed record RebuildFromBackup(string? Snapshot, bool? Confirm);
 public sealed record RestoreFromBackup(IReadOnlyList<string>? Paths);
 public sealed record SharePlace(bool Shared);
+/// <param name="Paths">Files and folders in My files, shared together under one link.</param>
+/// <param name="CanDownload">Whether people with the link can download them, or only look.</param>
+public sealed record ShareFiles(IReadOnlyList<string>? Paths, bool CanDownload);
+public sealed record ChangeShare(bool CanDownload);
 public sealed record SetDropboxAppKey(string? AppKey);
 public sealed record PasteDropboxCode(string? Code);
 public sealed record PairDevice(string DeviceId, string? Name);

@@ -5,6 +5,7 @@ import {
   HardDrive,
   History,
   Laptop,
+  Link2,
   LoaderCircle,
   LogOut,
   Moon,
@@ -30,6 +31,7 @@ import HostBackup from "./HostBackup";
 import { StorageCard, StoragePill } from "./StorageMeter";
 import FileBrowser from "./FileBrowser";
 import Bin from "./Bin";
+import SharedLinks from "./SharedLinks";
 import Backups from "./Backups";
 import SyncPanel from "./SyncPanel";
 import HostSetup, { LocationSetting, RemoteAccessSetting } from "./HostSetup";
@@ -41,7 +43,7 @@ import AccountPanel from "./AccountPanel";
 import { useTheme } from "./theme";
 import { versionLabel } from "./version";
 
-type View = "files" | "bin" | "backups" | "sync" | "users" | "settings" | "account";
+type View = "files" | "shares" | "bin" | "backups" | "sync" | "users" | "settings" | "account";
 type Dialog = "add" | null;
 
 function readPath() {
@@ -594,6 +596,7 @@ export default function App() {
         <aside className="sidebar">
           <nav className="sidebar-section" aria-label="Main">
             {navItem("files", <Files size={20} />, "My files")}
+            {navItem("shares", <Link2 size={20} />, "Shared links", !hasFolder)}
             {navItem("sync", <Laptop size={20} />, "Computers", !hasFolder)}
             {backupsAvailable && navItem("backups", <History size={20} />, "Backups", !hasFolder)}
             {navItem("bin", <Trash2 size={20} />, "Trash", !hasFolder)}
@@ -681,6 +684,15 @@ export default function App() {
                   navigate(folder);
                 }}
               />
+            ) : hasFolder && view === "shares" ? (
+              <SharedLinks
+                isAdmin={me.isAdmin}
+                open={(folder) => {
+                  setView("files");
+                  navigate(folder);
+                }}
+                onOpenSettings={me.isAdmin ? () => show("settings") : undefined}
+              />
             ) : hasFolder && view === "bin" ? (
               <Bin
                 // Letting go of something frees room the storage meter should show.
@@ -699,6 +711,9 @@ export default function App() {
                 onAdd={() => setDialog("add")}
                 // Dropped onto the list: into the folder it shows, or the folder dropped on.
                 onDropFiles={(folder, picked) => uploads.start(folder, picked)}
+                isAdmin={me.isAdmin}
+                onShowLinks={() => show("shares")}
+                onOpenSettings={me.isAdmin ? () => show("settings") : undefined}
                 // The storage meter, too: copying fills the drive and deleting frees it.
                 onChanged={() => setRevision((value) => value + 1)}
                 status={

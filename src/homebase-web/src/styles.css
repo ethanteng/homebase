@@ -836,7 +836,7 @@ tbody tr.selected {
   max-width: 100%;
   width: 100%;
 }
-.file-name > span:last-child {
+.file-name > span:last-of-type {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3520,4 +3520,281 @@ dialog.side-sheet::backdrop {
 }
 .sync-undo svg {
   margin-top: 3px;
+}
+
+/* --- sharing by link ------------------------------------------------------ */
+
+/* Beside a shared file's name in My files: a quiet sign, not a badge. */
+.shared-mark {
+  color: var(--accent-text);
+  flex-shrink: 0;
+}
+.share-dialog {
+  width: 540px;
+}
+.share-link-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.share-link-field {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  text-overflow: ellipsis;
+}
+.share-link-row .button {
+  flex-shrink: 0;
+}
+.access-choices legend {
+  font-size: 15px;
+}
+.share-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+.share-notice svg {
+  color: var(--ok);
+}
+.share-reach {
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--warn-bg);
+  color: var(--text);
+}
+.share-reach svg {
+  color: var(--warn);
+  margin-top: 2px;
+}
+.share-reach .link-button {
+  display: inline;
+}
+.page-heading + .share-reach {
+  margin-bottom: 18px;
+}
+
+/* Every link, one to a row: what it shares, then what can be done with it. */
+.share-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.share-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.share-row:last-child {
+  border-bottom: 0;
+}
+.share-what {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 320px;
+}
+.share-names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.share-names .link-button,
+.share-names strong {
+  font-size: 17px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.share-names .muted,
+.share-gone {
+  font-size: 14px;
+}
+.share-gone {
+  color: var(--warn);
+}
+.share-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.share-access-select {
+  width: auto;
+  min-height: 36px;
+  padding: 4px 10px;
+  font-size: 14px;
+}
+.file-panel + .edit-notice,
+.page-heading + .edit-notice {
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+/* The page somebody opens from a link. */
+.shared-single {
+  display: flex;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  min-height: 300px;
+}
+.shared-table th:first-child {
+  width: 55%;
+}
+.shared-table td:first-child .file-name {
+  padding-left: 12px;
+}
+
+/* One shared file at a time, over the page. */
+.viewer-dialog {
+  width: min(1200px, calc(100% - 32px));
+  height: calc(100vh - 48px);
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  display: none;
+  flex-direction: column;
+  background: var(--paper);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 90px var(--shadow);
+}
+.viewer-dialog[open] {
+  display: flex;
+}
+.viewer-dialog::backdrop {
+  background: var(--overlay);
+  backdrop-filter: blur(3px);
+}
+.viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 10px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.viewer-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.viewer-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.viewer-title span {
+  font-size: 14px;
+  color: var(--muted);
+}
+.viewer-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.viewer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  overflow: auto;
+}
+.preview-image,
+.preview-video {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.shared-single .preview-image,
+.shared-single .preview-video {
+  max-height: 75vh;
+}
+.preview-audio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  color: var(--muted);
+  padding: 40px 16px;
+  width: min(480px, 100%);
+}
+.preview-audio audio {
+  width: 100%;
+}
+.preview-pdf {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--paper);
+}
+.shared-single .preview-pdf {
+  height: 80vh;
+}
+.preview-text {
+  align-self: stretch;
+  flex: 1;
+  margin: 0;
+  padding: 20px 24px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  background: var(--paper);
+  color: var(--text);
+}
+.shared-single .preview-text {
+  max-height: 75vh;
+  border-radius: 8px;
+}
+.preview-unshowable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 40px 24px;
+  max-width: 440px;
+}
+.preview-unshowable .file-icon {
+  width: 60px;
+  height: 64px;
+}
+.preview-unshowable strong {
+  overflow-wrap: anywhere;
+}
+.preview-unshowable p,
+.preview-note {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+@media (max-width: 720px) {
+  .viewer-dialog {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+  .share-link-row {
+    flex-direction: column;
+  }
 }

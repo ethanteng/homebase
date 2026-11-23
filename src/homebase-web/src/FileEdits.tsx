@@ -24,6 +24,8 @@ interface Props {
   onClose: () => void;
   /** Called once the change is made, with a sentence saying what happened. */
   onDone: (summary: string) => void;
+  /** Whether any of it, or anything inside it, is shared by link, which deleting stops. */
+  shared?: boolean;
 }
 
 const nameOf = (path: string) => path.split("/").at(-1) || "My files";
@@ -53,7 +55,7 @@ export function summarize(edit: Edit, destination: string, items: EditedEntry[])
  * Copying or moving files somewhere else in My files, renaming one, deleting them, or making a new
  * folder: one dialog for each.
  */
-export default function EditDialog({ edit, from, onClose, onDone }: Props) {
+export default function EditDialog({ edit, from, onClose, onDone, shared = false }: Props) {
   const [element, setElement] = useState<HTMLDialogElement | null>(null);
   const [folder, setFolder] = useState(from);
   const [folders, setFolders] = useState<LibraryEntry[] | null>(null);
@@ -229,6 +231,14 @@ export default function EditDialog({ edit, from, onClose, onDone }: Props) {
                 Also removed from your synced computers. Restoring puts {one ? "it" : "them"} back
                 there too.
               </p>
+              {shared && (
+                <p className="field-help">
+                  {one && !edit.entries[0].isDirectory
+                    ? "It’s shared by link, and the link will stop working."
+                    : "Links to what you’re deleting will stop working."}{" "}
+                  Restoring doesn’t share anything again.
+                </p>
+              )}
             </div>
           ) : naming ? (
             <div className="edit-body">

@@ -110,7 +110,20 @@ public sealed class ControlDatabase(string directory)
                     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                     expires_at TEXT NOT NULL
                 );
-                PRAGMA user_version = 5;
+                -- Links somebody made to files of theirs, which anyone holding one can open without
+                -- an account. The link is looked up by its hash; the link itself is kept sealed under
+                -- host.key, only so its owner can copy it again. Paths are inside the owner's folder.
+                CREATE TABLE IF NOT EXISTS share_links (
+                    id TEXT PRIMARY KEY,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    token BLOB NOT NULL,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    paths TEXT NOT NULL,
+                    can_download INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_share_links_user ON share_links(user_id);
+                PRAGMA user_version = 6;
                 """;
             command.ExecuteNonQuery();
             OwnPlaces(connection);
