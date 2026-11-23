@@ -63,6 +63,28 @@ public sealed class FakeSyncthing : ISyncthingApi
         Task.FromResult<IReadOnlyList<SyncthingOffer>>(
             Offers.Where(offer => !Folders.ContainsKey(offer.FolderId)).ToArray());
 
+    /// <summary>
+    /// How far each device has got with each folder. Anything not set here is a device the folder is
+    /// shared with having all of it, as a quiet Syncthing would say.
+    /// </summary>
+    public Dictionary<(string Folder, string Device), SyncthingProgress> Progress { get; } = [];
+
+    public Task<SyncthingProgress?> ProgressAsync(string folderId, string deviceId, CancellationToken cancellationToken) =>
+        Task.FromResult(Progress.TryGetValue((folderId, deviceId), out var progress)
+            ? progress
+            : Folders.TryGetValue(folderId, out var folder) && folder.DeviceIds.Contains(deviceId)
+                ? new SyncthingProgress(SyncthingProgress.Valid, 100, 0, 0)
+                : null);
+
+    public HashSet<string> PausedFolders { get; } = [];
+
+    public Task PauseFolderAsync(string id, bool paused, CancellationToken cancellationToken)
+    {
+        if (!Folders.ContainsKey(id)) throw new InvalidOperationException($"{id} isn’t a folder");
+        if (paused) PausedFolders.Add(id); else PausedFolders.Remove(id);
+        return Task.CompletedTask;
+    }
+
     public Task AddFolderAsync(string id, string label, string path, IReadOnlyList<string> deviceIds, long? keepFree, CancellationToken cancellationToken)
     {
         if (Folders.ContainsKey(id)) throw new InvalidOperationException($"{id} added twice");
@@ -85,6 +107,7 @@ public sealed class FakeSyncthing : ISyncthingApi
     public Task RemoveFolderAsync(string id, CancellationToken cancellationToken)
     {
         Folders.Remove(id);
+        PausedFolders.Remove(id);
         return Task.CompletedTask;
     }
 
@@ -101,17 +124,10 @@ public sealed class FakeSyncthing : ISyncthingApi
     }
 
     public HashSet<string> AutoAccepting { get; } = [];
-    public string? DefaultFolderPath { get; private set; }
 
     public Task AutoAcceptFromAsync(string deviceId, bool accept, CancellationToken cancellationToken)
     {
         if (accept) AutoAccepting.Add(deviceId); else AutoAccepting.Remove(deviceId);
-        return Task.CompletedTask;
-    }
-
-    public Task SetDefaultFolderPathAsync(string path, CancellationToken cancellationToken)
-    {
-        DefaultFolderPath = path;
         return Task.CompletedTask;
     }
 

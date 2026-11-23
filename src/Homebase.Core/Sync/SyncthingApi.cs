@@ -139,6 +139,26 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
         return offers;
     }
 
+    public async Task<SyncthingProgress?> ProgressAsync(string folderId, string deviceId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = await GetAsync(
+                $"/rest/db/completion?folder={Uri.EscapeDataString(folderId)}&device={Uri.EscapeDataString(deviceId)}", cancellationToken);
+            var root = document.RootElement;
+            return new SyncthingProgress(
+                root.TryGetProperty("remoteState", out var state) ? state.GetString() ?? "unknown" : "unknown",
+                root.TryGetProperty("completion", out var completion) && completion.TryGetDouble(out var percent) ? percent : 0,
+                root.TryGetProperty("needBytes", out var bytes) && bytes.TryGetInt64(out var need) ? need : 0,
+                root.TryGetProperty("needItems", out var items) && items.TryGetInt32(out var count) ? count : 0);
+        }
+        // A folder or device Syncthing doesn't know is refused, which only means it can't say.
+        catch (LibraryException error) when (error.Code == "sync_failed")
+        {
+            return null;
+        }
+    }
+
     public Task AddFolderAsync(string id, string label, string path, IReadOnlyList<string> deviceIds, long? keepFree, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Post, "/rest/config/folders", JsonSerializer.Serialize(new
         {
@@ -210,6 +230,10 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
         SendAsync(HttpMethod.Patch, $"/rest/config/folders/{Uri.EscapeDataString(id)}",
             JsonSerializer.Serialize(new { path }), cancellationToken);
 
+    public Task PauseFolderAsync(string id, bool paused, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Patch, $"/rest/config/folders/{Uri.EscapeDataString(id)}",
+            JsonSerializer.Serialize(new { paused }), cancellationToken);
+
     public Task KeepVersionsAsync(string id, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Patch, $"/rest/config/folders/{Uri.EscapeDataString(id)}",
             JsonSerializer.Serialize(new { versioning = Versioning() }), cancellationToken);
@@ -217,10 +241,6 @@ public sealed class SyncthingApi(HttpClient client, ISyncthingEndpoint endpoint)
     public Task AutoAcceptFromAsync(string deviceId, bool accept, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Patch, $"/rest/config/devices/{Uri.EscapeDataString(deviceId)}",
             JsonSerializer.Serialize(new { autoAcceptFolders = accept }), cancellationToken);
-
-    public Task SetDefaultFolderPathAsync(string path, CancellationToken cancellationToken) =>
-        SendAsync(HttpMethod.Patch, "/rest/config/defaults/folder",
-            JsonSerializer.Serialize(new { path }), cancellationToken);
 
     /// <summary>
     /// A deletion made on a laptop reaches this host as faithfully as a new file does. Versions

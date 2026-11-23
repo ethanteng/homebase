@@ -64,21 +64,51 @@ public sealed class PairingClient(HttpClient client)
     /// <exception cref="System.Security.Cryptography.CryptographicException">The certificate or key isn't one Syncthing made.</exception>
     public async Task<bool> ReleaseAsync(Uri address, string hostDeviceId, string certificatePem, string keyPem, CancellationToken cancellationToken)
     {
-        var deviceId = ComputerReleases.DeviceIdOf(certificatePem)
-            ?? throw new System.Security.Cryptography.CryptographicException("Syncthing’s certificate can’t be read.");
         try
         {
-            var challenge = await SendAsync<ReleaseChallenge>(address, "/api/sync/computers/release-challenge",
-                new { deviceId }, cancellationToken);
-            var signature = ComputerReleases.Sign(keyPem, ComputerReleases.Message(hostDeviceId, deviceId, challenge.Nonce));
-            await SendAsync<JsonElement>(address, "/api/sync/computers/release",
-                new { certificate = certificatePem, nonce = challenge.Nonce, signature }, cancellationToken);
+            await SignedAsync<JsonElement>(address, "/api/sync/computers/release", ComputerReleases.Message,
+                hostDeviceId, certificatePem, keyPem, cancellationToken);
             return true;
         }
         catch (PairingException)
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Where each folder Uncloud shares with this computer is in the account's folder, asked for by
+    /// signing as letting go is: Syncthing tells this computer only the folders' names. Null when
+    /// this Uncloud can't say — one from before it could, or one that doesn't have this computer.
+    /// </summary>
+    /// <exception cref="PairingException">Uncloud couldn't be reached, or refused for some other reason.</exception>
+    /// <exception cref="System.Security.Cryptography.CryptographicException">The certificate or key isn't one Syncthing made.</exception>
+    public async Task<IReadOnlyList<PairedFolder>?> FoldersAsync(Uri address, string hostDeviceId, string certificatePem, string keyPem,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await SignedAsync<PairedFolder[]>(address, "/api/sync/computers/folders", ComputerReleases.FoldersMessage,
+                hostDeviceId, certificatePem, keyPem, cancellationToken);
+        }
+        // An Uncloud from before computers could ask has no such page, and asks for a sign-in.
+        catch (PairingException refused) when (refused.Status is HttpStatusCode.NotFound or HttpStatusCode.Unauthorized)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Asks Uncloud for a challenge, signs it with this computer's Syncthing key as <paramref name="message"/> says, and sends it.</summary>
+    private async Task<T> SignedAsync<T>(Uri address, string path, Func<string, string, string, byte[]> message,
+        string hostDeviceId, string certificatePem, string keyPem, CancellationToken cancellationToken)
+    {
+        var deviceId = ComputerReleases.DeviceIdOf(certificatePem)
+            ?? throw new System.Security.Cryptography.CryptographicException("Syncthing’s certificate can’t be read.");
+        var challenge = await SendAsync<ReleaseChallenge>(address, "/api/sync/computers/release-challenge",
+            new { deviceId }, cancellationToken);
+        var signature = ComputerReleases.Sign(keyPem, message(hostDeviceId, deviceId, challenge.Nonce));
+        return await SendAsync<T>(address, path,
+            new { certificate = certificatePem, nonce = challenge.Nonce, signature }, cancellationToken);
     }
 
     /// <summary>How many times a request that never got as far as Uncloud is sent before giving up.</summary>
@@ -120,7 +150,9 @@ public sealed class PairingClient(HttpClient client)
                 return await response.Content.ReadFromJsonAsync<T>(cancellationToken)
                     ?? throw new PairingException("Uncloud answered, but not with anything this app understands.");
             var detail = await DetailAsync(response, cancellationToken);
-            throw response.StatusCode is HttpStatusCode.NotFound ? new PairingExpiredException(detail) : new PairingException(detail);
+            throw response.StatusCode is HttpStatusCode.NotFound
+                ? new PairingExpiredException(detail)
+                : new PairingException(detail, response.StatusCode);
         }
     }
 
@@ -154,13 +186,17 @@ public sealed class PairingClient(HttpClient client)
     }
 }
 
-public class PairingException(string message) : Exception(message);
+/// <param name="status">What Uncloud answered with, when it answered at all.</param>
+public class PairingException(string message, HttpStatusCode? status = null) : Exception(message)
+{
+    public HttpStatusCode? Status { get; } = status;
+}
 
 /// <summary>
 /// Uncloud no longer knows the request: it ran out, or was lost when the host restarted. The
 /// answer is a new one.
 /// </summary>
-public sealed class PairingExpiredException(string message) : PairingException(message);
+public sealed class PairingExpiredException(string message) : PairingException(message, HttpStatusCode.NotFound);
 
 /// <summary>Somebody signed in to Uncloud said no to adding this computer.</summary>
 public sealed class PairingDeclinedException(string message) : PairingException(message);

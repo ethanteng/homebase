@@ -10,17 +10,18 @@ using Org.BouncyCastle.X509;
 
 namespace Homebase.Core.Sync;
 
-/// <summary>What a computer is handed to sign when it asks to be let go.</summary>
+/// <summary>What a computer is handed to sign when it asks to be let go, or where its folders go.</summary>
 public sealed record ReleaseChallenge(string Nonce, DateTimeOffset ExpiresAt);
 
 /// <summary>
 /// A computer letting itself go from the account it was added to, as the Uncloud app on it does
 /// when it disconnects, so it can be added to another account without somebody signing in as the
-/// first one to click Remove. There's no session to ask for, so the computer proves it's the one by
-/// signing a challenge with its Syncthing key. Its device ID is the hash of that key's certificate,
-/// and the host already trusts whoever holds the key with everything the account syncs, which is
-/// more than letting go. Nothing is handed over at pairing for this, so computers added before it
-/// are covered too. Challenges are kept in memory: each lasts a couple of minutes.
+/// first one to click Remove — or asking where the folders it is sent belong. There's no session to
+/// ask for, so the computer proves it's the one by signing a challenge with its Syncthing key. Its
+/// device ID is the hash of that key's certificate, and the host already trusts whoever holds the
+/// key with everything the account syncs, which is more than either. Nothing is handed over at
+/// pairing for this, so computers added before it are covered too. Challenges are kept in memory:
+/// each lasts a couple of minutes.
 /// </summary>
 public sealed class ComputerReleases(SyncService sync, SyncOwnership ownership, ISyncthingApi syncthing)
 {
@@ -63,7 +64,7 @@ public sealed class ComputerReleases(SyncService sync, SyncOwnership ownership, 
                 throw TooMany();
             if (_challenges.Count >= MostWaiting)
                 throw new LibraryException(
-                    "Too many computers are disconnecting right now. Wait a few minutes and try again.", "busy");
+                    "Too many computers are asking this Uncloud something right now. Wait a few minutes and try again.", "busy");
 
             var challenge = new ReleaseChallenge(Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32)), now + Lifetime);
             _challenges[challenge.Nonce] = new Waiting(device, address, challenge.ExpiresAt);
@@ -83,6 +84,28 @@ public sealed class ComputerReleases(SyncService sync, SyncOwnership ownership, 
     public async Task ReleaseAsync(string? certificate, string? nonce, string? signature, string? address,
         CancellationToken cancellationToken)
     {
+        var owned = await SignedByAsync(certificate, nonce, signature, address, Message, cancellationToken);
+        await sync.UnpairAsync(owned.UserId, owned.DeviceId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Where each folder shared with the computer whose key signed this challenge is in its
+    /// account's folder, so the app on it can keep each at the same place under ~/Uncloud. Syncthing
+    /// only tells a computer a folder's name, and two folders can have the same one. Refused exactly
+    /// as <see cref="ReleaseAsync"/> refuses, and a challenge is good for one or the other.
+    /// </summary>
+    /// <param name="signature">What <see cref="FoldersMessage"/> gives for this challenge, signed as for <see cref="ReleaseAsync"/>.</param>
+    public async Task<IReadOnlyList<PairedFolder>> FoldersAsync(string? certificate, string? nonce, string? signature, string? address,
+        CancellationToken cancellationToken)
+    {
+        var owned = await SignedByAsync(certificate, nonce, signature, address, FoldersMessage, cancellationToken);
+        return await sync.SharedWithAsync(owned.UserId, owned.DeviceId, cancellationToken);
+    }
+
+    /// <summary>The computer whose key signed this challenge, as this host has it, or the one refusal for anything else.</summary>
+    private async Task<SyncOwnership.Device> SignedByAsync(string? certificate, string? nonce, string? signature, string? address,
+        Func<string, string, string, byte[]> message, CancellationToken cancellationToken)
+    {
         RequireAllowed(address);
         Waiting? waiting = null;
         lock (_challenges)
@@ -92,22 +115,26 @@ public sealed class ComputerReleases(SyncService sync, SyncOwnership ownership, 
         // The signature is checked before whether this host has the computer, so how long a refusal
         // takes says nothing about which computers it has.
         if (waiting is null || Identify(certificate) is not { } signer || signer.DeviceId != waiting.DeviceId
-            || !Verify(signer.Key, Message(await syncthing.DeviceIdAsync(cancellationToken), signer.DeviceId, nonce!), signature)
+            || !Verify(signer.Key, message(await syncthing.DeviceIdAsync(cancellationToken), signer.DeviceId, nonce!), signature)
             || ownership.FindDevice(signer.DeviceId) is not { } owned)
         {
             _throttle.RecordFailure(null, address);
             throw new LibraryException("Uncloud doesn’t have this computer, or couldn’t tell that it’s this one asking.", "not_found");
         }
-        await sync.UnpairAsync(owned.UserId, owned.DeviceId, cancellationToken);
         _throttle.RecordSuccess(null, address);
+        return owned;
     }
 
     /// <summary>
-    /// What a computer signs: the challenge, tied to this host, to the computer and to what it's for,
-    /// so a signature made for anything else, or for another host, is no use here.
+    /// What a computer signs to be let go: the challenge, tied to this host, to the computer and to
+    /// what it's for, so a signature made for anything else, or for another host, is no use here.
     /// </summary>
     public static byte[] Message(string hostDeviceId, string deviceId, string nonce) =>
         Encoding.UTF8.GetBytes($"uncloud-release-v1\n{hostDeviceId}\n{deviceId}\n{nonce}");
+
+    /// <summary>What a computer signs to be told where its folders go, tied down as <see cref="Message"/> is.</summary>
+    public static byte[] FoldersMessage(string hostDeviceId, string deviceId, string nonce) =>
+        Encoding.UTF8.GetBytes($"uncloud-folders-v1\n{hostDeviceId}\n{deviceId}\n{nonce}");
 
     /// <summary>
     /// Signs <paramref name="message"/> as the computer holding this Syncthing key, in base64: Ed25519
@@ -247,7 +274,7 @@ public sealed class ComputerReleases(SyncService sync, SyncOwnership ownership, 
     }
 
     private static LibraryException TooMany() => new(
-        "Too many computers have tried to disconnect from here. Wait a few minutes and try again.", "too_many_attempts");
+        "Too many computers have asked this Uncloud something from here. Wait a few minutes and try again.", "too_many_attempts");
 
     private sealed record Waiting(string DeviceId, string? Address, DateTimeOffset ExpiresAt);
 

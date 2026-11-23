@@ -36,6 +36,7 @@ public sealed class DesktopController(
     private readonly string _hostConfig = hostConfig ?? HostPaths.DefaultConfigDirectory;
     private SyncthingProcess? _syncthing;
     private ComputerSync? _computer;
+    private string? _keepingInStepFailed;
     private HostServer? _server;
     private HostFoldersBridge? _bridge;
     private readonly Func<PowerState?> _readPower = readPower ?? (() => HostPower.Read());
@@ -458,7 +459,23 @@ public sealed class DesktopController(
     {
         if (_computer is null || Settings.HostDeviceId is not { } host)
             return new ComputerStatus(false, false, "Not paired with an Uncloud", []);
-        try { return await _computer.StatusAsync(host, cancellationToken); }
+        try
+        {
+            await _computer.KeepInStepAsync(host, WhereFoldersGoAsync, cancellationToken);
+            _keepingInStepFailed = null;
+        }
+        // Whatever stops that this time, how things stand is still worth showing. Said once, not
+        // every few seconds for as long as it lasts.
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            if (_keepingInStepFailed != error.Message)
+                _logger.LogWarning(error, "Couldn’t keep this computer’s folders in step with Uncloud");
+            _keepingInStepFailed = error.Message;
+        }
+        try
+        {
+            return await _computer.StatusAsync(host, cancellationToken);
+        }
         catch (Exception error) when (error is Homebase.Core.LibraryException or HttpRequestException)
         {
             return new ComputerStatus(false, false, error.Message, []);
@@ -520,6 +537,40 @@ public sealed class DesktopController(
     }
 
     /// <summary>
+    /// Asks the host where the folders it shares with this computer are, signing with this
+    /// computer's own Syncthing key as letting go does. Null when the host can't say.
+    /// </summary>
+    private async Task<IReadOnlyList<PairedFolder>?> WhereFoldersGoAsync(CancellationToken cancellationToken)
+    {
+        if (Settings.HostDeviceId is not { } host || !Uri.TryCreate(Settings.Address, UriKind.Absolute, out var address))
+            return null;
+        string certificate, key;
+        try
+        {
+            certificate = await File.ReadAllTextAsync(Path.Combine(paths.Syncthing, "cert.pem"), cancellationToken);
+            key = await File.ReadAllTextAsync(Path.Combine(paths.Syncthing, "key.pem"), cancellationToken);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(error, "Couldn’t read this computer’s Syncthing key to ask Uncloud where its folders go");
+            return null;
+        }
+        // Asked from the menu bar's own look at how things stand, which mustn't wait long on it.
+        using var patience = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        patience.CancelAfter(ReleasePatience);
+        try { return await new PairingClient(http).FoldersAsync(address, host, certificate, key, patience.Token); }
+        catch (System.Security.Cryptography.CryptographicException error)
+        {
+            _logger.LogWarning(error, "Couldn’t sign with this computer’s Syncthing key to ask Uncloud where its folders go");
+            return null;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new PairingException($"Uncloud at {address.Host} didn’t answer in time.");
+        }
+    }
+
+    /// <summary>
     /// What's left on the host when it couldn't be asked to let this computer go: it may still list
     /// it under the account it was added to, and won't add it to any other account until that one
     /// removes it. Without this, connecting again as somebody else is refused for no reason the
@@ -570,7 +621,7 @@ public sealed class DesktopController(
                 SyncthingProcess.Binary(null, serverDirectory), ComputerSyncthingPort,
                 loggers.CreateLogger("Uncloud.Syncthing"), http);
             await _syncthing.StartAsync(cancellationToken);
-            _computer = new ComputerSync(new SyncthingApi(http, _syncthing), paths);
+            _computer = new ComputerSync(new SyncthingApi(http, _syncthing), paths, loggers.CreateLogger("Uncloud.Sync"));
         }
         using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         wait.CancelAfter(TimeSpan.FromSeconds(60));

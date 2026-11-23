@@ -362,9 +362,11 @@ string[] anonymous =
     // The Uncloud app on somebody's computer has no session. A pairing code is its authority, or
     // a request a signed-in person approves under /api/sync/pairing-requests, which isn't open.
     "/api/sync/pair",
-    // Nor when it disconnects: what it signs with its own Syncthing key is its authority then.
+    // Nor when it disconnects, or asks where its folders go: what it signs with its own Syncthing
+    // key is its authority then.
     "/api/sync/computers/release-challenge",
-    "/api/sync/computers/release"
+    "/api/sync/computers/release",
+    "/api/sync/computers/folders"
 ];
 // Reached only by an administrator: the host's own folder, and the accounts on it.
 string[] administrative =
@@ -1586,6 +1588,11 @@ app.MapPost("/api/sync/computers/release", async (ReleaseComputer request, HttpC
         context.Connection.RemoteIpAddress?.ToString(), cancellationToken);
     return Results.Ok(new { released = true });
 });
+// The app on a computer asking where the folders it's sent belong, signed the same way: Syncthing
+// tells it only their names.
+app.MapPost("/api/sync/computers/folders", async (ReleaseComputer request, HttpContext context, ComputerReleases releases, CancellationToken cancellationToken) =>
+    Results.Ok(await releases.FoldersAsync(request.Certificate, request.Nonce, request.Signature,
+        context.Connection.RemoteIpAddress?.ToString(), cancellationToken)));
 app.MapPost("/api/sync/folders", async (SyncFolderRequest request, CurrentUser user, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>
     Results.Ok(await sync.ShareAsync(user.Id, workspaces.For(user.Account).Root, request.Path, request.DeviceIds, cancellationToken)));
 app.MapPost("/api/sync/folders/accept", async (AcceptFolder request, CurrentUser user, UserWorkspaces workspaces, SyncService sync, CancellationToken cancellationToken) =>

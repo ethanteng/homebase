@@ -67,8 +67,8 @@ public sealed class DesktopTests : IDisposable
         await computer.ApplyAsync(result, CancellationToken.None);
 
         Assert.Equal([FakeSyncthing.Self], _computer.Devices.Keys);
-        Assert.Contains(FakeSyncthing.Self, _computer.AutoAccepting);
-        Assert.Equal(_paths.Files, _computer.DefaultFolderPath);
+        // Syncthing doesn't set up the host's folders by itself: it can't put them where the host has them.
+        Assert.DoesNotContain(FakeSyncthing.Self, _computer.AutoAccepting);
         var kept = _computer.Folders[shared.Id];
         Assert.Equal(_paths.Files, kept.Path);
         Assert.Equal([FakeSyncthing.Self], kept.DeviceIds);
@@ -258,6 +258,173 @@ public sealed class DesktopTests : IDisposable
             await Assert.ThrowsAsync<InvalidDataException>(() => computer.ApplyAsync(
                 new PairingResult(FakeSyncthing.Self, "Ada", [new PairedFolder("evil", "Evil", path)]), CancellationToken.None));
         Assert.Empty(_computer.Folders);
+    }
+
+    private void HostConnected(bool connected = true) =>
+        _computer.Devices[FakeSyncthing.Self] = _computer.Devices[FakeSyncthing.Self] with { Connected = connected };
+
+    private static WhereFoldersGo HostSays(params PairedFolder[] folders) =>
+        _ => Task.FromResult<IReadOnlyList<PairedFolder>?>(folders);
+
+    [Fact]
+    public async Task A_folder_synced_later_lands_where_it_is_on_the_host_not_under_its_name()
+    {
+        var computer = new ComputerSync(_computer, _paths);
+        await computer.ApplyAsync(new PairingResult(FakeSyncthing.Self, "Ada", []), CancellationToken.None);
+        HostConnected();
+        // All Syncthing hears of it is that it's called Documents.
+        _computer.Offers.Add(new SyncthingOffer("uncloud-documents-1", "Documents", FakeSyncthing.Self));
+        var asked = 0;
+        WhereFoldersGo host = _ =>
+        {
+            asked++;
+            return Task.FromResult<IReadOnlyList<PairedFolder>?>([new PairedFolder("uncloud-documents-1", "Documents", "Work/Documents")]);
+        };
+
+        await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+
+        var kept = _computer.Folders["uncloud-documents-1"];
+        Assert.Equal(Path.Combine(_paths.Files, "Work", "Documents"), kept.Path);
+        Assert.Equal([FakeSyncthing.Self], kept.DeviceIds);
+        Assert.Contains(".homebase", File.ReadAllText(Path.Combine(kept.Path, SyncService.IgnoreFile)));
+        // Placed, it isn't asked about again.
+        await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+        Assert.Equal(1, asked);
+    }
+
+    [Fact]
+    public async Task A_folder_Uncloud_stops_syncing_stops_being_kept_here_and_its_files_stay()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var computer = new ComputerSync(_computer, _paths) { Now = () => now };
+        await computer.ApplyAsync(new PairingResult(FakeSyncthing.Self, "Ada", [new PairedFolder("root", "Uncloud", "")]), CancellationToken.None);
+        var note = Path.Combine(_paths.Files, "note.txt");
+        await File.WriteAllTextAsync(note, "mine");
+        _computer.Progress[("root", FakeSyncthing.Self)] = new SyncthingProgress(SyncthingProgress.NotSharing, 40, 1_000, 615);
+        WhereFoldersGo nothingToPlace = _ => throw new InvalidOperationException("Nothing here needed placing.");
+
+        // Out of reach, what the host shares isn't known, however long that lasts.
+        await computer.KeepInStepAsync(FakeSyncthing.Self, nothingToPlace, CancellationToken.None);
+        now += ComputerSync.StoppedFor * 2;
+        await computer.KeepInStepAsync(FakeSyncthing.Self, nothingToPlace, CancellationToken.None);
+        Assert.True(_computer.Folders.ContainsKey("root"));
+
+        // Connected, it has to go on being so for a while: just after pairing, the host can say so
+        // for a moment about a folder it's about to share.
+        HostConnected();
+        await computer.KeepInStepAsync(FakeSyncthing.Self, nothingToPlace, CancellationToken.None);
+        now += ComputerSync.StoppedFor - TimeSpan.FromSeconds(1);
+        await computer.KeepInStepAsync(FakeSyncthing.Self, nothingToPlace, CancellationToken.None);
+        Assert.True(_computer.Folders.ContainsKey("root"));
+
+        now += TimeSpan.FromSeconds(1);
+        await computer.KeepInStepAsync(FakeSyncthing.Self, nothingToPlace, CancellationToken.None);
+        Assert.False(_computer.Folders.ContainsKey("root"));
+        Assert.Equal("mine", await File.ReadAllTextAsync(note));
+    }
+
+    [Fact]
+    public async Task All_of_the_files_after_one_folder_waits_for_that_one_to_go_then_lands_at_home_itself()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var computer = new ComputerSync(_computer, _paths) { Now = () => now };
+        await computer.ApplyAsync(new PairingResult(FakeSyncthing.Self, "Ada", [new PairedFolder("desktop", "Desktop", "Desktop")]), CancellationToken.None);
+        HostConnected();
+        // Desktop stopped on the host, and all of the files synced instead.
+        _computer.Progress[("desktop", FakeSyncthing.Self)] = new SyncthingProgress(SyncthingProgress.NotSharing, 100, 0, 0);
+        _computer.Offers.Add(new SyncthingOffer("root", "Uncloud", FakeSyncthing.Self));
+        var host = HostSays(new PairedFolder("root", "Uncloud", ""));
+
+        // Never around a folder still kept here: two Syncthing folders over the same files.
+        await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+        Assert.False(_computer.Folders.ContainsKey("root"));
+
+        now += ComputerSync.StoppedFor;
+        await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+        Assert.False(_computer.Folders.ContainsKey("desktop"));
+        // At ~/Uncloud itself, as on the host, not ~/Uncloud/Uncloud as its name would have it.
+        Assert.Equal(_paths.Files, _computer.Folders["root"].Path);
+    }
+
+    [Fact]
+    public async Task A_folder_Syncthing_put_under_its_ID_moves_to_where_it_belongs_once_nothing_is_there()
+    {
+        var computer = new ComputerSync(_computer, _paths);
+        await computer.ApplyAsync(new PairingResult(FakeSyncthing.Self, "Ada", []), CancellationToken.None);
+        HostConnected();
+        // As Syncthing did by itself when ~/Uncloud/Desktop was already there, left from all of the
+        // files having synced before.
+        var misplaced = Directory.CreateDirectory(Path.Combine(_paths.Files, "uncloud-desktop-1")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(misplaced, "photo.jpg"), "sunset");
+        await _computer.AddFolderAsync("uncloud-desktop-1", "Desktop", misplaced, [FakeSyncthing.Self], null, CancellationToken.None);
+        var inTheWay = Directory.CreateDirectory(Path.Combine(_paths.Files, "Desktop")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(inTheWay, "other.txt"), "not the same files");
+        var host = HostSays(new PairedFolder("uncloud-desktop-1", "Desktop", "Desktop"));
+
+        // Whatever is there may not be the same files, so it isn't merged into.
+        await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+        Assert.Equal(misplaced, _computer.Folders["uncloud-desktop-1"].Path);
+
+        Directory.Delete(inTheWay, true);
+        await computer.KeepInStepAsync(FakeSyncthing.Self, host, CancellationToken.None);
+
+        var desktop = Path.Combine(_paths.Files, "Desktop");
+        Assert.Equal(desktop, _computer.Folders["uncloud-desktop-1"].Path);
+        Assert.Equal("sunset", await File.ReadAllTextAsync(Path.Combine(desktop, "photo.jpg")));
+        Assert.False(Directory.Exists(misplaced));
+        // Stopped while it moved, and started again.
+        Assert.Empty(_computer.PausedFolders);
+    }
+
+    [Fact]
+    public async Task A_host_out_of_reach_is_asked_again_later_and_one_from_before_it_could_say_has_folders_go_by_name()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var computer = new ComputerSync(_computer, _paths) { Now = () => now };
+        await computer.ApplyAsync(new PairingResult(FakeSyncthing.Self, "Ada", []), CancellationToken.None);
+        HostConnected();
+        _computer.Offers.Add(new SyncthingOffer("uncloud-desktop-1", "Desktop", FakeSyncthing.Self));
+        var asked = 0;
+        WhereFoldersGo unreachable = _ =>
+        {
+            asked++;
+            throw new PairingException("Couldn’t reach Uncloud at home.example.");
+        };
+
+        await computer.KeepInStepAsync(FakeSyncthing.Self, unreachable, CancellationToken.None);
+        await computer.KeepInStepAsync(FakeSyncthing.Self, unreachable, CancellationToken.None);
+        Assert.Equal(1, asked);
+        Assert.Empty(_computer.Folders);
+
+        now += ComputerSync.AskAtMostEvery;
+        await computer.KeepInStepAsync(FakeSyncthing.Self, _ => Task.FromResult<IReadOnlyList<PairedFolder>?>(null), CancellationToken.None);
+        Assert.Equal(Path.Combine(_paths.Files, "Desktop"), _computer.Folders["uncloud-desktop-1"].Path);
+    }
+
+    [Fact]
+    public async Task The_host_tells_the_app_where_its_folders_are_when_it_signs_for_it()
+    {
+        using var app = new TestHost(Path.Combine(_temporary, "Config"), syncthing: _host);
+        using var ada = await app.SignUpAsync("ada");
+        await TestHost.SetHostRootAsync(ada, PathPolicy.NormalizeRoot(Directory.CreateDirectory(Path.Combine(_temporary, "Host")).FullName));
+        var code = (await (await ada.PostAsync("/api/sync/pairing-codes", null)).Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("code").GetString()!;
+        var laptop = SyncthingIdentity.Ed25519();
+        using var anonymous = app.CreateClient();
+        var address = PairingLink.ParseAddress(anonymous.BaseAddress!.ToString());
+        var client = new PairingClient(anonymous);
+        var result = await client.PairAsync(PairingLink.From(address.ToString(), code), laptop.DeviceId, "Ada’s MacBook", CancellationToken.None);
+
+        // With no session: what it signs with its own key is its authority.
+        Assert.Equal(result.Folders, await client.FoldersAsync(address, result.HostDeviceId, laptop.Certificate, laptop.Key, CancellationToken.None));
+
+        // A computer this host doesn't have is told nothing, and nor is anything asked of an
+        // Uncloud from before computers could ask: the app puts folders by name then.
+        var stranger = SyncthingIdentity.Ed25519();
+        Assert.Null(await client.FoldersAsync(address, result.HostDeviceId, stranger.Certificate, stranger.Key, CancellationToken.None));
+        foreach (var older in new[] { HttpStatusCode.NotFound, HttpStatusCode.Unauthorized })
+            Assert.Null(await new PairingClient(new HttpClient(new SameAnswer(older, "No.")))
+                .FoldersAsync(new Uri("https://home.example"), result.HostDeviceId, laptop.Certificate, laptop.Key, CancellationToken.None));
     }
 
     [Fact]
