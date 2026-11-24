@@ -49,9 +49,16 @@ function signOut(reason = "") {
   token = null;
   listEpoch += 1;
   $("token").value = "";
+  $("note").value = "";
   $("made").hidden = true;
   $("code").textContent = "";
+  $("made-for").textContent = "";
   $("message").value = "";
+  $("invites").querySelector("tbody").replaceChildren();
+  $("invites").hidden = true;
+  $("none").hidden = true;
+  say($("invite-error"), "");
+  say($("list-error"), "");
   $("signed-in").hidden = true;
   $("sign-in").hidden = false;
   say($("token-error"), reason);
