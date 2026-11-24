@@ -162,6 +162,7 @@ async function copy(button, text, select) {
       if (button.dataset.ticket === ticket) button.textContent = label;
     }, 2000);
   } catch {
+    if (button.dataset.ticket === ticket) button.textContent = label;
     select();
   }
 }
