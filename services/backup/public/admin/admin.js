@@ -6,6 +6,8 @@ const $ = (id) => document.getElementById(id);
 const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
 let token = null;
+// A slower list answer must not paint over a newer one, or sign the operator out after they've moved on.
+let listEpoch = 0;
 
 class Refused extends Error {
   constructor(status, message) {
@@ -45,6 +47,7 @@ function signIn() {
 /** Back to asking for the token, saying why when there's a reason. */
 function signOut(reason = "") {
   token = null;
+  listEpoch += 1;
   $("token").value = "";
   $("made").hidden = true;
   $("code").textContent = "";
@@ -88,10 +91,24 @@ function render({ invites }) {
   $("none").hidden = invites.length > 0;
 }
 
+/** Fetches the list and paints it, unless a newer fetch or a sign-out has since taken over. */
+async function listed() {
+  const epoch = ++listEpoch;
+  try {
+    const answer = await call("/api/operator/invites");
+    if (epoch !== listEpoch) return false;
+    render(answer);
+    return true;
+  } catch (error) {
+    if (epoch !== listEpoch) return false;
+    throw error;
+  }
+}
+
 async function refresh({ keepCode = false } = {}) {
   say($("list-error"), "");
   try {
-    render(await call("/api/operator/invites"));
+    await listed();
   } catch (error) {
     // The code is shown only once. Signing out here would hide the one this page just made.
     if (keepCode && error.status === 401) {
@@ -142,7 +159,10 @@ $("token-form").addEventListener("submit", async (event) => {
   say($("token-error"), "");
   token = $("token").value.trim();
   try {
-    render(await call("/api/operator/invites"));
+    if (!(await listed())) {
+      token = null;
+      return;
+    }
     signIn();
   } catch (error) {
     token = null;
