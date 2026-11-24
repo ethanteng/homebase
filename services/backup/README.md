@@ -21,6 +21,11 @@ nightly checks come next.
   30 }` makes one and answers with its code, which isn't kept anywhere, only its hash; `GET` lists
   every invite and what became of it. Both need `Authorization: Bearer <OPERATOR_TOKEN>`, and with
   no operator token set nobody gets in.
+- `public/admin/`: the operator's invites page, at `/admin` (backup.uncloud.life/admin). Type in the
+  operator token, then make an invite, with a note of who it's for and how many days it lasts, and
+  get its code and a message to send with it; below is every invite and what became of it. It's
+  the same `api/operator/invites.js` underneath. The token is kept in the page only while it's
+  open, and the page may load nothing but its own files nor be framed (`headers` in `vercel.json`).
 - `api/hosts.js`: a host joining. `POST { "invite": "K7QM-3XPD-9TWA-HF2R", "name": "Mac mini" }`
   uses the invite once, makes the household and the host, and answers with the host's credential,
   shown this once. The host keeps it and sends it as a bearer token from then on.
