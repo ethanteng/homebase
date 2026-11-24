@@ -14,6 +14,7 @@ import {
   FolderInput,
   FolderOpen,
   FolderPlus,
+  Link2,
   Lock,
   Pencil,
   Plus,
@@ -25,10 +26,11 @@ import {
   X,
 } from "lucide-react";
 import { api, downloadUrl, formatSize } from "./api";
-import type { DirectoryListing, EditAction, EditedEntry, LibraryEntry } from "./api";
+import type { DirectoryListing, EditAction, EditedEntry, LibraryEntry, ShareList } from "./api";
 import EditDialog, { describe, summarize } from "./FileEdits";
 import type { Edit } from "./FileEdits";
 import { useFolderSizes } from "./folderSizes";
+import ShareDialog from "./ShareDialog";
 import { pickedFromDrop } from "./Uploads";
 import type { Picked } from "./Uploads";
 
@@ -48,6 +50,10 @@ interface Props {
    * Throws with the reason when there's nothing in them to send.
    */
   onDropFiles: (folder: string, picked: Picked[]) => Promise<void>;
+  isAdmin?: boolean;
+  /** Opens the list of every shared link. */
+  onShowLinks?: () => void;
+  onOpenSettings?: () => void;
 }
 type Sort = "name" | "modified" | "size";
 /** A folder something held over the list would go into: a folder's row, or one in the path above. */
@@ -87,6 +93,9 @@ export default function FileBrowser({
   onChanged,
   status,
   onDropFiles,
+  isAdmin = false,
+  onShowLinks,
+  onOpenSettings,
 }: Props) {
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,6 +124,29 @@ export default function FileBrowser({
   const [copying, setCopying] = useState(false);
   // What dropping them set going, while it's under way.
   const [moving, setMoving] = useState("");
+  // What's being shared by link, while the dialog for it is open.
+  const [sharing, setSharing] = useState<LibraryEntry[] | null>(null);
+  // Everything this account shares by link, by path, so a shared row can say so.
+  const [shared, setShared] = useState<ReadonlySet<string>>(new Set());
+  const [linksChanged, setLinksChanged] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api<ShareList>("/shares", { signal: controller.signal })
+      .then((list) => {
+        if (!controller.signal.aborted)
+          setShared(new Set(list.links.flatMap((link) => link.items.map((item) => item.path))));
+      })
+      .catch(() => {
+        // Only a marker beside a name; the files themselves are what matter.
+      });
+    return () => controller.abort();
+  }, [rootPath, revision, refresh, linksChanged]);
+  /** Whether this, or something inside it, is shared by link. */
+  const sharesAny = (entries: LibraryEntry[]) =>
+    entries.some((entry) =>
+      [...shared].some((path) => path === entry.path || path.startsWith(`${entry.path}/`)),
+    );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -514,6 +546,16 @@ export default function FileBrowser({
                   <FolderInput size={15} />
                   Move to…
                 </button>
+                <button
+                  className="row-action"
+                  onClick={() => {
+                    setNotice("");
+                    setSharing(chosen);
+                  }}
+                >
+                  <Link2 size={15} />
+                  Share…
+                </button>
                 {/* One name at a time: there is no one new name for several things. */}
                 {chosen.length === 1 && (
                   <button
@@ -733,6 +775,15 @@ export default function FileBrowser({
                               <FileIcon entry={entry} />
                             </span>
                             <span>{entry.name}</span>
+                            {shared.has(entry.path) && (
+                              <Link2
+                                size={15}
+                                className="shared-mark"
+                                aria-label="Shared by link"
+                              >
+                                <title>Shared by link</title>
+                              </Link2>
+                            )}
                           </button>
                         </div>
                       </td>
@@ -825,6 +876,13 @@ export default function FileBrowser({
             <div className="details-actions">
               <button
                 className="row-action"
+                onClick={() => setSharing([selected])}
+              >
+                <Link2 size={15} />
+                {shared.has(selected.path) ? "Shared…" : "Share…"}
+              </button>
+              <button
+                className="row-action"
                 onClick={() => start("copy", [selected])}
               >
                 <Copy size={15} />
@@ -855,9 +913,27 @@ export default function FileBrowser({
           </aside>
         )}
       </div>
+      <ShareDialog
+        entries={sharing}
+        isAdmin={isAdmin}
+        onClose={() => setSharing(null)}
+        onChanged={() => setLinksChanged((value) => value + 1)}
+        onShowLinks={() => {
+          setSharing(null);
+          onShowLinks?.();
+        }}
+        onOpenSettings={
+          onOpenSettings &&
+          (() => {
+            setSharing(null);
+            onOpenSettings();
+          })
+        }
+      />
       <EditDialog
         edit={edit}
         from={path}
+        shared={edit?.action === "delete" && sharesAny(edit.entries)}
         onClose={() => setEdit(null)}
         onDone={(summary) => {
           setEdit(null);

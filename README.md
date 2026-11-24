@@ -54,6 +54,8 @@ plugged into it.
 - Add your photos and files from iCloud and Google, from a download of your account. Photos are
   sorted into a folder for each year.
 - Add notebooks exported from Evernote. Each note becomes a page you can open in a web browser.
+- Share files and folders with anyone by link, to look at or to download as well, and turn a link
+  off whenever you like. Nobody needs an account to open one.
 - See how much room is left on the host at a glance, on every page.
 - Sync folders on your own computers with your space.
 - Get back a file deleted on a synced laptop for 30 days afterwards.
@@ -67,8 +69,9 @@ plugged into it.
   start up again by itself after a power cut. A laptop still sleeps when its lid is closed. Uncloud
   starts again by itself after a restart, but with FileVault on, as it usually is, only once
   somebody has signed in at the Mac. **Settings** says what could stop the host staying on.
-- **No sharing of files inside Uncloud** between people, and no storage limits per person. (A folder
-  on the host can be shared for others to add from.)
+- **No sharing between people's spaces inside Uncloud**, and no storage limits per person. You can
+  [share files by link](#share-files-by-link), and a folder on the host can be shared for others to
+  add from.
 - **No built-in backup.** Uncloud keeps one copy of everything. [Set up a backup](#keeping-your-files-safe).
 - **No Google Drive, iCloud or Evernote sign-in.** For Google Drive and iCloud, download your account
   and add it (see [Photos and files from iCloud and Google](#photos-and-files-from-icloud-and-google)),
@@ -275,6 +278,36 @@ good. **Restore** returns one to where it was, even if the folder it was in has 
 then it still takes up room, so **Delete forever** or **Empty Trash** when you need the space back.
 A file you delete that syncs with your laptop is deleted there too, and comes back there when you
 put it back.
+
+### Share files by link
+
+To let somebody see files of yours, such as holiday photos for a grandparent, tick them in **My
+files** (or open a file's details) and choose **Share…**. Then choose what people with the link can
+do:
+
+- **View only**: look at them in their browser. Photos, videos, music, PDFs and text files open on
+  the page; other kinds of file are listed but can't be opened. There are no download buttons, but
+  anything somebody can see they can still keep a copy of, with a screenshot say, so only share what
+  you're happy for them to have.
+- **View and download**: download them too, a folder as a zip.
+
+Click **Create link**, then **Copy link**, and send it however you like. Whoever has it can open it
+without an account. A link to a folder shows everything in it, including what you add later. Things
+ticked together share one link.
+
+**Shared links**, in the sidebar, lists every link you've made. From there, or from **Share…** again,
+you can copy a link, change what it allows, or click **Stop sharing**, after which it stops working
+straight away. Something you've shared has a small link beside its name in **My files**.
+
+A link goes with what it shares when you move or rename it in Uncloud. Deleting something stops
+sharing it, and getting it back from the **Trash** doesn't share it again. Uncloud doesn't see what
+you do on a synced computer, though: rename or delete something there and its link stays on the old
+name, sharing whatever you put there under that name next. A link stops working while its owner's
+account is turned off.
+
+People away from the host can only open links once [Access from anywhere](#6-let-everyone-in) is on.
+Until then **Share…** says so. Anybody who gets hold of a link can open it, so send it only to the
+people it's for, and stop sharing it when they've finished.
 
 ### Add files
 
@@ -491,6 +524,8 @@ Before you rely on Uncloud:
 - In Uncloud, each person's files are visible only to them. That includes the people who look
   after Uncloud: they manage accounts, but can't browse anyone else's files. They can give someone
   a new password, but that signs the person out, so they'd notice.
+- Files you [share by link](#share-files-by-link) can be opened by anyone who has the link, without
+  an account. **Shared links** lists them, and **Stop sharing** ends one at once.
 - On a Mac host set up with the app, nobody signed in to the Mac can look through anybody's files,
   you included. Uncloud runs in an account of its own, and everyone's files, the accounts and
   Uncloud's settings belong to that account. Finder and Terminal say you don't have permission.
