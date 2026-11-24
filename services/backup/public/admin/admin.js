@@ -88,11 +88,16 @@ function render({ invites }) {
   $("none").hidden = invites.length > 0;
 }
 
-async function refresh() {
+async function refresh({ keepCode = false } = {}) {
   say($("list-error"), "");
   try {
     render(await call("/api/operator/invites"));
   } catch (error) {
+    // The code is shown only once. Signing out here would hide the one this page just made.
+    if (keepCode && error.status === 401) {
+      say($("list-error"), "That operator token doesn’t work any more. Copy the code, then enter it again.");
+      return;
+    }
     if (!refusedBecauseOfToken(error)) say($("list-error"), error.message);
   }
 }
@@ -151,6 +156,10 @@ $("invite-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = $("make");
   button.disabled = true;
+  // Forget is disabled until the code is on screen. Otherwise it can land during this request
+  // and clear the only copy of a code the service has already given out.
+  $("sign-out").disabled = true;
+  $("refresh").disabled = true;
   say($("invite-error"), "");
   try {
     const invite = await call("/api/operator/invites", {
@@ -159,11 +168,13 @@ $("invite-form").addEventListener("submit", async (event) => {
     });
     showMade(invite);
     $("note").value = "";
-    await refresh();
+    await refresh({ keepCode: true });
   } catch (error) {
     if (!refusedBecauseOfToken(error)) say($("invite-error"), error.message);
   } finally {
     button.disabled = false;
+    $("sign-out").disabled = false;
+    $("refresh").disabled = false;
   }
 });
 
