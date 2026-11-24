@@ -52,7 +52,9 @@ public sealed partial class LibraryService
     /// Writes these as one zip, each under its name: a file as itself, a folder with everything in it.
     /// What browsing leaves out — hidden entries and links — is left out here too. The zip is written as
     /// it's read, so nothing is gathered on the drive first, however big it is. A file that can't be
-    /// read partway through is left out rather than ending the rest.
+    /// opened is left out rather than ending the rest. One that fails once reading it has begun ends the
+    /// zip, which the browser reports as a download that failed: part of it is already on its way, and
+    /// carrying on would put a file in the zip cut short as though it were whole.
     /// </summary>
     /// <param name="items">Under what name each goes in the zip, and where it is in My files.</param>
     public async Task ZipAsync(IReadOnlyList<(string Name, string Path)> items, Stream output, CancellationToken cancellationToken)

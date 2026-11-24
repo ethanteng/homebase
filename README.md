@@ -300,8 +300,10 @@ you can copy a link, change what it allows, or click **Stop sharing**, after whi
 straight away. Something you've shared has a small link beside its name in **My files**.
 
 A link goes with what it shares when you move or rename it in Uncloud. Deleting something stops
-sharing it, and getting it back from the **Trash** doesn't share it again. A link stops working while
-its owner's account is turned off.
+sharing it, and getting it back from the **Trash** doesn't share it again. Uncloud doesn't see what
+you do on a synced computer, though: rename or delete something there and its link stays on the old
+name, sharing whatever you put there under that name next. A link stops working while its owner's
+account is turned off.
 
 People away from the host can only open links once [Access from anywhere](#6-let-everyone-in) is on.
 Until then **Share…** says so. Anybody who gets hold of a link can open it, so send it only to the
