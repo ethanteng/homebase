@@ -149,11 +149,18 @@ function showMade(invite) {
 
 /** Copies, and says so on the button; where the browser won't let the page copy, selects the text to copy by hand. */
 async function copy(button, text, select) {
-  const label = button.textContent;
+  // Remember the resting label. A second click while it says "Copied" would otherwise
+  // restore that word and leave the button stuck.
+  const label = button.dataset.label ?? button.textContent;
+  button.dataset.label = label;
+  const ticket = String(Number(button.dataset.ticket ?? 0) + 1);
+  button.dataset.ticket = ticket;
   try {
     await navigator.clipboard.writeText(text);
     button.textContent = "Copied";
-    setTimeout(() => (button.textContent = label), 2000);
+    setTimeout(() => {
+      if (button.dataset.ticket === ticket) button.textContent = label;
+    }, 2000);
   } catch {
     select();
   }
