@@ -81,8 +81,10 @@ in the Vercel dashboard under the **uncloud-backup** project:
 3. **The cron secret.** Add `CRON_SECRET`, marked **Sensitive**, set to a long random value, for
    example from `openssl rand -hex 32`. Vercel sends it with each cron call, and the nightly job turns
    away anything without it.
-4. **The operator token.** Add `OPERATOR_TOKEN` the same way, with a value of its own. It's what lets
-   you make and list invites, and it's never sent to a host.
+4. **The operator token.** Add `OPERATOR_TOKEN` the same way, with a long random value of its own,
+   for example from `openssl rand -base64 32`. It's what lets you make and list invites, at
+   `/admin` or with the API, and it's never sent to a host. Nothing slows somebody guessing at it,
+   so it has to be too long to guess: never a password somebody would type from memory.
 
 Then redeploy, and `/api/health` on the production address should say `"ready": true`.
 

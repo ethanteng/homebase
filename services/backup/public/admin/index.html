@@ -21,8 +21,10 @@
     <section id="sign-in" class="panel">
       <h2>Operator token</h2>
       <form id="token-form" method="post" autocomplete="on">
-        <!-- For a password manager to save and fill the token under a name of its own. -->
-        <input type="text" name="username" value="operator" autocomplete="username" hidden>
+        <!-- For a password manager to save and fill the token under a name of its own. Shown, since a
+             field that isn't drawn is one a password manager may pass over. -->
+        <label for="operator">Saved in your password manager as</label>
+        <input id="operator" type="text" name="username" value="operator" autocomplete="username" readonly>
         <label for="token">The <code>OPERATOR_TOKEN</code> set on the uncloud-backup project in Vercel</label>
         <input id="token" name="password" type="password" autocomplete="current-password" required spellcheck="false">
         <button type="submit">Continue</button>

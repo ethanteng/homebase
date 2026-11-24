@@ -4,6 +4,8 @@
 
 const $ = (id) => document.getElementById(id);
 const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+// For the message another household gets, who may not share the operator's day: an hour and a zone.
+const expiry = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
 
 let token = null;
 // A slower list answer must not paint over a newer one, or sign the operator out after they've moved on.
@@ -133,7 +135,7 @@ function message(invite) {
     "",
     `Your invite code: ${invite.code}`,
     "",
-    `On your Uncloud, go to Settings → Offsite backup, enter the code and click Join. The code works once, until ${date.format(new Date(invite.expiresAt))}.`,
+    `On your Uncloud, go to Settings → Offsite backup, enter the code and click Join. The code works once, until ${expiry.format(new Date(invite.expiresAt))} UTC.`,
     "",
     "More in the guide: https://uncloud.life/help#offsite-backup",
   ].join("\n");

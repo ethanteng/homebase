@@ -60,6 +60,7 @@ input, textarea {
   background: #fff;
 }
 textarea { resize: vertical; line-height: 1.5; font-size: 14px; }
+input[readonly] { background: var(--wash); color: var(--muted); }
 input:focus-visible, textarea:focus-visible, button:focus-visible {
   outline: 3px solid rgba(42, 127, 240, 0.5);
   outline-offset: 2px;

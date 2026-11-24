@@ -36,6 +36,9 @@ test("the page loads only its own files, and keeps the token out of the address 
   // Were its script ever not to run, a form sent the ordinary way would put what's in it in the
   // address with GET; with POST, and form-action 'none', it isn't sent at all.
   for (const form of page.match(/<form\b[^>]*>/g)) assert.match(form, /method="post"/);
+  // A password manager passes over a field that isn't drawn, so the name it saves the token under is shown.
+  const name = page.match(/<input\b[^>]*autocomplete="username"[^>]*>/)[0];
+  assert.doesNotMatch(name, /\bhidden\b/);
 
   const script = await read("public/admin/admin.js");
   assert.doesNotMatch(script, /localStorage|sessionStorage|document\.cookie|indexedDB/);
