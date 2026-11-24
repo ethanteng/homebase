@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Uncloud Backup invites</title>
+  <link rel="stylesheet" href="/admin/admin.css">
+  <script type="module" src="/admin/admin.js"></script>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <p class="eyebrow">Uncloud Backup</p>
+      <h1>Invites</h1>
+      <p class="lede">An invite lets one household join the offsite backup trial. Each code works once.</p>
+    </header>
+
+    <!-- The operator token is kept in this page only while it's open: never stored, never in the address. -->
+    <section id="sign-in" class="panel">
+      <h2>Operator token</h2>
+      <form id="token-form" method="post" autocomplete="on">
+        <!-- For a password manager to save and fill the token under a name of its own. Shown, since a
+             field that isn't drawn is one a password manager may pass over. -->
+        <label for="operator">Saved in your password manager as</label>
+        <input id="operator" type="text" name="username" value="operator" autocomplete="username" readonly>
+        <label for="token">The <code>OPERATOR_TOKEN</code> set on the uncloud-backup project in Vercel</label>
+        <input id="token" name="password" type="password" autocomplete="current-password" required spellcheck="false">
+        <button type="submit">Continue</button>
+        <p id="token-error" class="error" role="alert" hidden></p>
+      </form>
+    </section>
+
+    <div id="signed-in" hidden>
+      <section class="panel">
+        <h2>Make an invite</h2>
+        <form id="invite-form" method="post">
+          <label for="note">Who it’s for <span class="optional">(only you see this)</span></label>
+          <input id="note" name="note" maxlength="200" placeholder="The Smiths" autocomplete="off">
+          <label for="days">Lasts</label>
+          <div class="days">
+            <input id="days" name="days" type="number" min="1" max="365" value="30" required>
+            <span>days</span>
+          </div>
+          <button type="submit" id="make">Make an invite</button>
+          <p id="invite-error" class="error" role="alert" hidden></p>
+        </form>
+
+        <div id="made" class="made" hidden>
+          <p class="made-label">Invite code <span id="made-for"></span></p>
+          <p class="code"><code id="code"></code></p>
+          <p class="warning">This is the only time the code is shown. Copy it now.</p>
+          <div class="actions">
+            <button type="button" id="copy-code">Copy code</button>
+            <button type="button" id="copy-message" class="secondary">Copy message to send</button>
+          </div>
+          <label for="message">Message</label>
+          <textarea id="message" rows="6" readonly></textarea>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="list-head">
+          <h2>Invites so far</h2>
+          <button type="button" id="refresh" class="secondary small">Refresh</button>
+        </div>
+        <p id="list-error" class="error" role="alert" hidden></p>
+        <p id="none" class="muted" hidden>No invites yet.</p>
+        <div class="table-scroll">
+          <table id="invites" hidden>
+            <thead>
+              <tr><th scope="col">For</th><th scope="col">Made</th><th scope="col">Status</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <p class="foot"><button type="button" id="sign-out" class="link">Forget the token</button></p>
+    </div>
+  </main>
+</body>
+</html>

@@ -21,6 +21,11 @@ nightly checks come next.
   30 }` makes one and answers with its code, which isn't kept anywhere, only its hash; `GET` lists
   every invite and what became of it. Both need `Authorization: Bearer <OPERATOR_TOKEN>`, and with
   no operator token set nobody gets in.
+- `public/admin/`: the operator's invites page, at `/admin` (backup.uncloud.life/admin). Type in the
+  operator token, then make an invite, with a note of who it's for and how many days it lasts, and
+  get its code and a message to send with it; below is every invite and what became of it. It's
+  the same `api/operator/invites.js` underneath. The token is kept in the page only while it's
+  open, and the page may load nothing but its own files nor be framed (`headers` in `vercel.json`).
 - `api/hosts.js`: a host joining. `POST { "invite": "K7QM-3XPD-9TWA-HF2R", "name": "Mac mini" }`
   uses the invite once, makes the household and the host, and answers with the host's credential,
   shown this once. The host keeps it and sends it as a bearer token from then on.
@@ -76,8 +81,10 @@ in the Vercel dashboard under the **uncloud-backup** project:
 3. **The cron secret.** Add `CRON_SECRET`, marked **Sensitive**, set to a long random value, for
    example from `openssl rand -hex 32`. Vercel sends it with each cron call, and the nightly job turns
    away anything without it.
-4. **The operator token.** Add `OPERATOR_TOKEN` the same way, with a value of its own. It's what lets
-   you make and list invites, and it's never sent to a host.
+4. **The operator token.** Add `OPERATOR_TOKEN` the same way, with a long random value of its own,
+   for example from `openssl rand -base64 32`. It's what lets you make and list invites, at
+   `/admin` or with the API, and it's never sent to a host. Nothing slows somebody guessing at it,
+   so it has to be too long to guess: never a password somebody would type from memory.
 
 Then redeploy, and `/api/health` on the production address should say `"ready": true`.
 
