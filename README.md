@@ -14,6 +14,10 @@ laptop in sync with it. There's no monthly storage bill, and nobody else holds y
 > Uncloud is early. It works, but read [What isn't ready yet](#what-isnt-ready-yet) before you move
 > anything important onto it.
 
+**The [help guide at uncloud.life/help](https://www.uncloud.life/help)** has all of this with
+screenshots, for the people who use Uncloud. Its source is [`landing/help.html`](landing/help.html):
+when something here changes, change it there too.
+
 - [How it works](#how-it-works)
 - [Get the app](#get-the-app)
 - [Set up Uncloud](#set-up-uncloud) — for the person who looks after it
@@ -60,6 +64,8 @@ plugged into it.
 - Sync folders on your own computers with your space.
 - Get back a file deleted on a synced laptop for 30 days afterwards.
 - Add and manage everyone in the household from one screen.
+- Back everyone's files up offsite every night, encrypted, and restore from any night's backup
+  (a trial, for now, that needs an invite code).
 
 ### What isn't ready yet
 
@@ -72,7 +78,8 @@ plugged into it.
 - **No sharing between people's spaces inside Uncloud**, and no storage limits per person. You can
   [share files by link](#share-files-by-link), and a folder on the host can be shared for others to
   add from.
-- **No built-in backup.** Uncloud keeps one copy of everything. [Set up a backup](#keeping-your-files-safe).
+- **Offsite backup is a trial.** Joining needs an invite code. Otherwise Uncloud keeps one copy of
+  everything. [Set up a backup](#keeping-your-files-safe).
 - **No Google Drive, iCloud or Evernote sign-in.** For Google Drive and iCloud, download your account
   and add it (see [Photos and files from iCloud and Google](#photos-and-files-from-icloud-and-google)),
   or use the folder their app keeps on the host. For Evernote, export your notebooks: see
@@ -206,8 +213,8 @@ Click it, say yes at Tailscale, and come back.
 After a minute Uncloud shows your address, something like `https://uncloud.tail1234.ts.net`. Send
 that to everyone. It works at home and away, on any device.
 
-To close it again later, use the same panel: **Stop reaching it from anywhere** takes the address
-out of service at once, without stopping Uncloud for anybody at home.
+To close it again later, turn **Access from anywhere** off in the same place. The address stops
+working at once, without stopping Uncloud on the host.
 
 This connection is fine for browsing and downloading everyday files. It's slow for very large
 ones, like hours of video.
@@ -227,8 +234,8 @@ You might still register your own Dropbox app if you would rather your household
 go through an app somebody else registered, or you'd rather nobody ever copied a code. Anybody can
 set theirs under **My account** without waiting for you.
 
-If you want your own, open **Settings**, scroll to **Dropbox for everyone here**, and click
-**Advanced — Use a Dropbox app you registered**. It is four steps:
+If you want your own, open **Settings** and, under **Access**, click **Set up** next to **Dropbox**.
+It is four steps:
 
 1. Go to [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps) and click
    **Create app**. Choose **Scoped access** and **Full Dropbox**, and give it any name.
@@ -519,6 +526,16 @@ Before you rely on Uncloud:
   `/Library/Application Support/Uncloud` (Time Machine does), or
   `~/Library/Application Support/Homebase` if you run Uncloud from Terminal.
 
+**Offsite backup (trial).** Uncloud is testing a backup of its own: an encrypted copy of everyone's
+files, kept offsite and updated every night. During the trial, joining needs an invite code. In
+**Settings → Offsite backup**, enter the code and click **Join**. Uncloud then shows a **recovery
+kit**, a backup password and a recovery token, only once: click **Download the kit** and keep it
+away from the host, because it's the only way to get everything back if the host is lost. Once
+backups run, everyone has **Backups** in the sidebar, where they pick a date and **Restore** their own
+files; newer files aren't overwritten. To rebuild a lost host, set up a new one and choose **Use a
+recovery kit** under **Offsite backup**. The [design](docs/backup.md) says how it works and what's
+still to come.
+
 **Who can see what:**
 
 - In Uncloud, each person's files are visible only to them. That includes the people who look
@@ -547,8 +564,8 @@ Before you rely on Uncloud:
 the host's menu bar: it says whether Uncloud is running, and warns if the host could go to sleep
 or stay off. Uncloud starts again by itself if it stops or gets stuck, and when the Mac restarts —
 but if FileVault is on, only once somebody has signed in at the Mac after the restart, so a power
-cut while everyone's away keeps it down until somebody does. From anywhere, **Settings → Keeping
-this host on** lists what could stop it. From Terminal, check the window from step 2 is still open,
+cut while everyone's away keeps it down until somebody does. From anywhere, **Settings → This Mac**
+lists what could stop it. From Terminal, check the window from step 2 is still open,
 and start it again if the computer restarted.
 
 **macOS didn't ask for my password.** On some Macs, macOS won't show its password prompt to an app

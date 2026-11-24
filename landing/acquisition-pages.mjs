@@ -446,6 +446,7 @@ ${indent(reserve("close"), 12)}
       <footer class="site-footer">
 ${indent(compareNav(slug), 8)}
         <div class="footer-links">
+          <a class="partners-link" href="/help">Help</a>
           <a class="partners-link" href="/faq">FAQ</a>
           <a class="partners-link" href="/hardware">Buy more storage</a>
           <a class="partners-link" href="/partners">For Partners</a>

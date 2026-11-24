@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Only the public landing site sends measurement. Local/preview builds stay quiet. -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() { dataLayer.push(arguments); }
+      gtag('set', { allow_google_signals: false, allow_ad_personalization_signals: false });
+      if (new URLSearchParams(location.search).get('measurement_debug') === '1') {
+        gtag('set', { debug_mode: true });
+      }
+      if (['uncloud.life', 'www.uncloud.life'].includes(location.hostname)) {
+        (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+        new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+        j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+        'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+        })(window,document,'script','dataLayer','GTM-KS2XST5Z');
+      }
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7fafd" />
+    <title>Help: Set Up and Use Uncloud | Uncloud</title>
+    <meta name="description" content="How to set up Uncloud, add people, bring files in from Dropbox, iCloud, Google and Evernote, sync your computers, and share files by link." />
+    <meta property="og:title" content="Help: Set Up and Use Uncloud | Uncloud" />
+    <meta property="og:description" content="How to set up Uncloud, add people, bring files in from Dropbox, iCloud, Google and Evernote, sync your computers, and share files by link." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Uncloud" />
+    <meta property="og:url" content="https://www.uncloud.life/help" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content="https://www.uncloud.life/social-card.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Uncloud — cloud storage without the monthly bill. Use your own computer. Move your files over easily." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Help: Set Up and Use Uncloud | Uncloud" />
+    <meta name="twitter:description" content="How to set up Uncloud, add people, bring files in from Dropbox, iCloud, Google and Evernote, sync your computers, and share files by link." />
+    <meta name="twitter:image" content="https://www.uncloud.life/social-card.png" />
+    <link rel="canonical" href="https://www.uncloud.life/help" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "@id": "https://www.uncloud.life/help#webpage",
+            "url": "https://www.uncloud.life/help",
+            "name": "Help: Set Up and Use Uncloud | Uncloud",
+            "description": "How to set up Uncloud, add people, bring files in from Dropbox, iCloud, Google and Evernote, sync your computers, and share files by link.",
+            "inLanguage": "en",
+            "isPartOf": { "@id": "https://www.uncloud.life/#website" },
+            "about": { "@id": "https://www.uncloud.life/#software" },
+            "breadcrumb": { "@id": "https://www.uncloud.life/help#breadcrumb" },
+            "image": "https://www.uncloud.life/social-card.png"
+          },
+          {
+            "@type": "BreadcrumbList",
+            "@id": "https://www.uncloud.life/help#breadcrumb",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": "Uncloud", "item": "https://www.uncloud.life/" },
+              { "@type": "ListItem", "position": 2, "name": "Help", "item": "https://www.uncloud.life/help" }
+            ]
+          }
+        ]
+      }
+    </script>
+    <link rel="icon" type="image/png" href="./uncloud.png" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./help.css" />
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="page">
+      <header class="site-header">
+        <a class="wordmark" href="/" aria-label="Uncloud home">
+          <img src="./uncloud.png" width="32" height="32" alt="" />
+          Uncloud
+        </a>
+        <div class="header-actions">
+          <a id="github-header" class="github-link" href="https://github.com/ethanteng/homebase" aria-label="Uncloud on GitHub">
+            <svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+          <a class="faq-link" href="/faq">FAQ</a>
+          <a class="pricing-link" href="/#pricing">Pricing</a>
+          <a class="header-cta" href="/#early-access">Get early access</a>
+        </div>
+      </header>
+
+      <main id="main" class="help-layout">
+        <div class="help-head">
+          <p class="eyebrow">Help</p>
+          <h1>How to set up and use Uncloud</h1>
+          <p class="help-lede">Everything Uncloud does today, step by step. If you’re stuck, email <a href="mailto:hello@uncloud.life">hello@uncloud.life</a>.</p>
+        </div>
+
+        <nav class="help-toc" aria-label="On this page">
+          <p class="help-toc-title">On this page</p>
+          <ol>
+            <li><a href="#how-it-works">How Uncloud works</a></li>
+            <li><a href="#set-up">Set up Uncloud</a></li>
+            <li><a href="#people">Add people</a></li>
+            <li><a href="#files">Your files</a></li>
+            <li><a href="#add-files">Bring your files in</a></li>
+            <li><a href="#sync">Sync your computers</a></li>
+            <li><a href="#share">Share by link</a></li>
+            <li><a href="#settings">Settings and the menu bar</a></li>
+            <li><a href="#backup">Keep a backup</a></li>
+            <li><a href="#privacy">Who can see what</a></li>
+            <li><a href="#troubleshooting">If something goes wrong</a></li>
+            <li><a href="#not-yet">What Uncloud doesn’t do yet</a></li>
+          </ol>
+        </nav>
+
+        <article class="help">
+
+          <!-- How it works -->
+          <section aria-labelledby="how-it-works">
+            <h2 id="how-it-works">How Uncloud works</h2>
+            <p>One Mac at home holds everyone’s files. We call it the <strong>Uncloud computer</strong>. It can be an old laptop or a desktop that stays on. Files live on its own drive, or on an external drive plugged into it.</p>
+            <ul>
+              <li><strong>Everyone gets their own space.</strong> Each person has a username and password and sees only their own files.</li>
+              <li><strong>Use it from any browser.</strong> Sign in from a computer, phone or tablet, at home or away.</li>
+              <li><strong>Keep a folder on your Mac in sync.</strong> The Uncloud app keeps a folder on your laptop the same as your files in Uncloud, both ways.</li>
+              <li><strong>Bring your files in.</strong> Copy them from your computer, Dropbox, iCloud, Google or Evernote.</li>
+              <li><strong>Share by link.</strong> Send anyone a link to a file or folder. They don’t need an account.</li>
+            </ul>
+            <p>There’s one Uncloud app, for Mac. The same app runs the Uncloud computer and keeps other Macs in sync. Everyone else can use Uncloud in a web browser.</p>
+          </section>
+
+          <!-- Set up -->
+          <section aria-labelledby="set-up">
+            <h2 id="set-up">Set up Uncloud</h2>
+            <p>This part is for the person who looks after Uncloud. It takes about five minutes.</p>
+
+            <h3 id="what-you-need">What you need</h3>
+            <ul>
+              <li>A Mac that can stay at home, plugged in and switched on.</li>
+              <li>Enough space for everyone’s files, on the Mac itself or on an external drive. An external drive must be formatted for Mac (APFS or Mac OS Extended).</li>
+              <li>The Mac’s administrator password. macOS asks for it once, during setup.</li>
+            </ul>
+
+            <h3 id="get-the-app">1. Get the app</h3>
+            <ol>
+              <li>Download Uncloud for your Mac. To check which kind you have, open the Apple menu → <strong>About This Mac</strong>. It says <strong>Chip: Apple M…</strong> or <strong>Processor: Intel</strong>.
+                <ul>
+                  <li><a href="https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-arm64.dmg">Uncloud for Apple silicon (M1 and later)</a></li>
+                  <li><a href="https://github.com/ethanteng/homebase/releases/download/mac-latest/Uncloud-osx-x64.dmg">Uncloud for Intel Macs</a></li>
+                </ul>
+              </li>
+              <li>Open the download and drag <strong>Uncloud</strong> onto the <strong>Applications</strong> folder.</li>
+              <li>Open Uncloud from Applications. The first time, macOS asks if you’re sure. Click <strong>Open</strong>.</li>
+            </ol>
+            <p>Uncloud lives in the menu bar at the top of the screen, as a <strong>U</strong>. It doesn’t appear in the Dock.</p>
+
+            <h3 id="set-up-host">2. Set up the Uncloud computer</h3>
+            <ol>
+              <li>Uncloud asks <strong>How will you use this Mac?</strong> Choose <strong>Store everyone’s files here</strong>.</li>
+              <li>Choose where files are kept. <strong>Stored on this Mac</strong> is the default. To use an external drive, click <strong>Use an external drive or another folder</strong>.</li>
+              <li>Leave <strong>Keep this Mac awake</strong> ticked. A Mac that’s asleep can’t hand anyone their files.</li>
+              <li>Click <strong>Set Up</strong> and enter the Mac’s administrator password.</li>
+            </ol>
+            <p>Your browser then opens.</p>
+            <p class="note">If macOS never shows the password box, Uncloud offers <strong>Finish in Terminal</strong>. A Terminal window opens and asks for the same password there. The Uncloud window carries on once it’s done.</p>
+
+            <h3 id="create-account">3. Create your account</h3>
+            <p>In the browser, enter your name, a username and a password of at least 10 characters, then click <strong>Continue</strong>. This first account is the admin: it can add people and change settings.</p>
+            <figure class="shot shot-narrow">
+              <img src="./help/create-account.webp" width="680" height="605" alt="The Create your account page, with fields for your name, a username and a password." loading="lazy" />
+            </figure>
+            <p>You’ll land in <strong>My files</strong>. Uncloud is ready to use on this Mac.</p>
+
+            <h3 id="stay-on">4. Keep the Uncloud computer on</h3>
+            <p>People can only reach their files while the Uncloud computer is on and awake. Uncloud stops a Mac sleeping while it’s the Uncloud computer, and a desktop Mac starts up again by itself after a power cut. <strong>Settings</strong> lists anything that could still stop it.</p>
+            <figure class="shot">
+              <img src="./help/this-mac.webp" width="800" height="290" alt="The This Mac section of Settings, warning that the Mac goes to sleep, is running on battery, sleeps when its lid is closed, and needs someone to sign in after a restart." loading="lazy" />
+              <figcaption>Settings shows what could keep the Uncloud computer from staying on.</figcaption>
+            </figure>
+            <ul>
+              <li>Keep a laptop plugged in with the lid open. A closed laptop sleeps.</li>
+              <li>If FileVault is on (it usually is), Uncloud starts after a restart only once somebody signs in to the Mac. Leave FileVault on: it protects everyone’s files if the Mac is stolen.</li>
+            </ul>
+
+            <h3 id="access-anywhere">5. Turn on Access from anywhere</h3>
+            <p>Until you do this, Uncloud only works on the Uncloud computer itself. Turn it on so that people can use Uncloud from their own devices, other computers can sync, and shared links work.</p>
+            <ol>
+              <li>Open <strong>Settings</strong>. Under <strong>Access</strong>, turn on <strong>Access from anywhere</strong>.</li>
+              <li>Click <strong>Approve in Tailscale</strong>. Tailscale is a free service Uncloud uses for its secure connection. Sign in or make an account. You only do this once.</li>
+              <li>If Uncloud then shows <strong>Open in Tailscale</strong>, click it and say yes. This lets your Uncloud be reached from outside your home.</li>
+              <li>After a minute, Uncloud shows your address, something like <code>https://uncloud.tail1234.ts.net</code>.</li>
+            </ol>
+            <figure class="shot">
+              <img src="./help/settings.webp" width="800" height="335" alt="The Settings page, showing the storage location, the storage limit, the Access from anywhere switch and Dropbox." loading="lazy" />
+            </figure>
+            <p>Send that address to everyone in your household. It works at home and away, on any device. It doesn’t change if your internet provider changes your IP address, and there are no router settings to change.</p>
+            <p>To close it again, turn the same switch off. Uncloud keeps working on the Uncloud computer.</p>
+            <p class="note">This connection is fine for everyday files. Very large files, like hours of video, are slow to download from outside your home.</p>
+
+            <h3 id="next-steps">6. What next</h3>
+            <ul>
+              <li><a href="#people">Add everyone else</a>.</li>
+              <li><a href="#backup">Set up a backup</a> before anyone relies on Uncloud.</li>
+            </ul>
+          </section>
+
+          <!-- People -->
+          <section aria-labelledby="people">
+            <h2 id="people">Add people</h2>
+            <p>Admins manage everyone’s accounts under <strong>People</strong>.</p>
+
+            <h3 id="add-person">Add someone</h3>
+            <ol>
+              <li>Open <strong>People</strong> and click <strong>Add person</strong>.</li>
+              <li>Enter their name. The username fills itself in, and Uncloud suggests a password that’s easy to read out.</li>
+              <li>Choose <strong>Member</strong> (sees only their own files) or <strong>Admin</strong> (can also add people and change settings). Choose Admin only for another adult who helps look after Uncloud.</li>
+              <li>Click the blue <strong>Add</strong> button, which shows their name.</li>
+            </ol>
+            <figure class="shot shot-tall">
+              <img src="./help/add-person.webp" width="460" height="800" alt="The Add person panel, with name, username, a suggested password, and a choice of Member or Admin." loading="lazy" />
+            </figure>
+            <p>Uncloud can’t send email. Give the person the Uncloud address, their username and their password yourself, and ask them to change the password when they first sign in.</p>
+
+            <h3 id="manage-people">Manage people</h3>
+            <figure class="shot">
+              <img src="./help/people.webp" width="800" height="300" alt="The People page, listing three people with how much space each uses, their role, and New password, Block sign-in and Delete." loading="lazy" />
+            </figure>
+            <ul>
+              <li><strong>Role</strong> changes someone between Member and Admin. There’s always at least one admin.</li>
+              <li><strong>New password</strong> gives someone a new password if they forget theirs. It signs them out everywhere.</li>
+              <li><strong>Block sign-in</strong> stops someone signing in, without deleting anything. Links they’ve shared stop working until you let them back in.</li>
+              <li><strong>Delete</strong> removes the account. Their files are never deleted.</li>
+            </ul>
+            <p>Admins can’t see anyone else’s files. See <a href="#privacy">Who can see what</a>.</p>
+
+            <h3 id="sign-in">Signing in for the first time</h3>
+            <ol>
+              <li>Open the address you were given in any browser.</li>
+              <li>Sign in with your username and password.</li>
+              <li>Click your initial in the top-right corner, then <strong>My account</strong>, and change your password. Changing it signs you out on your other devices.</li>
+            </ol>
+            <p>Forgot your password? Ask your admin to give you a new one.</p>
+          </section>
+
+          <!-- Files -->
+          <section aria-labelledby="files">
+            <h2 id="files">Your files</h2>
+            <p><strong>My files</strong> is your own space. Only you can see it.</p>
+            <figure class="shot">
+              <img src="./help/my-files.webp" width="800" height="500" alt="My files, showing Documents, Music, Photos and Videos folders with their sizes, and the space left in the bottom-left corner." loading="lazy" />
+            </figure>
+            <ul>
+              <li>Click a folder to open it. Use the path above the list, or your browser’s back button, to go back.</li>
+              <li>Type in <strong>Filter this folder</strong> to find something in the folder you’re in. Click <strong>Name</strong>, <strong>Date modified</strong> or <strong>Size</strong> to sort.</li>
+              <li>Each folder shows how big it is.</li>
+              <li>Click a file to see its details. Click the arrow at the end of its row to download it.</li>
+              <li>The bottom-left corner shows how much space is left, and how much you use. It turns amber, then red, when space runs low.</li>
+            </ul>
+
+            <h3 id="organize">Organize files</h3>
+            <p>Click <strong>New folder</strong> to make a folder in the one you have open. Tick the box beside files and folders to act on them:</p>
+            <figure class="shot">
+              <img src="./help/selected.webp" width="800" height="398" alt="Two photos ticked in a folder, with Copy to, Move to, Share and Delete buttons above the list." loading="lazy" />
+            </figure>
+            <ul>
+              <li><strong>Copy to…</strong> and <strong>Move to…</strong> put them in another folder.</li>
+              <li><strong>Rename…</strong> appears when one item is ticked.</li>
+              <li><strong>Share…</strong> makes a link. See <a href="#share">Share by link</a>.</li>
+              <li><strong>Delete</strong> moves them to the Trash.</li>
+            </ul>
+            <p>You can also drag files and folders onto a folder in the list, or onto a folder in the path above it, to move them there. Hold <strong>Option</strong> (<strong>Ctrl</strong> on Windows) as you drop to copy instead.</p>
+            <p>Uncloud never overwrites anything. If a folder already has something with the same name, the new one gets a new name, like <code>notes 2.txt</code>.</p>
+            <p>A folder that syncs with one of your computers can’t be moved, renamed or deleted until you stop syncing it.</p>
+
+            <h3 id="trash">Trash</h3>
+            <p>Deleted files and folders wait in the <strong>Trash</strong> for 30 days.</p>
+            <figure class="shot">
+              <img src="./help/trash.webp" width="800" height="269" alt="The Trash, with one deleted file, 30 days left, and Restore and Delete forever buttons." loading="lazy" />
+            </figure>
+            <ul>
+              <li><strong>Restore</strong> puts something back where it was, even if its folder has since gone.</li>
+              <li><strong>Delete forever</strong> and <strong>Empty Trash</strong> free up the space straight away.</li>
+              <li>Deleting a file that syncs with your computer deletes it there too. Restoring it puts it back there as well.</li>
+            </ul>
+          </section>
+
+          <!-- Add files -->
+          <section aria-labelledby="add-files">
+            <h2 id="add-files">Bring your files in</h2>
+            <p>Click <strong>Add files</strong> at the top of the page and choose where your files are.</p>
+            <figure class="shot shot-medium">
+              <img src="./help/add-files.webp" width="703" height="626" alt="The Add files window, with This device, Dropbox, iCloud, Google and Evernote." loading="lazy" />
+            </figure>
+            <p>Uncloud copies what you choose. The originals stay where they are. What you add is yours alone, and adding the same thing again only brings what’s new. Uncloud checks there’s room before it starts.</p>
+
+            <h3 id="from-device">From the computer or phone you’re using</h3>
+            <p>Choose <strong>This device</strong>, then <strong>Choose files…</strong> or <strong>Choose a folder…</strong>. Or drop files straight onto <strong>My files</strong>, or onto a folder in the list. They go into the folder you have open.</p>
+            <ul>
+              <li><strong>Keep the page open</strong> until My files says they’re in. The page is what sends them.</li>
+              <li>If your laptop sleeps or loses its connection, the upload pauses and carries on by itself afterwards, as long as the page is still open.</li>
+              <li>If you close the page partway, what arrived is kept for a day. Add the same files again and only the rest is sent. Or click <strong>Add what arrived</strong> to keep what’s there, or <strong>Throw away</strong>.</li>
+              <li>If some of the files are already in Uncloud, it tells you how many are new, changed or the same before sending anything. <strong>Add</strong> sends only the new and changed ones. Replaced copies go to the Trash. <strong>Keep both</strong> adds everything again beside what’s there.</li>
+            </ul>
+
+            <h3 id="from-host">From folders and drives on the Uncloud computer</h3>
+            <p>Admins using Uncloud from another device see <strong>Uncloud computer</strong>. It shows folders and drives on the Uncloud computer, such as Documents, Pictures, an old backup drive, or the folder your Google Drive, OneDrive or iCloud app keeps. On the Uncloud computer itself, use <strong>This device</strong> instead.</p>
+            <ul>
+              <li>Open a folder to look inside, or click <strong>Add</strong> next to it to bring the whole thing.</li>
+              <li>Tick several items and click <strong>Add selected</strong>, or click <strong>Add all</strong>. The total size is shown first.</li>
+              <li>Click <strong>Choose another folder…</strong> to find anything else.</li>
+              <li>To let everyone in the household copy from a folder (family photos, say), open it and click <strong>Share this folder with everyone here</strong>. It appears for them under <strong>Shared with you</strong>. <strong>Make private again</strong> undoes it.</li>
+            </ul>
+            <p>The Uncloud app must be open on the Uncloud computer for this to work.</p>
+
+            <h3 id="from-dropbox">From Dropbox</h3>
+            <ol>
+              <li>Choose <strong>Dropbox</strong> and click <strong>Connect Dropbox</strong>.</li>
+              <li>Sign in on Dropbox’s own page and allow access.</li>
+              <li>If you’re not on the Uncloud computer, Dropbox shows a code at the end. Copy it into the box Uncloud is showing. If you mistype it, paste it again.</li>
+              <li>Browse your Dropbox. Click <strong>Add</strong> next to a file or folder, tick several and click <strong>Add selected</strong>, or click <strong>Add all</strong>.</li>
+            </ol>
+            <p>Uncloud can only read your Dropbox. It never changes or deletes anything there. Files arrive in a folder called <strong>Dropbox</strong> in My files. You can close the page while they copy: My files shows how far it has got, and <strong>Stop</strong> keeps what has already arrived.</p>
+            <p>To disconnect, click <strong>Sign Uncloud out of Dropbox</strong> at the bottom of the Dropbox list. Files you’ve added stay.</p>
+
+            <h3 id="from-icloud">From iCloud</h3>
+            <p>Uncloud can’t sign in to iCloud, but Apple will let you download everything as zip files.</p>
+            <ol>
+              <li>Go to <a href="https://privacy.apple.com">privacy.apple.com</a> and sign in.</li>
+              <li>Choose <strong>Request a copy of your data</strong>. Tick <strong>iCloud Photos</strong> and <strong>iCloud Drive files and documents</strong>, and choose the largest size.</li>
+              <li>Apple emails you when it’s ready. This can take a few days.</li>
+              <li>Download all the zip files. In Uncloud, click <strong>Add files</strong> → <strong>iCloud</strong> and add them all at once.</li>
+            </ol>
+            <figure class="shot shot-medium">
+              <img src="./help/add-icloud.webp" width="703" height="630" alt="The iCloud panel in Add files, with the four steps and a place to drop the zip files." loading="lazy" />
+            </figure>
+
+            <h3 id="from-google">From Google Photos and Google Drive</h3>
+            <ol>
+              <li>Go to <a href="https://takeout.google.com">takeout.google.com</a> and sign in.</li>
+              <li>Choose <strong>Deselect all</strong>, tick <strong>Drive</strong> and <strong>Google Photos</strong>, then <strong>Next step</strong>.</li>
+              <li>Keep the file type as <strong>.zip</strong>, choose <strong>50 GB</strong>, then <strong>Create export</strong>. Google emails you when it’s ready.</li>
+              <li>Download all the zip files. In Uncloud, click <strong>Add files</strong> → <strong>Google</strong> and add them all at once.</li>
+            </ol>
+
+            <h3 id="exports-good-to-know">What you get from iCloud and Google</h3>
+            <p>Everything goes into a folder called <strong>iCloud</strong> or <strong>Google</strong> in My files:</p>
+            <ul>
+              <li><strong>Photos</strong> has a folder for each year. Each photo appears once, with the date it was taken.</li>
+              <li><strong>Albums</strong> has a page for each album. Open it in a browser on a computer that syncs with Uncloud.</li>
+              <li><strong>iCloud Drive</strong> or <strong>Drive</strong> has your files and folders. Google Docs, Sheets and Slides arrive as Word, Excel and PowerPoint files.</li>
+              <li><strong>Recently Deleted</strong> or <strong>Trash</strong> has photos that were in the bin.</li>
+            </ul>
+            <p>Good to know:</p>
+            <ul>
+              <li>Download the zip files on the Uncloud computer if you can. They’re big, and this saves sending them over the internet again.</li>
+              <li>You need about twice the space while you do this. Delete the zip files once everything is in.</li>
+              <li>Add all the parts at once. A photo’s date or album is sometimes in a different part.</li>
+              <li><strong>Add files</strong> shows how many photos and files the zips hold, and whether a part is missing. Check the numbers before you delete anything from iCloud or Google.</li>
+              <li>If Advanced Data Protection is on, Apple leaves your photos out. Instead, open the Photos app on a Mac, select your photos, choose <strong>File → Export → Export Unmodified Originals</strong>, and add that folder.</li>
+              <li>Shared albums from iCloud arrive as zip files in <strong>Shared Albums</strong>. Memories aren’t included.</li>
+            </ul>
+
+            <h3 id="from-evernote">From Evernote</h3>
+            <ol>
+              <li>Open the Evernote app on a Mac or PC. The website and phone app can’t export.</li>
+              <li>Right-click a notebook, choose <strong>Export notebook…</strong>, then <strong>ENEX</strong>. Do this for each notebook.</li>
+              <li>In Uncloud, click <strong>Add files</strong> → <strong>Evernote</strong> and choose the files you exported.</li>
+            </ol>
+            <p>Each notebook becomes a folder in <strong>Evernote</strong>, in My files, with a page for each note that opens in any browser. Attachments go in a folder next to the note. The exported files are kept too, in case you want them for another notes app.</p>
+            <ul>
+              <li>Compare the number of notes Uncloud shows with Evernote before you cancel Evernote.</li>
+              <li>Export once you’ve stopped using Evernote. Adding a notebook again brings only new notes, not changes to old ones.</li>
+              <li>Encrypted text stays encrypted. You need your Evernote passphrase to read it.</li>
+              <li>Uncloud is not a notes app. You can read your notes, but not edit them.</li>
+            </ul>
+
+            <h3 id="from-others">From OneDrive and other services</h3>
+            <p>Uncloud can’t sign in to OneDrive or Google Drive directly yet. Install the service’s own app on the Uncloud computer so its files are on that Mac, then add its folder with <strong>This device</strong> (on the Uncloud computer) or <strong>Uncloud computer</strong> (from anywhere else).</p>
+          </section>
+
+          <!-- Sync -->
+          <section aria-labelledby="sync">
+            <h2 id="sync">Sync your computers</h2>
+            <p>The Uncloud app keeps a folder on your Mac the same as your files in Uncloud. Add, change or delete a file on one and the same happens on the other, at home or away.</p>
+            <p class="note">The Uncloud computer needs <a href="#access-anywhere">Access from anywhere</a> turned on, even for a laptop at home. <strong>Computers</strong> tells you if it’s off.</p>
+
+            <h3 id="connect-mac">Connect a Mac</h3>
+            <ol>
+              <li><a href="#get-the-app">Get the app</a> on the Mac you want to connect, and open it.</li>
+              <li>Choose <strong>Connect to your Uncloud</strong>. The app looks for your Uncloud by itself.</li>
+              <li>Click <strong>Sign in to connect</strong>. Your browser opens. Sign in to Uncloud and click <strong>Add this computer</strong>.</li>
+            </ol>
+            <p>That’s it. Your files appear in a folder called <strong>Uncloud</strong> in your home folder, and stay in step both ways.</p>
+            <figure class="shot">
+              <img src="./help/computers.webp" width="800" height="307" alt="The Computers page, with two steps to add a computer and Other ways to connect." loading="lazy" />
+            </figure>
+            <p>Other ways to connect:</p>
+            <ul>
+              <li><strong>With your phone.</strong> If your phone is signed in to Uncloud, click <strong>Scan with a phone that’s signed in instead</strong>, scan the code, and tap <strong>Add this computer</strong>.</li>
+              <li><strong>Away from home</strong>, or if the app can’t find your Uncloud, enter the address you use in your browser.</li>
+              <li><strong>With a pairing code.</strong> In Uncloud, open <strong>Computers</strong> → <strong>Other ways to connect</strong> → <strong>Get a pairing code</strong>. In the app, choose <strong>Other ways to connect</strong> → <strong>Type a pairing code</strong>.</li>
+            </ul>
+
+            <h3 id="what-syncs">Choose what stays in sync</h3>
+            <p><strong>Computers</strong> lists each of your computers, whether it’s connected, and how far it has got. Under <strong>What stays in sync</strong>, click <strong>Choose what to sync</strong> or <strong>Sync another folder</strong> to pick a folder, or all of your files, then <strong>Start syncing</strong>.</p>
+            <p><strong>Stop syncing</strong> stops a folder syncing. The files stay where they are on both sides. <strong>Remove</strong> stops syncing with a computer. Nothing is deleted on either side.</p>
+            <p>If the Uncloud computer runs out of room, new files wait on your laptop, and Computers says how many are waiting.</p>
+
+            <h3 id="menu-bar">The menu bar</h3>
+            <p>Click the <strong>U</strong> in your Mac’s menu bar to see whether you’re up to date, syncing, paused, or can’t reach Uncloud. From there you can also:</p>
+            <ul>
+              <li><strong>Open Uncloud Folder</strong> or <strong>Open Uncloud in Browser</strong>.</li>
+              <li><strong>Pause Syncing</strong> and <strong>Resume Syncing</strong>.</li>
+              <li><strong>Disconnect This Computer…</strong> to stop syncing this Mac.</li>
+              <li><strong>Open at Login</strong>. Leave it ticked so syncing starts when you sign in.</li>
+            </ul>
+
+            <h3 id="sync-good-to-know">Good to know</h3>
+            <ul>
+              <li><strong>Deleting a file on your laptop deletes it in Uncloud too.</strong> Syncing isn’t a backup.</li>
+              <li>Files deleted or replaced on a synced computer are kept on the Uncloud computer for 30 days. There’s no button to get them back yet. Email <a href="mailto:hello@uncloud.life">hello@uncloud.life</a> and we’ll help.</li>
+              <li>If a file changes on both sides at once, you get both versions. One has <code>sync-conflict</code> in its name.</li>
+              <li>Your synced files are on your laptop, so you can open them even when the Uncloud computer is off. Changes catch up when it’s back.</li>
+            </ul>
+
+            <h3 id="windows-linux">Windows and Linux computers</h3>
+            <p>There’s no Uncloud app for Windows or Linux yet. You can sync them with a free app called Syncthing:</p>
+            <ol>
+              <li>Install <a href="https://syncthing.net/downloads/">Syncthing</a> on the computer and open it.</li>
+              <li>In Uncloud, open <strong>Computers</strong> → <strong>Other ways to connect</strong>. Under <strong>Windows or Linux, with Syncthing</strong>, click <strong>Copy this Uncloud’s ID</strong>.</li>
+              <li>In Syncthing, click <strong>Add Remote Device</strong> and paste it.</li>
+              <li>In Syncthing, click <strong>Actions → Show ID</strong> and copy the computer’s ID.</li>
+              <li>Back in Uncloud, paste it and click <strong>Add computer</strong>.</li>
+              <li>Click <strong>Choose what to sync</strong>, pick a folder and click <strong>Start syncing</strong>. Accept the folder when Syncthing offers it.</li>
+            </ol>
+          </section>
+
+          <!-- Share -->
+          <section aria-labelledby="share">
+            <h2 id="share">Share by link</h2>
+            <p>Send anyone a link to files or folders, like holiday photos for a grandparent. They don’t need an account. Shared links only work once <a href="#access-anywhere">Access from anywhere</a> is on.</p>
+
+            <h3 id="make-link">Make a link</h3>
+            <ol>
+              <li>In <strong>My files</strong>, tick what you want to share (or open a file’s details) and click <strong>Share…</strong>.</li>
+              <li>Choose what people with the link can do:
+                <ul>
+                  <li><strong>View only</strong>: look at them in their browser. Photos, videos, music, PDFs and text files open on the page. There are no download buttons.</li>
+                  <li><strong>View and download</strong>: download them too. A folder downloads as a zip.</li>
+                </ul>
+              </li>
+              <li>Click <strong>Create link</strong>, then <strong>Copy link</strong>, and send it however you like.</li>
+            </ol>
+            <div class="shot-pair">
+              <figure class="shot">
+                <img src="./help/share-dialog.webp" width="524" height="431" alt="The Share window, with View only and View and download, and a Create link button." loading="lazy" />
+              </figure>
+              <figure class="shot">
+                <img src="./help/share-link.webp" width="524" height="512" alt="The Share window after making a link, with the link, a Copy link button and Stop sharing." loading="lazy" />
+              </figure>
+            </div>
+            <p>A link to a folder shows everything in it, including what you add later. Things ticked together share one link.</p>
+            <p>This is what the other person sees:</p>
+            <figure class="shot">
+              <img src="./help/shared-page.webp" width="800" height="300" alt="A shared link opened in a browser: two photos, shared by Sam Taylor, with a Download all button." loading="lazy" />
+            </figure>
+
+            <h3 id="manage-links">See and stop your links</h3>
+            <p><strong>Shared links</strong>, in the sidebar, lists every link you’ve made. From there you can copy a link, change what it allows, or click <strong>Stop sharing</strong>. A link stops working straight away. Something you’ve shared has a small link icon beside its name in My files.</p>
+            <figure class="shot">
+              <img src="./help/shared-links.webp" width="800" height="269" alt="The Shared links page, listing a shared folder and two shared photos, each with Copy link, Open, a permission menu and Stop sharing." loading="lazy" />
+            </figure>
+
+            <h3 id="links-good-to-know">Good to know</h3>
+            <ul>
+              <li>Anyone who has a link can open it. Send it only to the people it’s for, and stop sharing when they’re done.</li>
+              <li>View only has no download buttons, but anything someone can see, they can still copy, with a screenshot say. Only share what you’re happy for them to keep.</li>
+              <li>A link follows what it shares when you move or rename it in Uncloud.</li>
+              <li>Deleting something stops sharing it. Restoring it from the Trash doesn’t share it again.</li>
+              <li>Uncloud doesn’t see renames on a synced computer. If you rename or delete a shared item there, the link stays on the old name.</li>
+            </ul>
+          </section>
+
+          <!-- Settings -->
+          <section aria-labelledby="settings">
+            <h2 id="settings">Settings and the menu bar</h2>
+            <p><strong>Settings</strong> is for admins.</p>
+
+            <h3 id="storage-settings">Storage</h3>
+            <ul>
+              <li><strong>Location</strong> is where everyone’s files are kept.</li>
+              <li><strong>Storage limit</strong> stops Uncloud filling the drive. Click <strong>Change</strong> and set an amount (say, 500 GB) or a share of the drive (say, 50%). When it’s used up, nobody can add more until you raise it or files are deleted. Nothing is ever deleted to make room.</li>
+              <li>The sidebar shows the space left on every page.</li>
+            </ul>
+
+            <h3 id="access-settings">Access</h3>
+            <ul>
+              <li><strong>Access from anywhere</strong> turns your address on and off. See <a href="#access-anywhere">step 5 of setup</a>.</li>
+              <li><strong>Dropbox</strong> works without any setup. If you’d rather use a Dropbox app you registered yourself, click <strong>Set up</strong> and follow the steps. Anyone can also set their own under <strong>My account</strong>.</li>
+            </ul>
+
+            <h3 id="this-mac-settings">This Mac</h3>
+            <p>Lists anything that could stop the Uncloud computer staying on, like sleep, battery or a closed lid, and what to do about it.</p>
+
+            <h3 id="host-menu">The menu bar on the Uncloud computer</h3>
+            <p>Click the <strong>U</strong> in the Uncloud computer’s menu bar. It says whether Uncloud is running and warns if the Mac could sleep. It also has:</p>
+            <ul>
+              <li><strong>Keep This Mac Awake</strong>: on by default. Leave it on.</li>
+              <li><strong>Access From Anywhere…</strong>: opens the same setting as in Settings.</li>
+              <li><strong>Use Another Folder…</strong>: keeps everyone’s files somewhere else, such as a new drive. Uncloud asks for an administrator password and then tells you what to choose under Settings.</li>
+              <li><strong>Update Uncloud…</strong>: appears after you update the app. Uncloud asks for an administrator password to finish.</li>
+              <li><strong>Turn Off Uncloud on This Mac…</strong>: stops Uncloud. Everyone’s files and accounts are kept, and pick up where they left off if you turn it back on.</li>
+              <li><strong>Open at Login</strong>: leave it ticked.</li>
+            </ul>
+
+            <h3 id="update">Update Uncloud</h3>
+            <p>Download the app again from the links in <a href="#get-the-app">Get the app</a> and drag it onto Applications, replacing the old one. On the Uncloud computer, then choose <strong>Update Uncloud…</strong> from the menu bar.</p>
+          </section>
+
+          <!-- Backup -->
+          <section aria-labelledby="backup">
+            <h2 id="backup">Keep a backup</h2>
+            <p><strong>Uncloud is not a backup.</strong> It keeps one copy of everything, on one drive. If that drive fails or the Mac is stolen, the files are gone. Syncing a laptop doesn’t protect you either, because a deletion syncs just like a new file.</p>
+            <p>Before you rely on Uncloud:</p>
+            <ul>
+              <li>Turn on <strong>Time Machine</strong> on the Uncloud computer, with a second drive. Make sure it includes the drive or folder where Uncloud keeps files. It backs up the accounts too.</li>
+              <li>Or use any backup that keeps <strong>older versions</strong> of files, so you can get back something deleted weeks ago.</li>
+            </ul>
+
+            <h3 id="offsite-backup">Offsite backup (trial)</h3>
+            <p>Uncloud is testing its own offsite backup: an encrypted copy of everyone’s files, kept somewhere else and updated every night. During the trial, joining needs an invite code.</p>
+            <ol>
+              <li>In <strong>Settings</strong> → <strong>Offsite backup</strong>, enter your invite code and click <strong>Join</strong>.</li>
+              <li>Uncloud shows a <strong>recovery kit</strong>: a backup password and a recovery token. Click <strong>Download the kit</strong> and keep it somewhere safe, away from the Uncloud computer. It’s shown only once, and it’s the only way to get everything back if the Mac is lost.</li>
+            </ol>
+            <p>Once backups are running, everyone sees <strong>Backups</strong> in the sidebar. Pick a date and click <strong>Restore</strong> next to a file or folder. Newer files are not overwritten. You only see your own files in the backups.</p>
+            <p>To rebuild a lost Uncloud computer, set up a new one, then in <strong>Settings</strong> → <strong>Offsite backup</strong> click <strong>Use a recovery kit</strong> and enter the kit.</p>
+          </section>
+
+          <!-- Privacy -->
+          <section aria-labelledby="privacy">
+            <h2 id="privacy">Who can see what</h2>
+            <ul>
+              <li>Each person’s files are visible only to them. That includes admins: they manage accounts but can’t browse anyone’s files. They can give someone a new password, but that signs the person out, so they’d notice.</li>
+              <li>On the Uncloud computer, nobody signed in to the Mac can look through anyone’s files in Finder, including you. Uncloud runs in an account of its own. The only way in is deliberately, as a Mac administrator, so keep the Mac’s administrator password to the people who look after it.</li>
+              <li>Files you share by link can be opened by anyone who has the link, until you stop sharing it.</li>
+              <li>With Access from anywhere on, passwords keep strangers out, so everyone should use a good one. Uncloud slows down anyone who keeps guessing.</li>
+              <li>Files travel encrypted between your devices and the Uncloud computer, and aren’t stored with any cloud company.</li>
+            </ul>
+          </section>
+
+          <!-- Troubleshooting -->
+          <section aria-labelledby="troubleshooting">
+            <h2 id="troubleshooting">If something goes wrong</h2>
+
+            <h3>I can’t reach Uncloud</h3>
+            <p>Check the Uncloud computer is on and awake. Click the <strong>U</strong> in its menu bar: it says whether Uncloud is running. Uncloud starts again by itself if it stops, and when the Mac restarts. With FileVault on, somebody has to sign in to the Mac after a restart first.</p>
+
+            <h3>My laptop isn’t syncing</h3>
+            <p>Click the <strong>U</strong> in the laptop’s menu bar. It says whether it’s up to date, syncing, paused, or can’t reach Uncloud. If it can’t, check the Uncloud computer is on, that Access from anywhere is on, and that the laptop can open your Uncloud address in a browser.</p>
+
+            <h3>macOS didn’t ask for my password</h3>
+            <p>Click <strong>Finish in Terminal</strong>. A Terminal window opens and asks for the password there.</p>
+
+            <h3>macOS says Uncloud can’t be opened</h3>
+            <p>You may have an old download. Download Uncloud again from <a href="#get-the-app">Get the app</a> and drag it onto Applications, replacing the old one.</p>
+
+            <h3>Adding from the Uncloud computer says the Uncloud app isn’t open</h3>
+            <p>Open Uncloud on the Uncloud computer, and leave <strong>Open at Login</strong> ticked. Uncloud’s own account can’t read your folders, which keeps them private, so the app reads them for it.</p>
+
+            <h3>Dropbox showed me a code</h3>
+            <p>That’s expected when you’re not on the Uncloud computer. Copy the code into the box Uncloud is showing.</p>
+
+            <h3>The external drive was unplugged</h3>
+            <p>Plug it back in and refresh the page. If it comes back with a new name, choose its folder again under <strong>Settings</strong> → <strong>Location</strong>.</p>
+
+            <h3>I forgot my password</h3>
+            <p>Ask your admin. They can give you a new one under <strong>People</strong>.</p>
+
+            <h3>I deleted something by mistake</h3>
+            <p>Look in the <a href="#trash">Trash</a> first. If you deleted it on a synced computer, email <a href="mailto:hello@uncloud.life">hello@uncloud.life</a> within 30 days. If you have <a href="#offsite-backup">offsite backup</a>, you can also restore it from <strong>Backups</strong>.</p>
+
+            <h3>Still stuck?</h3>
+            <p>Email <a href="mailto:hello@uncloud.life">hello@uncloud.life</a>. Tell us what you were doing and what you saw.</p>
+          </section>
+
+          <!-- Not yet -->
+          <section aria-labelledby="not-yet">
+            <h2 id="not-yet">What Uncloud doesn’t do yet</h2>
+            <ul>
+              <li>The Uncloud computer must be a Mac. Windows can’t be the Uncloud computer yet, but Windows computers can use Uncloud in a browser.</li>
+              <li>The app is for Mac only. On a phone, use your browser. Windows and Linux computers can sync with Syncthing.</li>
+              <li>No sharing between people inside Uncloud. Use a shared link instead.</li>
+              <li>No storage limit per person, only one for the whole Uncloud.</li>
+              <li>No signing in to Google Drive, iCloud, OneDrive or Evernote. Use their exports or apps as described in <a href="#add-files">Bring your files in</a>.</li>
+              <li>No built-in backup, except the offsite backup trial.</li>
+            </ul>
+          </section>
+        </article>
+      </main>
+
+      <footer class="site-footer">
+        <nav class="compare-nav" aria-label="Compare Uncloud">
+          <a href="/dropbox-alternative">Dropbox alternative</a>
+          <a href="/google-drive-alternative">Google Drive alternative</a>
+          <a href="/icloud-alternative">iCloud alternative</a>
+          <a href="/onedrive-alternative">OneDrive alternative</a>
+          <a href="/uncloud-vs-nextcloud">Uncloud vs. Nextcloud</a>
+        </nav>
+        <div class="footer-links">
+          <a class="partners-link" href="/help" aria-current="page">Help</a>
+          <a class="partners-link" href="/faq">FAQ</a>
+          <a class="partners-link" href="/hardware">Buy more storage</a>
+          <a class="partners-link" href="/partners">For Partners</a>
+          <span class="social-links">
+            <a id="instagram-footer" class="instagram-link" href="https://www.instagram.com/uncloudlife/" aria-label="Uncloud on Instagram">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2.6" y="2.6" width="18.8" height="18.8" rx="5.4"/><circle cx="12" cy="12" r="4.4"/></g><circle cx="17.5" cy="6.5" r="1.35" fill="currentColor"/></svg>
+            </a>
+            <a id="x-footer" class="x-link" href="https://x.com/uncloudlife" aria-label="Uncloud on X">
+              <svg viewBox="-1.5 -1.5 27 27" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></svg>
+            </a>
+            <a id="youtube-footer" class="youtube-link" href="https://www.youtube.com/@Uncloud-life" aria-label="Uncloud on YouTube">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+            </a>
+            <a id="github-footer" class="github-link" href="https://github.com/ethanteng/homebase" aria-label="Uncloud on GitHub">
+              <svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            </a>
+          </span>
+        </div>
+        <div class="footer-legal">
+          <p>© 2026 Ethan Teng Consulting LLC</p>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
