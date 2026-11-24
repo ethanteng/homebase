@@ -150,6 +150,14 @@ node landing/faq-questions.mjs
 
 The page's title and description stay in `faq.html` and name the structured data too. `faq.test.cjs` fails if `faq.html` is stale, if the title or description is too long, or if a full header or footer lacks the link.
 
+## Help page
+
+`/help` is the user-facing guide: setting up the Uncloud computer, adding people, bringing files in, syncing computers, sharing by link, settings, backup and troubleshooting. Every full footer links to it as "Help", and the FAQ's opening line points to it. It's plain HTML in `help.html`, with its own styles in `help.css`: a contents list beside the page on wide screens, and under the title on narrow ones.
+
+The screenshots are WebP files in `help/`, taken from a throwaway Uncloud with a made-up household (Sam, Jordan and Riley Taylor) at 1280 × 800 and twice the pixels, then cropped. Retake one when the screen it shows changes, keep the same file name, and update the image's `width` and `height` (half its pixel size) in `help.html`. `help.test.cjs` fails if a screenshot the page shows is missing, a contents link has no section, the page drops out of the build or the sitemap, or a footer lacks the link.
+
+When the app changes what someone sees or does, update `help.html` and the repository README together.
+
 ## Storage page
 
 `/hardware` recommends OWC drives, by size and type; Uncloud is an OWC affiliate (through Impact), and the page says so under the table. The homepage and acquisition-page headers link to it as “Need more space?” (hidden at 700px and narrower, where it would wrap the header), and every footer links to it as “Buy more storage.” Its own styles are in `hardware.css`, and `hardware.js` adds filters by type (which hides the other columns) and minimum size (which hides smaller rows). The filters ship hidden, so without JavaScript the page is the whole table.

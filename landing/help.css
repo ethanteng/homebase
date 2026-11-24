@@ -1,0 +1,184 @@
+/* The /help page. It shares styles.css with the homepage; these are its own pieces. */
+
+/* Title above the page; the contents list beside both on wide screens, between them on narrow ones. */
+.help-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-areas:
+    "toc head"
+    "toc body";
+  column-gap: clamp(32px, 4vw, 64px);
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: clamp(32px, 4vw, 64px) 0 clamp(56px, 7vw, 96px);
+}
+
+.help-head { grid-area: head; max-width: 860px; }
+.help-head h1 {
+  margin-top: 14px;
+  font-size: clamp(2.2rem, 4vw, 3.2rem);
+  line-height: 1.08;
+  letter-spacing: -.045em;
+}
+.help-head a { color: var(--blue-strong); text-decoration: underline; text-underline-offset: 2px; }
+
+/* The contents list stays beside the page on wide screens. */
+.help-toc {
+  grid-area: toc;
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  font-size: .92rem;
+}
+
+.help-toc-title {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 650;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.help-toc ol { margin: 0; padding: 0; list-style: none; }
+.help-toc li + li { margin-top: 2px; }
+
+.help-toc a {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.help-toc a:hover { color: var(--ink); background: var(--wash); }
+
+.help {
+  grid-area: body;
+  min-width: 0;
+  max-width: 860px;
+  line-height: 1.65;
+}
+
+.help-lede { margin-top: 16px; color: var(--muted); font-size: 1.1rem; line-height: 1.55; }
+
+.help section {
+  margin-top: 40px;
+  padding-top: 40px;
+  border-top: 1px solid var(--line);
+}
+
+.help h2 {
+  font-size: clamp(1.5rem, 2.4vw, 1.9rem);
+  line-height: 1.2;
+  letter-spacing: -.03em;
+  scroll-margin-top: 24px;
+}
+
+.help h3 {
+  margin-top: 32px;
+  font-size: 1.12rem;
+  line-height: 1.3;
+  letter-spacing: -.01em;
+  scroll-margin-top: 24px;
+}
+
+.help p,
+.help ul,
+.help ol { margin: 12px 0 0; max-width: 72ch; }
+
+.help ul,
+.help ol { padding-left: 1.35em; }
+
+.help li + li { margin-top: 6px; }
+.help li > ul { margin-top: 6px; }
+
+.help a {
+  color: var(--blue-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.help strong { font-weight: 650; }
+
+.help code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--wash);
+  font-size: .9em;
+  overflow-wrap: anywhere;
+}
+
+.help .note {
+  padding: 14px 18px;
+  border: 1px solid #d1e1f3;
+  border-radius: 14px;
+  background: #f0f6fd;
+}
+
+/* Screenshots: a framed picture of the app, never wider than the column. */
+.shot {
+  margin: 20px 0 4px;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(58, 70, 91, .08);
+}
+
+.shot figcaption {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: .9rem;
+}
+
+/* Windows and panels read at a sensible size rather than stretched to the column. */
+.shot-narrow img { max-width: 440px; }
+.shot-medium img { max-width: 560px; }
+.shot-tall img { max-width: 340px; }
+
+.shot-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.shot-pair .shot { margin: 0; }
+
+@media (max-width: 900px) {
+  .help-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "head" "toc" "body";
+  }
+
+  /* On narrow screens the contents list sits under the title instead of beside the page. */
+  .help-toc {
+    position: static;
+    max-height: none;
+    margin-top: 28px;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--panel);
+  }
+
+  .help-toc ol { columns: 2; column-gap: 16px; }
+  .help-toc li { break-inside: avoid; }
+  .help-toc a { padding: 4px 0; }
+  .help-toc a:hover { background: none; }
+}
+
+@media (max-width: 560px) {
+  .help-toc ol { columns: 1; }
+  .help section { margin-top: 36px; padding-top: 32px; }
+  .shot-pair { grid-template-columns: minmax(0, 1fr); }
+  .shot img { border-radius: 10px; }
+}
