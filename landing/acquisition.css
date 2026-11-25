@@ -49,7 +49,6 @@
 .compare-signup .primary-link { display: flex; align-items: center; justify-content: center; max-width: 420px; }
 /* The pricing card's offer column is never wider than 451px here: 1rem keeps the offer on one line. */
 .compare-signup .reserve-offer, .acquisition .pricing-offer .reserve-offer { font-size: 1rem; }
-.compare-signup .access-note, .acquisition .pricing-offer .access-note { font-size: .85rem; }
 .acquisition .savings { margin-bottom: 0; padding: clamp(24px, 4vw, 48px); }
 .acquisition .savings h2 { font-size: clamp(2rem, 3.1vw, 2.9rem); }
 .comparison-source { margin-top: 14px; font-size: .78rem; color: #596980; }

@@ -25,13 +25,9 @@ test('no page claims Windows or Linux support', async () => {
   assert.ok(!/linux|PC/i.test(read('social-card.svg').match(/<text[^>]*y="550"[^>]*>(.*?)<\/text>/)[1]), 'the social card lists PC or Linux');
 });
 
-test('the homepage and comparison pages show Windows as coming soon, and every buy button says Mac', async () => {
+test('the homepage and comparison pages show Windows as coming soon', async () => {
   const { all, SLUGS } = await pages();
   for (const name of ['index', ...SLUGS]) assert.ok(all[name].includes('Windows <small>coming soon</small>'), `${name} lacks Windows coming soon`);
-  for (const [name, html] of Object.entries(all)) {
-    for (const [note] of html.matchAll(/<a [^>]*data-buy[^>]*>[\s\S]*?<p class="access-note">[^<]*<\/p>/g))
-      assert.match(note, /For Mac\. Windows is coming soon\./, `${name} has a buy button without the platform note`);
-  }
 });
 
 test('the FAQ and every comparison page answer the Windows question', async () => {

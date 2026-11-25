@@ -23,7 +23,6 @@
 .hero-signup { margin-top: 18px; }
 .hero-signup .primary-link { width: 100%; max-width: 420px; }
 .hero-signup .reserve-offer { font-size: .9rem; }
-.hero-signup .access-note { font-size: .8rem; }
 .homepage .primary-link { display: inline-flex; align-items: center; justify-content: center; gap: 28px; border-radius: 9px; }
 .hero-film { max-width: 1000px; margin: 48px auto 0; }
 .film-caption { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 0 2px 14px; }

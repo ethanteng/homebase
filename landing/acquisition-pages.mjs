@@ -192,8 +192,7 @@ const GITHUB = '<svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="tru
 
 // /buy starts a Stripe Checkout (api/checkout.js). Each button's id names its placement. The hero and
 // the pricing card show the price just above, so only the closing section says it again.
-const reserve = (where) => `${where === "close" ? '<p class="reserve-offer">Pay $99 once. No monthly storage bill.</p>\n' : ""}<a class="primary-link" id="buy-${where}" href="/buy" rel="nofollow" data-buy>Buy now</a>
-<p class="access-note">For Mac. Windows is coming soon.</p>`;
+const reserve = (where) => `${where === "close" ? '<p class="reserve-offer">Pay $99 once. No monthly storage bill.</p>\n' : ""}<a class="primary-link" id="buy-${where}" href="/buy" rel="nofollow" data-buy>Buy now</a>`;
 
 /** The footer's links to every acquisition page; the homepage uses it too. */
 export function compareNav(current) {
