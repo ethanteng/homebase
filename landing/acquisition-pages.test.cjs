@@ -73,13 +73,13 @@ test('the homepage, FAQ and storage page buy straight from their calls to action
   for (const name of ['index', 'faq', 'hardware']) assert.ok(!read(name).includes('buymeacoffee.com'), `${name} still links the old reservation`);
 });
 
-test('every page charges the full $99: no $79 offer, and every buy button says $99', async () => {
+test('every page charges the full $99: no $79 offer, and every buy button just says Buy now', async () => {
   const { SLUGS, render } = await load();
   const pages = {};
   for (const name of ['index', 'faq', 'hardware', 'help', 'privacy', 'terms', 'thanks', 'partners']) pages[name] = fs.readFileSync(`${__dirname}/${name}.html`, 'utf8');
   for (const slug of SLUGS) pages[slug] = render(slug);
   for (const [name, html] of Object.entries(pages)) {
     assert.ok(!html.includes('$79'), `${name} still mentions $79`);
-    for (const [label] of html.matchAll(/data-buy>[^<]*</g)) assert.equal(label, 'data-buy>Buy now –&nbsp;$99<', name);
+    for (const [label] of html.matchAll(/data-buy>[^<]*</g)) assert.equal(label, 'data-buy>Buy now<', name);
   }
 });
