@@ -30,7 +30,7 @@ test('the homepage and comparison pages show Windows as coming soon, and every b
   for (const name of ['index', ...SLUGS]) assert.ok(all[name].includes('Windows <small>coming soon</small>'), `${name} lacks Windows coming soon`);
   for (const [name, html] of Object.entries(all)) {
     for (const [note] of html.matchAll(/<a [^>]*data-buy[^>]*>[\s\S]*?<p class="access-note">[^<]*<\/p>/g))
-      assert.match(note, /Mac app\. Windows is coming soon\./, `${name} has a buy button without the platform note`);
+      assert.match(note, /For Mac\. Windows is coming soon\./, `${name} has a buy button without the platform note`);
   }
 });
 

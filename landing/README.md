@@ -69,7 +69,7 @@ Video files live in a **public** Vercel Blob store (Storage → Create Database 
 
 ## Checkout
 
-Each call to action is a “Buy now” button linking to `/buy` (the price is shown beside it, not on it), with “We’ll email you the download link for the Mac app. Windows is coming soon.” below it. The closing sections, which show no price above the button, also carry **“Pay $99 once. No monthly storage bill.”** in bold above it; the hero and pricing card don't, since the $99 is right there. The header's button reads “Buy now” and goes to the closing section. The homepage and each acquisition page have the button in the hero, the pricing card and the closing section; `/faq` and `/hardware` have it in their closing sections.
+Each call to action is a “Buy now” button linking to `/buy` (the price is shown beside it, not on it), with “For Mac. Windows is coming soon.” below it. The download link is emailed after payment; the page doesn't say so. The closing sections, which show no price above the button, also carry **“Pay $99 once. No monthly storage bill.”** in bold above it; the hero and pricing card don't, since the $99 is right there. The header's button reads “Buy now” and goes to the closing section. The homepage and each acquisition page have the button in the hero, the pricing card and the closing section; `/faq` and `/hardware` have it in their closing sections.
 
 How a purchase goes:
 
