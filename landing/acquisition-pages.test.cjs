@@ -53,7 +53,7 @@ test('price comparisons add up from the monthly price', async () => {
     if (!p.monthly) continue;
     const year = p.monthly * 12;
     assert.deepEqual(p.cmp.rows.map((r) => r.a), [year, year * 3, year * 5].map(dollars), slug);
-    assert.equal(p.cmp.boxBig, dollars(year * 5 - 7900), slug);
+    assert.equal(p.cmp.boxBig, dollars(year * 5 - 9900), slug);
   }
 });
 
@@ -71,4 +71,15 @@ test('the homepage, FAQ and storage page buy straight from their calls to action
   assert.deepEqual(buyIds(read('faq')), ['buy-close']);
   assert.deepEqual(buyIds(read('hardware')), ['buy-close']);
   for (const name of ['index', 'faq', 'hardware']) assert.ok(!read(name).includes('buymeacoffee.com'), `${name} still links the old reservation`);
+});
+
+test('every page charges the full $99: no $79 offer, and every buy button says $99', async () => {
+  const { SLUGS, render } = await load();
+  const pages = {};
+  for (const name of ['index', 'faq', 'hardware', 'help', 'privacy', 'terms', 'thanks', 'partners']) pages[name] = fs.readFileSync(`${__dirname}/${name}.html`, 'utf8');
+  for (const slug of SLUGS) pages[slug] = render(slug);
+  for (const [name, html] of Object.entries(pages)) {
+    assert.ok(!html.includes('$79'), `${name} still mentions $79`);
+    for (const [label] of html.matchAll(/data-buy>[^<]*</g)) assert.equal(label, 'data-buy>Buy now –&nbsp;$99<', name);
+  }
 });

@@ -4,7 +4,7 @@ Configured September 20, 2026. The public page is https://www.uncloud.life/.
 
 ## Buy clicks
 
-Since November 25, 2026 each call to action is a “Buy now – $79” link to `/buy`, which starts a Stripe Checkout (see [README.md](README.md#checkout)). `main.js` pushes `cta_click` the first time any buy button on the page is clicked, once per page view. `/buy` is on this site, so GA4's enhanced measurement no longer records an outbound `click` for it, and the button's placement (`buy-hero`, `buy-pricing`, `buy-close`) isn't recorded. The payment happens on Stripe and nothing about it comes back to the page, so the site sends no `purchase` event: **Stripe is the authority on sales**. Buyers land on `/thanks` afterwards, so its page views are a rough count of completed checkouts (a reload counts twice). GTM and GA4 needed no change.
+Since November 25, 2026 each call to action is a “Buy now” link to `/buy` (labelled $79 at first, $99 from later that day), which starts a Stripe Checkout (see [README.md](README.md#checkout)). `main.js` pushes `cta_click` the first time any buy button on the page is clicked, once per page view. `/buy` is on this site, so GA4's enhanced measurement no longer records an outbound `click` for it, and the button's placement (`buy-hero`, `buy-pricing`, `buy-close`) isn't recorded. The payment happens on Stripe and nothing about it comes back to the page, so the site sends no `purchase` event: **Stripe is the authority on sales**. Buyers land on `/thanks` afterwards, so its page views are a rough count of completed checkouts (a reload counts twice). GTM and GA4 needed no change.
 
 From October 12 to November 25, 2026 the button was “Reserve your spot – $5”, an outbound link to a $5 reservation on Buy Me a Coffee: `cta_click` was then the first reserve click, and the outbound `click` carried `reserve-hero`, `reserve-pricing` or `reserve-close` as `link_id`. From September 25 to October 12, 2026 the form was a LaunchList widget whose head code posted signup events to the page: `cta_click` was then the first submit attempt and `generate_lead` a sent address. Compare across those dates with care.
 
@@ -28,7 +28,7 @@ The landing HTML loads GTM only on `uncloud.life` and `www.uncloud.life`. There 
 | --- | --- | --- |
 | `page_view` / sessions | Arrival, with Google Ads auto-tagging and campaign attribution | Diagnostic |
 | GA4 engaged sessions / `user_engagement` | Standard GA4 engagement; use engagement rate and average engagement time | Diagnostic |
-| `cta_click` | First click on a “Buy now – $79” button on that page (October 12 – November 25, 2026: a “Reserve your spot – $5” button; until October 12, 2026: first submit attempt in the LaunchList form) | Diagnostic only |
+| `cta_click` | First click on a “Buy now” button on that page (October 12 – November 25, 2026: a “Reserve your spot – $5” button; until October 12, 2026: first submit attempt in the LaunchList form) | Diagnostic only |
 | `generate_lead` | No longer sent (until October 12, 2026: the address passed LaunchList's checks and the widget sent it) | Primary business outcome |
 
 `generate_lead` is a GA4 key event, counted once per session, with no default monetary value. This is a waitlist request, not a paid customer, verified email, or activated user.

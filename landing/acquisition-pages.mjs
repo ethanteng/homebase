@@ -9,7 +9,7 @@ const ORIGIN = "https://www.uncloud.life";
 const SRC = "U.S. prices · USD · monthly billing · checked October 2026";
 
 const A = {
-  cost: { q: "What does Uncloud cost?", a: "Early access is $79 ($99 regular), paid once. Household members, devices, remote access, file migration and updates are included." },
+  cost: { q: "What does Uncloud cost?", a: "$99, paid once. Household members, devices, remote access, file migration and updates are included." },
   storage: { q: "How much storage do I get?", a: "As much as your computer and connected drives can hold. Add a bigger drive when you need more room. No storage tiers or per-person charges." },
   family: { q: "Does everyone get their own space?", a: "Yes. Each person gets their own account and private files. Unlimited household members and devices are included." },
   platform: { q: "Does Uncloud work on Windows?", a: "Not yet. Uncloud runs on a Mac today, and Windows is coming soon. Once your Mac is set up, everyone in your household can reach their files from any web browser, including on a Windows PC or an Android phone." },
@@ -17,16 +17,16 @@ const A = {
 };
 
 const priceRows = (a1, a3, a5) => [
-  { label: "1 year", a: a1, b: "$79" },
-  { label: "3 years", a: a3, b: "$79" },
-  { label: "5 years", a: a5, b: "$79" },
+  { label: "1 year", a: a1, b: "$99" },
+  { label: "3 years", a: a3, b: "$99" },
+  { label: "5 years", a: a5, b: "$99" },
 ];
 
 export const PAGES = {
   "dropbox-alternative": {
     label: "Dropbox alternative",
     title: "Dropbox Alternative With No Monthly Fee | Uncloud",
-    description: "Keep your files. Lose the Dropbox bill. Uncloud uses your own computer, copies your Dropbox files and keeps them within reach. Early access: $79 once.",
+    description: "Keep your files. Lose the Dropbox bill. Uncloud uses your own computer, copies your Dropbox files and keeps them within reach. $99, paid once.",
     eyebrow: "Dropbox alternative",
     h1a: "Keep your files.", h1b: "Lose the Dropbox bill.",
     lede: "Cloud storage on a Mac you already own.",
@@ -37,7 +37,7 @@ export const PAGES = {
       { title: "Keep the access you rely on.", body: "Reach your files anywhere. Give everyone at home their own private space." },
     ],
     monthly: 1999,
-    cmp: { eyebrow: "The cost of staying", heading: "The files stay. The bill doesn’t.", intro: "Dropbox Family renews monthly. Uncloud is a one-time purchase for your household, using your own storage.", caption: "Example: Dropbox Family · 2 TB", captionSub: SRC, colA: "Dropbox Family", colB: "Uncloud", align: "right", rows: priceRows("$239.88", "$719.64", "$1,199.40"), boxBig: "$1,120.40", boxSmall: "less in subscription costs over 5 years with $79 early access", source: "https://www.dropbox.com/buy?_tk=plus_last_button", sourceLabel: "Dropbox pricing" },
+    cmp: { eyebrow: "The cost of staying", heading: "The files stay. The bill doesn’t.", intro: "Dropbox Family renews monthly. Uncloud is a one-time purchase for your household, using your own storage.", caption: "Example: Dropbox Family · 2 TB", captionSub: SRC, colA: "Dropbox Family", colB: "Uncloud", align: "right", rows: priceRows("$239.88", "$719.64", "$1,199.40"), boxBig: "$1,100.40", boxSmall: "less in subscription costs over 5 years, after paying $99 for Uncloud", source: "https://www.dropbox.com/buy?_tk=plus_last_button", sourceLabel: "Dropbox pricing" },
     sw: { eyebrow: "Switch without the project", heading: "Bring your Dropbox files home.", intro: "Set up Uncloud in 5 minutes or less. Then bring your files over.",
       steps: [
         { title: "Install Uncloud", body: "Use a Mac you already own. Windows is coming soon." },
@@ -55,7 +55,7 @@ export const PAGES = {
   "google-drive-alternative": {
     label: "Google Drive alternative",
     title: "Google Drive Alternative With No Monthly Fee | Uncloud",
-    description: "More files shouldn’t mean a bigger Google Drive bill. Use your own computer with Uncloud: no storage tiers, access anywhere. Early access: $79 once.",
+    description: "More files shouldn’t mean a bigger Google Drive bill. Use your own computer with Uncloud: no storage tiers, access anywhere. $99, paid once.",
     eyebrow: "Google Drive alternative",
     h1a: "More room for your files.", h1b: "No bigger storage bill.",
     lede: "Cloud storage on a Mac you already own.",
@@ -66,7 +66,7 @@ export const PAGES = {
       { title: "Keep access from anywhere.", body: "Bring your Drive files home. Open them from your phone or browser." },
     ],
     monthly: 999,
-    cmp: { eyebrow: "The cost of staying", heading: "More storage. Fewer renewals.", intro: "Uncloud replaces file storage. Gmail, Google Photos and Google’s AI features remain separate.", caption: "Example: Google AI Plus · 2 TB", captionSub: SRC, colA: "Google AI Plus", colB: "Uncloud", align: "right", rows: priceRows("$119.88", "$359.64", "$599.40"), boxBig: "$520.40", boxSmall: "less in subscription costs over 5 years with $79 early access", source: "https://one.google.com/about/plans", sourceLabel: "Google One pricing" },
+    cmp: { eyebrow: "The cost of staying", heading: "More storage. Fewer renewals.", intro: "Uncloud replaces file storage. Gmail, Google Photos and Google’s AI features remain separate.", caption: "Example: Google AI Plus · 2 TB", captionSub: SRC, colA: "Google AI Plus", colB: "Uncloud", align: "right", rows: priceRows("$119.88", "$359.64", "$599.40"), boxBig: "$500.40", boxSmall: "less in subscription costs over 5 years, after paying $99 for Uncloud", source: "https://one.google.com/about/plans", sourceLabel: "Google One pricing" },
     sw: { eyebrow: "Switch without the project", heading: "Bring your Google Drive files home.", intro: "Set up Uncloud in 5 minutes or less. Then bring your files over.",
       steps: [
         { title: "Install Uncloud", body: "Use a Mac you already own. Windows is coming soon." },
@@ -84,7 +84,7 @@ export const PAGES = {
   "icloud-alternative": {
     label: "iCloud alternative",
     title: "iCloud Alternative With No Monthly Storage Fee | Uncloud",
-    description: "Skip another iCloud storage upgrade. Bring iCloud Drive files to your own computer with Uncloud and access them anywhere. Early access: $79 once.",
+    description: "Skip another iCloud storage upgrade. Bring iCloud Drive files to your own computer with Uncloud and access them anywhere. $99, paid once.",
     eyebrow: "iCloud Drive alternative",
     h1a: "Your files don’t need", h1b: "another storage upgrade.",
     lede: "Cloud storage on a Mac you already own.",
@@ -95,7 +95,7 @@ export const PAGES = {
       { title: "Reach files beyond your Mac.", body: "Open them from a phone or browser, at home or away." },
     ],
     monthly: 999,
-    cmp: { eyebrow: "The cost of staying", heading: "Keep your files. Skip the upgrade.", intro: "Uncloud replaces iCloud Drive file storage. iPhone backups, iCloud Photos and Mail remain separate.", caption: "Example: iCloud+ · 2 TB", captionSub: SRC, colA: "iCloud+", colB: "Uncloud", align: "right", rows: priceRows("$119.88", "$359.64", "$599.40"), boxBig: "$520.40", boxSmall: "less in subscription costs over 5 years with $79 early access", source: "https://support.apple.com/en-us/108047", sourceLabel: "iCloud+ pricing" },
+    cmp: { eyebrow: "The cost of staying", heading: "Keep your files. Skip the upgrade.", intro: "Uncloud replaces iCloud Drive file storage. iPhone backups, iCloud Photos and Mail remain separate.", caption: "Example: iCloud+ · 2 TB", captionSub: SRC, colA: "iCloud+", colB: "Uncloud", align: "right", rows: priceRows("$119.88", "$359.64", "$599.40"), boxBig: "$500.40", boxSmall: "less in subscription costs over 5 years, after paying $99 for Uncloud", source: "https://support.apple.com/en-us/108047", sourceLabel: "iCloud+ pricing" },
     sw: { eyebrow: "Switch without the project", heading: "Bring your iCloud Drive files home.", intro: "Set up Uncloud in 5 minutes or less. Then bring your files over.",
       steps: [
         { title: "Install Uncloud", body: "Use a Mac you already own. Windows is coming soon." },
@@ -115,7 +115,7 @@ export const PAGES = {
   "onedrive-alternative": {
     label: "OneDrive alternative",
     title: "OneDrive Alternative With No Monthly Fee | Uncloud",
-    description: "Use your own storage instead of renewing OneDrive. Uncloud keeps household files at home and within reach, with no storage tiers. Early access: $79 once.",
+    description: "Use your own storage instead of renewing OneDrive. Uncloud keeps household files at home and within reach, with no storage tiers. $99, paid once.",
     eyebrow: "OneDrive alternative",
     h1a: "Your files at home.", h1b: "One less subscription.",
     lede: "Cloud storage on a Mac you already own.",
@@ -126,7 +126,7 @@ export const PAGES = {
       { title: "Keep files within reach.", body: "Bring your OneDrive files home and access them from anywhere." },
     ],
     monthly: 1299,
-    cmp: { eyebrow: "The cost of staying", heading: "Own the storage. End the renewals.", intro: "Uncloud replaces OneDrive file storage. Word, Excel, Outlook and other Microsoft 365 benefits remain separate.", caption: "Example: Microsoft 365 Family", captionSub: SRC, colA: "Microsoft 365 Family", colB: "Uncloud", align: "right", rows: priceRows("$155.88", "$467.64", "$779.40"), boxBig: "$700.40", boxSmall: "less in subscription costs over 5 years with $79 early access", source: "https://www.microsoft.com/en-us/microsoft-365/buy/compare-all-microsoft-365-products", sourceLabel: "Microsoft 365 pricing" },
+    cmp: { eyebrow: "The cost of staying", heading: "Own the storage. End the renewals.", intro: "Uncloud replaces OneDrive file storage. Word, Excel, Outlook and other Microsoft 365 benefits remain separate.", caption: "Example: Microsoft 365 Family", captionSub: SRC, colA: "Microsoft 365 Family", colB: "Uncloud", align: "right", rows: priceRows("$155.88", "$467.64", "$779.40"), boxBig: "$680.40", boxSmall: "less in subscription costs over 5 years, after paying $99 for Uncloud", source: "https://www.microsoft.com/en-us/microsoft-365/buy/compare-all-microsoft-365-products", sourceLabel: "Microsoft 365 pricing" },
     sw: { eyebrow: "Switch without the project", heading: "Bring your OneDrive files home.", intro: "Set up Uncloud in 5 minutes or less. Then bring your files over.",
       steps: [
         { title: "Install Uncloud", body: "Use a Mac you already own. Windows is coming soon." },
@@ -159,7 +159,7 @@ export const PAGES = {
       { label: "Setup", a: "Set up a server with a guided installer", b: "Install an app; 5 minutes or less" },
       { label: "Away from home", a: "Configure server access or choose a provider", b: "Turn on built-in remote access" },
       { label: "Storage", a: "Your own drives or a hosting plan", b: "Your computer and connected drives" },
-      { label: "Price", a: "Free software; hardware or hosting extra", b: "$79 once with early access ($99 regular)" },
+      { label: "Price", a: "Free software; hardware or hosting extra", b: "$99 once" },
     ], boxBig: "5 minutes or less", boxSmall: "to set up Uncloud on a Mac", source: "https://nextcloud.com/install/", sourceLabel: "Nextcloud setup options" },
     sw: { eyebrow: "Switch without the project", heading: "Bring your household’s files home.", intro: "Uncloud copies your files into each person’s private space.",
       steps: [
@@ -190,10 +190,10 @@ const INSTAGRAM = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="
 const X = '<svg viewBox="-1.5 -1.5 27 27" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></svg>';
 const GITHUB = '<svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>';
 
-// /buy starts a Stripe Checkout (api/checkout.js). Each button's id names its placement.
-const reserve = (where) => `<p class="reserve-offer">Get early access to Uncloud at our introductory $79 price.</p>
-<a class="primary-link" id="buy-${where}" href="/buy" rel="nofollow" data-buy>Buy now –&nbsp;$79</a>
-<p class="access-note">One-time payment. We’ll email you the download link for the Mac app. Windows is coming soon.</p>`;
+// /buy starts a Stripe Checkout (api/checkout.js). Each button's id names its placement. The hero and
+// the pricing card show the price just above, so only the closing section says it again.
+const reserve = (where) => `${where === "close" ? '<p class="reserve-offer">Pay $99 once. No monthly storage bill.</p>\n' : ""}<a class="primary-link" id="buy-${where}" href="/buy" rel="nofollow" data-buy>Buy now –&nbsp;$99</a>
+<p class="access-note">We’ll email you the download link for the Mac app. Windows is coming soon.</p>`;
 
 /** The footer's links to every acquisition page; the homepage uses it too. */
 export function compareNav(current) {
@@ -301,7 +301,7 @@ ${indent(jsonLd(structuredData(slug, p)), 6)}
           <a class="space-link" href="/hardware">Need more space?</a>
           <a class="faq-link" href="/faq">FAQ</a>
           <a class="pricing-link" href="#pricing">Pricing</a>
-          <a class="header-cta" href="#early-access">Get early access</a>
+          <a class="header-cta" href="#early-access">Buy now</a>
         </div>
       </header>
 
@@ -322,7 +322,7 @@ ${indent(jsonLd(structuredData(slug, p)), 6)}
           <!-- Ahead of the aside so a single column reaches the offer first; wider, the aside sits beside both. -->
           <div class="compare-offer">
             <div>
-              <p class="compare-price"><strong>$79</strong><span>one-time<small><s>$99</s> regular</small></span></p>
+              <p class="compare-price"><strong>$99</strong><span>one-time<small>no monthly bill</small></span></p>
             </div>
             <div class="compare-signup">
 ${indent(reserve("hero"), 14)}
@@ -401,7 +401,7 @@ ${indent(steps, 12)}
           <div class="pricing-card">
             <div class="pricing-offer">
               <h3>Uncloud Home</h3>
-              <p class="price"><s class="standard-price"><span class="sr-only">Standard price </span>$99</s> <strong><span class="sr-only">Early-access price </span>$79</strong> <span>one-time</span></p>
+              <p class="price"><strong>$99</strong> <span>one-time</span></p>
               <p class="price-promise">No monthly storage fees.</p>
 ${indent(reserve("pricing"), 14)}
             </div>
@@ -431,7 +431,7 @@ ${indent(faq, 12)}
         </section>
 
         <section class="join" id="join" aria-labelledby="join-heading">
-          <p class="eyebrow">Get early access</p>
+          <p class="eyebrow">Get Uncloud</p>
           <h2 id="join-heading">${esc(p.close)}</h2>
           <div class="join-action" id="early-access">
 ${indent(reserve("close"), 12)}
