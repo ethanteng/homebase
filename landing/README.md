@@ -1,10 +1,10 @@
 # Uncloud landing page
 
-A landing page for **Uncloud Home**, at **https://www.uncloud.life/**. The homepage follows the [October 2026 messaging source of truth](https://app.notion.com/p/3edbb8ed8da28156991af46426c65cca): recurring storage bills persist because moving years of files feels like a project. Uncloud makes switching easy on a computer the household already owns, without a home-server project. The hero leads with **“Cloud storage without the monthly bill.”** alongside the video on desktop and above it on mobile. The hero lists three equal points on one line (5-minute setup, access anywhere, no new hardware), then a large $79 one-time early-access price with the “Buy now – $79” button beneath it, and up to $500 in yearly subscription savings. On phones the hero drops the benefit list and the header's “Get early access” button and sets the price and button in a card, so the offer comes straight after the headline and one line of support; setup time and access anywhere are covered further down the page. The lines around the button say early access is the introductory $79 price, paid once, and that the download link for the Mac app comes by email; $99 is the regular price. The search title describes private cloud storage without monthly fees, while the social-sharing titles echo the headline.
+A landing page for **Uncloud Home**, at **https://www.uncloud.life/**. The homepage follows the [October 2026 messaging source of truth](https://app.notion.com/p/3edbb8ed8da28156991af46426c65cca): recurring storage bills persist because moving years of files feels like a project. Uncloud makes switching easy on a computer the household already owns, without a home-server project. The hero leads with **“Cloud storage without the monthly bill.”** alongside the video on desktop and above it on mobile. The hero lists three equal points on one line (5-minute setup, access anywhere, no new hardware), then a large $99 one-time price with the “Buy now” button beneath it, and up to $500 in yearly subscription savings. On phones the hero drops the benefit list and the header's “Get early access” button and sets the price and button in a card, so the offer comes straight after the headline and one line of support; setup time and access anywhere are covered further down the page. The lines around the button say Uncloud is $99 once with no monthly storage bill, and that the download link for the Mac app comes by email. The search title describes private cloud storage without monthly fees, while the social-sharing titles echo the headline.
 
 The page then shows a highlighted subscription statement, easy migration and separate household accounts, three setup steps with the Mac icon and Windows marked “coming soon”, the household savings example, the pricing card, and the buy button again. Copy is kept brief: one point per section, short setup instructions, and the full offer details in the pricing and signup sections. The savings example focuses on subscription bills; purchase pricing stays in the separate offer sections. The statement is illustrative, not a representation of a visitor’s actual bills. The existing blue accents, pale background, navy type, and simple computer illustration continue the film’s visual direction. Homepage-only styles live in `homepage.css`; shared acquisition, hardware, and partner page styles remain unchanged.
 
-Uncloud Home is $99 one-time. Early access locks in $79 at launch. Unlimited household members, unlimited devices, remote access, migrations, software updates, and 1 primary host computer are included. Capacity comes from the computer and connected drives; there are no storage tiers. See [pricing.md](pricing.md) for the offer and source record.
+Uncloud Home is $99 one-time. Unlimited household members, unlimited devices, remote access, migrations, software updates, and 1 primary host computer are included. Capacity comes from the computer and connected drives; there are no storage tiers. See [pricing.md](pricing.md) for the offer and source record.
 
 The savings example retains the five existing plans and $503.40 annual subscription total, with links to official pricing. `savings-animation.js` highlights each subscription as the totals count up once the example enters view. Reduced-motion preferences and missing JavaScript preserve the static totals; screen readers receive the final values throughout. The app and source folders still use the internal name Homebase.
 
@@ -69,7 +69,7 @@ Video files live in a **public** Vercel Blob store (Storage → Create Database 
 
 ## Checkout
 
-Each call to action is a “Buy now – $79” button linking to `/buy`, with **“Get early access to Uncloud at our introductory $79 price.”** in bold above it and “One-time payment. We’ll email you the download link for the Mac app.” below it. The homepage and each acquisition page have the button in the hero, the pricing card and the closing section; `/faq` and `/hardware` have it in their closing sections.
+Each call to action is a “Buy now” button linking to `/buy` (the price is shown beside it, not on it), with nothing below it. The download link is emailed after payment; the page doesn't say so. The closing sections, which show no price above the button, also carry **“Pay $99 once. No monthly storage bill.”** in bold above it; the hero and pricing card don't, since the $99 is right there. The header's button reads “Buy now” and goes to the closing section. The homepage and each acquisition page have the button in the hero, the pricing card and the closing section; `/faq` and `/hardware` have it in their closing sections.
 
 How a purchase goes:
 
@@ -84,7 +84,7 @@ The download links in the email are the same `mac-latest` release files the help
 | Variable | Used by | Value |
 | --- | --- | --- |
 | `STRIPE_SECRET_KEY` | checkout | A secret key (`sk_live_…`), or a restricted key with **Checkout Sessions: Write**. Use `sk_test_…` on Preview. |
-| `STRIPE_PRICE_ID` | checkout | The `price_…` of a one-time Price for Uncloud Home. Keep its amount the same as the price on the pages ($79). |
+| `STRIPE_PRICE_ID` | checkout | The `price_…` of a one-time Price for Uncloud Home. Keep its amount the same as the price on the pages ($99). |
 | `STRIPE_WEBHOOK_SECRET` | webhook | The endpoint's signing secret (`whsec_…`), from step 2 below. |
 | `MAILTRAP_TOKEN` | webhook | Already set for the partner form. `uncloud.life` must be a verified sending domain. |
 | `ORDER_EMAIL_FROM` | webhook | Optional. The sender, default `hello@uncloud.life`. Replies go to hello@uncloud.life. |
@@ -93,14 +93,16 @@ The download links in the email are the same `mac-latest` release files the help
 
 ### One-time Stripe setup
 
-1. **Product and price.** In Stripe, create a product **Uncloud Home** with a one-time price of $79, and copy the price's id into `STRIPE_PRICE_ID`.
+1. **Product and price.** In Stripe, create a product **Uncloud Home** with a one-time price of $99, and copy the price's id into `STRIPE_PRICE_ID`.
 2. **Webhook.** Under Developers → Webhooks, add an endpoint at `https://www.uncloud.life/api/stripe-webhook` listening to `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Copy its signing secret into `STRIPE_WEBHOOK_SECRET`. Test mode has its own endpoint and secret.
-3. **Promotion codes.** People who paid the $5 reservation on Buy Me a Coffee were promised it would go toward their purchase. Make a $5-off coupon, then give each reserver their own promotion code limited to one redemption, and email it to them; Checkout shows a field to enter it. Don't rely on Stripe's “first-time order only” restriction: Checkout here doesn't create Customer records (`customer_creation` is left at `if_required`), and Stripe treats such codes as invalid on those sessions.
+3. **Promotion codes.** People who paid the $5 reservation on Buy Me a Coffee were promised early access at $79 with the $5 going toward it, so they pay $74: make a $25-off coupon, then give each reserver their own promotion code limited to one redemption, and email it to them; Checkout shows a field to enter it. Don't rely on Stripe's “first-time order only” restriction: Checkout here doesn't create Customer records (`customer_creation` is left at `if_required`), and Stripe treats such codes as invalid on those sessions.
 4. **Redeploy** so the functions see the new variables, then buy once in test mode on a Preview (card `4242 4242 4242 4242`) with `MAILTRAP_INBOX_ID` set, and check the email in the Mailtrap sandbox. If Preview deployments are behind Vercel Authentication, Stripe can't reach them: add the project's Protection Bypass for Automation secret to the test-mode endpoint's URL as `?x-vercel-protection-bypass=…`. `stripe trigger checkout.session.completed` doesn't carry the `uncloud-home` mark, so the webhook acknowledges it without emailing anyone.
 
 Until `STRIPE_SECRET_KEY` and `STRIPE_PRICE_ID` are set, `/buy` shows the “Checkout isn’t available” page, so set them before this reaches production. `dev:landing` and `preview:landing` don't run these functions, so `/buy` is a 404 there; try checkout on a Vercel Preview. `api/checkout.test.js` and `api/stripe-webhook.test.js` cover both functions, including Stripe's signature scheme.
 
 ### Before checkout
+
+Until November 25, 2026 the price shown was $79 for early access, $99 regular; it is now $99 for everyone.
 
 From October 12 to November 25, 2026, the button was “Reserve your spot – $5”, linking to a reservation on Buy Me a Coffee (`https://buymeacoffee.com/ethanteng/e/586408`); those reservations are still recorded there. Before October 12 it was an email form, a [LaunchList](https://getlaunchlist.com/) widget (waitlist key `IH5CSi`) that promised $79 with no credit card. Those signups are still in LaunchList; the site no longer loads the widget.
 
@@ -110,7 +112,7 @@ Visitor-facing homepage copy and metadata are in `index.html`; its layout and st
 
 Canonical, Open Graph, structured-data, and sitemap URLs use `https://www.uncloud.life/`, matching the production host that the bare domain redirects to. Keep these URLs and the robots.txt sitemap reference aligned. These metadata tags do not configure DNS, hosting, or deployment.
 
-The button goes to Stripe Checkout in the same tab. Keep the hero's button under the $79 offer and the same two lines around every button, and keep the Stripe price, the thanks page and the purchase email consistent with them. The header's “Get early access” reaches the closing section at `#early-access`. On phones the homepage and acquisition pages hide the header's button, which would only repeat the hero's button a few lines below it. Pricing links jump to the single offer.
+The button goes to Stripe Checkout in the same tab. Keep the hero's button under the $99 price and the lines around each button as described above, and keep the Stripe price, the thanks page and the purchase email consistent with them. The header's “Get early access” reaches the closing section at `#early-access`. On phones the homepage and acquisition pages hide the header's button, which would only repeat the hero's button a few lines below it. Pricing links jump to the single offer.
 
 For the first few conversations, share the page and ask:
 
@@ -148,7 +150,7 @@ Five evergreen search landing pages share one template and end on the same buy b
 | `/onedrive-alternative` | OneDrive alternative |
 | `/uncloud-vs-nextcloud` | Uncloud vs. Nextcloud |
 
-Each has the homepage header, a hero comparing Uncloud Home with that service with the early-access signup under its $79 offer (in one column the offer comes before the “Why choose Uncloud?” card, and on phones it sits in a card as on the homepage, without the setup-time line), three switching steps, the homepage's setup steps, the teaser video, a price (or side-by-side) comparison, the pricing card, an FAQ, and a closing signup. The footer on every page, including the homepage, links all five.
+Each has the homepage header, a hero comparing Uncloud Home with that service with the buy button under its $99 price (in one column the offer comes before the “Why choose Uncloud?” card, and on phones it sits in a card as on the homepage, without the setup-time line), three switching steps, the homepage's setup steps, the teaser video, a price (or side-by-side) comparison, the pricing card, an FAQ, and a closing signup. The footer on every page, including the homepage, links all five.
 
 The copy and per-page SEO (title of 60 characters or fewer, description of 155 or fewer, canonical URL, Open Graph, and WebPage, BreadcrumbList, FAQPage and SoftwareApplication JSON-LD) live in [`acquisition-pages.mjs`](acquisition-pages.mjs). The `<slug>.html` files are generated from it and committed so they build and preview like `index.html`; edit the copy there, then regenerate:
 

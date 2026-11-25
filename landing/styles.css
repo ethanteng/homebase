@@ -437,11 +437,9 @@ h1 span {
   margin-top: 24px;
 }
 
-/* Around each reserve button: the offer above it, bold and a step larger, and what the $5 does
-   below it, smaller and in italics. Each is one line wherever it fits, so neither is held to a narrow measure. */
+/* Above a buy button that has no price beside it: the offer, bold and a step larger, on one line wherever it fits. */
 .reserve-offer { color: var(--ink); font-size: 1.05rem; font-weight: 700; line-height: 1.5; text-wrap: pretty; }
 .reserve-offer + .primary-link { margin-top: 40px; }
-.access-note { margin-top: 12px; color: var(--ink); font-size: .9rem; font-style: italic; line-height: 1.5; text-wrap: pretty; }
 .pricing-offer .reserve-offer { margin-top: 20px; }
 .pricing-includes { padding-left: clamp(24px, 4vw, 48px); border-left: 1px solid #d1e1f3; }
 
