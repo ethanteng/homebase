@@ -27,16 +27,15 @@ if (names.length > 1) {
   update();
 }
 
-// "Reserve your spot" leaves for Buy Me a Coffee, which takes the $5 reservation; whether it was
-// paid never comes back to this page. A click on any of the page's reserve buttons is the cta_click,
-// once per page view. GA4's enhanced measurement records the outbound click itself as well.
-const reserveLinks = [...document.querySelectorAll("[data-reserve]")];
-let reserveClicked = false;
+// "Buy now" goes to /buy, which hands the visitor to Stripe Checkout; whether they paid never comes
+// back to this page. A click on any of the page's buy buttons is the cta_click, once per page view.
+const buyLinks = [...document.querySelectorAll("[data-buy]")];
+let buyClicked = false;
 
-for (const link of reserveLinks) {
+for (const link of buyLinks) {
   link.addEventListener("click", () => {
-    if (reserveClicked) return;
-    reserveClicked = true;
+    if (buyClicked) return;
+    buyClicked = true;
     window.dataLayer = window.dataLayer || [];
     window.dataLayer.push({ event: "cta_click" });
   });

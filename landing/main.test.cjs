@@ -3,10 +3,10 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 
-// The landing page's main.js, with `reserves` reserve buttons on the page, and the teaser's player
+// The landing page's main.js, with `buttons` buy buttons on the page, and the teaser's player
 // when `teaser` is given. `observers` collects each IntersectionObserver main.js makes.
-function page({ reserves = 1, teaser = null, reducedMotion = false, saveData = false, observing = true } = {}) {
-  const links = Array.from({ length: reserves }, () => {
+function page({ buttons = 1, teaser = null, reducedMotion = false, saveData = false, observing = true } = {}) {
+  const links = Array.from({ length: buttons }, () => {
     const link = { listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; } };
     link.click = () => link.listeners.click();
     return link;
@@ -28,7 +28,7 @@ function page({ reserves = 1, teaser = null, reducedMotion = false, saveData = f
   };
   vm.runInNewContext(fs.readFileSync(__dirname + '/main.js', 'utf8'), {
     document: {
-      querySelectorAll: (selector) => selector === '[data-reserve]' ? links : [],
+      querySelectorAll: (selector) => selector === '[data-buy]' ? links : [],
       querySelector: (selector) => selector === '.video-card__player iframe' ? teaser : null,
       addEventListener: on,
     },
@@ -43,15 +43,15 @@ function page({ reserves = 1, teaser = null, reducedMotion = false, saveData = f
   };
 }
 
-test('a click on a reserve button records cta_click', () => {
+test('a click on a buy button records cta_click', () => {
   const p = page();
   assert.deepEqual(p.events(), []);
   p.links[0].click();
   assert.deepEqual(p.events(), ['cta_click']);
 });
 
-test('with three reserve buttons on the page, any one counts, once per page view', () => {
-  const p = page({ reserves: 3 });
+test('with three buy buttons on the page, any one counts, once per page view', () => {
+  const p = page({ buttons: 3 });
   p.links[2].click();
   p.links[2].click();
   p.links[0].click();

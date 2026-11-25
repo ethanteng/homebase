@@ -9,7 +9,7 @@ const ORIGIN = "https://www.uncloud.life";
 const SRC = "U.S. prices · USD · monthly billing · checked October 2026";
 
 const A = {
-  cost: { q: "What does Uncloud cost?", a: "Join early access to lock in $79 at launch ($99 regular), paid once. Household members, devices, remote access, file migration and updates are included." },
+  cost: { q: "What does Uncloud cost?", a: "Early access is $79 ($99 regular), paid once. Household members, devices, remote access, file migration and updates are included." },
   storage: { q: "How much storage do I get?", a: "As much as your computer and connected drives can hold. Add a bigger drive when you need more room. No storage tiers or per-person charges." },
   family: { q: "Does everyone get their own space?", a: "Yes. Each person gets their own account and private files. Unlimited household members and devices are included." },
   privacy: { q: "Where do my files live?", a: "On your own computer and drives. Each person has a private space, and files travel encrypted between your devices." },
@@ -189,10 +189,10 @@ const INSTAGRAM = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="
 const X = '<svg viewBox="-1.5 -1.5 27 27" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></svg>';
 const GITHUB = '<svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>';
 
-// The $5 reservation is taken on Buy Me a Coffee. Each button's id gives its placement in GA4's link_id.
+// /buy starts a Stripe Checkout (api/checkout.js). Each button's id names its placement.
 const reserve = (where) => `<p class="reserve-offer">Get early access to Uncloud at our introductory $79 price.</p>
-<a class="primary-link" id="reserve-${where}" href="https://buymeacoffee.com/ethanteng/e/586408" data-reserve>Reserve your spot –&nbsp;$5</a>
-<p class="access-note">Your $5 reservation goes toward your purchase when we launch.</p>`;
+<a class="primary-link" id="buy-${where}" href="/buy" rel="nofollow" data-buy>Buy now –&nbsp;$79</a>
+<p class="access-note">One-time payment. We’ll email you the download link for the Mac app.</p>`;
 
 /** The footer's links to every acquisition page; the homepage uses it too. */
 export function compareNav(current) {
@@ -297,10 +297,6 @@ ${indent(jsonLd(structuredData(slug, p)), 6)}
           Uncloud
         </a>
         <div class="header-actions">
-          <!-- GA4 enhanced measurement records click + link_url; this ID supplies placement via link_id. -->
-          <a id="github-header" class="github-link" href="https://github.com/ethanteng/homebase" aria-label="Uncloud on GitHub">
-            ${GITHUB}
-          </a>
           <a class="space-link" href="/hardware">Need more space?</a>
           <a class="faq-link" href="/faq">FAQ</a>
           <a class="pricing-link" href="#pricing">Pricing</a>

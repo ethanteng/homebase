@@ -149,7 +149,6 @@
   .acquisition .hero-copy { max-width: 640px; }
   .acquisition h1 { font-size: clamp(2.6rem, 7vw, 3.6rem); }
   .why-uncloud { grid-column: auto; grid-row: auto; }
-  .acquisition .header-actions .github-link { display: none; }
 }
 
 @media (max-width: 620px) {

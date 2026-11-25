@@ -1,8 +1,8 @@
 # Uncloud landing page
 
-A landing page for **Uncloud Home**, at **https://www.uncloud.life/**. The homepage follows the [October 2026 messaging source of truth](https://app.notion.com/p/3edbb8ed8da28156991af46426c65cca): recurring storage bills persist because moving years of files feels like a project. Uncloud makes switching easy on a computer the household already owns, without a home-server project. The hero leads with **“Cloud storage without the monthly bill.”** alongside the video on desktop and above it on mobile. The hero lists three equal points on one line (5-minute setup, access anywhere, no new hardware), then a large $79 one-time early-access price with the “Reserve your spot – $5” button beneath it, and up to $500 in yearly subscription savings. On phones the hero drops the benefit list and the header's “Get early access” button and sets the price and button in a card, so the offer comes straight after the headline and one line of support; setup time and access anywhere are covered further down the page. The lines around the button say the $5 reservation gets early access at the introductory $79 price and goes toward the purchase at launch; $99 is the regular price. The search title describes private cloud storage without monthly fees, while the social-sharing titles echo the headline.
+A landing page for **Uncloud Home**, at **https://www.uncloud.life/**. The homepage follows the [October 2026 messaging source of truth](https://app.notion.com/p/3edbb8ed8da28156991af46426c65cca): recurring storage bills persist because moving years of files feels like a project. Uncloud makes switching easy on a computer the household already owns, without a home-server project. The hero leads with **“Cloud storage without the monthly bill.”** alongside the video on desktop and above it on mobile. The hero lists three equal points on one line (5-minute setup, access anywhere, no new hardware), then a large $79 one-time early-access price with the “Buy now – $79” button beneath it, and up to $500 in yearly subscription savings. On phones the hero drops the benefit list and the header's “Get early access” button and sets the price and button in a card, so the offer comes straight after the headline and one line of support; setup time and access anywhere are covered further down the page. The lines around the button say early access is the introductory $79 price, paid once, and that the download link for the Mac app comes by email; $99 is the regular price. The search title describes private cloud storage without monthly fees, while the social-sharing titles echo the headline.
 
-The page then shows a highlighted subscription statement, easy migration and separate household accounts, three setup steps with Mac/PC/Linux icons, the household savings example, the pricing card, and the reserve button again. Copy is kept brief: one point per section, short setup instructions, and the full offer details in the pricing and signup sections. The savings example focuses on subscription bills; purchase pricing stays in the separate offer sections. The statement is illustrative, not a representation of a visitor’s actual bills. The existing blue accents, pale background, navy type, and simple computer illustration continue the film’s visual direction. Homepage-only styles live in `homepage.css`; shared acquisition, hardware, and partner page styles remain unchanged.
+The page then shows a highlighted subscription statement, easy migration and separate household accounts, three setup steps with Mac/PC/Linux icons, the household savings example, the pricing card, and the buy button again. Copy is kept brief: one point per section, short setup instructions, and the full offer details in the pricing and signup sections. The savings example focuses on subscription bills; purchase pricing stays in the separate offer sections. The statement is illustrative, not a representation of a visitor’s actual bills. The existing blue accents, pale background, navy type, and simple computer illustration continue the film’s visual direction. Homepage-only styles live in `homepage.css`; shared acquisition, hardware, and partner page styles remain unchanged.
 
 Uncloud Home is $99 one-time. Early access locks in $79 at launch. Unlimited household members, unlimited devices, remote access, migrations, software updates, and 1 primary host computer are included. Capacity comes from the computer and connected drives; there are no storage tiers. See [pricing.md](pricing.md) for the offer and source record.
 
@@ -67,21 +67,50 @@ Video files live in a **public** Vercel Blob store (Storage → Create Database 
 - **Captions are relayed** through `/video/captions`, so the player loads them from this site and they never depend on the file host's CORS headers. A file that doesn't start with `WEBVTT` isn't served.
 - The player page has no script and a Content Security Policy that lets it load only https media and images and be framed only by this site.
 
-## Early-access reservations
+## Checkout
 
-There is no signup form. Each call to action is a “Reserve your spot – $5” button that links to the reservation on Buy Me a Coffee, `https://buymeacoffee.com/ethanteng/e/586408`, with **“Get early access to Uncloud at our introductory $79 price.”** in bold above it and “Your $5 reservation goes toward your purchase when we launch.” below it. The homepage and each acquisition page have the button in the hero, the pricing card and the closing section; `/faq` and `/hardware` have it in their closing sections. **Buy Me a Coffee is the list.** It takes the $5 and records who reserved, and the confirmation a visitor sees after paying, and any email that follows, are set up there, not in this repository. The link doesn't carry the page's `utm_*` parameters or ad click IDs.
+Each call to action is a “Buy now – $79” button linking to `/buy`, with **“Get early access to Uncloud at our introductory $79 price.”** in bold above it and “One-time payment. We’ll email you the download link for the Mac app.” below it. The homepage and each acquisition page have the button in the hero, the pricing card and the closing section; `/faq` and `/hardware` have it in their closing sections.
 
-Each button carries `data-reserve` and an id naming its placement (`reserve-hero`, `reserve-pricing`, `reserve-close`), which GA4 records as `link_id` on the outbound click. `main.js` pushes `cta_click` on the first one clicked; see [measurement.md](measurement.md). The two lines are `.reserve-offer` and `.access-note` in `styles.css`. Neither has a narrow maximum width, so each stays on one line wherever the column fits it and wraps only on narrower screens.
+How a purchase goes:
 
-Until October 12, 2026 the button was an email form, a [LaunchList](https://getlaunchlist.com/) widget (waitlist key `IH5CSi`) that promised $79 with no credit card. Those signups are still in LaunchList; the site no longer loads the widget.
+1. **`/buy`** is rewritten by `vercel.json` to [`api/checkout.js`](../api/checkout.js), which creates a Stripe Checkout Session for `STRIPE_PRICE_ID` and redirects (303) to Stripe's hosted page. Stripe collects the email address and payment. Promotion codes are allowed. The session is marked `metadata.product = uncloud-home`. If checkout can't start (settings missing, Stripe down), the buyer gets a short page saying nothing was charged and to email hello@uncloud.life. `/buy` is a plain link, so it can be pasted into an email or a post; `robots.txt` keeps crawlers off it.
+2. **After paying**, Stripe returns the buyer to **`/thanks`** (`thanks.html`, noindex, not in the sitemap), which tells them to check their email. Cancelling returns them to `/#pricing`.
+3. **Stripe calls [`api/stripe-webhook.js`](../api/stripe-webhook.js)** with `checkout.session.completed` (or `checkout.session.async_payment_succeeded` for a payment method that settles later). It checks Stripe's signature, ignores anything not marked `uncloud-home` or not paid yet, and emails the buyer the two Mac downloads (Apple silicon and Intel), the way to tell which Mac they have, and a link to `/help#set-up`, through Mailtrap. If the email can't be sent it answers 500, and Stripe retries for up to three days. Each send is logged with the Checkout Session id, which finds the buyer in the Stripe dashboard.
+
+The download links in the email are the same `mac-latest` release files the help page links to; `help.test.cjs` fails if the two disagree.
+
+### Settings (Vercel → homebase → Settings → Environment Variables)
+
+| Variable | Used by | Value |
+| --- | --- | --- |
+| `STRIPE_SECRET_KEY` | checkout | A secret key (`sk_live_…`), or a restricted key with **Checkout Sessions: Write**. Use `sk_test_…` on Preview. |
+| `STRIPE_PRICE_ID` | checkout | The `price_…` of a one-time Price for Uncloud Home. Keep its amount the same as the price on the pages ($79). |
+| `STRIPE_WEBHOOK_SECRET` | webhook | The endpoint's signing secret (`whsec_…`), from step 2 below. |
+| `MAILTRAP_TOKEN` | webhook | Already set for the partner form. `uncloud.life` must be a verified sending domain. |
+| `ORDER_EMAIL_FROM` | webhook | Optional. The sender, default `hello@uncloud.life`. Replies go to hello@uncloud.life. |
+| `MAILTRAP_INBOX_ID` | webhook | Optional. Captures the email in Mailtrap's sandbox instead of sending it, for trying a Preview with test keys. |
+| `MAC_DOWNLOAD_ARM64_URL`, `MAC_DOWNLOAD_X64_URL` | webhook | Optional. Where the email's download links go, if the DMGs move off GitHub. Anything but an https address is ignored. |
+
+### One-time Stripe setup
+
+1. **Product and price.** In Stripe, create a product **Uncloud Home** with a one-time price of $79, and copy the price's id into `STRIPE_PRICE_ID`.
+2. **Webhook.** Under Developers → Webhooks, add an endpoint at `https://www.uncloud.life/api/stripe-webhook` listening to `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Copy its signing secret into `STRIPE_WEBHOOK_SECRET`. Test mode has its own endpoint and secret.
+3. **Promotion codes.** People who paid the $5 reservation on Buy Me a Coffee were promised it would go toward their purchase. Make a $5-off coupon with a promotion code (limit one use per customer) and email it to them; Checkout shows a field to enter it.
+4. **Redeploy** so the functions see the new variables, then buy once in test mode on a Preview (card `4242 4242 4242 4242`) with `MAILTRAP_INBOX_ID` set, and check the email in the Mailtrap sandbox. If Preview deployments are behind Vercel Authentication, Stripe can't reach them: add the project's Protection Bypass for Automation secret to the test-mode endpoint's URL as `?x-vercel-protection-bypass=…`. `stripe trigger checkout.session.completed` doesn't carry the `uncloud-home` mark, so the webhook acknowledges it without emailing anyone.
+
+Until `STRIPE_SECRET_KEY` and `STRIPE_PRICE_ID` are set, `/buy` shows the “Checkout isn’t available” page, so set them before this reaches production. `dev:landing` and `preview:landing` don't run these functions, so `/buy` is a 404 there; try checkout on a Vercel Preview. `api/checkout.test.js` and `api/stripe-webhook.test.js` cover both functions, including Stripe's signature scheme.
+
+### Before checkout
+
+From October 12 to November 25, 2026, the button was “Reserve your spot – $5”, linking to a reservation on Buy Me a Coffee (`https://buymeacoffee.com/ethanteng/e/586408`); those reservations are still recorded there. Before October 12 it was an email form, a [LaunchList](https://getlaunchlist.com/) widget (waitlist key `IH5CSi`) that promised $79 with no credit card. Those signups are still in LaunchList; the site no longer loads the widget.
 
 ## Refine the message
 
-Visitor-facing homepage copy and metadata are in `index.html`; its layout and story illustrations are styled in `homepage.css`. `styles.css` and `hero-visual.css` remain shared with other landing pages. The statement and migration graphic use HTML and CSS with the existing brand icons and logo. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). Reservations go to Buy Me a Coffee; see above.
+Visitor-facing homepage copy and metadata are in `index.html`; its layout and story illustrations are styled in `homepage.css`. `styles.css` and `hero-visual.css` remain shared with other landing pages. The statement and migration graphic use HTML and CSS with the existing brand icons and logo. GA4 measurement is delivered through GTM; see [measurement.md](measurement.md). Purchases go through Stripe Checkout; see above.
 
 Canonical, Open Graph, structured-data, and sitemap URLs use `https://www.uncloud.life/`, matching the production host that the bare domain redirects to. Keep these URLs and the robots.txt sitemap reference aligned. These metadata tags do not configure DNS, hosting, or deployment.
 
-The button leaves for Buy Me a Coffee in the same tab. The $5 is a reservation that goes toward the purchase, not the purchase itself. Keep the hero's button under the $79 offer and the same two lines around every button, and keep the reservation's page and confirmation on Buy Me a Coffee consistent with it. The header's “Get early access” reaches the closing section at `#early-access`. On phones the homepage and acquisition pages hide the header's button, which would only repeat the hero's button a few lines below it. Pricing links jump to the single offer.
+The button goes to Stripe Checkout in the same tab. Keep the hero's button under the $79 offer and the same two lines around every button, and keep the Stripe price, the thanks page and the purchase email consistent with them. The header's “Get early access” reaches the closing section at `#early-access`. On phones the homepage and acquisition pages hide the header's button, which would only repeat the hero's button a few lines below it. Pricing links jump to the single offer.
 
 For the first few conversations, share the page and ask:
 
@@ -93,7 +122,7 @@ Keep the story succinct: the bill, the friction of moving files, and a practical
 
 ## Search and sharing assets
 
-The title, description, Open Graph/Twitter metadata, and JSON-LD live directly in `index.html`, alongside the crawlable copy. JSON-LD connects the organization, website, homepage, and software application, and describes the early-access positioning. It includes the announced one-time prices in the application description. It omits a purchasable Offer, ratings, and download links while the site is an early-access waitlist.
+The title, description, Open Graph/Twitter metadata, and JSON-LD live directly in `index.html`, alongside the crawlable copy. JSON-LD connects the organization, website, homepage, and software application, and describes the early-access positioning. It includes the announced one-time prices in the application description. It omits a structured Offer, ratings, and download links.
 
 The landing Vite config explicitly uses `landing/public/` as its public directory. Vite copies these files unchanged into the root of `artifacts/landing/`, which is the output directory published by `vercel.json`:
 
@@ -109,7 +138,7 @@ After `build:landing`, check that `index.html` and all three public files exist 
 
 ## Acquisition pages
 
-Five evergreen search landing pages share one template and end on the same early-access form as the homepage:
+Five evergreen search landing pages share one template and end on the same buy button as the homepage:
 
 | URL | Page |
 | --- | --- |
@@ -127,7 +156,7 @@ The copy and per-page SEO (title of 60 characters or fewer, description of 155 o
 node landing/acquisition-pages.mjs
 ```
 
-`acquisition-pages.test.cjs` fails if a generated page is stale, a title or description is too long, a price row doesn't add up from the monthly price, or a page is missing from the sitemap or the footer links, or a reserve button is missing or goes anywhere but the reservation. Page-only styles are in `acquisition.css`. The landing Vite config builds the homepage plus every slug listed in `acquisition-pages.mjs`, and `vercel.json` sets `cleanUrls` so `/dropbox-alternative.html` is served at `/dropbox-alternative`. Price sources are recorded in [pricing.md](pricing.md#acquisition-page-comparisons). Every page carries the reserve button three times; `main.js` counts a click on any of them as one `cta_click` per page view.
+`acquisition-pages.test.cjs` fails if a generated page is stale, a title or description is too long, a price row doesn't add up from the monthly price, or a page is missing from the sitemap or the footer links, or a buy button is missing or goes anywhere but `/buy`. Page-only styles are in `acquisition.css`. The landing Vite config builds the homepage plus every slug listed in `acquisition-pages.mjs`, and `vercel.json` sets `cleanUrls` so `/dropbox-alternative.html` is served at `/dropbox-alternative`. Price sources are recorded in [pricing.md](pricing.md#acquisition-page-comparisons). Every page carries the buy button three times; `main.js` counts a click on any of them as one `cta_click` per page view.
 
 ## Partner pitch page
 

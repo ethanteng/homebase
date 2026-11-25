@@ -34,3 +34,21 @@ test('every screenshot the help page shows exists, and every section in its cont
   for (const [, id] of html.matchAll(/<a href="#([^"]+)">/g))
     assert.ok(html.includes(`id="${id}"`), `#${id} is linked but nothing has that id`);
 });
+
+test('no page header links to GitHub, and the help page keeps its Mac downloads', async () => {
+  const { SLUGS, render } = await import('./acquisition-pages.mjs');
+  const header = (html) => html.slice(html.indexOf('<header class="site-header">'), html.indexOf('</header>'));
+  const pages = {};
+  for (const name of ['index', 'faq', 'help', 'hardware', 'privacy', 'terms', 'thanks']) pages[name] = read(`${name}.html`);
+  for (const slug of SLUGS) pages[slug] = render(slug);
+  for (const [name, html] of Object.entries(pages)) {
+    assert.ok(html.includes('<header class="site-header">'), `${name} has no site header`);
+    assert.ok(!header(html).includes('github.com'), `${name} header links to GitHub`);
+  }
+  const help = read('help.html');
+  for (const dmg of ['Uncloud-osx-arm64.dmg', 'Uncloud-osx-x64.dmg'])
+    assert.ok(help.includes(`https://github.com/ethanteng/homebase/releases/download/mac-latest/${dmg}`), `help page lacks ${dmg}`);
+  // The purchase email (api/stripe-webhook.js) sends the same files.
+  const { DOWNLOADS } = require('../api/stripe-webhook.js');
+  for (const link of Object.values(DOWNLOADS)) assert.ok(help.includes(`href="${link}"`), `help page and purchase email disagree on ${link}`);
+});

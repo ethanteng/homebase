@@ -605,7 +605,6 @@ h1 span {
 @media (max-width: 380px) {
   .site-header { gap: 8px; }
   .header-actions { gap: 2px; }
-  .header-actions .github-link { padding: 6px; }
   .header-cta { padding: 9px 10px; }
 }
 
