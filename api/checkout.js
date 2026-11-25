@@ -36,11 +36,18 @@ function readConfig(env) {
 /**
  * Where Stripe sends the buyer back to: this deployment, so a preview with test keys comes back
  * to the preview. Only the origin is taken from the request.
+ *
+ * Vercel's Web adapter builds `request.url` as `http://` unless the Host header names port 443,
+ * and a public host doesn't. Stripe refuses an http success or cancel URL in live mode, so a
+ * public http origin is read as https. A local server is left as http.
  */
 function siteOrigin(requestUrl) {
   try {
     const url = new URL(requestUrl);
-    if (url.protocol === "https:" || url.protocol === "http:") return url.origin;
+    if (url.protocol !== "https:" && url.protocol !== "http:") return "https://www.uncloud.life";
+    const host = url.hostname.toLowerCase();
+    if (url.protocol === "http:" && host !== "localhost" && host !== "127.0.0.1") url.protocol = "https:";
+    return url.origin;
   } catch {
     // Fall through to the public site.
   }

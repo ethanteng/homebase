@@ -52,6 +52,16 @@ test("a preview deployment gets its buyers back to itself", async () => {
   assert.equal(siteOrigin("not a url"), "https://www.uncloud.life");
 });
 
+test("an http request URL from Vercel still sends Stripe https return URLs", async () => {
+  const fetchImpl = stripe();
+  await handle(new Request("http://www.uncloud.life/buy"), CONFIGURED, fetchImpl);
+  const form = new URLSearchParams(fetchImpl.calls[0].options.body);
+  assert.equal(form.get("success_url"), "https://www.uncloud.life/thanks");
+  assert.equal(form.get("cancel_url"), "https://www.uncloud.life/#pricing");
+  assert.equal(siteOrigin("http://homebase-git-x.vercel.app/api/checkout"), "https://homebase-git-x.vercel.app");
+  assert.equal(siteOrigin("http://127.0.0.1:3000/buy"), "http://127.0.0.1:3000");
+});
+
 test("without Stripe settings, nothing is called and the visitor gets a page saying so", quiet(async () => {
   for (const env of [{}, { STRIPE_SECRET_KEY: "sk_test_123" }, { STRIPE_PRICE_ID: "price_123" }]) {
     const fetchImpl = stripe();
