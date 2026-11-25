@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
-const { POST, DOWNLOADS, verifiedEvent, downloadEmail } = require("./stripe-webhook.js");
+const { POST, handle, DOWNLOADS, verifiedEvent, downloadEmail } = require("./stripe-webhook.js");
 
 const SECRET = "whsec_test_secret";
 const CONFIGURED = { STRIPE_WEBHOOK_SECRET: SECRET, MAILTRAP_TOKEN: "token" };
@@ -56,7 +56,7 @@ const quiet = (fn) => async (...args) => {
 
 test("a paid Uncloud checkout emails the buyer the download links", quiet(async () => {
   const fetchImpl = mailtrap();
-  const res = await POST(delivery(event(session())), CONFIGURED, fetchImpl, now);
+  const res = await handle(delivery(event(session())), CONFIGURED, fetchImpl, now);
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { received: true, sent: true });
 
@@ -76,18 +76,18 @@ test("a paid Uncloud checkout emails the buyer the download links", quiet(async 
 
 test("a payment that settles later is emailed when it succeeds, not when checkout ends", quiet(async () => {
   const pending = mailtrap();
-  await POST(delivery(event(session({ payment_status: "unpaid" }))), CONFIGURED, pending, now);
+  await handle(delivery(event(session({ payment_status: "unpaid" }))), CONFIGURED, pending, now);
   assert.equal(pending.calls.length, 0);
 
   const settled = mailtrap();
-  const res = await POST(delivery(event(session(), "checkout.session.async_payment_succeeded")), CONFIGURED, settled, now);
+  const res = await handle(delivery(event(session(), "checkout.session.async_payment_succeeded")), CONFIGURED, settled, now);
   assert.equal(res.status, 200);
   assert.equal(settled.calls.length, 1);
 }));
 
 test("a checkout a 100% promotion code paid for is fulfilled too", quiet(async () => {
   const fetchImpl = mailtrap();
-  await POST(delivery(event(session({ payment_status: "no_payment_required" }))), CONFIGURED, fetchImpl, now);
+  await handle(delivery(event(session({ payment_status: "no_payment_required" }))), CONFIGURED, fetchImpl, now);
   assert.equal(fetchImpl.calls.length, 1);
 }));
 
@@ -99,7 +99,7 @@ test("other events and other products are acknowledged without an email", quiet(
     event({ id: "pi_1", object: "payment_intent" }, "payment_intent.succeeded")
   ]) {
     const fetchImpl = mailtrap();
-    const res = await POST(delivery(payload), CONFIGURED, fetchImpl, now);
+    const res = await handle(delivery(payload), CONFIGURED, fetchImpl, now);
     assert.equal(res.status, 200, payload);
     assert.equal(fetchImpl.calls.length, 0, payload);
   }
@@ -115,7 +115,7 @@ test("a delivery Stripe didn't sign, or signed too long ago, is refused", quiet(
     sign(event(session({ customer_details: { email: "attacker@example.com" } })))
   ]) {
     const fetchImpl = mailtrap();
-    const res = await POST(delivery(payload, signature), CONFIGURED, fetchImpl, now);
+    const res = await handle(delivery(payload, signature), CONFIGURED, fetchImpl, now);
     assert.equal(res.status, 400, signature);
     assert.equal(fetchImpl.calls.length, 0);
   }
@@ -129,14 +129,14 @@ test("any one of several v1 signatures may match, as while a secret is being rol
 });
 
 test("when the email can't be sent, Stripe is told to try again", quiet(async () => {
-  const res = await POST(delivery(event(session())), CONFIGURED, mailtrap({ ok: false, status: 503 }), now);
+  const res = await handle(delivery(event(session())), CONFIGURED, mailtrap({ ok: false, status: 503 }), now);
   assert.equal(res.status, 500);
 }));
 
 test("unconfigured, every delivery fails so Stripe keeps it for later", quiet(async () => {
   for (const env of [{}, { STRIPE_WEBHOOK_SECRET: SECRET }, { MAILTRAP_TOKEN: "token" }]) {
     const fetchImpl = mailtrap();
-    const res = await POST(delivery(event(session())), env, fetchImpl, now);
+    const res = await handle(delivery(event(session())), env, fetchImpl, now);
     assert.equal(res.status, 500);
     assert.equal(fetchImpl.calls.length, 0);
   }
@@ -144,7 +144,7 @@ test("unconfigured, every delivery fails so Stripe keeps it for later", quiet(as
 
 test("a paid session without a usable address is acknowledged, not retried", quiet(async () => {
   const fetchImpl = mailtrap();
-  const res = await POST(delivery(event(session({ customer_details: { email: null } }))), CONFIGURED, fetchImpl, now);
+  const res = await handle(delivery(event(session({ customer_details: { email: null } }))), CONFIGURED, fetchImpl, now);
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { received: true, sent: false });
   assert.equal(fetchImpl.calls.length, 0);
@@ -159,7 +159,7 @@ test("download, sender and sandbox settings are honoured, and a bad download add
     MAC_DOWNLOAD_ARM64_URL: "https://downloads.example.com/Uncloud-arm64.dmg",
     MAC_DOWNLOAD_X64_URL: "javascript:alert(1)"
   };
-  await POST(delivery(event(session())), env, fetchImpl, now);
+  await handle(delivery(event(session())), env, fetchImpl, now);
   const [{ url, options }] = fetchImpl.calls;
   assert.equal(url, "https://sandbox.api.mailtrap.io/api/send/42");
   const sent = JSON.parse(options.body);
@@ -177,3 +177,23 @@ test("the email names both Macs and how to tell them apart", () => {
     assert.match(body, /About This Mac/);
   }
 });
+
+test("on Vercel, POST reads process.env, not the event the runtime passes as its second argument", quiet(async () => {
+  const saved = { fetch: globalThis.fetch, secret: process.env.STRIPE_WEBHOOK_SECRET, token: process.env.MAILTRAP_TOKEN };
+  const fetchImpl = mailtrap();
+  globalThis.fetch = fetchImpl;
+  Object.assign(process.env, CONFIGURED);
+  try {
+    const payload = event(session());
+    // A real clock this time, so the signature is made now.
+    const res = await POST(delivery(payload, sign(payload, { at: Math.floor(Date.now() / 1000) })), { waitUntil() {} });
+    assert.equal(res.status, 200);
+    assert.equal(fetchImpl.calls.length, 1);
+  } finally {
+    globalThis.fetch = saved.fetch;
+    for (const [name, value] of [["STRIPE_WEBHOOK_SECRET", saved.secret], ["MAILTRAP_TOKEN", saved.token]]) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+}));

@@ -193,7 +193,8 @@ const reply = (status, body) =>
     headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }
   });
 
-async function POST(request, env = process.env, fetchImpl = fetch, now = Date.now) {
+/** The work of POST, with its settings, Mailtrap and clock passed in so tests can supply their own. */
+async function handle(request, env, fetchImpl, now) {
   const config = readConfig(env);
   if (config.missing.length > 0) {
     // 500, so Stripe keeps the event and tries again once this is configured.
@@ -225,4 +226,8 @@ async function POST(request, env = process.env, fetchImpl = fetch, now = Date.no
   return reply(200, { received: true, sent: true });
 }
 
-module.exports = { POST, DOWNLOADS, readConfig, verifiedEvent, purchaseIn, downloadEmail };
+// Vercel calls a Web handler as handler(request, event), so the second argument is the runtime's
+// event, never settings: the handler reads process.env itself and passes it on.
+const POST = (request) => handle(request, process.env, fetch, Date.now);
+
+module.exports = { POST, handle, DOWNLOADS, readConfig, verifiedEvent, purchaseIn, downloadEmail };

@@ -124,7 +124,8 @@ function unavailable(status) {
   });
 }
 
-async function GET(request, env = process.env, fetchImpl = fetch) {
+/** The work of GET, with its settings and Stripe passed in so tests can supply their own. */
+async function handle(request, env, fetchImpl) {
   const config = readConfig(env);
   if (config.missing.length > 0) {
     console.error(`Checkout not configured; missing ${config.missing.join(", ")}`);
@@ -145,4 +146,8 @@ async function GET(request, env = process.env, fetchImpl = fetch) {
   });
 }
 
-module.exports = { GET, PRODUCT, readConfig, siteOrigin, sessionParameters };
+// Vercel calls a Web handler as handler(request, event), so the second argument is the runtime's
+// event, never settings: the handler reads process.env itself and passes it on.
+const GET = (request) => handle(request, process.env, fetch);
+
+module.exports = { GET, handle, PRODUCT, readConfig, siteOrigin, sessionParameters };
