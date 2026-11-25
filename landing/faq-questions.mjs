@@ -8,6 +8,14 @@ import { fileURLToPath } from "node:url";
 // Each answer is a list of paragraphs.
 export const QUESTIONS = [
   {
+    q: "Does Uncloud work on Windows?",
+    a: [
+      "Not yet. Uncloud runs on a Mac today, and Windows is coming soon.",
+      "The Mac is the computer that keeps your household’s files. Once it’s set up, everyone can reach their files from any web browser, at home or away, including on a Windows PC, an iPhone or an Android phone. A Windows computer can even keep a folder in sync with it today, using the free Syncthing app; the help guide shows how.",
+      "Want to know when Windows is ready? Email hello@uncloud.life and we’ll tell you.",
+    ],
+  },
+  {
     q: "What happens when my computer is off or asleep and I need a file from my phone?",
     a: [
       "Uncloud serves your files from your host computer, so for access around the clock, keep the host on and awake. It doesn’t need to be a powerful machine: an old laptop that stays plugged in, or a desktop you already leave on, works great.",
@@ -63,7 +71,7 @@ function structuredData(page) {
       ] },
       { "@type": "FAQPage", "@id": `${PAGE}#faq`, mainEntity: QUESTIONS.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a.join(" ") } })) },
       { "@type": "WebSite", "@id": `${ORIGIN}/#website`, name: "Uncloud", url: `${ORIGIN}/` },
-      { "@type": "SoftwareApplication", "@id": `${ORIGIN}/#software`, name: "Uncloud Home", url: `${ORIGIN}/`, applicationCategory: "UtilitiesApplication", applicationSubCategory: "Private cloud storage", operatingSystem: ["macOS", "Windows", "Linux"] },
+      { "@type": "SoftwareApplication", "@id": `${ORIGIN}/#software`, name: "Uncloud Home", url: `${ORIGIN}/`, applicationCategory: "UtilitiesApplication", applicationSubCategory: "Private cloud storage", operatingSystem: ["macOS"] },
     ],
   };
 }

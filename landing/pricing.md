@@ -5,7 +5,7 @@ Messaging approved for the homepage on September 24, 2026. Prices are USD.
 | Item | Included |
 | --- | --- |
 | Regular price | $99 one-time |
-| Early-access founding price | $79 one-time, for those who reserve a spot before launch |
+| Early-access founding price | $79 one-time, during early access |
 | Household | Unlimited household members |
 | Devices | Unlimited |
 | Host | 1 primary host computer |
@@ -16,9 +16,9 @@ Messaging approved for the homepage on September 24, 2026. Prices are USD.
 
 There are no monthly storage fees, capacity tiers, or per-member charges in this offer. The homepage emphasizes reusing a computer and storage people already own, with setup in minutes. File transfers can take longer; keep the host on and online for remote access.
 
-The website takes $5 early-access reservations through Buy Me a Coffee (https://buymeacoffee.com/ethanteng/e/586408). A reservation gets early access at the introductory $79 one-time price, and the $5 goes toward that purchase at launch; it is not the purchase. Before October 12, 2026 the site collected free email signups through LaunchList instead, saying “Sign up today to lock in $79. No credit card needed.” When checkout becomes available, update the action and confirmation together.
+The website sells Uncloud Home through Stripe Checkout at the $79 early-access price: each “Buy now – $79” button goes to `/buy`, and the buyer is emailed the download link for the Mac app (see [README.md](README.md#checkout)). The amount charged is the Stripe Price in `STRIPE_PRICE_ID`, not anything in this repository, so change the Price and the pages together. From October 12 to November 25, 2026 the site took $5 reservations through Buy Me a Coffee (https://buymeacoffee.com/ethanteng/e/586408) instead, promising the $5 would go toward the purchase at launch; honor that with a $5-off Stripe promotion code sent to those buyers. Before October 12, 2026 the site collected free email signups through LaunchList, saying “Sign up today to lock in $79. No credit card needed.”
 
-Each signup point (hero, pricing card, closing signup) carries the “Reserve your spot – $5” button, with **“Get early access to Uncloud at our introductory $79 price.”** in bold above it and “Your $5 reservation goes toward your purchase when we launch.” below it. Keep the hero’s $79 early-access offer and $99 regular price, pricing card, closing signup, metadata, and JSON-LD description aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
+Each buy point (hero, pricing card, closing section) carries the “Buy now – $79” button, with **“Get early access to Uncloud at our introductory $79 price.”** in bold above it and “One-time payment. We’ll email you the download link for the Mac app.” below it. Keep the hero’s $79 early-access offer and $99 regular price, pricing card, closing section, metadata, JSON-LD description and the Stripe Price aligned when changing the offer. Do not introduce storage-capacity tiers or describe the one-time purchase as a subscription.
 
 ## Household savings example
 

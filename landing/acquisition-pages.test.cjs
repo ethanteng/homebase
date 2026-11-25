@@ -3,10 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 const load = () => import('./acquisition-pages.mjs');
-// The id of each reserve button, in page order; every one must go to the reservation page.
-const RESERVE = 'https://buymeacoffee.com/ethanteng/e/586408';
-const reserveIds = (html) => [...html.matchAll(/<a [^>]*data-reserve[^>]*>/g)].map(([tag]) => {
-  assert.ok(tag.includes(`href="${RESERVE}"`), tag);
+// The id of each buy button, in page order; every one must start the checkout at /buy.
+const buyIds = (html) => [...html.matchAll(/<a [^>]*data-buy[^>]*>/g)].map(([tag]) => {
+  assert.ok(tag.includes('href="/buy"'), tag);
   return tag.match(/id="([^"]+)"/)[1];
 });
 const dollars = (cents) => '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
@@ -33,7 +32,7 @@ test('each page is canonical at its own clean URL, with valid FAQ structured dat
     const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
     const faq = ld['@graph'].find((node) => node['@type'] === 'FAQPage');
     assert.deepEqual(faq.mainEntity.map((q) => q.name), PAGES[slug].faq.map((f) => f.q));
-    assert.deepEqual(reserveIds(html), ['reserve-hero', 'reserve-pricing', 'reserve-close'], `${slug} has the reserve button in the hero, the pricing card and at the close`);
+    assert.deepEqual(buyIds(html), ['buy-hero', 'buy-pricing', 'buy-close'], `${slug} has the buy button in the hero, the pricing card and at the close`);
   }
 });
 
@@ -66,9 +65,10 @@ test('the homepage and every acquisition page link to /partners in the footer', 
   for (const slug of SLUGS) assert.ok(footer(render(slug)).includes('href="/partners">For Partners</a>'), `${slug} footer lacks /partners`);
 });
 
-test('the homepage, FAQ and storage page reserve straight from their calls to action', () => {
+test('the homepage, FAQ and storage page buy straight from their calls to action', () => {
   const read = (name) => fs.readFileSync(`${__dirname}/${name}.html`, 'utf8');
-  assert.deepEqual(reserveIds(read('index')), ['reserve-hero', 'reserve-pricing', 'reserve-close']);
-  assert.deepEqual(reserveIds(read('faq')), ['reserve-close']);
-  assert.deepEqual(reserveIds(read('hardware')), ['reserve-close']);
+  assert.deepEqual(buyIds(read('index')), ['buy-hero', 'buy-pricing', 'buy-close']);
+  assert.deepEqual(buyIds(read('faq')), ['buy-close']);
+  assert.deepEqual(buyIds(read('hardware')), ['buy-close']);
+  for (const name of ['index', 'faq', 'hardware']) assert.ok(!read(name).includes('buymeacoffee.com'), `${name} still links the old reservation`);
 });

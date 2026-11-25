@@ -1,4 +1,7 @@
 User-agent: *
 Allow: /
+# /buy starts a Stripe checkout; there is nothing there to index.
+Disallow: /buy
+Disallow: /api/
 
 Sitemap: https://www.uncloud.life/sitemap.xml
