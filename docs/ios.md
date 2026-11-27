@@ -20,6 +20,7 @@ milestones say so.
 - [Testing and shipping](#testing-and-shipping), and [building it](#building-it)
 - [Server changes worth making](#server-changes-worth-making)
 - [After viewing: uploading and syncing](#after-viewing-uploading-and-syncing)
+- [Backing up the camera roll](#backing-up-the-camera-roll), so Uncloud can take iCloud Photos' place
 - [Decisions](#decisions) and [milestones](#milestones)
 
 ## Why an app
@@ -347,6 +348,7 @@ None of these is needed for the first version.
 | An "Add a phone" QR code in **My account** | The phone scans it instead of anybody typing an address. A one-time sign-in code in it, like `PairingCodes`, would save typing the password too | After the first version |
 | Naming sessions by device, and revoking one | A lost phone, without changing the password | Phase 2 of multi-user.md |
 | A typed endpoint for media | Streaming video with `AVPlayer`. Only for an allowlist of media types, and never anything a browser could run | Later |
+| `POST /api/camera-roll` | A photo sent by iOS while the app isn't running, in one request ([below](#the-server-one-request-per-file)) | Milestone 5 |
 
 Thumbnails are the one with a real choice in it. .NET has no image decoding of its own. On a Mac
 host, `sips` and Quick Look make thumbnails of everything the Mac can open, HEIC included, but
@@ -367,11 +369,8 @@ phone that means a Photos picker, a document picker, and a share extension. Uplo
 background only through a background `URLSession`, which uploads from a file, so photos are written
 out to files first. All of that goes behind `Transfers`.
 
-**Backing up the camera roll** runs into the rule that Uncloud never overwrites: send `IMG_0001.jpg`
-twice and the second becomes `IMG_0001 2.jpg`. So the phone has to know what it has already sent,
-either from a record it keeps (each photo's `localIdentifier` against where it went) or because the
-server can say a file with these contents is already there. The first needs no server change and is
-where to start.
+**Backing up the camera roll** is its own thing, with its own way of running in the background, and
+has [its own section](#backing-up-the-camera-roll).
 
 **Syncing** doesn't mean Syncthing on a phone. There is no official Syncthing for iOS, and iOS
 wouldn't let it run in the background if there were. On an iPhone, "my Uncloud files, kept in step"
@@ -383,6 +382,206 @@ What the first version does so this isn't in the way: `UncloudKit` has no UIKit 
 extension; the session is in a Keychain item that can be shared; downloads go through `Transfers`,
 which uploads will use too.
 
+## Backing up the camera roll
+
+What a household needs before Uncloud can take the place of iCloud Photos: every photo and video
+taken on the phone arrives in Uncloud by itself, without anybody opening the app.
+
+iOS has no setting that swaps iCloud Photos for another service. The Photos app keeps the library on
+the phone either way, and a backup app copies it out, which is how Google Photos and Immich work. So
+this is the app's job, and none of it is built yet.
+
+Facts about Apple's side come from [Uploading asset resources in the
+background](https://developer.apple.com/documentation/photokit/uploading-asset-resources-in-the-background)
+and the [`PHAssetResourceUploadJob`](https://developer.apple.com/documentation/photos/phassetresourceuploadjob)
+pages, read in November 2026. Where something comes from a developer forum instead, it says so.
+
+### How iOS lets it run
+
+**iOS 26.1 added a way for exactly this.** The app hands Photos a `URLRequest` for each thing to
+send, with `PHAssetResourceUploadJobChangeRequest.creationRequestForJob(destination:resource:)`
+inside `PHPhotoLibrary.performChanges`. The system sends it when it judges the network, power and
+how the phone is being used are right, fetching the original from iCloud first if it isn't on the
+phone. From time to time it wakes the app's background upload extension
+(`com.apple.photos.background-upload`), which makes new jobs, acknowledges the ones that have
+finished and retries the ones that failed.
+
+- **It needs full access to the library** (`.readWrite`, `.authorized`), so the app asks for
+  `NSPhotoLibraryUsageDescription` too; the add-only key it has today isn't enough. The app turns the
+  extension on and off with `PHPhotoLibrary.shared().setUploadJobExtensionEnabled(_:)`, and turns it
+  off on sign-out.
+- **The extension sees little of what happened.** A job is registered, pending, succeeded, failed or
+  cancelled. A failed one has a `URLError`. A finished one, either way, has the response's headers,
+  with their names in lower case. The body isn't there, and the status code isn't documented as
+  readable. So anything the server has to tell the phone, it says in a header.
+- **Finished jobs still count.** `jobLimit` is the most jobs not yet acknowledged, *"in-flight and
+  those that have succeeded or failed"*, and its number isn't given. The extension records each
+  finished job and acknowledges it on the same wake, or backups stop once the limit fills.
+- **Two versions of the extension.** On iOS 26.1 it is `PHBackgroundResourceUploadExtension`, whose
+  entry point is `process()`. iOS 27 replaces it with `PHBackgroundResourceUploadJobExtension` and
+  an async `processJobs()`. The work is the same; the app ships both, chosen by `#available`.
+- **It doesn't run in the Simulator.** The logic lives in `UncloudKit` and is tested there; the
+  extension itself only on a real phone. A forum answer says iOS 27 has a *Resource Upload Test Mode*
+  under **Settings → Developer**, which is worth trying first.
+
+**Before iOS 26.1**, and if [the address check](#first-check-the-address) rules the extension out, the
+app backs up only while it is open, and a background `URLSession` finishes what it started. That is
+what most backup apps did before 26.1, and why they asked people to open them now and then.
+
+### First, check the address
+
+The extension's `Info.plist` must have `BackgroundUploadURLBase`, a string Apple describes only as
+*"the base URL for your upload server"*, which *"the system requires for network access
+validation."* It is set when the app is built. Every household's Uncloud has its own address, which
+somebody types in.
+
+Every address **Access from anywhere** gives is under `ts.net` (`https://uncloud.tail1234.ts.net`),
+so the thing to find out, on a real phone, before anything else is built: **does a base of
+`https://ts.net` let a job go to a household's address?** Apple's page doesn't say how the check
+matches, or whether a wildcard or more than one value is allowed.
+
+If it doesn't:
+
+- **Sending photos through a fixed Uncloud address is ruled out.** Photos would pass through a
+  server Uncloud runs, which is what people choose Uncloud to avoid.
+- **A household's own build** could have its address built in. That works for the one household on
+  TestFlight and goes no further.
+- Otherwise it is the fallback above, and it is worth asking Apple (Feedback, or a code-level support
+  request) whether the key can be anything else.
+
+### Which photos, and where they go
+
+- **The original of each photo or video** (the `.photo` or `.video` resource), and for a Live Photo
+  its `.pairedVideo` beside it, under the same name with `.MOV`, as Apple's own exports do. Edits
+  aren't sent in the first version: the original is the thing that can't be made again. Sending the
+  edited version (`.fullSizePhoto`) beside it can come later.
+- **Into `Camera roll/<year>/` in My files**, under the resource's `originalFilename`, with its
+  modified time set to when the photo was taken. The year is the photo's `creationDate` in UTC, and
+  one with no date goes in `Undated`: the same rules as the photos brought in from an iCloud or
+  Google export (`ExportPhotos.Year`), so the two can be put together by moving year folders.
+- **The phone chooses the path; the server never overwrites.** A name already taken, by a photo
+  from the person's iPad, or because the camera's numbering has gone round, becomes `IMG_1234 2.HEIC`,
+  as everywhere else in Uncloud.
+- **It's a backup, not a sync.** Deleting a photo on the phone leaves it in Uncloud, unlike iCloud
+  Photos. That is what lets somebody clear room on the phone once a photo is backed up.
+
+**Asked once, when backup is turned on:** *Back up everything on this iPhone*, or *Only new photos and
+videos*. Somebody who has already brought their library home from an iCloud export has all of it,
+and *everything* would send every photo again into `Camera roll`. *Only new* starts from the
+library's change token at that moment.
+
+### What the phone remembers
+
+Names can't say what has been sent, since the server makes new ones. The phone keeps a small
+record, in an App Group container that the app and the extension share:
+
+- For each photo's `localIdentifier` and resource type: the job's state and the path the server
+  stored it under.
+- The library's last `PHPersistentChangeToken`. `fetchPersistentChanges(since:)` says what was added
+  since, so neither the app nor the extension walks the whole library each time.
+
+That record is where *"All 12,408 backed up"* and *"312 to go"* come from on the account screen,
+along with when the phone last got through, which matters on the day the host's tunnel is down. If
+the app is deleted the record goes with it, and setting backup up again should choose *Only new*.
+A server that could say *"a file with these contents is already here"* would remove that caveat, and
+can come later.
+
+### The server: one request per file
+
+Uploads today take three steps, begin, a `PUT` for each file, then finish
+([Program.cs](../src/Homebase.Server/Program.cs)), written for a page that stays open from the first
+to the last. A job is one request that the system sends by itself, and nothing of the app's runs
+between it and the next. So the camera roll gets an endpoint of its own:
+
+`POST /api/camera-roll?path=Camera%20roll/2026/IMG_1234.HEIC&modified=…`, with the file as the body,
+`X-Homebase-Request: 1`, and `X-Uncloud-Item:` an id for this resource of this photo, a hash of its
+`localIdentifier` and resource type.
+
+- **Room is checked from `Content-Length`** before anything is read, as beginning an upload does.
+- **The file is gathered out of sight** and put in place only when it is whole, with the same
+  `Place` that never overwrites. Only ever inside the account's own folder, which comes from the
+  session, as with every edit.
+- **The path it was stored under comes back in `X-Uncloud-Path`**, since the extension sees headers
+  and not the body.
+- **Sending the same item twice keeps one copy.** The system retries, and a photo whose answer was
+  lost on the way back arrives again. The server keeps each item's id against its path in the
+  account's `.homebase/`, and answers the same path a second time rather than keeping
+  `IMG_1234 2.HEIC`.
+- **A refusal says why in `X-Uncloud-Refused`**: `full`, `signed-out` or `not-allowed`, which the
+  app words the way the web would. A `401` should also reach the extension as
+  `URLError.userAuthenticationRequired`, which Apple's own example looks for.
+- **No resuming in the first version.** The system resumes a dropped upload if the server follows
+  the [Resumable Uploads for HTTP](https://datatracker.ietf.org/doc/draft-ietf-httpbis-resumable-upload/)
+  draft: answering `OPTIONS` with `Upload-Limit`, and a `104` interim response with a `Location`
+  while the body arrives. The first version answers `OPTIONS` with `501`, and a dropped upload
+  starts again: fine for photos, costly for a long video over Funnel. A `104` has to get from the
+  server through `uncloud-tunnel` as well, so check both before promising it.
+
+**The session.** The token is the `uncloud_session` cookie. Whether a job may carry a `Cookie` header
+isn't documented, and Apple's example uses `Authorization` instead. Try the cookie first. If it
+doesn't arrive, this endpoint alone also takes `Authorization: Bearer` with the same token: the case
+[Not a bearer token](#signing-in) left open. A backup that runs keeps the session alive, since it
+lasts 30 days from when it was last used. Once it has gone (somebody changed the password), the
+extension stops making jobs and the app says *"Sign in again to carry on backing up."*
+
+`NativeClientTests` grows a test for each rule: the same item twice is one file, a name taken becomes
+`name 2`, the path comes back in the header, and no `Origin` or browser header is needed.
+
+### Over the network
+
+All of it crosses Funnel, which is bandwidth-limited
+([technical.md](technical.md#which-tunnel-and-what-it-costs-you)). Photos are fine. A phone that
+films a lot will take a while, and the system chooses when anyway. Each request sets
+`allowsExpensiveNetworkAccess` and `allowsConstrainedNetworkAccess` to false unless the person turns
+on **Use cellular data**; whether the system honours them on a job is one more thing to check. The
+phone on the host's tailnet ([How the phone reaches the host](#how-the-phone-reaches-the-host))
+helps most here.
+
+### Leaving iCloud Photos
+
+What somebody does on their side, for the README once this ships:
+
+1. **Bring the library home**, one of two ways. Add an iCloud export
+   ([README](../README.md#photos-and-files-from-icloud-and-google)), then choose *Only new*. Or set
+   iCloud Photos to **Download and Keep Originals**, wait until the phone has all of them, and
+   choose *Everything*. With Advanced Data Protection on, Apple's export leaves photos out, so it's
+   the second way.
+2. **Wait until the app says everything is backed up.** Running both for a while is fine. An Apple
+   engineer [says on the forums](https://developer.apple.com/forums/thread/822256) that iCloud
+   Photos being on or off has no bearing on the extension; a developer in the same thread found it
+   never ran with iCloud Photos on, on iOS 26.4, which Apple called a bug. Check it on a real phone.
+3. **Turn off iCloud Photos** (Settings → their name → iCloud → Photos).
+4. **Turn Photo Library off in the phone's iCloud Backup.** Otherwise the phone's backup starts
+   holding the library instead.
+5. **Know what stops.** Photos on a Mac or iPad no longer gets new photos, edits and albums stay on
+   the phone, and an iCloud Shared Photo Library needs iCloud Photos.
+6. **Turn on [Uncloud Backup](backup.md).** Without it, the host is the only copy apart from the
+   phone.
+
+### The code, and what to check first
+
+```text
+src/Uncloud.iOS/
+  UncloudKit/Sources/UncloudKit/
+    CameraRoll.swift       which photos and resources, their paths, the record of what's sent
+  UploadExtension/         the background upload extension, using UncloudKit
+```
+
+The app and the extension share the record through an App Group (`group.life.uncloud.ios`), and the
+session through the Keychain access group that is [already there](#the-code).
+
+Before the server endpoint or any screen, a throwaway extension on a real phone, against a real host,
+answers five questions:
+
+1. Does a `BackgroundUploadURLBase` of `https://ts.net` let a job go to a household's address?
+2. Does a `Cookie` header get through?
+3. Is the body the file's bytes as they are, and with what `Content-Type`? Apple doesn't say. If it
+   is multipart, the endpoint has to read that.
+4. Does it run with iCloud Photos on?
+5. Are `allowsExpensiveNetworkAccess` and `allowsConstrainedNetworkAccess` honoured?
+
+The first decides whether this section is built as written or as the fallback.
+
 ## Decisions
 
 1. **iOS 18 and later.** It covers almost every phone in use and everything this needs.
@@ -391,6 +590,10 @@ which uploads will use too.
 3. **Thumbnails after the first version,** as the next thing after it: photos are most of what a
    family will look at on a phone, and that is where the first version will feel thinnest.
 4. **iPhone and iPad.** One app, the same screens on both to start with.
+5. **The camera roll is backed up through Photos' background upload,** on iOS 26.1 and later, if the
+   address check allows it. The rest of the app stays on iOS 18, and an older phone backs up while
+   the app is open.
+6. **Originals, into `Camera roll`, and never deleted there** when they're deleted from the phone.
 
 ## Milestones
 
@@ -402,5 +605,8 @@ which uploads will use too.
    CI, `version` in `/api/health`.
 3. **Thumbnails.** The server endpoint, and a grid for folders that are mostly photos.
 4. **Uploading.** From Photos, from Files, and from the share sheet in other apps.
-5. **Backing up and the Files app.** The camera roll, and the File Provider extension with the
-   change feed it needs.
+5. **Backing up the camera roll.** First the [five questions](#the-code-and-what-to-check-first) on
+   a real phone, then `POST /api/camera-roll`, the extension, and the screen that turns it on and
+   says how far it has got. Then the steps for [leaving iCloud Photos](#leaving-icloud-photos) go in
+   the README.
+6. **The Files app.** The File Provider extension, with the change feed it needs.
