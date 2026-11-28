@@ -1,8 +1,8 @@
 namespace Homebase.Core.Sharing;
 
 /// <summary>
-/// Which files a shared link shows in the browser rather than only offering them to download, and as
-/// what. Everything else Uncloud sends is a download, so that nothing anybody puts in their folder
+/// Which files the browser shows rather than only offering them to download, and as what, in My files
+/// and through a shared link alike. Everything else Uncloud sends is a download, so that nothing anybody puts in their folder
 /// ever runs on Uncloud's own address; these are the exceptions, and only kinds that can't run
 /// anything there: pictures, sound, video, PDFs and plain text. HTML, SVG and the like are never
 /// among them, whatever they're called — a visitor signed in to this Uncloud in the same browser would

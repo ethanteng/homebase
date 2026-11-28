@@ -974,6 +974,31 @@ tbody tr.selected {
   width: 32px;
   height: 32px;
 }
+/* The picture or video itself, in place of an icon; it opens the viewer. */
+.details-preview {
+  display: block;
+  width: 100%;
+  height: 180px;
+  margin: 20px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.details-preview img,
+.details-preview video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.details-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .details-panel h2 {
   font-size: 16px;
   line-height: 1.5;
@@ -1119,6 +1144,14 @@ tbody tr.selected {
   }
   .details-panel .button {
     width: auto;
+  }
+  .details-buttons {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .details-preview {
+    height: 240px;
+    margin: 12px 0;
   }
   .details-icon {
     margin: 12px auto;
@@ -3656,7 +3689,7 @@ dialog.side-sheet::backdrop {
   padding-left: 12px;
 }
 
-/* One shared file at a time, over the page. */
+/* One file at a time, over the page: in My files, or through a shared link. */
 .viewer-dialog {
   width: min(1200px, calc(100% - 32px));
   height: calc(100vh - 48px);

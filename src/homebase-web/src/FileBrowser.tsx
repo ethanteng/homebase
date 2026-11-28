@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleCheck,
   Copy,
+  Eye,
   File,
   FileArchive,
   FileText,
@@ -14,8 +15,10 @@ import {
   FolderInput,
   FolderOpen,
   FolderPlus,
+  Image,
   Link2,
   Lock,
+  Music,
   Pencil,
   Plus,
   RefreshCw,
@@ -23,13 +26,15 @@ import {
   Trash2,
   TriangleAlert,
   Upload,
+  Video,
   X,
 } from "lucide-react";
-import { api, downloadUrl, formatSize } from "./api";
+import { api, downloadUrl, fileUrl, formatSize } from "./api";
 import type { DirectoryListing, EditAction, EditedEntry, LibraryEntry, ShareList } from "./api";
 import EditDialog, { describe, summarize } from "./FileEdits";
 import type { Edit } from "./FileEdits";
 import { useFolderSizes } from "./folderSizes";
+import { Viewer } from "./Preview";
 import ShareDialog from "./ShareDialog";
 import { pickedFromDrop } from "./Uploads";
 import type { Picked } from "./Uploads";
@@ -77,6 +82,9 @@ function FileIcon({ entry }: { entry: LibraryEntry }) {
         fillOpacity={0.14}
       />
     );
+  if (entry.preview === "image") return <Image size={21} strokeWidth={1.6} />;
+  if (entry.preview === "video") return <Video size={21} strokeWidth={1.6} />;
+  if (entry.preview === "audio") return <Music size={21} strokeWidth={1.6} />;
   if (/\.(zip|tar|gz|7z)$/i.test(entry.name))
     return <FileArchive size={21} strokeWidth={1.6} />;
   if (/\.(txt|md|pdf|docx?|csv|json|html)$/i.test(entry.name))
@@ -105,6 +113,8 @@ export default function FileBrowser({
   const [sort, setSort] = useState<Sort>("name");
   const [descending, setDescending] = useState(false);
   const [selected, setSelected] = useState<LibraryEntry | null>(null);
+  // The file open in the viewer, over the list, by path.
+  const [viewing, setViewing] = useState<string | null>(null);
   // Ticked for copying, moving or deleting, by path. Separate from the one file whose details
   // are open, which is only ever one.
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
@@ -154,6 +164,7 @@ export default function FileBrowser({
     setError("");
     setListing(null);
     setSelected(null);
+    setViewing(null);
     setChecked(new Set());
     api<DirectoryListing>(`/files?${new URLSearchParams({ path })}`, {
       signal: controller.signal,
@@ -239,6 +250,15 @@ export default function FileBrowser({
   // Only what is on screen is acted on: a tick the filter has hidden isn't something anybody can
   // see they are about to delete.
   const chosen = entries.filter((entry) => checked.has(entry.path));
+  // The viewer steps through the files as they're listed, filter and order included.
+  const files = entries.filter((entry) => !entry.isDirectory);
+  const viewIndex = viewing === null ? -1 : files.findIndex((entry) => entry.path === viewing);
+  /** Shows one file in the viewer, and keeps its details open beside the list once it's closed. */
+  function view(index: number | null) {
+    const entry = index === null ? null : files[index];
+    setViewing(entry?.path ?? null);
+    if (entry) setSelected(entry);
+  }
   const allChosen = entries.length > 0 && chosen.length === entries.length;
 
   function toggle(entry: LibraryEntry) {
@@ -853,9 +873,11 @@ export default function FileBrowser({
                 <X size={17} />
               </button>
             </div>
-            <div className="details-icon">
-              <FileIcon entry={selected} />
-            </div>
+            <DetailsPicture
+              key={selected.path}
+              entry={selected}
+              onOpen={() => setViewing(selected.path)}
+            />
             <h2>{selected.name}</h2>
             <dl>
               <dt>Size</dt>
@@ -865,14 +887,25 @@ export default function FileBrowser({
               <dt>Location</dt>
               <dd className="detail-path">{selected.path}</dd>
             </dl>
-            <a
-              className="button primary"
-              href={downloadUrl(selected.path)}
-              download
-            >
-              <ArrowDownToLine size={16} />
-              Download file
-            </a>
+            <div className="details-buttons">
+              {selected.preview && (
+                <button
+                  className="button secondary"
+                  onClick={() => setViewing(selected.path)}
+                >
+                  <Eye size={16} />
+                  Preview
+                </button>
+              )}
+              <a
+                className="button primary"
+                href={downloadUrl(selected.path)}
+                download
+              >
+                <ArrowDownToLine size={16} />
+                Download file
+              </a>
+            </div>
             <div className="details-actions">
               <button
                 className="row-action"
@@ -913,6 +946,13 @@ export default function FileBrowser({
           </aside>
         )}
       </div>
+      <Viewer
+        files={files}
+        index={viewIndex < 0 ? null : viewIndex}
+        onIndex={view}
+        src={(entry) => fileUrl(entry.path)}
+        download={(entry) => downloadUrl(entry.path)}
+      />
       <ShareDialog
         entries={sharing}
         isAdmin={isAdmin}
@@ -943,5 +983,30 @@ export default function FileBrowser({
         }}
       />
     </>
+  );
+}
+
+/**
+ * The file itself at the top of its details, when it's a picture or a video this browser can draw;
+ * otherwise an icon for its kind. Either way, what can be shown opens in the viewer from here.
+ */
+function DetailsPicture({ entry, onOpen }: { entry: LibraryEntry; onOpen: () => void }) {
+  const [broken, setBroken] = useState(false);
+  const icon = (
+    <div className="details-icon">
+      <FileIcon entry={entry} />
+    </div>
+  );
+  if (broken || (entry.preview !== "image" && entry.preview !== "video")) return icon;
+  const src = fileUrl(entry.path);
+  return (
+    <button className="details-preview" aria-label={`Preview ${entry.name}`} onClick={onOpen}>
+      {entry.preview === "image" ? (
+        <img src={src} alt="" onError={() => setBroken(true)} />
+      ) : (
+        // Its first frame, as a still: Safari draws nothing until it's told where to start.
+        <video src={`${src}#t=0.1`} preload="metadata" muted playsInline onError={() => setBroken(true)} />
+      )}
+    </button>
   );
 }

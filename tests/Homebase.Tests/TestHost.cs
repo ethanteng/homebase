@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Homebase.Core;
 using Homebase.Core.Accounts;
 using Homebase.Core.Providers;
 using Homebase.Core.Sync;
@@ -25,6 +26,7 @@ public sealed class TestHost : WebApplicationFactory<Program>
     private readonly Func<string, IDropboxConnection>? _dropbox;
     private readonly ISyncthingApi? _syncthing;
     private readonly HttpMessageHandler? _backupService;
+    private readonly IImageConverter _images;
     private readonly IPAddress _caller;
 
     static TestHost() =>
@@ -36,14 +38,20 @@ public sealed class TestHost : WebApplicationFactory<Program>
     /// reaching Uncloud from another machine.
     /// </param>
     /// <param name="backupService">Answers in place of Uncloud Backup's service, at https://backup.test/.</param>
+    /// <param name="images">
+    /// What makes JPEGs of photos browsers can't draw. None unless a test brings one, so the suite
+    /// answers the same on a Mac, which has sips, as on Linux, which doesn't.
+    /// </param>
     public TestHost(
         string configDirectory,
         Func<string, IDropboxConnection>? dropbox = null,
         IDictionary<string, string?>? settings = null,
         ISyncthingApi? syncthing = null,
         IPAddress? caller = null,
-        HttpMessageHandler? backupService = null)
+        HttpMessageHandler? backupService = null,
+        IImageConverter? images = null)
     {
+        _images = images ?? new NoImageConverter();
         _caller = caller ?? IPAddress.Loopback;
         _settings = new Dictionary<string, string?>
         {
@@ -75,6 +83,14 @@ public sealed class TestHost : WebApplicationFactory<Program>
         if (_backupService is not null)
             builder.ConfigureTestServices(services => services.AddSingleton(
                 new Homebase.Core.Backup.BackupServiceClient(new HttpClient(_backupService), new Uri("https://backup.test/"))));
+        builder.ConfigureTestServices(services => services.AddSingleton(_images));
+    }
+
+    private sealed class NoImageConverter : IImageConverter
+    {
+        public bool Available => false;
+        public Task ConvertAsync(string source, string destination, int longestSide, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("This host can’t convert pictures.");
     }
 
     /// <summary>A client that isn't signed in, but does carry the header mutations require.</summary>
