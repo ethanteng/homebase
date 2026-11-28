@@ -197,10 +197,12 @@ public sealed class PhotoPreviews(IImageConverter converter, ILogger<PhotoPrevie
             foreach (var file in files)
             {
                 if (total <= Budget * 3 / 4) break;
+                // Read first: once deleted, asking a FileInfo its length looks again, and throws.
+                var length = file.Length;
                 try
                 {
                     file.Delete();
-                    total -= file.Length;
+                    total -= length;
                 }
                 catch (IOException) { }
             }

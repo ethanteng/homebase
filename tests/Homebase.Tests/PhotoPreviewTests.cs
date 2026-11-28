@@ -176,13 +176,19 @@ public sealed class PhotoPreviewTests : IDisposable
             // Each JPEG the stand-in writes is 27 bytes: "JPEG of " and these 19.
             await File.WriteAllTextAsync(photo, $"photo number {number} here");
             await using var stream = File.OpenRead(photo);
-            shown.Add((await previews.JpegForAsync(root, stream, CancellationToken.None))!);
+            var made = await previews.JpegForAsync(root, stream, CancellationToken.None);
+            // The one just made is never among those thrown away.
+            Assert.NotNull(made);
+            Assert.True(File.Exists(made));
+            shown.Add(made);
             // Looked at in the order they were made, a minute apart.
-            for (var made = 0; made < shown.Count; made++)
-                if (File.Exists(shown[made])) File.SetLastWriteTimeUtc(shown[made], DateTime.UtcNow.AddMinutes(made - 10));
+            for (var index = 0; index < shown.Count; index++)
+                if (File.Exists(shown[index])) File.SetLastWriteTimeUtc(shown[index], DateTime.UtcNow.AddMinutes(index - 10));
+            // The fourth takes them to 108 bytes against a budget of 100: the oldest go until no
+            // more than 75 are left, and no more than that.
+            if (number == 4) Assert.Equal(new[] { false, false, true, true }, shown.Select(File.Exists).ToArray());
         }
-        // The fourth takes them to 108 bytes against a budget of 100, and the sixth does again:
-        // each time the oldest go until no more than 75 are left.
+        // The sixth does the same again.
         Assert.Equal(new[] { false, false, false, false, true, true }, shown.Select(File.Exists).ToArray());
     }
 
