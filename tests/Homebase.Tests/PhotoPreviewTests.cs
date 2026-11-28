@@ -210,6 +210,39 @@ public sealed class PhotoPreviewTests : IDisposable
     }
 
     [Fact]
+    public async Task A_photo_that_couldnt_be_made_into_a_JPEG_isnt_tried_again_until_it_changes()
+    {
+        var root = PathPolicy.NormalizeRoot(Directory.CreateDirectory(Path.Combine(_temporary, "Unreadable")).FullName);
+        var photo = Path.Combine(root, "IMG_0001.HEIC");
+        await File.WriteAllTextAsync(photo, "not really a photo");
+        var converter = new StandIn { Fails = true };
+        var previews = new PhotoPreviews(converter, NullLogger<PhotoPreviews>.Instance);
+        async Task<string?> LookAsync()
+        {
+            await using var stream = File.OpenRead(photo);
+            return await previews.JpegForAsync(root, stream, CancellationToken.None);
+        }
+
+        Assert.Null(await LookAsync());
+        Assert.Null(await LookAsync());
+        Assert.Equal(1, converter.Made);
+
+        // Changed, it's a different photo, and worth trying.
+        converter.Fails = false;
+        await File.WriteAllTextAsync(photo, "a photo now");
+        Assert.NotNull(await LookAsync());
+        Assert.Equal(2, converter.Made);
+
+        // Without a wait, one that failed is tried again every time.
+        var eager = new PhotoPreviews(converter, NullLogger<PhotoPreviews>.Instance) { RetryAfter = TimeSpan.Zero };
+        converter.Fails = true;
+        await File.WriteAllTextAsync(photo, "unreadable again");
+        await using (var stream = File.OpenRead(photo)) Assert.Null(await eager.JpegForAsync(root, stream, CancellationToken.None));
+        await using (var stream = File.OpenRead(photo)) Assert.Null(await eager.JpegForAsync(root, stream, CancellationToken.None));
+        Assert.Equal(4, converter.Made);
+    }
+
+    [Fact]
     public async Task On_a_Mac_sips_makes_a_smaller_JPEG_and_never_a_bigger_one()
     {
         var sips = new SipsImageConverter();

@@ -98,12 +98,23 @@ public sealed class PhotoPreviews(IImageConverter converter, ILogger<PhotoPrevie
     /// <summary>How long one photo may take. sips takes a third of a second for a 36-megapixel one.</summary>
     public TimeSpan Limit { get; init; } = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// How long a photo that couldn't be made into a JPEG is sent as itself before it's tried again,
+    /// unless it changes first. Long enough that one the converter can't read doesn't take up one of
+    /// its turns each time it's looked at; short enough that a full drive or a busy host isn't held
+    /// against the photo for good.
+    /// </summary>
+    public TimeSpan RetryAfter { get; init; } = TimeSpan.FromHours(1);
+
     // A few at a time across the host: a whole folder of photos flicked through at once shouldn't
     // start one converter per photo.
     private readonly SemaphoreSlim _converting = new(2, 2);
     // The same photo asked for twice at once — by its details and the viewer — is made once.
     private readonly ConcurrentDictionary<string, Lazy<Task>> _making = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, DateTime> _trimmed = new(StringComparer.Ordinal);
+    // When each JPEG that couldn't be made last failed. Its name changes with the photo's size and
+    // time, so a photo changed since is tried again straight away.
+    private readonly ConcurrentDictionary<string, DateTime> _failed = new(StringComparer.Ordinal);
 
     /// <summary>Whether a file of this name is only shown in a browser once it's been made into a JPEG.</summary>
     public static bool NeedsConverting(string name) =>
@@ -126,6 +137,11 @@ public sealed class PhotoPreviews(IImageConverter converter, ILogger<PhotoPrevie
         {
             Touch(jpeg);
             return jpeg;
+        }
+        if (_failed.TryGetValue(jpeg, out var failed))
+        {
+            if (DateTime.UtcNow - failed < RetryAfter) return null;
+            _failed.TryRemove(jpeg, out _);
         }
         var making = _making.GetOrAdd(jpeg, _ => new Lazy<Task>(() => MakeAsync(source.FullName, jpeg, folder)));
         try
@@ -154,6 +170,12 @@ public sealed class PhotoPreviews(IImageConverter converter, ILogger<PhotoPrevie
             using var limit = new CancellationTokenSource(Limit);
             await converter.ConvertAsync(source, part, LongestSide, limit.Token);
             File.Move(part, jpeg, overwrite: true);
+        }
+        catch
+        {
+            // Noted before it stops being made, so nobody asking in between starts it again.
+            _failed[jpeg] = DateTime.UtcNow;
+            throw;
         }
         finally
         {
