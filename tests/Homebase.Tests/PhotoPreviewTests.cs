@@ -193,6 +193,23 @@ public sealed class PhotoPreviewTests : IDisposable
     }
 
     [Fact]
+    public async Task A_conversion_that_takes_too_long_leaves_the_photo_to_be_shown_as_itself()
+    {
+        var root = PathPolicy.NormalizeRoot(Directory.CreateDirectory(Path.Combine(_temporary, "Slow")).FullName);
+        var photo = Path.Combine(root, "IMG_0001.HEIC");
+        await File.WriteAllTextAsync(photo, "first photo");
+        // Held until the limit, the way a photo sips can't get through is.
+        var previews = new PhotoPreviews(
+            new StandIn { Hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) },
+            NullLogger<PhotoPreviews>.Instance)
+        { Limit = TimeSpan.FromMilliseconds(200) };
+
+        await using var stream = File.OpenRead(photo);
+        Assert.Null(await previews.JpegForAsync(root, stream, CancellationToken.None));
+        Assert.Empty(Directory.GetFiles(Path.Combine(root, ".homebase", PhotoPreviews.FolderName), "*.jpg"));
+    }
+
+    [Fact]
     public async Task On_a_Mac_sips_makes_a_smaller_JPEG_and_never_a_bigger_one()
     {
         var sips = new SipsImageConverter();

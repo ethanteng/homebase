@@ -133,8 +133,11 @@ public sealed class PhotoPreviews(IImageConverter converter, ILogger<PhotoPrevie
             // Somebody who stops waiting doesn't stop it being made: the next look finds it ready.
             await making.Value.WaitAsync(cancellationToken);
         }
-        catch (Exception error) when (error is not OperationCanceledException)
+        catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
+            // Giving up because it took too long is the converter's own limit, not the person
+            // closing the page. Either way the photo is shown as itself; only their request
+            // stopping is left to stop the answer.
             logger.LogWarning(error, "Couldn’t make a JPEG of a photo to show it");
             return null;
         }
