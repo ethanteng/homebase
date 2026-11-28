@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import FileBrowser from "./FileBrowser";
+import { Viewer } from "./Preview";
 
 /**
  * Looking at your own files without downloading them: a picture in the file's details, and the
@@ -104,6 +105,52 @@ describe("previewing My files", () => {
     expect(within(details).getByRole("heading", { name: "page.html" })).toBeInTheDocument();
     // Nothing to preview for a page: only the download.
     expect(within(details).queryByRole("button", { name: /^Preview/ })).toBeNull();
+  });
+
+  it("opens the file in the details even when a filter has hidden it", async () => {
+    await open();
+    await click(screen.getByRole("button", { name: "Details for beach.jpg" }));
+    await act(async () => {
+      fireEvent.change(screen.getByRole("searchbox", { name: "Filter this folder" }), {
+        target: { value: "notes" },
+      });
+    });
+    expect(screen.queryByRole("button", { name: "Details for beach.jpg" })).toBeNull();
+
+    await click(screen.getByRole("button", { name: /^Preview$/ }));
+    const viewer = screen.getByRole("dialog");
+    expect(viewer).toHaveAttribute("open");
+    expect(within(viewer).getByRole("img", { name: "beach.jpg" })).toBeInTheDocument();
+    // Just that file: the filter has hidden it, so it isn't one of a run through the folder.
+    expect(within(viewer).queryByRole("button", { name: "Next" })).toBeNull();
+  });
+
+  it("lets a video keep the arrow keys, and still steps from anywhere else", async () => {
+    const files = [
+      { name: "clip.mp4", path: "clip.mp4", isDirectory: false, size: 10, preview: "video" as const },
+      { name: "next.mp4", path: "next.mp4", isDirectory: false, size: 10, preview: "video" as const },
+    ];
+    const onIndex = vi.fn();
+    render(
+      <Viewer
+        files={files}
+        index={0}
+        onIndex={onIndex}
+        src={(entry) => `/api/files/file?path=${entry.path}`}
+        download={() => "/api/files/download?path=clip.mp4"}
+      />,
+    );
+    const video = document.querySelector("video");
+    expect(video).not.toBeNull();
+    await act(async () => {
+      fireEvent.keyDown(video!, { key: "ArrowRight" });
+    });
+    expect(onIndex).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+    });
+    expect(onIndex).toHaveBeenCalledWith(1);
   });
 
   it("falls back to an icon when the browser can't draw the picture", async () => {

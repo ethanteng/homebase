@@ -73,6 +73,10 @@ export function Viewer<Entry extends Showable>({
   useEffect(() => {
     if (index === null) return;
     const step = (event: KeyboardEvent) => {
+      // Left and right also seek a video or a song, and move the cursor in a field. Those keep
+      // the key; the buttons beside the title still step through the folder.
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("input, textarea, select, video, audio")) return;
       if (event.key === "ArrowLeft" && index > 0) onIndex(index - 1);
       if (event.key === "ArrowRight" && index < files.length - 1) onIndex(index + 1);
     };

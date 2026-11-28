@@ -250,8 +250,16 @@ export default function FileBrowser({
   // Only what is on screen is acted on: a tick the filter has hidden isn't something anybody can
   // see they are about to delete.
   const chosen = entries.filter((entry) => checked.has(entry.path));
-  // The viewer steps through the files as they're listed, filter and order included.
-  const files = entries.filter((entry) => !entry.isDirectory);
+  // The viewer steps through the files as they're listed, filter and order included. The details
+  // stay open for a file the filter has since hidden, and Preview still opens that one file.
+  const listedFiles = entries.filter((entry) => !entry.isDirectory);
+  const files =
+    viewing !== null &&
+    selected?.path === viewing &&
+    !selected.isDirectory &&
+    !listedFiles.some((entry) => entry.path === viewing)
+      ? [selected]
+      : listedFiles;
   const viewIndex = viewing === null ? -1 : files.findIndex((entry) => entry.path === viewing);
   /** Shows one file in the viewer, and keeps its details open beside the list once it's closed. */
   function view(index: number | null) {
