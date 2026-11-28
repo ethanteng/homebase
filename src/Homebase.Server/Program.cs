@@ -715,23 +715,44 @@ static async Task<IResult> ShowAsync(HttpContext context, LibraryService library
 {
     // Opened first, so a path that isn't allowed is turned away exactly as a download would be.
     var (stream, fileName) = await library.OpenFileAsync(path, cancellationToken);
-    if (SharePreview.Kind(fileName) is not { } kind || SharePreview.ContentType(fileName) is not { } type)
+    // Still ours until the result takes it. Stopping the request while a JPEG is made, or finding
+    // the JPEG already trimmed, has to close whatever was opened on the way.
+    Stream? owned = stream;
+    try
     {
-        await stream.DisposeAsync();
-        return Results.Problem("This kind of file can’t be shown in a browser.", statusCode: StatusCodes.Status415UnsupportedMediaType);
+        if (SharePreview.Kind(fileName) is not { } kind || SharePreview.ContentType(fileName) is not { } type)
+            return Results.Problem("This kind of file can’t be shown in a browser.", statusCode: StatusCodes.Status415UnsupportedMediaType);
+        if (PhotoPreviews.NeedsConverting(fileName) && await previews.JpegForAsync(library.Root, stream, cancellationToken) is { } jpeg)
+        {
+            FileStream? converted = null;
+            try
+            {
+                converted = new FileStream(jpeg, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 65536, FileOptions.Asynchronous);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                // Trimmed between being found and being opened. The photo itself is still here.
+            }
+            if (converted is not null)
+            {
+                var photo = owned;
+                owned = converted;
+                await photo!.DisposeAsync();
+                type = "image/jpeg";
+                fileName = Path.ChangeExtension(fileName, ".jpg");
+            }
+        }
+        context.Response.Headers.ContentSecurityPolicy = SharePreview.Policy(kind);
+        context.Response.Headers.ContentDisposition =
+            new Microsoft.Net.Http.Headers.ContentDispositionHeaderValue("inline") { FileNameStar = fileName }.ToString();
+        var result = Results.File(owned!, type, enableRangeProcessing: true);
+        owned = null;
+        return result;
     }
-    Stream shown = stream;
-    if (PhotoPreviews.NeedsConverting(fileName) && await previews.JpegForAsync(library.Root, stream, cancellationToken) is { } jpeg)
+    finally
     {
-        await stream.DisposeAsync();
-        shown = new FileStream(jpeg, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 65536, FileOptions.Asynchronous);
-        type = "image/jpeg";
-        fileName = Path.ChangeExtension(fileName, ".jpg");
+        if (owned is not null) await owned.DisposeAsync();
     }
-    context.Response.Headers.ContentSecurityPolicy = SharePreview.Policy(kind);
-    context.Response.Headers.ContentDisposition =
-        new Microsoft.Net.Http.Headers.ContentDispositionHeaderValue("inline") { FileNameStar = fileName }.ToString();
-    return Results.File(shown, type, enableRangeProcessing: true);
 }
 
 // Copying, moving and deleting inside this account's own folder, which is the only one a request
