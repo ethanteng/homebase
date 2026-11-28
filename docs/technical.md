@@ -33,6 +33,19 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
 - Nested folders, breadcrumbs, browser back/forward, filtering and sorting within a folder, file
   details and downloads. Files are always read live from disk; a per-account SQLite cache in
   `.homebase/index.db` holds metadata and is rebuildable.
+- Files are shown in the page without being downloaded: a photo in its details, and anything
+  previewable in a viewer that steps through the folder. `GET /api/files` gives each entry a
+  `preview` kind, and `GET /api/files/file?path=` sends the file inline under the same short list of
+  kinds and the same policy as a shared link's (**Sharing by link**, below), after the same path checks
+  as a download.
+- HEIC and HEIF photos, which only Safari draws, are sent as a JPEG of at most 2560px that the host
+  makes with `/usr/bin/sips` the first time each is looked at, here and through shared links
+  (`PhotoPreviews`). JPEGs are kept in `.homebase/previews`, named by the photo's path, size and
+  time so a changed photo is made again; the least recently looked at go past 512 MB an account.
+  They're left out of backups and of the account's usage, though the host's allotment counts them.
+  Two are made at a time across the host, the same photo asked for twice at once is made once, and
+  one that can't be made within a minute is sent as itself and not tried again for an hour unless
+  it changes. A host without `sips` (Linux) sends HEIC as it is.
 - The sidebar shows how much you are using and how much is free on the drive, or in the share of it
   an administrator has allotted Uncloud.
 - Every folder shows its size, in My files and when browsing a place to add files from, without
@@ -214,7 +227,7 @@ Uncloud is and how to set it up and use it, start with the [README](../README.md
   whose owner is turned off all answer the same `404`. Everything under `/s` and `/api/shared` is
   sent with `X-Robots-Tag: noindex`, and like every page with `Referrer-Policy: no-referrer`, so an
   address isn't passed on to anywhere a shared page links to.
-- What's shown in the page is a short list of kinds that can't run anything on Uncloud's address
+- What's shown in the page, here and in My files, is a short list of kinds that can't run anything on Uncloud's address
   (`SharePreview`): pictures, video, audio, PDFs, and text (`.txt`, `.md`, `.csv`, `.json` and the
   like, sent as `text/plain` and put on the page as text). Each is sent `inline` with
   `nosniff` and a Content-Security-Policy that loads nothing and, except for PDFs, whose viewers won't
@@ -1184,8 +1197,8 @@ that; `Homebase__Backup__Nightly=false` stops it), and soon after starting if a 
 An administrator sees how the last one went at `GET /api/host/backup` and starts one with
 `POST /api/host/backup`.
 
-Each backup takes everybody's folders under `users/`, without `.homebase/index.db` or uploads still
-arriving, plus a copy of the control database made by SQLite and `host.key`, staged under the
+Each backup takes everybody's folders under `users/`, without `.homebase/index.db`, uploads still
+arriving or the JPEGs made to show HEIC photos (`.homebase/previews`), plus a copy of the control database made by SQLite and `host.key`, staged under the
 preference directory's `backup/host`. Older backups are thinned to seven daily, four weekly and
 twelve monthly, and space is given back weekly. Every restic command has a time limit, and a
 storage that answers 403 is reported as refusing, without guessing whether it's full.

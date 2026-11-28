@@ -62,6 +62,8 @@ export interface LibraryEntry {
   isDirectory: boolean;
   size: number | null;
   modifiedAt: string;
+  /// How the page can show this file without it being downloaded, or null when it can't.
+  preview: PreviewKind | null;
 }
 /// What a folder holds, however deep: its bytes and how many files.
 export interface FolderSize {
@@ -623,6 +625,11 @@ export function downloadUrl(path: string): string {
   return `/api/files/download?${new URLSearchParams({ path })}`;
 }
 
+/** Where the page shows one of your own files from, for the kinds it can show. */
+export function fileUrl(path: string): string {
+  return `/api/files/file?${new URLSearchParams({ path })}`;
+}
+
 /// One thing a link shares, as its owner sees it: where it is in My files, and whether it still is.
 export interface ShareItem {
   path: string;
@@ -645,7 +652,7 @@ export interface ShareList {
   links: ShareLink[];
 }
 
-/// How a shared file is shown in the browser, or null when it can only be downloaded.
+/// How a file is shown in the browser, in My files or a shared link, or null when it can only be downloaded.
 export type PreviewKind = "image" | "video" | "audio" | "pdf" | "text";
 /// Something in a shared link, as whoever has the link sees it: its path is inside what was shared.
 export interface SharedEntry {

@@ -294,7 +294,7 @@ public sealed partial class BackupService
             // What's rebuilt from the files themselves, and uploads still arriving, which are
             // either finished into place by the next backup or thrown away.
             "--exclude", "**/.homebase/index.db", "--exclude", "**/.homebase/index.db-*",
-            "--exclude", "**/.homebase/uploads",
+            "--exclude", "**/.homebase/uploads", "--exclude", $"**/.homebase/{PhotoPreviews.FolderName}",
             // What's being restored from a backup into somebody's folder, on its way into place.
             "--exclude", "**/.homebase/restoring"
         ];

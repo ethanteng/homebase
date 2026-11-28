@@ -102,6 +102,8 @@ builder.Services.AddSingleton<ShareLinks>();
 builder.Services.AddSingleton<ConnectorStore>();
 builder.Services.AddSingleton<LoginThrottle>();
 builder.Services.AddSingleton<UsageService>();
+builder.Services.AddSingleton<IImageConverter, SipsImageConverter>();
+builder.Services.AddSingleton<PhotoPreviews>();
 // How much of the drive an administrator lets Uncloud fill. Every account's workspace asks it,
 // rather than the drive, how much room is left.
 builder.Services.AddSingleton<StorageAllotment>();
@@ -668,8 +670,26 @@ app.MapGet("/api/storage", (CurrentUser user, UserWorkspaces workspaces, HostSer
     });
 });
 
+// Each file says whether, and as what, the page can show it without it being downloaded.
 app.MapGet("/api/files", async (string? path, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
-    Results.Ok(await workspaces.For(user.Account).Library.BrowseAsync(path, cancellationToken)));
+{
+    var listing = await workspaces.For(user.Account).Library.BrowseAsync(path, cancellationToken);
+    return Results.Ok(new
+    {
+        listing.Path,
+        entries = listing.Entries.Select(entry => new
+        {
+            entry.Name,
+            entry.Path,
+            entry.IsDirectory,
+            entry.Size,
+            entry.ModifiedAt,
+            preview = entry.IsDirectory ? null : SharePreview.Kind(entry.Name)
+        }),
+        listing.SkippedCount,
+        listing.IndexedAt
+    });
+});
 
 // The same for a folder in My files, walked afresh each time.
 app.MapGet("/api/files/size", (string? path, CurrentUser user, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
@@ -681,6 +701,59 @@ app.MapGet("/api/files/download", async (string path, CurrentUser user, UserWork
     // Always download arbitrary user content; HTML/SVG must never run on the app's origin.
     return Results.File(stream, "application/octet-stream", name, enableRangeProcessing: true);
 });
+
+// A file of your own shown in the page rather than downloaded. The same few kinds as a shared link
+// shows, under the same policy: nothing in My files runs on this address either.
+app.MapGet("/api/files/file", (string path, HttpContext context, CurrentUser user, UserWorkspaces workspaces, PhotoPreviews previews, CancellationToken cancellationToken) =>
+    ShowAsync(context, workspaces.For(user.Account).Library, path, previews, cancellationToken));
+
+// A file shown in the page, from My files or a shared link: only the kinds that can't run anything
+// on this address, sent as what they are. A photo browsers can't draw (HEIC, from an iPhone) is sent
+// as a JPEG of it made on this host, where the host can make one; otherwise as itself, which Safari
+// draws and other browsers say they can't.
+static async Task<IResult> ShowAsync(HttpContext context, LibraryService library, string path, PhotoPreviews previews, CancellationToken cancellationToken)
+{
+    // Opened first, so a path that isn't allowed is turned away exactly as a download would be.
+    var (stream, fileName) = await library.OpenFileAsync(path, cancellationToken);
+    // Still ours until the result takes it. Stopping the request while a JPEG is made, or finding
+    // the JPEG already trimmed, has to close whatever was opened on the way.
+    Stream? owned = stream;
+    try
+    {
+        if (SharePreview.Kind(fileName) is not { } kind || SharePreview.ContentType(fileName) is not { } type)
+            return Results.Problem("This kind of file can’t be shown in a browser.", statusCode: StatusCodes.Status415UnsupportedMediaType);
+        if (PhotoPreviews.NeedsConverting(fileName) && await previews.JpegForAsync(library.Root, stream, cancellationToken) is { } jpeg)
+        {
+            FileStream? converted = null;
+            try
+            {
+                converted = new FileStream(jpeg, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 65536, FileOptions.Asynchronous);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                // Trimmed between being found and being opened. The photo itself is still here.
+            }
+            if (converted is not null)
+            {
+                var photo = owned;
+                owned = converted;
+                await photo!.DisposeAsync();
+                type = "image/jpeg";
+                fileName = Path.ChangeExtension(fileName, ".jpg");
+            }
+        }
+        context.Response.Headers.ContentSecurityPolicy = SharePreview.Policy(kind);
+        context.Response.Headers.ContentDisposition =
+            new Microsoft.Net.Http.Headers.ContentDispositionHeaderValue("inline") { FileNameStar = fileName }.ToString();
+        var result = Results.File(owned!, type, enableRangeProcessing: true);
+        owned = null;
+        return result;
+    }
+    finally
+    {
+        if (owned is not null) await owned.DisposeAsync();
+    }
+}
 
 // Copying, moving and deleting inside this account's own folder, which is the only one a request
 // can name. The folders it syncs with its computers are Syncthing's to keep, so they are passed
@@ -949,18 +1022,11 @@ app.MapGet("/api/shared/{token}/size", (string token, string? path, ShareLinks l
 
 // A file shown in the page, for either kind of link. Only kinds that can't run anything on this
 // address are ever shown; the rest are only downloaded, where the link allows that.
-app.MapGet("/api/shared/{token}/file", async (string token, string? path, HttpContext context, ShareLinks links, UserStore users, UserWorkspaces workspaces, CancellationToken cancellationToken) =>
+app.MapGet("/api/shared/{token}/file", (string token, string? path, HttpContext context, ShareLinks links, UserStore users, UserWorkspaces workspaces, PhotoPreviews previews, CancellationToken cancellationToken) =>
 {
     var (link, _, library) = Shared(token, links, users, workspaces);
     var inside = SharedInside(link, library, path, "Choose a file in what was shared.");
-    var name = inside[(inside.LastIndexOf('/') + 1)..];
-    if (SharePreview.Kind(name) is not { } kind || SharePreview.ContentType(name) is not { } type)
-        return Results.Problem("This kind of file can’t be shown in a browser.", statusCode: StatusCodes.Status415UnsupportedMediaType);
-    var (stream, fileName) = await library.OpenFileAsync(inside, cancellationToken);
-    context.Response.Headers.ContentSecurityPolicy = SharePreview.Policy(kind);
-    context.Response.Headers.ContentDisposition =
-        new Microsoft.Net.Http.Headers.ContentDispositionHeaderValue("inline") { FileNameStar = fileName }.ToString();
-    return Results.File(stream, type, enableRangeProcessing: true);
+    return ShowAsync(context, library, inside, previews, cancellationToken);
 });
 
 app.MapGet("/api/shared/{token}/download", async (string token, string? path, ShareLinks links, UserStore users, UserWorkspaces workspaces, CancellationToken cancellationToken) =>

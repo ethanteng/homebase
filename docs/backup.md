@@ -273,8 +273,8 @@ pinned binary comes from `scripts/fetch-restic.sh`.
   the password and the storage key are kept in its settings, sealed with `host.key`.
 
 - **Nightly backups** of everyone's folders, plus a consistent copy of the control database
-  (SQLite's online backup, not a copy of the live file) and `host.key`. Not `.homebase/index.db`,
-  which is rebuilt, or `.homebase/uploads/`.
+  (SQLite's online backup, not a copy of the live file) and `host.key`. Not `.homebase/index.db`
+  or `.homebase/previews/`, which are rebuilt, or `.homebase/uploads/`.
 - **Pruning, lightly and seldom.** Under object lock every object a prune rewrites leaves its old
   copy behind, locked and billed. restic's default of tolerating 5% unused space keeps rewrites
   rare. Forcing them (`--max-unused 0`) turned 181 MB of a 235 MB backup into old versions.

@@ -40,6 +40,8 @@ public sealed class UsageService
     {
         if (!Directory.Exists(root)) return 0;
         long total = 0;
+        // JPEGs made to show photos are the host's to throw away whenever it likes, not anybody's files.
+        var previews = Path.Combine(root, ".homebase", PhotoPreviews.FolderName);
         var folders = new Queue<string>();
         folders.Enqueue(root);
         while (folders.Count > 0)
@@ -62,7 +64,10 @@ public sealed class UsageService
                     // Links are never followed: the bytes they point at belong to wherever they
                     // really live, and following one could walk out of the folder entirely.
                     if (entry.LinkTarget is not null || entry.Attributes.HasFlag(FileAttributes.ReparsePoint)) continue;
-                    if (entry.Attributes.HasFlag(FileAttributes.Directory)) folders.Enqueue(entry.FullName);
+                    if (entry.Attributes.HasFlag(FileAttributes.Directory))
+                    {
+                        if (!string.Equals(entry.FullName, previews, StringComparison.Ordinal)) folders.Enqueue(entry.FullName);
+                    }
                     else total += ((FileInfo)entry).Length;
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException)

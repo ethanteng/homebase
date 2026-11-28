@@ -47,7 +47,8 @@ plugged into it.
 ### What you can do today
 
 - Browse your folders, see how big each one is, look at file details, and download files, from any
-  browser.
+  browser. Photos, videos, music, PDFs and text files open right on the page, without downloading
+  them first.
 - Make folders, and copy, move, rename and delete files and folders in the browser, or drag them
   onto a folder to move them, and get deleted ones back from the **Trash** for 30 days.
 - Add files and folders from the computer or phone you're using, by choosing them in **Add files** or
@@ -265,7 +266,11 @@ Forgot your password? Ask them. They can give you a new one under **People**.
 ### Your files
 
 **My files** is your space. Only you can see it. Click into folders, use the browser's back
-button, filter and sort, and click a file to see its details or download it. The sidebar and the
+button, filter and sort, and click a file to see its details or download it. A photo shows in its
+details; click it, or **Preview**, to open photos, videos, music, PDFs and text files on the page, and
+use the arrow keys to go through the rest of the folder. iPhone photos (HEIC) show in any browser when
+the host is a Mac, which makes a JPEG of each the first time it's looked at; on a Linux host they show
+only in Safari. The sidebar and the
 top of every page show how much room is left on the host, and how much of it is yours. They turn
 amber, then red, when it runs low.
 

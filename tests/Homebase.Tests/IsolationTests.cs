@@ -83,7 +83,7 @@ public sealed class IsolationTests : IDisposable
             "../"
         ];
         foreach (var attempt in attempts)
-        foreach (var endpoint in new[] { "/api/files", "/api/files/download" })
+        foreach (var endpoint in new[] { "/api/files", "/api/files/download", "/api/files/file" })
         {
             var response = await member.GetAsync($"{endpoint}?path={Uri.EscapeDataString(attempt)}");
             Assert.True(response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound,
@@ -127,7 +127,7 @@ public sealed class IsolationTests : IDisposable
 
         string[] endpoints =
         [
-            "/api/library", "/api/files", "/api/files/download?path=x", "/api/storage",
+            "/api/library", "/api/files", "/api/files/download?path=x", "/api/files/file?path=x.jpg", "/api/storage",
             "/api/imports", "/api/imports/job", "/api/providers/dropbox", "/api/imports/sources",
             "/api/host", "/api/users", "/api/sync"
         ];

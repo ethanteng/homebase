@@ -75,6 +75,48 @@ public sealed class LibraryTests : IDisposable
     }
 
     [Fact]
+    public async Task Pictures_and_text_are_shown_inline_and_pages_never_are()
+    {
+        using var app = CreateApp();
+        var (client, root) = await StartAsync(app);
+        using var _ = client;
+        Directory.CreateDirectory(Path.Combine(root, "Photos"));
+        await File.WriteAllBytesAsync(Path.Combine(root, "Photos", "beach.JPG"), [0xFF, 0xD8, 0xFF, 0xE0]);
+        await File.WriteAllTextAsync(Path.Combine(root, "Photos", "notes.txt"), "<b>hello</b>");
+        await File.WriteAllTextAsync(Path.Combine(root, "Photos", "page.html"), "<script>alert(1)</script>");
+        await File.WriteAllTextAsync(Path.Combine(root, "Photos", "drawing.svg"), "<svg onload=\"alert(1)\"/>");
+
+        var listing = await client.GetFromJsonAsync<JsonElement>("/api/files?path=Photos");
+        var previews = listing.GetProperty("entries").EnumerateArray().ToDictionary(
+            entry => entry.GetProperty("name").GetString()!,
+            entry => entry.GetProperty("preview").ValueKind == JsonValueKind.Null ? null : entry.GetProperty("preview").GetString());
+        Assert.Equal("image", previews["beach.JPG"]);
+        Assert.Equal("text", previews["notes.txt"]);
+        Assert.Null(previews["page.html"]);
+        Assert.Null(previews["drawing.svg"]);
+        var top = await client.GetFromJsonAsync<JsonElement>("/api/files");
+        Assert.Equal(JsonValueKind.Null, top.GetProperty("entries")[0].GetProperty("preview").ValueKind);
+
+        // Shown where it is, under a policy that lets nothing in it run, and a part at a time for video.
+        var picture = await client.GetAsync("/api/files/file?path=Photos/beach.JPG");
+        picture.EnsureSuccessStatusCode();
+        Assert.Equal("image/jpeg", picture.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("inline", picture.Content.Headers.ContentDisposition?.DispositionType);
+        Assert.Contains("sandbox", picture.Headers.GetValues("Content-Security-Policy").Single());
+        Assert.Equal("nosniff", picture.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal("bytes", picture.Headers.AcceptRanges.Single());
+        var text = await client.GetAsync("/api/files/file?path=Photos/notes.txt");
+        Assert.Equal("text/plain", text.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("<b>hello</b>", await text.Content.ReadAsStringAsync());
+
+        // Anything that could run on Uncloud's address is only ever a download, even of your own.
+        foreach (var page in new[] { "page.html", "drawing.svg" })
+            Assert.Equal(HttpStatusCode.UnsupportedMediaType, (await client.GetAsync($"/api/files/file?path=Photos/{page}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/files/file?path=Photos/gone.jpg")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/files/file?path=Photos")).StatusCode);
+    }
+
+    [Fact]
     public async Task Refresh_reconciles_added_changed_deleted_files_in_sqlite()
     {
         using var app = CreateApp();
@@ -125,7 +167,7 @@ public sealed class LibraryTests : IDisposable
         using var app = CreateApp();
         var (client, _) = await StartAsync(app);
         using var __ = client;
-        foreach (var endpoint in new[] { "/api/files", "/api/files/download" })
+        foreach (var endpoint in new[] { "/api/files", "/api/files/download", "/api/files/file" })
             Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(endpoint + "?path=" + Uri.EscapeDataString(path))).StatusCode);
     }
 
@@ -147,6 +189,7 @@ public sealed class LibraryTests : IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/files?path=linked-folder")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/files/download?path=linked-folder%2Fsecret.txt")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/files/download?path=linked-file")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/files/file?path=linked-folder%2Fsecret.txt")).StatusCode);
     }
 
     [Theory]
